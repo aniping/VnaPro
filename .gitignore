@@ -1,0 +1,15 @@
+# macOS metadata
+.DS_Store
+.idea
+
+# CMake build outputs
+/build/
+/out/
+/cmake-build-*/
+
+# Third-party sources are restored from checksum-pinned archives by CMake.
+/third-part/cpp-httplib/
+/third-part/googletest/
+/third-part/nlohmann-json/
+/third-part/scpi-parser/
+/third-part/spdlog/
