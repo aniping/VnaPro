@@ -1,0 +1,24 @@
+# 按我配置的来
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++17
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+AccessModifierOffset: -4
+AlignAfterOpenBracket: AlwaysBreak
+AlignOperands: Align
+BreakBeforeBinaryOperators: None
+DerivePointerAlignment: false
+PointerAlignment: Right
+ReferenceAlignment: Pointer
+AllowShortFunctionsOnASingleLine: None
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+NamespaceIndentation: Inner
+SortIncludes: Never
+ReflowComments: Always
+LineEnding: DeriveLF
+InsertNewlineAtEOF: true

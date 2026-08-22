@@ -1,0 +1,41 @@
+cmake_minimum_required(VERSION 3.16)
+
+project(VnaPro LANGUAGES C CXX)
+
+option(VNA_BUILD_TESTS "Build VNA hardware tests" ON)
+option(VNA_ENFORCE_PRODUCTION_TOOLCHAIN "Require the production GCC 7.3 toolchain" OFF)
+
+if(VNA_ENFORCE_PRODUCTION_TOOLCHAIN)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "Production targets require GCC 7.3.0")
+    endif()
+    if(NOT CMAKE_CXX_COMPILER_VERSION MATCHES "^7\\.3(\\.0)?$")
+        message(FATAL_ERROR "Production targets require exactly GCC 7.3.0")
+    endif()
+endif()
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+function(vna_enable_warnings target)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endfunction()
+
+add_subdirectory(sdk/VnaDriver)
+add_subdirectory(modules/VnaHardware)
+add_subdirectory(drivers/Simulator)
+
+if(VNA_BUILD_TESTS)
+    include(CTest)
+    include(cmake/prepare-third-party.cmake)
+    set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    add_subdirectory(third-part/googletest EXCLUDE_FROM_ALL)
+    add_subdirectory(tests/DriverIntegration)
+endif()
