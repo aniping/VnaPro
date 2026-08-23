@@ -3,6 +3,7 @@ add_executable(
     AcquisitionAbortTest.cpp
     AcquisitionAdmissionTest.cpp
     AcquisitionCallbackGateTest.cpp
+    AcquisitionLargeShapeTest.cpp
     AcquisitionMappingTest.cpp
     AcquisitionPrepareTest.cpp
     AcquisitionRobustnessTest.cpp
