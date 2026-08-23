@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <utility>
 
 #include "DriverResultValidation.h"
@@ -40,6 +41,14 @@ vna::VnaSweepPlan validPlan()
     return plan;
 }
 
+vna::VnaSweepPlan twoPointPlan()
+{
+    auto plan = validPlan();
+    plan.points.push_back(plan.points.front());
+    plan.points.back().pointId = 2;
+    return plan;
+}
+
 VnaCapabilitiesViewV1 validDriverCapabilities()
 {
     // 驱动侧基线视图包含所有必填维度，便于精确测试跨 ABI 结果校验。
@@ -66,6 +75,25 @@ TEST(VnaValidationTest, RejectsPortsOutsideCapabilities)
     EXPECT_FALSE(vna::isValid(vna::detail::validatePlan(plan, capabilities())));
 }
 
+TEST(VnaValidationTest, RejectsUnknownPublicEnumValues)
+{
+    // C++ 强转可构造越界枚举，宿主不得将它们默认映射成合法 ABI 值。
+    auto plan = validPlan();
+    plan.trigger.mode = static_cast<vna::TriggerMode>(UINT8_C(0xff));
+    EXPECT_FALSE(vna::isValid(vna::detail::validatePlan(plan, capabilities())));
+
+    plan = validPlan();
+    plan.points.front().excitations.front().requiredWaves.front().kind = static_cast<vna::WaveKind>(UINT8_C(0xff));
+    EXPECT_FALSE(vna::isValid(vna::detail::validatePlan(plan, capabilities())));
+}
+
+TEST(VnaValidationTest, RejectsExternalTriggerWhenCapabilityIsAbsent)
+{
+    auto plan = validPlan();
+    plan.trigger.mode = vna::TriggerMode::External;
+    EXPECT_FALSE(vna::isValid(vna::detail::validatePlan(plan, capabilities())));
+}
+
 TEST(VnaValidationTest, RejectsLayoutChangesForOneExcitation)
 {
     // 同一 excitationId 跨频点改变 requiredWaves 会破坏稳定的 layoutId 语义。
@@ -76,6 +104,40 @@ TEST(VnaValidationTest, RejectsLayoutChangesForOneExcitation)
     EXPECT_FALSE(vna::isValid(vna::detail::validatePlan(plan, capabilities())));
 }
 
+TEST(VnaValidationTest, RejectsUnsupportedPerPointIfBandwidth)
+{
+    auto plan = twoPointPlan();
+    plan.points.back().ifBandwidthHz = 2000.0;
+    EXPECT_FALSE(vna::isValid(vna::detail::validatePlan(plan, capabilities())));
+}
+
+TEST(VnaValidationTest, RejectsUnsupportedPerPointDwell)
+{
+    auto plan = twoPointPlan();
+    plan.points.back().dwellTime = std::chrono::microseconds(1);
+    EXPECT_FALSE(vna::isValid(vna::detail::validatePlan(plan, capabilities())));
+}
+
+TEST(VnaValidationTest, RejectsUnsupportedPerPointPower)
+{
+    auto plan = twoPointPlan();
+    plan.points.back().excitations.front().sources.front().powerDbm = -3.0;
+    EXPECT_FALSE(vna::isValid(vna::detail::validatePlan(plan, capabilities())));
+}
+
+TEST(VnaValidationTest, AllowsVariationsExplicitlySupportedByDevice)
+{
+    auto plan = twoPointPlan();
+    plan.points.back().ifBandwidthHz = 2000.0;
+    plan.points.back().dwellTime = std::chrono::microseconds(1);
+    plan.points.back().excitations.front().sources.front().powerDbm = -3.0;
+    auto deviceCapabilities = capabilities();
+    deviceCapabilities.perPointIfBandwidth = true;
+    deviceCapabilities.perPointDwell = true;
+    deviceCapabilities.perPointPower = true;
+    EXPECT_TRUE(vna::isValid(vna::detail::validatePlan(plan, deviceCapabilities)));
+}
+
 TEST(DriverResultValidationTest, RequiresAbortCallbackWhenCapabilityPromisesAbort)
 {
     // 能力位和函数表必须一致，避免运行扫描后才发现无法执行中止。
@@ -83,6 +145,19 @@ TEST(DriverResultValidationTest, RequiresAbortCallbackWhenCapabilityPromisesAbor
     driverCapabilities.featureFlags = VNA_CAPABILITY_ABORT;
     EXPECT_FALSE(vna::detail::driverCapabilitiesAreValid(driverCapabilities, false));
     EXPECT_TRUE(vna::detail::driverCapabilitiesAreValid(driverCapabilities, true));
+}
+
+TEST(DriverResultValidationTest, RejectsReservedAndUnknownCapabilityBits)
+{
+    auto driverCapabilities = validDriverCapabilities();
+    driverCapabilities.reserved = 1;
+    EXPECT_FALSE(vna::detail::driverCapabilitiesAreValid(driverCapabilities, true));
+    driverCapabilities.reserved = 0;
+    driverCapabilities.reservedFlags = 1;
+    EXPECT_FALSE(vna::detail::driverCapabilitiesAreValid(driverCapabilities, true));
+    driverCapabilities.reservedFlags = 0;
+    driverCapabilities.featureFlags = UINT32_C(0x80000000);
+    EXPECT_FALSE(vna::detail::driverCapabilitiesAreValid(driverCapabilities, true));
 }
 
 TEST(DriverResultValidationTest, RejectsQuantizationUntilActualPlanCanBeReturned)
@@ -96,6 +171,25 @@ TEST(DriverResultValidationTest, RejectsQuantizationUntilActualPlanCanBeReturned
     vna::SweepPolicy policy;
     policy.allowQuantization = true;
     EXPECT_EQ(vna::detail::validateDriverExecutionReport(result, policy).code, vna::VnaErrorCode::ProtocolError);
+}
+
+TEST(DriverResultValidationTest, RejectsReservedPrepareAndLayoutFields)
+{
+    VnaPrepareResultViewV1 result{};
+    result.structSize = sizeof(result);
+    result.physicalSweepCount = 1;
+    result.preferredBatchPoints = 1;
+    result.executionFlags = VNA_EXECUTION_ATOMIC | VNA_EXECUTION_PHASE_COHERENT;
+    result.reserved = 1;
+    EXPECT_EQ(
+        vna::detail::validateDriverExecutionReport(result, vna::SweepPolicy{}).code, vna::VnaErrorCode::ProtocolError);
+
+    const VnaWaveKeyV1 wave{VNA_WAVE_INCIDENT, 1, 0};
+    const VnaWaveLayoutViewV1 layout{1, 1, 1, 1, &wave};
+    result.reserved = 0;
+    result.layoutCount = 1;
+    result.layouts = &layout;
+    EXPECT_FALSE(vna::detail::copyDriverLayouts(result).hasValue());
 }
 
 }  // namespace
