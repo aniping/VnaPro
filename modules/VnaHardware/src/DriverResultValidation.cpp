@@ -10,13 +10,11 @@
 #include <string>
 #include <utility>
 
+#include "VnaDriverLimits.h"
+
 namespace vna::detail {
 namespace {
 
-    // 这些上限是主程序的防御边界：插件数据不可信，不能让畸形计数触发巨量分配。
-    constexpr std::size_t maximumLayouts = 1024;
-    constexpr std::size_t maximumWavesPerLayout = 256;
-    constexpr std::size_t maximumBatchPoints = 1048576;
     constexpr std::uint32_t knownCapabilityFlags = VNA_CAPABILITY_PER_POINT_IF_BANDWIDTH |
                                                    VNA_CAPABILITY_PER_POINT_POWER | VNA_CAPABILITY_PER_POINT_DWELL |
                                                    VNA_CAPABILITY_SIMULTANEOUS_SOURCES | VNA_CAPABILITY_ABORT |
@@ -34,7 +32,8 @@ namespace {
 
     bool validWaveArray(const VnaWaveLayoutViewV1 &source)
     {
-        return (source.waveCount > 0) && (source.waveCount <= maximumWavesPerLayout) && (source.waveKeys != nullptr);
+        return (source.waveCount > 0) && (source.waveCount <= maximumDriverWavesPerLayout) &&
+               (source.waveKeys != nullptr);
     }
 
     bool knownWaveKind(std::uint32_t kind)
@@ -114,7 +113,8 @@ namespace {
     bool executionDimensionsAreValid(const VnaPrepareResultViewV1 &view)
     {
         // 批大小同时参与缓冲区乘法，除非落在宿主上限内，否则拒绝执行报告。
-        const bool validBatch = (view.preferredBatchPoints > 0) && (view.preferredBatchPoints <= maximumBatchPoints);
+        const bool validBatch =
+            (view.preferredBatchPoints > 0) && (view.preferredBatchPoints <= maximumDriverBatchPoints);
         const bool validFlags = (view.executionFlags & ~knownExecutionFlags) == 0;
         return (view.structSize >= sizeof(view)) && (view.reserved == 0) && (view.physicalSweepCount > 0) &&
                validBatch && validFlags;
@@ -160,7 +160,8 @@ namespace {
 
     bool capabilityDimensionsAreValid(const VnaCapabilitiesViewV1 &view)
     {
-        const bool validBatch = (view.preferredBatchPoints > 0) && (view.preferredBatchPoints <= maximumBatchPoints);
+        const bool validBatch =
+            (view.preferredBatchPoints > 0) && (view.preferredBatchPoints <= maximumDriverBatchPoints);
         const std::array<bool, 5> dimensions{
             (view.structSize >= sizeof(view)) && (view.reserved == 0) && (view.reservedFlags == 0), view.portCount > 0,
             view.maximumPoints > 0, view.maximumExcitationsPerPoint > 0, validBatch};
@@ -169,7 +170,7 @@ namespace {
 
     bool validLayoutArray(const VnaPrepareResultViewV1 &view)
     {
-        return (view.layoutCount > 0) && (view.layoutCount <= maximumLayouts) && (view.layouts != nullptr);
+        return (view.layoutCount > 0) && (view.layoutCount <= maximumDriverLayouts) && (view.layouts != nullptr);
     }
 
     std::map<ExcitationId, std::vector<VnaWaveKey>> expectedLayouts(const VnaSweepPlan &plan)

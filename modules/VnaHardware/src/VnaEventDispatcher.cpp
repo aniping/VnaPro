@@ -13,7 +13,8 @@ namespace vna::detail {
 
 class VnaEventDispatcher::Impl final {
 public:
-    explicit Impl(std::size_t capacity) : queue_(capacity)
+    Impl(std::size_t capacity, std::size_t maximumRetainedPreparedPayloadBytes)
+        : queue_(capacity, maximumRetainedPreparedPayloadBytes)
     {
     }
     ~Impl()
@@ -137,11 +138,17 @@ private:
     {
         QueuedEvent event;
         while (queue_.pop(event)) {
+            const std::size_t retainedPayloadBytes = event.retainedPayloadBytes;
             const auto subscriber = subscriberFor(event);
             if (subscriber) {
                 // 回调期间不持有订阅锁，允许回调安全地销毁自身订阅。
                 deliver(subscriber, std::move(event));
+            } else {
+                // 退订后丢弃的事件必须立即释放 snapshot/波块，不能在下一次 pop 前继续占用资源。
+                event = QueuedEvent{};
             }
+            // 预算覆盖排队及正在执行的回调，只有回调返回后才能接纳下一代快照。
+            queue_.releaseRetainedPayload(retainedPayloadBytes);
         }
     }
 
@@ -152,11 +159,12 @@ private:
     std::uint64_t nextIdentifier_{1};
 };
 
-std::shared_ptr<VnaEventDispatcher> VnaEventDispatcher::create(std::size_t queueCapacity)
+std::shared_ptr<VnaEventDispatcher> VnaEventDispatcher::create(
+    std::size_t queueCapacity, std::size_t maximumRetainedPreparedPayloadBytes)
 {
     // 构造完成 shared_ptr 后再启动线程，线程捕获 owner 时 shared_from_this 关系才有效。
-    auto dispatcher =
-        std::shared_ptr<VnaEventDispatcher>(new VnaEventDispatcher(std::make_unique<Impl>(queueCapacity)));
+    auto dispatcher = std::shared_ptr<VnaEventDispatcher>(
+        new VnaEventDispatcher(std::make_unique<Impl>(queueCapacity, maximumRetainedPreparedPayloadBytes)));
     dispatcher->implementation_->start(dispatcher);
     return dispatcher;
 }
@@ -195,12 +203,14 @@ void VnaEventDispatcher::postConnectCompleted(CommandId commandId)
     implementation_->postControl(std::move(event));
 }
 
-void VnaEventDispatcher::postPrepareCompleted(CommandId commandId, PreparedSweep prepared)
+void VnaEventDispatcher::postPrepareCompleted(
+    CommandId commandId, std::shared_ptr<const PreparedSweep> prepared, std::size_t retainedPayloadBytes)
 {
     QueuedEvent event;
     event.kind = EventKind::PrepareCompleted;
     event.prepared.commandId = commandId;
     event.prepared.prepared = std::move(prepared);
+    event.retainedPayloadBytes = retainedPayloadBytes;
     implementation_->postControl(std::move(event));
 }
 

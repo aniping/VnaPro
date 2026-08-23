@@ -1,61 +1,22 @@
 #include "SimulatorDevice.h"
+#include "SimulatorTiming.h"
+#include "SimulatorWaveBlockLease.h"
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
-#include <map>
-#include <thread>
+#include <limits>
 
 namespace vna::simulator {
 namespace {
 
+    using MeasurementClock = std::chrono::steady_clock;
+    constexpr auto cancellationPollInterval = std::chrono::milliseconds(10);
+
     VnaStringViewV1 literalView(const char *message)
     {
         return VnaStringViewV1{message, std::char_traits<char>::length(message)};
-    }
-
-    bool equalWaves(const std::vector<VnaWaveKeyV1> &left, const std::vector<Wave> &right)
-    {
-        if (left.size() != right.size()) {
-            return false;
-        }
-        for (std::size_t index = 0; index < left.size(); ++index) {
-            if ((left[index].kind != right[index].kind) || (left[index].port != right[index].port)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    std::vector<VnaWaveKeyV1> copyWaveKeys(const Excitation &excitation)
-    {
-        std::vector<VnaWaveKeyV1> waves;
-        waves.reserve(excitation.waves.size());
-        for (const auto &wave : excitation.waves) {
-            waves.push_back(VnaWaveKeyV1{wave.kind, wave.port, 0});
-        }
-        return waves;
-    }
-
-    VnaStatusV1 assignLayout(
-        Excitation &excitation, std::map<std::uint16_t, std::size_t> &identifiers,
-        std::vector<std::uint16_t> &layoutExcitations, std::vector<std::vector<VnaWaveKeyV1>> &layoutWaves)
-    {
-        // 同一 excitationId 跨频点复用 layoutId，宿主才能稳定解释每列波数据。
-        const auto existing = identifiers.find(excitation.identifier);
-        if (existing == identifiers.end()) {
-            const std::size_t index = layoutWaves.size();
-            identifiers.emplace(excitation.identifier, index);
-            layoutExcitations.push_back(excitation.identifier);
-            layoutWaves.push_back(copyWaveKeys(excitation));
-            excitation.layoutId = static_cast<std::uint32_t>(index + 1);
-            return simulatorStatus(VNA_STATUS_OK, "");
-        }
-        if (!equalWaves(layoutWaves[existing->second], excitation.waves)) {
-            return simulatorStatus(VNA_STATUS_INVALID_ARGUMENT, "wave layout changed");
-        }
-        excitation.layoutId = static_cast<std::uint32_t>(existing->second + 1);
-        return simulatorStatus(VNA_STATUS_OK, "");
     }
 
     std::size_t nextPointWithLayout(const std::vector<Point> &points, std::size_t firstPoint, std::uint32_t layoutId)
@@ -92,48 +53,54 @@ namespace {
                (view.waveCount == waveCount) && validStorage;
     }
 
-}  // namespace
-
-VnaStatusV1 SimulatorDevice::rebuildLayouts(VnaPrepareResultViewV1 &result)
-{
-    // 先重建自有容器，最后发布 view；view 中指针在下一次 Prepare/Disconnect 前保持稳定。
-    layoutWaves_.clear();
-    layoutExcitations_.clear();
-    layoutViews_.clear();
-    std::map<std::uint16_t, std::size_t> identifiers;
-    // 估算峰值单频点载荷，而不是整次扫描总量，供宿主预估实时带宽。
-    std::size_t estimatedBytes = 0;
-    for (auto &point : points_) {
-        std::size_t pointBytes = 0;
-        for (auto &excitation : point.excitations) {
-            const VnaStatusV1 status = assignLayout(excitation, identifiers, layoutExcitations_, layoutWaves_);
-            if (status.code != VNA_STATUS_OK) {
-                return status;
-            }
-            pointBytes += excitation.waves.size() * sizeof(VnaComplex64V1);
+    bool advanceMeasurementDeadline(MeasurementClock::time_point &deadline, std::chrono::nanoseconds duration) noexcept
+    {
+        using FloatingClockDuration = std::chrono::duration<long double, MeasurementClock::period>;
+        const long double roundedTicks = std::ceil(FloatingClockDuration{duration}.count());
+        const long double maximumTicks =
+            static_cast<long double>(std::numeric_limits<MeasurementClock::duration::rep>::max());
+        // maximumTicks 在窄 long double 平台可能向上舍入，等于该值时也必须拒绝转换。
+        if (!std::isfinite(roundedTicks) || (roundedTicks < 0.0L) || (roundedTicks >= maximumTicks)) {
+            return false;
         }
-        estimatedBytes = std::max(estimatedBytes, pointBytes);
+        const auto clockDuration =
+            MeasurementClock::duration{static_cast<MeasurementClock::duration::rep>(roundedTicks)};
+        const auto maximumDeadlineTicks = MeasurementClock::time_point::max().time_since_epoch().count();
+        const auto currentTicks = deadline.time_since_epoch().count();
+        if (currentTicks > (maximumDeadlineTicks - clockDuration.count())) {
+            return false;
+        }
+        deadline += clockDuration;
+        return true;
     }
-    for (std::size_t index = 0; index < layoutWaves_.size(); ++index) {
-        layoutViews_.push_back(
-            VnaWaveLayoutViewV1{
-                static_cast<std::uint32_t>(index + 1), layoutExcitations_[index], 0, layoutWaves_[index].size(),
-                layoutWaves_[index].data()});
-    }
-    result.structSize = static_cast<std::uint32_t>(sizeof(result));
-    result.physicalSweepCount = 1;
-    result.preferredBatchPoints = simulatorBatchPoints;
-    result.estimatedBytesPerPoint = estimatedBytes;
-    result.executionFlags = VNA_EXECUTION_ATOMIC | VNA_EXECUTION_PHASE_COHERENT;
-    result.layoutCount = layoutViews_.size();
-    result.layouts = layoutViews_.data();
-    return simulatorStatus(VNA_STATUS_OK, "");
-}
+
+}  // namespace
 
 bool SimulatorDevice::cancellationRequested(VnaSweepIdV1 sweepId) const
 {
     // 同时尊重驱动本地 abort 和宿主会话关闭取消，两条路径任一成立都应尽快退出。
     return abortRequested_.load() || (hostApi_.IsCancellationRequested(sweepId) != 0);
+}
+
+bool SimulatorDevice::waitUntilMeasurementReady(VnaSweepIdV1 sweepId, MeasurementClock::time_point deadline)
+{
+    while (true) {
+        // Host API 属于未知外部代码，必须在未持 sweepMutex_ 时轮询。
+        if (cancellationRequested(sweepId)) {
+            return false;
+        }
+        const auto now = MeasurementClock::now();
+        if (now >= deadline) {
+            return true;
+        }
+        const auto pollDeadline = std::min(deadline, now + cancellationPollInterval);
+        std::unique_lock<std::mutex> lock(sweepMutex_);
+        const bool interrupted = sweepChanged_.wait_until(
+            lock, pollDeadline, [this, sweepId] { return abortRequested_.load() || (activeSweep_.load() != sweepId); });
+        if (interrupted) {
+            return false;
+        }
+    }
 }
 
 const Excitation *SimulatorDevice::findExcitation(const Point &point, std::uint32_t layoutId) const
@@ -149,19 +116,26 @@ VnaStatusV1 SimulatorDevice::execute(VnaSweepIdV1 sweepId)
     if (!beginSweep(sweepId)) {
         return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator cannot execute now");
     }
-    hostApi_.Log(VNA_LOG_INFO, literalView("simulator sweep started"));
-    VnaStatusV1 status = simulatorStatus(VNA_STATUS_OK, "");
-    // 按布局输出能让每个块保持固定 waveCount 和 waveIndex 语义。
-    for (std::size_t index = 0; index < layoutViews_.size(); ++index) {
-        status = executeLayout(sweepId, index);
-        if (status.code != VNA_STATUS_OK) {
-            break;
+    try {
+        auto measurementDeadline = MeasurementClock::now();
+        hostApi_.Log(VNA_LOG_INFO, literalView("simulator sweep started"));
+        VnaStatusV1 status = simulatorStatus(VNA_STATUS_OK, "");
+        // 按布局输出能让每个块保持固定 waveCount 和 waveIndex 语义。
+        for (std::size_t index = 0; index < layoutViews_.size(); ++index) {
+            status = executeLayout(sweepId, index, measurementDeadline);
+            if (status.code != VNA_STATUS_OK) {
+                break;
+            }
         }
+        // 收尾与 RequestAbort 用同一把锁交握，避免请求返回 OK 却没有导致 Cancelled。
+        status = finishExecution(status);
+        hostApi_.Log(VNA_LOG_INFO, literalView("simulator sweep finished"));
+        return status;
+    } catch (...) {
+        // beginSweep 发布状态后，任何异常都必须撤销活动 Sweep；C ABI 外层负责转换错误码。
+        (void)finishExecution(simulatorStatus(VNA_STATUS_INTERNAL_ERROR, "simulator execution failed"));
+        throw;
     }
-    // 收尾与 RequestAbort 用同一把锁交握，避免请求返回 OK 却没有导致 Cancelled。
-    status = finishExecution(status);
-    hostApi_.Log(VNA_LOG_INFO, literalView("simulator sweep finished"));
-    return status;
 }
 
 bool SimulatorDevice::beginSweep(VnaSweepIdV1 sweepId)
@@ -173,23 +147,29 @@ bool SimulatorDevice::beginSweep(VnaSweepIdV1 sweepId)
     }
     // 中止只属于一次 SweepId，不能污染同一配置的后续重复执行。
     abortRequested_.store(false);
+    abortAdmissionOpen_ = true;
     activeSweep_.store(sweepId);
     return true;
 }
 
 VnaStatusV1 SimulatorDevice::finishExecution(VnaStatusV1 status)
 {
-    std::lock_guard<std::mutex> lock(sweepMutex_);
-    // 若 RequestAbort 先获锁并返回 OK，本次 Execute 必须以 Cancelled 结束。
-    if ((status.code == VNA_STATUS_OK) && abortRequested_.load()) {
-        status = simulatorStatus(VNA_STATUS_CANCELLED, "simulator sweep was cancelled");
+    {
+        std::lock_guard<std::mutex> lock(sweepMutex_);
+        // 若 RequestAbort 先获锁并返回 OK，本次 Execute 必须以 Cancelled 结束。
+        if ((status.code == VNA_STATUS_OK) && abortRequested_.load()) {
+            status = simulatorStatus(VNA_STATUS_CANCELLED, "simulator sweep was cancelled");
+        }
+        // 若本函数先获锁清空标识，稍后的 RequestAbort 只能返回 InvalidState。
+        abortAdmissionOpen_ = false;
+        activeSweep_.store(0);
     }
-    // 若本函数先获锁清空标识，稍后的 RequestAbort 只能返回 InvalidState。
-    activeSweep_.store(0);
+    sweepChanged_.notify_all();
     return status;
 }
 
-VnaStatusV1 SimulatorDevice::executeLayout(VnaSweepIdV1 sweepId, std::size_t layoutIndex)
+VnaStatusV1 SimulatorDevice::executeLayout(
+    VnaSweepIdV1 sweepId, std::size_t layoutIndex, MeasurementClock::time_point &measurementDeadline)
 {
     const std::uint32_t layoutId = static_cast<std::uint32_t>(layoutIndex + 1);
     std::size_t pointIndex = 0;
@@ -200,22 +180,33 @@ VnaStatusV1 SimulatorDevice::executeLayout(VnaSweepIdV1 sweepId, std::size_t lay
         }
         // 先计算连续批次再获取宿主缓冲区，绝不为不存在的布局申请容量。
         const std::uint32_t count = contiguousBatchSize(points_, pointIndex, layoutId);
-        if (cancellationRequested(sweepId)) {
+        const auto timing = calculateBatchMeasurementTiming(points_, pointIndex, count, layoutId);
+        if (!timing.valid || !advanceMeasurementDeadline(measurementDeadline, timing.duration)) {
+            return simulatorStatus(VNA_STATUS_PROTOCOL_ERROR, "simulator measurement timing overflowed");
+        }
+        // 累计绝对截止时间让处理开销与下一批测量重叠，调度超时不会逐批累积。
+        if (!waitUntilMeasurementReady(sweepId, measurementDeadline)) {
             return simulatorStatus(VNA_STATUS_CANCELLED, "simulator sweep was cancelled");
         }
-        const VnaStatusV1 status = emitBatch(sweepId, layoutIndex, static_cast<std::uint32_t>(pointIndex), count);
+        const bool finalLayout = (layoutIndex + 1) == layoutViews_.size();
+        const bool finalBatch =
+            finalLayout && (nextPointWithLayout(points_, pointIndex + count, layoutId) == points_.size());
+        const VnaStatusV1 status =
+            emitBatch(sweepId, layoutIndex, static_cast<std::uint32_t>(pointIndex), count, finalBatch);
         if (status.code != VNA_STATUS_OK) {
             return status;
         }
         pointIndex += count;
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     return simulatorStatus(VNA_STATUS_OK, "");
 }
 
 VnaStatusV1 SimulatorDevice::emitBatch(
-    VnaSweepIdV1 sweepId, std::size_t layoutIndex, std::uint32_t firstPoint, std::uint32_t pointCount)
+    VnaSweepIdV1 sweepId, std::size_t layoutIndex, std::uint32_t firstPoint, std::uint32_t pointCount, bool finalBatch)
 {
+    if (cancellationRequested(sweepId)) {
+        return simulatorStatus(VNA_STATUS_CANCELLED, "simulator sweep was cancelled");
+    }
     VnaBufferHandle handle = nullptr;
     VnaMutableWaveBlockViewV1 view{};
     view.structSize = static_cast<std::uint32_t>(sizeof(view));
@@ -225,20 +216,41 @@ VnaStatusV1 SimulatorDevice::emitBatch(
     if (status.code != VNA_STATUS_OK) {
         return status;
     }
+    // Acquire 成功后立刻绑定租约；Commit 正常返回前的任何返回或异常都自动且仅 Discard 一次。
+    SimulatorWaveBlockLease lease(hostApi_, handle);
     if (!validWaveBuffer(view, pointCount, layoutWaves_[layoutIndex].size())) {
-        hostApi_.DiscardWaveBlock(handle);
         return simulatorStatus(VNA_STATUS_PROTOCOL_ERROR, "host returned an invalid wave buffer");
     }
-    status = fillBatch(layoutIndex, firstPoint, pointCount, view);
+    if (cancellationRequested(sweepId)) {
+        return simulatorStatus(VNA_STATUS_CANCELLED, "simulator sweep was cancelled");
+    }
+    status = fillBatch(sweepId, layoutIndex, firstPoint, pointCount, view);
     if (status.code != VNA_STATUS_OK) {
-        hostApi_.DiscardWaveBlock(handle);
         return status;
     }
-    return hostApi_.CommitWaveBlock(handle, firstPoint, pointCount);
+    if (cancellationRequested(sweepId)) {
+        return simulatorStatus(VNA_STATUS_CANCELLED, "simulator sweep was cancelled");
+    }
+    // 最终 Commit 的准入与 RequestAbort 共用 sweepMutex_ 线性化；之后迟到的中止只能失败。
+    if (finalBatch && !closeAbortAdmissionForFinalCommit(sweepId)) {
+        return simulatorStatus(VNA_STATUS_CANCELLED, "simulator sweep was cancelled");
+    }
+    return lease.commit(firstPoint, pointCount);
+}
+
+bool SimulatorDevice::closeAbortAdmissionForFinalCommit(VnaSweepIdV1 sweepId)
+{
+    std::lock_guard<std::mutex> lock(sweepMutex_);
+    if ((activeSweep_.load() != sweepId) || abortRequested_.load() || !abortAdmissionOpen_) {
+        return false;
+    }
+    abortAdmissionOpen_ = false;
+    return true;
 }
 
 VnaStatusV1 SimulatorDevice::fillBatch(
-    std::size_t layoutIndex, std::uint32_t firstPoint, std::uint32_t pointCount, VnaMutableWaveBlockViewV1 &view) const
+    VnaSweepIdV1 sweepId, std::size_t layoutIndex, std::uint32_t firstPoint, std::uint32_t pointCount,
+    VnaMutableWaveBlockViewV1 &view) const
 {
     for (std::uint32_t offset = 0; offset < pointCount; ++offset) {
         const Point &point = points_[firstPoint + offset];
@@ -249,7 +261,7 @@ VnaStatusV1 SimulatorDevice::fillBatch(
         for (std::uint32_t wave = 0; wave < view.waveCount; ++wave) {
             // ABI 缓冲区按“波主序”排布，跨距使用 capacity 而不是本批 pointCount。
             const std::size_t index = (wave * view.pointCapacity) + offset;
-            view.values[index] = simulateWave(point, *excitation, excitation->waves[wave]);
+            view.values[index] = simulateWave(sweepId, point, *excitation, excitation->waves[wave]);
             view.qualityFlags[index] = VNA_QUALITY_VALID;
         }
     }
@@ -261,12 +273,13 @@ VnaStatusV1 SimulatorDevice::requestAbort(VnaSweepIdV1 sweepId)
     // sweepId 防止迟到的中止请求误伤后来复用同一已准备配置的新扫描。
     {
         std::lock_guard<std::mutex> lock(sweepMutex_);
-        if ((sweepId == 0) || (activeSweep_.load() != sweepId)) {
+        if ((sweepId == 0) || (activeSweep_.load() != sweepId) || !abortAdmissionOpen_) {
             return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator sweep is not active");
         }
         // 持锁写入使收尾要么看到请求，要么先将扫频置为非活动并让本请求失败。
         abortRequested_.store(true);
     }
+    sweepChanged_.notify_all();
     hostApi_.Log(VNA_LOG_WARNING, literalView("simulator abort requested"));
     return simulatorStatus(VNA_STATUS_OK, "");
 }

@@ -25,7 +25,7 @@ typedef struct VnaDriverHostApiV1 {
     VnaStatusV1 (*AcquireWaveBlock)(
         VnaSweepIdV1 sweepId, uint32_t layoutId, uint32_t pointCapacity, VnaBufferHandle *handle,
         VnaMutableWaveBlockViewV1 *writableView);
-    /* Commit 只提交实际有效的点区间；成功后句柄失效。 */
+    /* Commit 只提交实际有效的点区间；调用正常返回后句柄失效，状态码只描述发布结果。 */
     VnaStatusV1 (*CommitWaveBlock)(VnaBufferHandle handle, uint32_t firstPointIndex, uint32_t pointCount);
     /* 放弃尚未提交的句柄；函数允许用于错误清理路径。 */
     void (*DiscardWaveBlock)(VnaBufferHandle handle);

@@ -36,6 +36,12 @@ public:
     std::complex<double> value(std::size_t waveIndex, std::size_t pointOffset) const;
     // quality 返回 WaveQuality 位集合；Valid 的数值为零。
     std::uint32_t quality(std::size_t waveIndex, std::size_t pointOffset) const;
+    // 目标指针为非拥有借用，两个目标缓冲区都必须至少容纳 pointCount 个元素；即使为零也不得为空。
+    // pointCount 不得超过本块实际点数；调用返回后目标缓冲区即可重用。
+    // 空块抛 logic_error，空目标抛 invalid_argument，波索引或点数越界抛 out_of_range。
+    void copyWaveTo(
+        std::size_t waveIndex, std::complex<double> *destinationValues, std::uint32_t *destinationQuality,
+        std::size_t pointCount) const;
 
 private:
     friend class detail::VnaBufferPool;

@@ -1,4 +1,5 @@
 #include "SimulatorDevice.h"
+#include "SimulatorTiming.h"
 
 #include <cmath>
 #include <set>
@@ -135,15 +136,6 @@ namespace {
 
 }  // namespace
 
-VnaStatusV1 simulatorStatus(std::uint32_t code, const char *message)
-{
-    // 当前消息均为静态字面量，返回视图不会引用栈内存。
-    VnaStatusV1 result{};
-    result.code = code;
-    result.message = VnaStringViewV1{message, std::char_traits<char>::length(message)};
-    return result;
-}
-
 SimulatorDevice::SimulatorDevice(VnaDriverHostApiV1 hostApi) : hostApi_(hostApi)
 {
 }
@@ -247,6 +239,9 @@ VnaStatusV1 SimulatorDevice::copyPlan(const VnaSweepPlanViewV1 &plan)
             return status;
         }
         copied.push_back(std::move(point));
+    }
+    if (!calculateSweepMeasurementTiming(copied).valid) {
+        return simulatorStatus(VNA_STATUS_INVALID_ARGUMENT, "simulator sweep duration exceeds one hour");
     }
     points_ = std::move(copied);
     return simulatorStatus(VNA_STATUS_OK, "");

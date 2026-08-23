@@ -4,9 +4,9 @@
 #include <atomic>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "HostServices.h"
 #include "VnaBufferPool.h"
@@ -26,6 +26,19 @@ namespace {
         error.code = code;
         error.description = std::move(description);
         return error;
+    }
+
+    SweepId reserveSweepIdentifier() noexcept
+    {
+        SweepId current = globalSweepIdentifier.load(std::memory_order_relaxed);
+        const SweepId maximum = std::numeric_limits<SweepId>::max();
+        while (current != maximum) {
+            if (globalSweepIdentifier.compare_exchange_weak(
+                    current, current + 1, std::memory_order_relaxed, std::memory_order_relaxed)) {
+                return current;
+            }
+        }
+        return 0;
     }
 
     bool isFaultTermination(SweepTerminationReason reason)
@@ -54,32 +67,22 @@ namespace {
         return expected - received;
     }
 
-    bool validBatchCapacity(std::size_t batchPoints)
-    {
-        // ABI 使用 uint32_t 表示容量，宿主 size_t 必须先验证可无损转换。
-        return (batchPoints > 0) && (batchPoints <= std::numeric_limits<std::uint32_t>::max());
-    }
-
 }  // namespace
 
-std::shared_ptr<VnaBufferPool> VnaSessionController::initializeSweep(
-    SweepId sweepId, VnaSweepPlan effectivePlan, std::vector<VnaWaveLayout> layouts, std::size_t batchPoints)
+std::shared_ptr<VnaBufferPool> VnaSessionController::activatePreparedSweep(SweepId sweepId)
 {
-    auto tracker = std::make_shared<VnaFrameTracker>(effectivePlan, layouts);
-    // 固定八槽池提供有界内存与背压；回调只负责把只读块交给事件线程。
-    auto pool = VnaBufferPool::create(
-        layouts, batchPoints, 8, [this](VnaWaveBlock block) { return acceptBlock(std::move(block)); });
-    cancellation_.store(false);
-    {
-        std::lock_guard<std::mutex> lock(dataMutex_);
-        activeSweep_ = sweepId;
-        completionEmitted_ = false;
-        pendingAbortCommand_ = 0;
-        sweepErrorCode_ = VnaErrorCode::None;
-        frameTracker_ = std::move(tracker);
-        pool_ = pool;
+    std::lock_guard<std::mutex> lock(dataMutex_);
+    if (!prepared_ || !frameTracker_ || !pool_) {
+        throw std::logic_error("prepared sweep resources are unavailable");
     }
-    return pool;
+    // Execute 已返回且旧路由已注销后 Actor 才会收到下一 Start，因此可原位复位覆盖状态。
+    frameTracker_->resetForSweep();
+    cancellation_.store(false);
+    activeSweep_ = sweepId;
+    completionEmitted_ = false;
+    pendingAbortCommand_ = 0;
+    sweepErrorCode_ = VnaErrorCode::None;
+    return pool_;
 }
 
 void VnaSessionController::rollbackSweepStart(SweepId sweepId, bool hostRouteRegistered) noexcept
@@ -95,7 +98,7 @@ void VnaSessionController::rollbackSweepStart(SweepId sweepId, bool hostRouteReg
         completionEmitted_ = true;
         pendingAbortCommand_ = 0;
         activeConfiguration_ = 0;
-        prepared_ = {};
+        prepared_.reset();
         frameTracker_.reset();
         pool_.reset();
     }
@@ -103,40 +106,33 @@ void VnaSessionController::rollbackSweepStart(SweepId sweepId, bool hostRouteReg
 
 void VnaSessionController::processStart(const Command &command)
 {
-    std::vector<VnaWaveLayout> layouts;
-    VnaSweepPlan effectivePlan;
-    std::size_t batchPoints = 0;
     bool configurationActive = false;
     {
         std::lock_guard<std::mutex> lock(dataMutex_);
         // ConfigurationId 防止重新准备后误启动旧配置。
-        configurationActive = (state_ == DeviceState::Prepared) && (command.configurationId == activeConfiguration_);
-        if (configurationActive) {
-            layouts = prepared_.layouts;
-            effectivePlan = prepared_.effectivePlan;
-            batchPoints = prepared_.report.preferredBatchPoints;
-        }
+        configurationActive = (state_ == DeviceState::Prepared) && prepared_ && frameTracker_ && pool_ &&
+                              (command.configurationId == activeConfiguration_);
     }
     // fail() 可能等待事件队列，必须在释放 dataMutex_ 后调用，避免回调重入死锁。
     if (!configurationActive) {
         fail(command.commandId, sweepError(VnaErrorCode::ConfigurationExpired, "configuration is not active"));
         return;
     }
-    if (!validBatchCapacity(batchPoints)) {
-        fail(command.commandId, sweepError(VnaErrorCode::ProtocolError, "driver returned invalid batch capacity"));
+    transition(DeviceState::Starting);
+    const SweepId sweepId = reserveSweepIdentifier();
+    if (sweepId == 0) {
+        transition(DeviceState::Prepared);
+        fail(command.commandId, sweepError(VnaErrorCode::ResourceExhausted, "sweep identifier is exhausted"));
         return;
     }
-
-    transition(DeviceState::Starting);
-    const SweepId sweepId = globalSweepIdentifier.fetch_add(1);
-    auto pool = initializeSweep(sweepId, std::move(effectivePlan), std::move(layouts), batchPoints);
-
     bool hostRouteRegistered = false;
     try {
+        auto pool = activatePreparedSweep(sweepId);
         // 驱动开始前必须先注册 HostApi 路由，否则第一批数据可能找不到所属缓冲池。
         hostRouteRegistered = HostServices::registerSweep(sweepId, std::move(pool), cancellation_);
         if (!hostRouteRegistered) {
-            finishSweep(sweepId, sweepError(VnaErrorCode::InternalError, "duplicate sweep identifier"));
+            rollbackSweepStart(sweepId, false);
+            transition(DeviceState::Fault);
             fail(command.commandId, sweepError(VnaErrorCode::InternalError, "sweep registration failed"));
             return;
         }
@@ -222,12 +218,12 @@ void VnaSessionController::finishSweep(SweepId sweepId, VnaError error)
         completionEmitted_ = true;
         activeSweep_ = 0;
         pendingAbortCommand_ = 0;
-        frameTracker_.reset();
-        pool_.reset();
         if (isFaultTermination(reason)) {
             // 故障可能使设备内部配置未知，因此旧 ConfigurationId 必须失效。
             activeConfiguration_ = 0;
-            prepared_ = {};
+            prepared_.reset();
+            frameTracker_.reset();
+            pool_.reset();
         }
     }
 

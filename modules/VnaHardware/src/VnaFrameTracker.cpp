@@ -17,6 +17,16 @@ VnaFrameTracker::VnaFrameTracker(const VnaSweepPlan &plan, const std::vector<Vna
     compilePlan(plan);
 }
 
+void VnaFrameTracker::resetForSweep()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto &layout : layouts_) {
+        std::fill(layout.reservations.begin(), layout.reservations.end(), 0);
+        layout.nextReservationOffset = 0;
+    }
+    reservedFrameCount_ = 0;
+}
+
 void VnaFrameTracker::initializeLayouts(const std::vector<VnaWaveLayout> &layouts)
 {
     if (layouts.empty()) {

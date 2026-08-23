@@ -66,7 +66,15 @@ void HardwareSink::onPrepareCompleted(const PrepareCompletedEvent &event)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     // 同时记录最新配置和完成次数，支持验证失败 Prepare 不会覆盖既有配置。
-    configuration_ = event.prepared.configurationId;
+    if (event.prepared) {
+        configuration_ = event.prepared->configurationId;
+    } else {
+        VnaError error;
+        error.code = VnaErrorCode::ProtocolError;
+        error.commandId = event.commandId;
+        error.description = "PrepareCompleted 缺少 PreparedSweep";
+        failures_.push_back(std::move(error));
+    }
     ++prepareCount_;
     completedCommands_.push_back(event.commandId);
     changed_.notify_all();
@@ -82,8 +90,14 @@ void HardwareSink::onStartCompleted(const StartCompletedEvent &event)
     }
     // 在用户可观察 StartCompleted 的最早时刻入队，专门压测 Worker 尚未进入 Execute 的窗口。
     CommandId abortCommand = 0;
+    VnaError abortError;
     if (abortTarget != nullptr) {
-        abortCommand = abortTarget->abortAsync(event.sweepId);
+        auto abortResult = abortTarget->abortAsync(event.sweepId);
+        if (abortResult.hasValue()) {
+            abortCommand = abortResult.takeValue();
+        } else {
+            abortError = abortResult.error();
+        }
     }
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -92,6 +106,9 @@ void HardwareSink::onStartCompleted(const StartCompletedEvent &event)
         completedCommands_.push_back(event.commandId);
         if (abortCommand != 0) {
             triggeredAbortCommand_ = abortCommand;
+        }
+        if (abortError.code != VnaErrorCode::None) {
+            failures_.push_back(std::move(abortError));
         }
     }
     changed_.notify_all();
@@ -112,14 +129,6 @@ void HardwareSink::onDisconnectCompleted(const DisconnectCompletedEvent &event)
     disconnectFollowedState_ = state_ == DeviceState::Disconnected;
     ++disconnectCount_;
     completedCommands_.push_back(event.commandId);
-    changed_.notify_all();
-}
-
-void HardwareSink::onWaveBlock(VnaWaveBlock block)
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    // 保存移动块会持续占用池槽，测试随后 clearBlocks() 验证析构归还路径。
-    blocks_.push_back(std::move(block));
     changed_.notify_all();
 }
 
@@ -208,36 +217,6 @@ bool HardwareSink::disconnectFollowedState() const
     return disconnectFollowedState_;
 }
 
-std::size_t HardwareSink::blockCount() const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return blocks_.size();
-}
-
-std::uint64_t HardwareSink::blockSequence(std::size_t index) const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return blocks_.at(index).sequence();
-}
-
-std::uint32_t HardwareSink::blockPointCount(std::size_t index) const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return blocks_.at(index).pointCount();
-}
-
-std::complex<double> HardwareSink::blockValue(std::size_t block, std::size_t wave, std::size_t point) const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return blocks_.at(block).value(wave, point);
-}
-
-std::uint32_t HardwareSink::blockQuality(std::size_t block, std::size_t wave, std::size_t point) const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return blocks_.at(block).quality(wave, point);
-}
-
 void HardwareSink::abortOnNextStart(IVnaHardware &hardware)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -260,13 +239,6 @@ CommandId HardwareSink::triggeredAbortCommand() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return triggeredAbortCommand_;
-}
-
-void HardwareSink::clearBlocks()
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    // clear 触发 VnaWaveBlock 析构，归还测试刻意持有的所有缓冲槽。
-    blocks_.clear();
 }
 
 std::size_t HardwareSink::failureCount() const

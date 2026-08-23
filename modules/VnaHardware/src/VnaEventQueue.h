@@ -30,6 +30,8 @@ struct QueuedEvent {
     // subscriptionId 是入队时的订阅代次；其余载荷按 kind 选择恰好一个使用。
     EventKind kind{EventKind::StateChanged};
     std::uint64_t subscriptionId{0};
+    // Prepare 快照从入队到回调返回期间占用的受控载荷，其他事件为零。
+    std::size_t retainedPayloadBytes{0};
     StateChangedEvent stateChanged;
     ConnectCompletedEvent connected;
     PrepareCompletedEvent prepared;
@@ -44,10 +46,11 @@ struct QueuedEvent {
 // 固定容量环形队列：控制事件无限等待，数据事件使用有界等待形成背压。
 class EventQueue final {
 public:
-    explicit EventQueue(std::size_t capacity);
+    EventQueue(std::size_t capacity, std::size_t maximumRetainedPayloadBytes);
     bool push(QueuedEvent event);
     bool push(QueuedEvent event, std::chrono::milliseconds timeout);
     bool pop(QueuedEvent &event);
+    void releaseRetainedPayload(std::size_t payloadBytes) noexcept;
     void close();
 
 private:
@@ -56,6 +59,8 @@ private:
     std::size_t head_{0};
     std::size_t tail_{0};
     std::size_t count_{0};
+    const std::size_t maximumRetainedPayloadBytes_{0};
+    std::size_t retainedPayloadBytes_{0};
     bool closed_{false};
     std::mutex mutex_;
     std::condition_variable readable_;

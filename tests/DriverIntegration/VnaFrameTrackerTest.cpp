@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <array>
+#include <complex>
 #include <cstdint>
 #include <initializer_list>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -109,6 +112,23 @@ TEST(VnaFrameTrackerTest, RejectsOverlapAndRollsBackOnlyCompleteReservation)
     EXPECT_EQ(tracker.reserve(10, 0, 2), vna::detail::VnaFrameReservationResult::Reserved);
 }
 
+TEST(VnaFrameTrackerTest, ResetAllowsThePreparedTrackerToServeAnotherSweep)
+{
+    vna::detail::VnaFrameTracker tracker(sparseMultiExcitationPlan(), layouts());
+    ASSERT_EQ(tracker.reserve(10, 0, 2), vna::detail::VnaFrameReservationResult::Reserved);
+    ASSERT_EQ(tracker.reserve(20, 0, 1), vna::detail::VnaFrameReservationResult::Reserved);
+    ASSERT_EQ(tracker.reserve(20, 2, 2), vna::detail::VnaFrameReservationResult::Reserved);
+    ASSERT_EQ(tracker.reserve(10, 3, 1), vna::detail::VnaFrameReservationResult::Reserved);
+    ASSERT_TRUE(tracker.complete());
+
+    tracker.resetForSweep();
+
+    EXPECT_EQ(tracker.reservedFrameCount(), 0U);
+    EXPECT_FALSE(tracker.complete());
+    EXPECT_EQ(tracker.reserve(10, 0, 2), vna::detail::VnaFrameReservationResult::Reserved);
+    EXPECT_EQ(tracker.reserve(20, 0, 1), vna::detail::VnaFrameReservationResult::Reserved);
+}
+
 TEST(VnaBufferPoolTest, ReportsExhaustionAsDataLoss)
 {
     auto waveLayouts = layouts();
@@ -173,6 +193,64 @@ TEST(VnaBufferPoolTest, UsesTheCapacityReturnedForEachWaveStride)
     view.values[1] = VnaComplex64V1{7.0, -3.0};
     ASSERT_EQ(pool->commit(handle, 0, 1, 0).code, VNA_STATUS_OK);
     EXPECT_TRUE(observedSecondWave);
+}
+
+TEST(VnaWaveBlockTest, CopiesTailBlockWithAcquireCapacityStride)
+{
+    auto waveLayouts = layouts();
+    waveLayouts.front().waveKeys = {
+        vna::VnaWaveKey{vna::WaveKind::Incident, 1}, vna::VnaWaveKey{vna::WaveKind::Outgoing, 1}};
+    std::array<std::complex<double>, 2> values{};
+    std::array<std::uint32_t, 2> quality{};
+    auto copyBlock = [&values, &quality](vna::VnaWaveBlock block) {
+        block.copyWaveTo(1, values.data(), quality.data(), values.size());
+        return acceptedBlock(std::move(block));
+    };
+    auto pool = vna::detail::VnaBufferPool::create(waveLayouts, 3, 1, copyBlock);
+    VnaBufferHandle handle = nullptr;
+    VnaMutableWaveBlockViewV1 view{};
+    view.structSize = static_cast<std::uint32_t>(sizeof(view));
+
+    ASSERT_EQ(pool->acquire(1, 10, 3, &handle, &view).code, VNA_STATUS_OK);
+    view.values[2] = VnaComplex64V1{99.0, 99.0};
+    view.values[3] = VnaComplex64V1{7.0, -3.0};
+    view.values[4] = VnaComplex64V1{-2.0, 5.0};
+    view.qualityFlags[3] = VNA_QUALITY_OVERLOAD;
+    view.qualityFlags[4] = VNA_QUALITY_UNLOCKED | VNA_QUALITY_REFERENCE_LOW;
+    ASSERT_EQ(pool->commit(handle, 0, 2, 0).code, VNA_STATUS_OK);
+
+    EXPECT_EQ(values, (std::array<std::complex<double>, 2>{{{7.0, -3.0}, {-2.0, 5.0}}}));
+    EXPECT_EQ(
+        quality,
+        (std::array<std::uint32_t, 2>{{VNA_QUALITY_OVERLOAD, VNA_QUALITY_UNLOCKED | VNA_QUALITY_REFERENCE_LOW}}));
+}
+
+TEST(VnaWaveBlockTest, RejectsInvalidCopyArgumentsBeforeWriting)
+{
+    std::complex<double> value{13.0, -9.0};
+    std::uint32_t quality = 42;
+    auto checkBlock = [&value, &quality](vna::VnaWaveBlock block) {
+        EXPECT_THROW(block.copyWaveTo(0, nullptr, &quality, 0), std::invalid_argument);
+        EXPECT_THROW(block.copyWaveTo(0, &value, nullptr, 0), std::invalid_argument);
+        EXPECT_THROW(block.copyWaveTo(1, &value, &quality, 0), std::out_of_range);
+        EXPECT_THROW(block.copyWaveTo(0, &value, &quality, 2), std::out_of_range);
+        EXPECT_NO_THROW(block.copyWaveTo(0, &value, &quality, 0));
+        return acceptedBlock(std::move(block));
+    };
+    auto waveLayouts = layouts();
+    waveLayouts.front().waveKeys.push_back(vna::VnaWaveKey{vna::WaveKind::Incident, 1});
+    auto pool = vna::detail::VnaBufferPool::create(waveLayouts, 1, 1, checkBlock);
+    VnaBufferHandle handle = nullptr;
+    VnaMutableWaveBlockViewV1 view{};
+    view.structSize = static_cast<std::uint32_t>(sizeof(view));
+
+    ASSERT_EQ(pool->acquire(1, 10, 1, &handle, &view).code, VNA_STATUS_OK);
+    ASSERT_EQ(pool->commit(handle, 0, 1, 0).code, VNA_STATUS_OK);
+    EXPECT_EQ(value, std::complex<double>(13.0, -9.0));
+    EXPECT_EQ(quality, 42U);
+
+    vna::VnaWaveBlock empty;
+    EXPECT_THROW(empty.copyWaveTo(0, &value, &quality, 0), std::logic_error);
 }
 
 }  // namespace

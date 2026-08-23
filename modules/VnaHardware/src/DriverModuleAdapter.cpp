@@ -6,6 +6,7 @@
 
 #include "DriverResultValidation.h"
 #include "VnaPlanMarshaller.h"
+#include "VnaPreparedCapacity.h"
 
 namespace vna::detail {
 namespace {
@@ -19,16 +20,16 @@ namespace {
     }
 
     PreparedSweep makePreparedSweep(
-        const VnaSweepPlan &plan, const VnaPrepareResultViewV1 &view, std::vector<VnaWaveLayout> layouts)
+        VnaSweepPlan plan, const VnaPrepareResultViewV1 &view, std::vector<VnaWaveLayout> layouts)
     {
         // 只有完成执行报告与布局校验后才进入这里，将驱动结果整理为稳定的领域对象。
         PreparedSweep prepared;
-        prepared.effectivePlan = plan;
+        prepared.effectivePlan = std::move(plan);
         prepared.layouts = std::move(layouts);
         prepared.report.executionMode =
             (view.executionFlags & VNA_EXECUTION_COMPILED) != 0 ? ExecutionMode::Compiled : ExecutionMode::Native;
         prepared.report.physicalSweepCount = view.physicalSweepCount;
-        prepared.report.preferredBatchPoints = view.preferredBatchPoints;
+        prepared.report.waveBlockPointCapacity = view.preferredBatchPoints;
         prepared.report.estimatedBytesPerPoint = view.estimatedBytesPerPoint;
         prepared.report.quantized = (view.executionFlags & VNA_EXECUTION_QUANTIZED) != 0;
         prepared.report.atomic = (view.executionFlags & VNA_EXECUTION_ATOMIC) != 0;
@@ -85,7 +86,7 @@ Result<VnaCapabilities> DriverModuleAdapter::capabilities()
     return Result<VnaCapabilities>::success(copyDriverCapabilities(view));
 }
 
-Result<PreparedSweep> DriverModuleAdapter::prepare(const VnaSweepPlan &plan)
+Result<PreparedSweep> DriverModuleAdapter::prepare(VnaSweepPlan plan, std::size_t maximumPreparedPayloadBytes)
 {
     // marshaller 持有 ABI 数组；其生命周期必须覆盖整个同步 Prepare 调用。
     VnaPlanMarshaller marshaller(plan);
@@ -100,6 +101,10 @@ Result<PreparedSweep> DriverModuleAdapter::prepare(const VnaSweepPlan &plan)
     if (reportError.code != VnaErrorCode::None) {
         return Result<PreparedSweep>::failure(reportError);
     }
+    auto payload = inspectDriverPreparedPayload(plan, view, maximumPreparedPayloadBytes);
+    if (!payload.hasValue()) {
+        return Result<PreparedSweep>::failure(payload.error());
+    }
     auto layouts = copyDriverLayouts(view);
     if (!layouts.hasValue()) {
         return Result<PreparedSweep>::failure(layouts.error());
@@ -109,7 +114,7 @@ Result<PreparedSweep> DriverModuleAdapter::prepare(const VnaSweepPlan &plan)
         return Result<PreparedSweep>::failure(layoutError);
     }
     // 所有视图已深拷贝完毕，返回后驱动可安全复用 Prepare 的临时存储。
-    PreparedSweep prepared = makePreparedSweep(plan, view, layouts.takeValue());
+    PreparedSweep prepared = makePreparedSweep(std::move(plan), view, layouts.takeValue());
     return Result<PreparedSweep>::success(std::move(prepared));
 }
 

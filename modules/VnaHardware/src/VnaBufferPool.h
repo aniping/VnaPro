@@ -42,6 +42,9 @@ public:
     std::uint32_t firstPointIndex(std::size_t slotIndex) const;
     std::complex<double> value(std::size_t slotIndex, std::size_t waveIndex, std::size_t pointOffset) const;
     std::uint32_t quality(std::size_t slotIndex, std::size_t waveIndex, std::size_t pointOffset) const;
+    void copyWaveTo(
+        std::size_t slotIndex, std::size_t waveIndex, std::complex<double> *destinationValues,
+        std::uint32_t *destinationQuality, std::size_t pointCount) const;
 
 private:
     struct Slot;

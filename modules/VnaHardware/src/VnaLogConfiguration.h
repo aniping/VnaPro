@@ -9,6 +9,8 @@
 
 namespace vna::detail {
 
+struct TrustedConfigurationFile;
+
 // 日志级别按严重程度递增，flushLevel 表示达到该级别时立即刷盘。
 enum class VnaLogLevel : std::uint8_t { Trace, Debug, Info, Warning, Error, Critical, Off };
 
@@ -24,6 +26,7 @@ struct VnaLogConfiguration {
 };
 
 Result<VnaLogConfiguration> loadVnaLogConfiguration(const std::string &configurationFile);
+Result<VnaLogConfiguration> loadVnaLogConfiguration(const TrustedConfigurationFile &configurationFile);
 bool sameLogConfiguration(const VnaLogConfiguration &left, const VnaLogConfiguration &right);
 const char *logLevelName(VnaLogLevel level);
 

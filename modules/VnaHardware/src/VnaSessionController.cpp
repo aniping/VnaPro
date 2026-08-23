@@ -7,6 +7,7 @@
 #include "HostServices.h"
 #include "VnaBufferPool.h"
 #include "VnaLogger.h"
+#include "VnaPreparedCapacity.h"
 #include "VnaValidation.h"
 
 namespace vna::detail {
@@ -30,8 +31,13 @@ namespace {
 
 }  // namespace
 
-VnaSessionController::VnaSessionController(DeviceDescriptor descriptor, std::unique_ptr<DriverModuleAdapter> adapter)
-    : descriptor_(std::move(descriptor)), adapter_(std::move(adapter)), dispatcher_(VnaEventDispatcher::create(64))
+VnaSessionController::VnaSessionController(
+    DeviceDescriptor descriptor, std::unique_ptr<DriverModuleAdapter> adapter, VnaHardwareResourceLimits limits)
+    : descriptor_(std::move(descriptor)),
+      limits_(limits),
+      adapter_(std::move(adapter)),
+      dispatcher_(VnaEventDispatcher::create(64, limits_.maximumPreparedSweepPayloadBytes)),
+      commandSlots_(limits_.maximumPendingCommandsPerDevice)
 {
     try {
         // 采集线程只执行可能长时间阻塞的驱动调用，actor 线程独占会话状态机。
@@ -77,63 +83,15 @@ DeviceState VnaSessionController::state() const
 
 ValidationReport VnaSessionController::validate(const VnaSweepPlan &plan) const
 {
+    auto payload = inspectRequestedPlanPayload(plan, limits_.maximumRequestedPlanPayloadBytes);
+    if (!payload.hasValue()) {
+        ValidationReport report;
+        report.issues.push_back(ValidationIssue{ValidationSeverity::Error, "plan", payload.error().description});
+        return report;
+    }
     // 校验使用同一时刻的能力快照，避免连接状态切换时读到撕裂数据。
     std::lock_guard<std::mutex> lock(dataMutex_);
     return validatePlan(plan, capabilities_);
-}
-
-CommandId VnaSessionController::nextCommandId()
-{
-    return nextCommand_.fetch_add(1);
-}
-
-CommandId VnaSessionController::connectAsync()
-{
-    Command command;
-    command.kind = CommandKind::Connect;
-    command.commandId = nextCommandId();
-    enqueue(command);
-    return command.commandId;
-}
-
-CommandId VnaSessionController::prepareAsync(VnaSweepPlan plan)
-{
-    Command command;
-    command.kind = CommandKind::Prepare;
-    command.commandId = nextCommandId();
-    command.plan = std::move(plan);
-    const CommandId identifier = command.commandId;
-    enqueue(std::move(command));
-    return identifier;
-}
-
-CommandId VnaSessionController::startAsync(ConfigurationId configurationId)
-{
-    Command command;
-    command.kind = CommandKind::Start;
-    command.commandId = nextCommandId();
-    command.configurationId = configurationId;
-    enqueue(command);
-    return command.commandId;
-}
-
-CommandId VnaSessionController::abortAsync(SweepId sweepId)
-{
-    Command command;
-    command.kind = CommandKind::Abort;
-    command.commandId = nextCommandId();
-    command.sweepId = sweepId;
-    enqueue(command);
-    return command.commandId;
-}
-
-CommandId VnaSessionController::disconnectAsync()
-{
-    Command command;
-    command.kind = CommandKind::Disconnect;
-    command.commandId = nextCommandId();
-    enqueue(command);
-    return command.commandId;
 }
 
 Subscription VnaSessionController::subscribe(IVnaHardwareEventSink &sink)
@@ -141,32 +99,34 @@ Subscription VnaSessionController::subscribe(IVnaHardwareEventSink &sink)
     return dispatcher_->subscribe(sink);
 }
 
-void VnaSessionController::enqueue(Command command)
-{
-    {
-        std::lock_guard<std::mutex> lock(commandMutex_);
-        // 关闭后的异步请求直接丢弃；shutdown 已负责终止既有命令并封闭事件通道。
-        if (actorStopping_) {
-            return;
-        }
-        commands_.push_back(std::move(command));
-    }
-    commandReady_.notify_one();
-}
-
 void VnaSessionController::actorLoop()
 {
     for (;;) {
         Command command;
+        bool externalCommand = false;
+        std::size_t planPayloadBytes = 0;
         {
             std::unique_lock<std::mutex> lock(commandMutex_);
-            commandReady_.wait(lock, [this] { return actorStopping_ || !commands_.empty(); });
+            commandReady_.wait(
+                lock, [this] { return actorStopping_ || workerCompletion_ || (queuedExternalCommands_ != 0); });
             if (actorStopping_) {
                 return;
             }
-            // 只在取队列节点时持锁，具体命令可调用驱动或发布事件，不能占用队列锁。
-            command = std::move(commands_.front());
-            commands_.pop_front();
+            const bool completionPrecedesQueue =
+                workerCompletion_ && ((queuedExternalCommands_ == 0) || (commandSlots_[commandHead_]->commandId >=
+                                                                         workerCompletion_->completionBeforeCommandId));
+            if (completionPrecedesQueue) {
+                command = std::move(*workerCompletion_);
+                workerCompletion_.reset();
+            } else {
+                // 外部命令的容量保留覆盖完整处理期，出队后仍不能接纳无限后续计划。
+                command = std::move(*commandSlots_[commandHead_]);
+                commandSlots_[commandHead_].reset();
+                commandHead_ = (commandHead_ + 1) % commandSlots_.size();
+                --queuedExternalCommands_;
+                externalCommand = true;
+                planPayloadBytes = command.planPayloadBytes;
+            }
         }
         try {
             // 所有状态迁移在单一 actor 上串行执行，因此命令处理函数不需要另建状态机锁。
@@ -174,6 +134,9 @@ void VnaSessionController::actorLoop()
         } catch (...) {
             transition(DeviceState::Fault);
             fail(command.commandId, internalError("unhandled control task failure"));
+        }
+        if (externalCommand) {
+            releaseExternalReservation(planPayloadBytes);
         }
     }
 }
@@ -204,7 +167,7 @@ void VnaSessionController::workerLoop()
         completion.kind = CommandKind::WorkerFinished;
         completion.sweepId = sweepId;
         completion.workerError = std::move(result);
-        enqueue(std::move(completion));
+        enqueueWorkerCompletion(std::move(completion));
     }
 }
 

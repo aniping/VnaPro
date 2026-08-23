@@ -27,6 +27,8 @@ public:
     VnaFrameTracker(const VnaFrameTracker &) = delete;
     VnaFrameTracker &operator=(const VnaFrameTracker &) = delete;
 
+    // 仅在上一 Execute 已返回且旧 Sweep 路由已注销后调用；保留预编译拓扑和容器容量。
+    void resetForSweep();
     VnaFrameReservationResult reserve(LayoutId layoutId, std::uint32_t firstPointIndex, std::uint32_t pointCount);
     // 仅用于下游发布失败后的原范围回滚；未完整预留的范围不会被部分修改。
     bool release(LayoutId layoutId, std::uint32_t firstPointIndex, std::uint32_t pointCount);

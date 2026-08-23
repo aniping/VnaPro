@@ -1,13 +1,16 @@
 #include "VnaHardwareManager.h"
 
+#include <algorithm>
+#include <exception>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include "DriverPluginLoader.h"
+#include "DriverModuleAdapter.h"
 #include "VnaHardwareManagerImpl.h"
 #include "VnaHardwareSession.h"
 #include "VnaLogger.h"
@@ -33,27 +36,55 @@ namespace {
         }
     }
 
-    void shutdownSessions(const std::vector<std::shared_ptr<detail::VnaHardwareSession>> &sessions)
+    void shutdownSessions(const std::vector<std::weak_ptr<detail::VnaHardwareSession>> &sessions)
     {
-        for (const auto &session : sessions) {
-            session->shutdown();
+        for (const auto &weakSession : sessions) {
+            if (auto session = weakSession.lock()) {
+                session->shutdown();
+            }
         }
     }
 
-    std::string defaultConfigurationFile(const std::string &driverDirectory)
-    {
-        if (driverDirectory.empty()) {
-            return "vnapro.conf";
+    class PendingDeviceHandle final {
+    public:
+        PendingDeviceHandle(std::shared_ptr<detail::DriverModule> module, VnaDeviceHandle handle)
+            : module_(std::move(module)), handle_(handle)
+        {
         }
-        const bool hasSeparator = !driverDirectory.empty() && (driverDirectory.back() == '/');
-        return driverDirectory + (hasSeparator ? "vnapro.conf" : "/vnapro.conf");
-    }
+
+        ~PendingDeviceHandle()
+        {
+            if (handle_ != nullptr) {
+                module_->api().DestroyDevice(handle_);
+            }
+        }
+
+        PendingDeviceHandle(const PendingDeviceHandle &) = delete;
+        PendingDeviceHandle &operator=(const PendingDeviceHandle &) = delete;
+        PendingDeviceHandle(PendingDeviceHandle &&) = delete;
+        PendingDeviceHandle &operator=(PendingDeviceHandle &&) = delete;
+
+        VnaDeviceHandle get() const noexcept
+        {
+            return handle_;
+        }
+
+        void release() noexcept
+        {
+            handle_ = nullptr;
+        }
+
+    private:
+        std::shared_ptr<detail::DriverModule> module_;
+        VnaDeviceHandle handle_{nullptr};
+    };
 
 }  // namespace
 
 VnaHardwareManager::Impl::Impl(
-    std::shared_ptr<detail::VnaLogger> logger, std::vector<std::shared_ptr<detail::DriverModule>> modules)
-    : logger_(std::move(logger)), modules_(std::move(modules))
+    std::shared_ptr<detail::VnaLogger> logger, std::vector<std::shared_ptr<detail::DriverModule>> modules,
+    detail::VnaHardwareResourceLimits limits)
+    : logger_(std::move(logger)), limits_(limits), modules_(std::move(modules))
 {
 }
 
@@ -65,55 +96,99 @@ VnaHardwareManager::Impl::~Impl()
 Result<std::shared_ptr<IVnaHardware>> VnaHardwareManager::Impl::open(const std::string &deviceId)
 {
     detail::VnaLogger::write(detail::VnaLogLevel::Info, "正在打开设备，deviceId=" + deviceId);
-    DeviceRecord record;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (stopping_.load()) {
-            return Result<std::shared_ptr<IVnaHardware>>::failure(
-                managerError(VnaErrorCode::InvalidState, "hardware manager is shutting down"));
-        }
-        const auto device = devices_.find(deviceId);
-        if (device == devices_.end()) {
-            return Result<std::shared_ptr<IVnaHardware>>::failure(
-                managerError(VnaErrorCode::DeviceNotFound, "device identifier is unknown"));
-        }
-        // 复制记录中的 module shared_ptr 后立即释放 manager 锁，插件调用绝不发生在全局锁内。
-        record = device->second;
+    auto found = findDeviceForOpen(deviceId);
+    if (!found.hasValue()) {
+        return Result<std::shared_ptr<IVnaHardware>>::failure(found.error());
     }
+    DeviceRecord record = found.takeValue();
     auto handle = record.module->createDevice(record.driverDeviceId);
     if (!handle.hasValue()) {
         detail::VnaLogger::write(
             detail::VnaLogLevel::Error, "创建设备失败，deviceId=" + deviceId + "，原因=" + handle.error().description);
         return Result<std::shared_ptr<IVnaHardware>>::failure(handle.error());
     }
-    // adapter 同时持有设备句柄和模块引用，保证设备整个生命周期内动态库不会卸载。
-    auto adapter = std::make_unique<detail::DriverModuleAdapter>(record.module, handle.takeValue());
-    auto session = detail::VnaHardwareSession::create(record.descriptor, std::move(adapter));
-    if (!session.hasValue()) {
-        detail::VnaLogger::write(
-            detail::VnaLogLevel::Error, "创建会话失败，deviceId=" + deviceId + "，原因=" + session.error().description);
-        return Result<std::shared_ptr<IVnaHardware>>::failure(session.error());
+    PendingDeviceHandle pending(record.module, handle.takeValue());
+    try {
+        // adapter 同时持有设备句柄和模块引用；构造成功后才从临时 RAII 守卫移交所有权。
+        auto adapter = std::make_unique<detail::DriverModuleAdapter>(record.module, pending.get());
+        pending.release();
+        auto session = detail::VnaHardwareSession::create(record.descriptor, std::move(adapter), limits_);
+        if (!session.hasValue()) {
+            detail::VnaLogger::write(
+                detail::VnaLogLevel::Error,
+                "创建会话失败，deviceId=" + deviceId + "，原因=" + session.error().description);
+            return Result<std::shared_ptr<IVnaHardware>>::failure(session.error());
+        }
+        auto published = publishSession(session.takeValue());
+        if (published.hasValue()) {
+            detail::VnaLogger::write(detail::VnaLogLevel::Info, "设备已打开，deviceId=" + deviceId);
+        }
+        return published;
+    } catch (const std::bad_alloc &) {
+        return Result<std::shared_ptr<IVnaHardware>>::failure(
+            managerError(VnaErrorCode::ResourceExhausted, "hardware session allocation failed"));
+    } catch (const std::exception &error) {
+        return Result<std::shared_ptr<IVnaHardware>>::failure(managerError(VnaErrorCode::InternalError, error.what()));
+    } catch (...) {
+        return Result<std::shared_ptr<IVnaHardware>>::failure(
+            managerError(VnaErrorCode::InternalError, "hardware session creation failed"));
     }
-    std::shared_ptr<detail::VnaHardwareSession> concrete = session.takeValue();
-    {
+}
+
+Result<VnaHardwareManager::Impl::DeviceRecord> VnaHardwareManager::Impl::findDeviceForOpen(const std::string &deviceId)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_.load()) {
+        return Result<DeviceRecord>::failure(
+            managerError(VnaErrorCode::InvalidState, "hardware manager is shutting down"));
+    }
+    const auto device = devices_.find(deviceId);
+    if (device == devices_.end()) {
+        return Result<DeviceRecord>::failure(
+            managerError(VnaErrorCode::DeviceNotFound, "device identifier is unknown"));
+    }
+    // 复制 module shared_ptr 后立即释放 manager 锁，插件调用绝不发生在全局锁内。
+    return Result<DeviceRecord>::success(device->second);
+}
+
+Result<std::shared_ptr<IVnaHardware>> VnaHardwareManager::Impl::publishSession(
+    std::shared_ptr<detail::VnaHardwareSession> session)
+{
+    try {
         std::lock_guard<std::mutex> lock(mutex_);
-        // manager 仅保存 weak_ptr，用户释放会话时不会被管理器意外延长设备占用时间。
-        sessions_.push_back(concrete);
+        // 创建驱动句柄期间 shutdown 可能已开始；发布前在同一锁下二次确认。
+        if (stopping_.load()) {
+            return Result<std::shared_ptr<IVnaHardware>>::failure(
+                managerError(VnaErrorCode::InvalidState, "hardware manager is shutting down"));
+        }
+        // manager 仅保存 weak_ptr；先清理过期项，避免反复 open/release 使元数据无界增长。
+        sessions_.erase(
+            std::remove_if(sessions_.begin(), sessions_.end(), [](const auto &item) { return item.expired(); }),
+            sessions_.end());
+        sessions_.push_back(session);
+        return Result<std::shared_ptr<IVnaHardware>>::success(std::move(session));
+    } catch (const std::bad_alloc &) {
+        return Result<std::shared_ptr<IVnaHardware>>::failure(
+            managerError(VnaErrorCode::ResourceExhausted, "hardware session registry allocation failed"));
+    } catch (const std::exception &error) {
+        return Result<std::shared_ptr<IVnaHardware>>::failure(managerError(VnaErrorCode::InternalError, error.what()));
     }
-    detail::VnaLogger::write(detail::VnaLogLevel::Info, "设备已打开，deviceId=" + deviceId);
-    return Result<std::shared_ptr<IVnaHardware>>::success(std::move(concrete));
 }
 
 void VnaHardwareManager::Impl::shutdown()
 {
-    // exchange 使显式 shutdown 与析构并发调用保持幂等。
-    if (stopping_.exchange(true)) {
-        return;
+    std::vector<std::thread> discoveryThreads;
+    std::vector<std::weak_ptr<detail::VnaHardwareSession>> sessions;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // 与 publishSession 共用线性化锁，置位后不会再发布关闭流程未捕获的新会话。
+        if (stopping_.load()) {
+            return;
+        }
+        stopping_.store(true);
+        takeShutdownResources(discoveryThreads, sessions);
     }
     detail::VnaLogger::write(detail::VnaLogLevel::Info, "硬件管理器开始关闭");
-    std::vector<std::thread> discoveryThreads;
-    std::vector<std::shared_ptr<detail::VnaHardwareSession>> sessions;
-    takeShutdownResources(discoveryThreads, sessions);
     // 先等待发现线程停止，再关闭会话，避免回调与设备析构交错。
     joinThreads(discoveryThreads);
     shutdownSessions(sessions);
@@ -126,41 +201,11 @@ void VnaHardwareManager::Impl::shutdown()
 }
 
 void VnaHardwareManager::Impl::takeShutdownResources(
-    std::vector<std::thread> &discoveryThreads, std::vector<std::shared_ptr<detail::VnaHardwareSession>> &sessions)
+    std::vector<std::thread> &discoveryThreads, std::vector<std::weak_ptr<detail::VnaHardwareSession>> &sessions)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    // 锁内只转移所有权；耗时的 join/shutdown 在锁外执行，避免关闭路径互相等待。
+    // 调用者持有 mutex_；这里只转移所有权，耗时的 join/shutdown 在锁外执行。
     discoveryThreads = std::move(discoveryThreads_);
-    for (const auto &weakSession : sessions_) {
-        if (auto session = weakSession.lock()) {
-            sessions.push_back(std::move(session));
-        }
-    }
-}
-
-Result<std::unique_ptr<VnaHardwareManager>> VnaHardwareManager::create(std::string driverDirectory)
-{
-    return create(driverDirectory, defaultConfigurationFile(driverDirectory));
-}
-
-Result<std::unique_ptr<VnaHardwareManager>> VnaHardwareManager::create(
-    std::string driverDirectory, std::string configurationFile)
-{
-    auto logger = detail::VnaLogger::acquire(configurationFile);
-    if (!logger.hasValue()) {
-        return Result<std::unique_ptr<VnaHardwareManager>>::failure(logger.error());
-    }
-    detail::VnaLogger::write(detail::VnaLogLevel::Info, "正在创建硬件管理器，驱动目录=" + driverDirectory);
-    // 模块目录整体装载成功后才发布 manager，调用者不会拿到部分初始化对象。
-    auto modules = detail::DriverPluginLoader::loadDirectory(driverDirectory);
-    if (!modules.hasValue()) {
-        detail::VnaLogger::write(detail::VnaLogLevel::Error, "驱动模块加载失败：" + modules.error().description);
-        return Result<std::unique_ptr<VnaHardwareManager>>::failure(modules.error());
-    }
-    auto implementation = std::make_unique<Impl>(logger.takeValue(), modules.takeValue());
-    auto manager = std::unique_ptr<VnaHardwareManager>(new VnaHardwareManager(std::move(implementation)));
-    detail::VnaLogger::write(detail::VnaLogLevel::Info, "硬件管理器创建完成");
-    return Result<std::unique_ptr<VnaHardwareManager>>::success(std::move(manager));
+    sessions = std::move(sessions_);
 }
 
 VnaHardwareManager::VnaHardwareManager(std::unique_ptr<Impl> implementation)

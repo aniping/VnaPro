@@ -70,12 +70,17 @@ Result<std::shared_ptr<VnaLogger>> VnaLogger::acquire(const std::string &configu
     if (!configuration.hasValue()) {
         return Result<std::shared_ptr<VnaLogger>>::failure(configuration.error());
     }
+    return acquire(configuration.takeValue());
+}
+
+Result<std::shared_ptr<VnaLogger>> VnaLogger::acquire(VnaLogConfiguration configuration)
+{
     std::shared_ptr<VnaLogger> result;
     try {
         // 创建和复用在同一把锁下完成，避免两个线程各自打开并轮转同一个日志文件。
         std::lock_guard<std::mutex> lock(activeLoggerMutex);
         if (auto existing = activeLogger.lock()) {
-            if (!existing->uses(configuration.value())) {
+            if (!existing->uses(configuration)) {
                 return Result<std::shared_ptr<VnaLogger>>::failure(
                     loggerError("another VNA manager uses a different logging configuration"));
             }
@@ -83,13 +88,13 @@ Result<std::shared_ptr<VnaLogger>> VnaLogger::acquire(const std::string &configu
         }
         // 同步多线程 sink 使 warning/error 的 flush 语义明确，也避免额外后台线程影响关闭顺序。
         auto sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            configuration.value().logFile, configuration.value().maximumFileBytes, configuration.value().maximumFiles);
+            configuration.logFile, configuration.maximumFileBytes, configuration.maximumFiles);
         auto backend = std::make_shared<spdlog::logger>("vnapro", std::move(sink));
-        backend->set_level(backendLevel(configuration.value().level));
-        backend->flush_on(backendLevel(configuration.value().flushLevel));
+        backend->set_level(backendLevel(configuration.level));
+        backend->flush_on(backendLevel(configuration.flushLevel));
         backend->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [thread %t] %v");
         result = std::shared_ptr<VnaLogger>(
-            new VnaLogger(std::make_unique<Impl>(configuration.takeValue(), std::move(backend))));
+            new VnaLogger(std::make_unique<Impl>(std::move(configuration), std::move(backend))));
         activeLogger = result;
     } catch (const std::exception &exception) {
         return Result<std::shared_ptr<VnaLogger>>::failure(

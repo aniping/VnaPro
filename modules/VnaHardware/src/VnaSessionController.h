@@ -4,14 +4,15 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
-#include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
 #include "DriverModuleAdapter.h"
 #include "VnaEventDispatcher.h"
+#include "VnaHardwareResourceLimits.h"
 
 namespace vna::detail {
 
@@ -21,7 +22,8 @@ class VnaFrameTracker;
 // Actor 串行状态命令，Worker 独占阻塞式 Execute；两者只用内部命令传递完成结果。
 class VnaSessionController final {
 public:
-    VnaSessionController(DeviceDescriptor descriptor, std::unique_ptr<DriverModuleAdapter> adapter);
+    VnaSessionController(
+        DeviceDescriptor descriptor, std::unique_ptr<DriverModuleAdapter> adapter, VnaHardwareResourceLimits limits);
     ~VnaSessionController();
     VnaSessionController(const VnaSessionController &) = delete;
     VnaSessionController &operator=(const VnaSessionController &) = delete;
@@ -30,16 +32,23 @@ public:
     VnaCapabilities capabilities() const;
     DeviceState state() const;
     ValidationReport validate(const VnaSweepPlan &plan) const;
-    CommandId connectAsync();
-    CommandId prepareAsync(VnaSweepPlan plan);
-    CommandId startAsync(ConfigurationId configurationId);
-    CommandId abortAsync(SweepId sweepId);
-    CommandId disconnectAsync();
+    Result<CommandId> connectAsync();
+    Result<CommandId> prepareAsync(VnaSweepPlan plan);
+    Result<CommandId> startAsync(ConfigurationId configurationId);
+    Result<CommandId> abortAsync(SweepId sweepId);
+    Result<CommandId> disconnectAsync();
     Subscription subscribe(IVnaHardwareEventSink &sink);
     void shutdown();
 
 private:
     enum class CommandKind : std::uint8_t { Connect, Prepare, Start, Abort, Disconnect, WorkerFinished };
+
+    struct PreparedResources {
+        std::shared_ptr<const PreparedSweep> prepared;
+        std::shared_ptr<VnaFrameTracker> tracker;
+        std::shared_ptr<VnaBufferPool> pool;
+        std::size_t payloadBytes{0};
+    };
 
     // 一个值类型同时承载外部命令和 Worker 完成消息；未被 kind 使用的字段保持零/空值。
     struct Command {
@@ -47,12 +56,16 @@ private:
         CommandId commandId{0};
         ConfigurationId configurationId{0};
         SweepId sweepId{0};
+        // WorkerFinished 记录入箱时的下一外部 CommandId，用于与已排队命令线性化。
+        CommandId completionBeforeCommandId{0};
+        std::size_t planPayloadBytes{0};
         VnaSweepPlan plan;
         VnaError workerError;
     };
 
-    CommandId nextCommandId();
-    void enqueue(Command command);
+    Result<CommandId> enqueueExternal(Command command, bool reservedControlSlot);
+    void enqueueWorkerCompletion(Command command);
+    void releaseExternalReservation(std::size_t planPayloadBytes) noexcept;
     void actorLoop();
     void workerLoop();
     void process(Command command);
@@ -62,9 +75,12 @@ private:
     void processAbort(const Command &command);
     void processDisconnect(const Command &command);
     void processWorkerFinished(const Command &command);
+    Result<PreparedResources> buildPreparedResources(PreparedSweep prepared);
+    void installPreparedResources(PreparedResources resources);
+    void publishPreparedResources(CommandId commandId, PreparedResources resources);
+    void clearPreparedConfiguration();
     VnaError validateAbort(const Command &command) const;
-    std::shared_ptr<VnaBufferPool> initializeSweep(
-        SweepId sweepId, VnaSweepPlan effectivePlan, std::vector<VnaWaveLayout> layouts, std::size_t batchPoints);
+    std::shared_ptr<VnaBufferPool> activatePreparedSweep(SweepId sweepId);
     void rollbackSweepStart(SweepId sweepId, bool hostRouteRegistered) noexcept;
     void submitSweep(SweepId sweepId);
     VnaStatusV1 acceptBlock(VnaWaveBlock block);
@@ -76,16 +92,21 @@ private:
         CommandId commandId, SweepId sweepId, SweepTerminationReason reason, VnaErrorCode recordedError,
         VnaError workerError);
     void performShutdown();
+    void stopActorForShutdown();
+    SweepId requestShutdownAbort();
+    void stopWorkerForShutdown(SweepId sweepId);
+    void clearShutdownResources();
 
     // descriptor_/adapter_ 在会话期不变；dispatcher_ 是所有公开回调的唯一出口。
     DeviceDescriptor descriptor_;
+    const VnaHardwareResourceLimits limits_;
     std::unique_ptr<DriverModuleAdapter> adapter_;
     std::shared_ptr<VnaEventDispatcher> dispatcher_;
     // dataMutex_ 保护下面的状态快照和活动扫描身份，不保护驱动阻塞调用。
     mutable std::mutex dataMutex_;
     DeviceState state_{DeviceState::Disconnected};
     VnaCapabilities capabilities_;
-    PreparedSweep prepared_;
+    std::shared_ptr<const PreparedSweep> prepared_;
     // configurationId 标识当前 Prepare 结果，sweepId 标识该配置的一次具体执行。
     ConfigurationId activeConfiguration_{0};
     SweepId activeSweep_{0};
@@ -105,7 +126,14 @@ private:
     // 命令队列只由 Actor 消费，避免状态转换在调用线程并发发生。
     std::mutex commandMutex_;
     std::condition_variable commandReady_;
-    std::deque<Command> commands_;
+    // 外部命令使用构造时预分配的固定环，准入热路径不扩容。
+    std::vector<std::optional<Command>> commandSlots_;
+    std::size_t commandHead_{0};
+    std::size_t commandTail_{0};
+    std::size_t queuedExternalCommands_{0};
+    std::optional<Command> workerCompletion_;
+    std::size_t outstandingExternalCommands_{0};
+    std::size_t outstandingPreparePayloadBytes_{0};
     bool actorStopping_{false};
     std::thread actorThread_;
 

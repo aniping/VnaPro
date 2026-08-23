@@ -14,19 +14,37 @@ void VnaSessionController::shutdown()
 
 void VnaSessionController::performShutdown()
 {
-    // 先关闭事件域并停止 Actor；join 是屏障，之后不会再有命令启动新扫描或清除取消位。
+    stopActorForShutdown();
+    const SweepId sweepId = requestShutdownAbort();
+    stopWorkerForShutdown(sweepId);
+    clearShutdownResources();
+    // 两条内部线程均已退出，最后断开设备，避免并发访问驱动句柄。
+    adapter_->disconnect();
+}
+
+void VnaSessionController::stopActorForShutdown()
+{
+    // 先关闭事件域并停止 Actor；join 后不会再有命令启动新扫描或清除取消位。
     dispatcher_->shutdown();
     cancellation_.store(true);
     {
         std::lock_guard<std::mutex> lock(commandMutex_);
         actorStopping_ = true;
-        commands_.clear();
+        for (auto &slot : commandSlots_) {
+            slot.reset();
+        }
+        queuedExternalCommands_ = 0;
+        workerCompletion_.reset();
+        // Actor 可能正在锁外处理一条已出队命令；计数保留到该处理返回，避免释放时下溢。
     }
     commandReady_.notify_all();
     if (actorThread_.joinable()) {
         actorThread_.join();
     }
+}
 
+SweepId VnaSessionController::requestShutdownAbort()
+{
     SweepId sweepId = 0;
     {
         std::lock_guard<std::mutex> lock(dataMutex_);
@@ -40,7 +58,11 @@ void VnaSessionController::performShutdown()
             adapter_->requestAbort(sweepId);
         }
     }
+    return sweepId;
+}
 
+void VnaSessionController::stopWorkerForShutdown(SweepId sweepId)
+{
     {
         // Worker 可能仍在 Execute 中，先发停止信号再 join，保证设备句柄不会提前析构。
         std::lock_guard<std::mutex> lock(workerMutex_);
@@ -54,18 +76,23 @@ void VnaSessionController::performShutdown()
     if (sweepId != 0) {
         HostServices::unregisterSweep(sweepId);
     }
+}
 
+void VnaSessionController::clearShutdownResources()
+{
     {
         // 事件域已关闭且 Actor 已退出，Worker 完成后直接回收不再需要发布终态的扫描资源。
         std::lock_guard<std::mutex> lock(dataMutex_);
         activeSweep_ = 0;
+        activeConfiguration_ = 0;
         completionEmitted_ = true;
         pendingAbortCommand_ = 0;
+        prepared_.reset();
+        capabilities_ = {};
         frameTracker_.reset();
         pool_.reset();
+        state_ = DeviceState::Disconnected;
     }
-    // 两条内部线程均已退出，最后断开设备，避免并发访问驱动句柄。
-    adapter_->disconnect();
 }
 
 }  // namespace vna::detail

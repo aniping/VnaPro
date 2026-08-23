@@ -1,5 +1,6 @@
 #include "VnaSessionController.h"
 
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -89,27 +90,33 @@ void VnaSessionController::processPrepare(Command command)
         fail(command.commandId, commandError(VnaErrorCode::InvalidPlan, validation.issues.front().description));
         return;
     }
-    auto result = adapter_->prepare(command.plan);
+    auto result = adapter_->prepare(std::move(command.plan), limits_.maximumPreparedSweepPayloadBytes);
     if (!result.hasValue()) {
-        transition(stableState);
+        // 插件已收到 Prepare 后，宿主无法证明旧配置仍驻留；失败时一律使旧代次失效。
+        clearPreparedConfiguration();
+        transition(result.error().code == VnaErrorCode::ProtocolError ? DeviceState::Fault : DeviceState::Idle);
         fail(command.commandId, result.error());
         return;
     }
 
-    // 只有驱动准备和返回结果校验全部成功后，才发布新的配置代次。
     PreparedSweep prepared = result.takeValue();
-    prepared.configurationId = nextConfiguration_++;
-    {
-        std::lock_guard<std::mutex> lock(dataMutex_);
-        activeConfiguration_ = prepared.configurationId;
-        prepared_ = prepared;
-        pool_.reset();
+    // 驱动 Prepare 已改写设备配置，旧代次不再可用；先释放旧池再分配新池，避免双倍峰值。
+    clearPreparedConfiguration();
+    if (nextConfiguration_ == std::numeric_limits<ConfigurationId>::max()) {
+        transition(DeviceState::Idle);
+        fail(command.commandId, commandError(VnaErrorCode::ResourceExhausted, "configuration identifier exhausted"));
+        return;
     }
-    VnaLogger::write(
-        VnaLogLevel::Info, "扫描计划准备完成，deviceId=" + descriptor_.deviceId +
-                               "，configurationId=" + std::to_string(prepared.configurationId));
-    transition(DeviceState::Prepared);
-    dispatcher_->postPrepareCompleted(command.commandId, std::move(prepared));
+    prepared.configurationId = nextConfiguration_++;
+    auto resources = buildPreparedResources(std::move(prepared));
+    if (!resources.hasValue()) {
+        const VnaError error = resources.error();
+        clearPreparedConfiguration();
+        transition(error.code == VnaErrorCode::ProtocolError ? DeviceState::Fault : DeviceState::Idle);
+        fail(command.commandId, error);
+        return;
+    }
+    publishPreparedResources(command.commandId, resources.takeValue());
 }
 
 void VnaSessionController::processDisconnect(const Command &command)
@@ -139,7 +146,7 @@ void VnaSessionController::processDisconnect(const Command &command)
         // 断开后能力和配置均不可继续使用，旧 ConfigurationId 会自然过期。
         std::lock_guard<std::mutex> lock(dataMutex_);
         activeConfiguration_ = 0;
-        prepared_ = {};
+        prepared_.reset();
         capabilities_ = {};
         frameTracker_.reset();
         pool_.reset();

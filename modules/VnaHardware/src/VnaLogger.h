@@ -15,6 +15,7 @@ namespace vna::detail {
 class VnaLogger final {
 public:
     static Result<std::shared_ptr<VnaLogger>> acquire(const std::string &configurationFile);
+    static Result<std::shared_ptr<VnaLogger>> acquire(VnaLogConfiguration configuration);
     static void write(VnaLogLevel level, const std::string &message) noexcept;
     static void writeDriver(std::uint32_t level, VnaStringViewV1 message) noexcept;
 

@@ -2,8 +2,10 @@
 #define VNA_DRIVER_SIMULATOR_SIMULATOR_DEVICE_H
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <condition_variable>
 #include <map>
 #include <mutex>
 #include <vector>
@@ -81,14 +83,18 @@ private:
     VnaStatusV1 copyPoint(const VnaPointPlanViewV1 &source, Point &destination);
     VnaStatusV1 copyExcitation(const VnaExcitationPlanViewV1 &source, Excitation &destination);
     VnaStatusV1 rebuildLayouts(VnaPrepareResultViewV1 &result);
-    VnaStatusV1 executeLayout(VnaSweepIdV1 sweepId, std::size_t layoutIndex);
+    VnaStatusV1 executeLayout(
+        VnaSweepIdV1 sweepId, std::size_t layoutIndex, std::chrono::steady_clock::time_point &measurementDeadline);
     VnaStatusV1 emitBatch(
-        VnaSweepIdV1 sweepId, std::size_t layoutIndex, std::uint32_t firstPoint, std::uint32_t pointCount);
+        VnaSweepIdV1 sweepId, std::size_t layoutIndex, std::uint32_t firstPoint, std::uint32_t pointCount,
+        bool finalBatch);
     VnaStatusV1 fillBatch(
-        std::size_t layoutIndex, std::uint32_t firstPoint, std::uint32_t pointCount,
+        VnaSweepIdV1 sweepId, std::size_t layoutIndex, std::uint32_t firstPoint, std::uint32_t pointCount,
         VnaMutableWaveBlockViewV1 &view) const;
     const Excitation *findExcitation(const Point &point, std::uint32_t layoutId) const;
     bool cancellationRequested(VnaSweepIdV1 sweepId) const;
+    bool waitUntilMeasurementReady(VnaSweepIdV1 sweepId, std::chrono::steady_clock::time_point deadline);
+    bool closeAbortAdmissionForFinalCommit(VnaSweepIdV1 sweepId);
 
     // hostApi_ 按值保存函数表；函数指针由宿主保证在驱动模块生命周期内有效。
     VnaDriverHostApiV1 hostApi_{};
@@ -102,12 +108,14 @@ private:
     // execute 与 requestAbort 位于不同线程；sweepMutex_ 使“接受中止”与“执行收尾”互斥。
     // 原子量供执行热路径和取消回调无锁读取，互斥量则保证终态判定不丢请求。
     std::mutex sweepMutex_;
+    std::condition_variable sweepChanged_;
+    bool abortAdmissionOpen_{false};
     std::atomic<bool> abortRequested_{false};
     std::atomic<VnaSweepIdV1> activeSweep_{0};
 };
 
 VnaStatusV1 simulatorStatus(std::uint32_t code, const char *message);
-VnaComplex64V1 simulateWave(const Point &point, const Excitation &excitation, const Wave &wave);
+VnaComplex64V1 simulateWave(VnaSweepIdV1 sweepId, const Point &point, const Excitation &excitation, const Wave &wave);
 
 }  // namespace vna::simulator
 

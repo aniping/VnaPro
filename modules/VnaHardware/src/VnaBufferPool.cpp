@@ -248,6 +248,26 @@ std::uint32_t VnaBufferPool::quality(std::size_t slotIndex, std::size_t waveInde
     return slot.qualityFlags.at(checkedValueIndex(slot, waveIndex, pointOffset));
 }
 
+void VnaBufferPool::copyWaveTo(
+    std::size_t slotIndex, std::size_t waveIndex, std::complex<double> *destinationValues,
+    std::uint32_t *destinationQuality, std::size_t pointCount) const
+{
+    const Slot &slot = checkedSlot(slotIndex);
+    if ((destinationValues == nullptr) || (destinationQuality == nullptr)) {
+        throw std::invalid_argument("Wave copy destination is null");
+    }
+    if ((waveIndex >= slot.waveCount) || (pointCount > slot.pointCount)) {
+        throw std::out_of_range("Wave copy range is out of bounds");
+    }
+    // 每波跨距由本次 Acquire 容量决定；尾块的实际点数只限制复制范围。
+    const std::size_t waveOffset = waveIndex * slot.acquiredCapacity;
+    for (std::size_t point = 0; point < pointCount; ++point) {
+        const VnaComplex64V1 &source = slot.values[waveOffset + point];
+        destinationValues[point] = std::complex<double>{source.real, source.imag};
+        destinationQuality[point] = slot.qualityFlags[waveOffset + point];
+    }
+}
+
 VnaBufferPool::Slot *VnaBufferPool::resolveHandle(VnaBufferHandle handle)
 {
     // 外部 handle 可能伪造，只比较稳定地址，确认属于本池之前绝不解引用。

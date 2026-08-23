@@ -13,7 +13,8 @@ namespace vna::detail {
 class VnaEventDispatcher final : public std::enable_shared_from_this<VnaEventDispatcher> {
 public:
     // 必须通过工厂创建，使分发线程能够捕获 shared_ptr 保证自身生命周期。
-    static std::shared_ptr<VnaEventDispatcher> create(std::size_t queueCapacity);
+    static std::shared_ptr<VnaEventDispatcher> create(
+        std::size_t queueCapacity, std::size_t maximumRetainedPreparedPayloadBytes);
     ~VnaEventDispatcher();
     VnaEventDispatcher(const VnaEventDispatcher &) = delete;
     VnaEventDispatcher &operator=(const VnaEventDispatcher &) = delete;
@@ -23,7 +24,8 @@ public:
     // post* 只入队不直接回调；控制事件与数据事件在 Impl 内采用不同背压策略。
     void postStateChanged(DeviceState previous, DeviceState current);
     void postConnectCompleted(CommandId commandId);
-    void postPrepareCompleted(CommandId commandId, PreparedSweep prepared);
+    void postPrepareCompleted(
+        CommandId commandId, std::shared_ptr<const PreparedSweep> prepared, std::size_t retainedPayloadBytes);
     void postStartCompleted(CommandId commandId, SweepId sweepId);
     void postAbortCompleted(CommandId commandId, SweepId sweepId);
     void postDisconnectCompleted(CommandId commandId);

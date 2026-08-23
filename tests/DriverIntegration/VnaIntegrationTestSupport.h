@@ -13,6 +13,9 @@
 
 namespace vna::test {
 
+// 集成测试只关心“命令已被宿主接纳”；同步拒绝由 helper 立即转成测试失败。
+CommandId unwrapCommand(Result<CommandId> result);
+
 // 收集一次异步发现的终态；测试线程只通过 wait() 观察回调线程写入的数据。
 class DiscoverySink final : public IVnaDiscoverySink {
 public:
@@ -52,6 +55,7 @@ public:
     bool waitDisconnected(std::size_t count);
     bool waitCompleted(std::size_t count);
     bool waitFailures(std::size_t count);
+    bool waitBlocks(std::size_t count);
     bool waitState(DeviceState state);
     ConfigurationId configuration() const;
     SweepId sweep(std::size_t index) const;
@@ -68,6 +72,7 @@ public:
     bool failedCommand(CommandId commandId) const;
     CommandId triggeredAbortCommand() const;
     void clearBlocks();
+    void discardFutureBlocks();
     std::size_t failureCount() const;
 
 private:
@@ -96,12 +101,14 @@ private:
     CommandId triggeredAbortCommand_{0};
     std::vector<CommandId> completedCommands_;
     std::vector<CommandId> failedCommands_;
+    std::size_t blockCount_{0};
+    bool retainBlocks_{true};
     std::vector<VnaWaveBlock> blocks_;
     std::vector<SweepCompletion> completions_;
     std::vector<VnaError> failures_;
 };
 
-// 构造跨五个频点的确定性计划，用于验证批次边界和复数波模型。
+// 构造跨五个频点的稳定计划，用于验证批次边界和复数波模型。
 VnaSweepPlan makePlan();
 void verifyCompletedSweep(const HardwareSink &events);
 

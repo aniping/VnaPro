@@ -47,8 +47,8 @@ struct ConnectCompletedEvent {
 
 struct PrepareCompletedEvent {
     CommandId commandId{0};
-    // prepared 按值交付，布局和有效计划不借用驱动内存。
-    PreparedSweep prepared;
+    // Hardware 与上层共享同一不可变快照；它不借用驱动内存，也不允许跨层修改。
+    std::shared_ptr<const PreparedSweep> prepared;
 };
 
 struct StartCompletedEvent {

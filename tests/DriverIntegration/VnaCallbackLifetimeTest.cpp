@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "VnaHardwareManager.h"
+#include "VnaIntegrationTestSupport.h"
 
 namespace {
 
@@ -129,7 +129,7 @@ TEST(VnaCallbackLifetimeTest, SessionCanBeReleasedInsideItsCallback)
     ResetOnConnectSink sink(hardware);
     // subscription 保持到回调完成，确保测试的释放对象只有 session 而不是 sink。
     auto subscription = hardware->subscribe(sink);
-    hardware->connectAsync();
+    vna::test::unwrapCommand(hardware->connectAsync());
     ASSERT_TRUE(sink.wait());
     EXPECT_EQ(hardware, nullptr);
     // session 已在回调内销毁，manager 仍必须能够幂等完成全局关闭。

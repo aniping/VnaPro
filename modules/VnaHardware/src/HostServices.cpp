@@ -1,7 +1,7 @@
 #include "HostServices.h"
 
-#include <iterator>
 #include <map>
+#include <limits>
 #include <mutex>
 #include <string>
 
@@ -57,41 +57,91 @@ namespace {
         return context->second.cancellation->load() ? 1 : 0;
     }
 
+    VnaStatusV1 findActivePool(VnaSweepIdV1 sweepId, std::shared_ptr<VnaBufferPool> &pool)
+    {
+        std::lock_guard<std::mutex> lock(registry().mutex);
+        const auto context = registry().sweeps.find(sweepId);
+        if (context == registry().sweeps.end()) {
+            return status(VNA_STATUS_INVALID_STATE, "sweep is not active");
+        }
+        if (context->second.cancellation->load()) {
+            return status(VNA_STATUS_CANCELLED, "sweep cancellation requested");
+        }
+        pool = context->second.pool;
+        return status(VNA_STATUS_OK, "");
+    }
+
+    VnaStatusV1 registerAcquiredHandle(
+        VnaSweepIdV1 sweepId, const std::shared_ptr<VnaBufferPool> &pool, VnaBufferHandle handle)
+    {
+        std::lock_guard<std::mutex> lock(registry().mutex);
+        const auto context = registry().sweeps.find(sweepId);
+        if ((context == registry().sweeps.end()) || (context->second.pool != pool)) {
+            return status(VNA_STATUS_INVALID_STATE, "sweep ended while acquiring a wave block");
+        }
+        if (context->second.cancellation->load()) {
+            return status(VNA_STATUS_CANCELLED, "sweep cancellation requested");
+        }
+        if (!registry().handles.emplace(handle, sweepId).second) {
+            return status(VNA_STATUS_INVALID_ARGUMENT, "buffer handle is already registered");
+        }
+        return status(VNA_STATUS_OK, "");
+    }
+
+    void rollbackAcquiredBlock(
+        const std::shared_ptr<VnaBufferPool> &pool, VnaBufferHandle acquiredHandle, VnaBufferHandle *handle,
+        VnaMutableWaveBlockViewV1 *view) noexcept
+    {
+        if (pool && (acquiredHandle != nullptr)) {
+            pool->discard(acquiredHandle);
+        }
+        if (handle != nullptr) {
+            *handle = nullptr;
+        }
+        if (view != nullptr) {
+            *view = {};
+        }
+    }
+
     VnaStatusV1 acquireBlock(
         VnaSweepIdV1 sweepId, std::uint32_t layoutId, std::uint32_t pointCapacity, VnaBufferHandle *handle,
         VnaMutableWaveBlockViewV1 *view) noexcept
     {
+        std::shared_ptr<VnaBufferPool> pool;
+        VnaBufferHandle acquiredHandle = nullptr;
         try {
-            std::shared_ptr<VnaBufferPool> pool;
-            {
-                std::lock_guard<std::mutex> lock(registry().mutex);
-                const auto context = registry().sweeps.find(sweepId);
-                if (context == registry().sweeps.end()) {
-                    return status(VNA_STATUS_INVALID_STATE, "sweep is not active");
-                }
-                if (context->second.cancellation->load()) {
-                    return status(VNA_STATUS_CANCELLED, "sweep cancellation requested");
-                }
-                pool = context->second.pool;
+            const VnaStatusV1 route = findActivePool(sweepId, pool);
+            if (route.code != VNA_STATUS_OK) {
+                return route;
             }
             // 不持有全局注册表锁等待缓冲槽，避免背压反向阻塞取消和注销。
             const VnaStatusV1 result = pool->acquire(sweepId, layoutId, pointCapacity, handle, view);
-            if (result.code == VNA_STATUS_OK) {
-                std::lock_guard<std::mutex> lock(registry().mutex);
-                // 记录裸 handle 的 SweepId 所有权，后续 Commit/Discard 才能验证来源。
-                registry().handles[*handle] = sweepId;
+            if (result.code != VNA_STATUS_OK) {
+                return result;
             }
+            acquiredHandle = *handle;
+            // Acquire 可能在等待槽位期间与注销交错，返回后必须重新验证同一条路由。
+            const VnaStatusV1 registration = registerAcquiredHandle(sweepId, pool, acquiredHandle);
+            if (registration.code != VNA_STATUS_OK) {
+                rollbackAcquiredBlock(pool, acquiredHandle, handle, view);
+                return registration;
+            }
+            acquiredHandle = nullptr;
             return result;
         } catch (...) {
+            // Acquire 已取得槽位后，handles map 分配失败也必须归还租约。
+            rollbackAcquiredBlock(pool, acquiredHandle, handle, view);
             return status(VNA_STATUS_INTERNAL_ERROR, "host acquire failed");
         }
     }
 
     VnaStatusV1 commitBlock(VnaBufferHandle handle, std::uint32_t firstPointIndex, std::uint32_t pointCount) noexcept
     {
+        std::shared_ptr<VnaBufferPool> pool;
+        bool ownershipRemoved = false;
         try {
-            std::shared_ptr<VnaBufferPool> pool;
             std::uint64_t sequence = 0;
+            bool sequenceExhausted = false;
             {
                 std::lock_guard<std::mutex> lock(registry().mutex);
                 const auto owner = registry().handles.find(handle);
@@ -103,8 +153,16 @@ namespace {
                     return status(VNA_STATUS_INVALID_STATE, "sweep is not active");
                 }
                 pool = context->second.pool;
-                sequence = context->second.nextSequence++;
+                sequenceExhausted = context->second.nextSequence == std::numeric_limits<std::uint64_t>::max();
+                if (!sequenceExhausted) {
+                    sequence = context->second.nextSequence++;
+                }
                 registry().handles.erase(owner);
+                ownershipRemoved = true;
+            }
+            if (sequenceExhausted) {
+                pool->discard(handle);
+                return status(VNA_STATUS_DATA_LOSS, "wave block sequence is exhausted");
             }
             // 先移除裸句柄再发布波块，使重复 Commit 必然失败。
             const VnaStatusV1 result = pool->commit(handle, firstPointIndex, pointCount, sequence);
@@ -113,6 +171,10 @@ namespace {
             }
             return result;
         } catch (...) {
+            // 注册表已经交出裸句柄所有权但 Commit 尚未完成时，必须回收 Acquired 槽位。
+            if (pool && ownershipRemoved) {
+                pool->discard(handle);
+            }
             return status(VNA_STATUS_INTERNAL_ERROR, "host commit failed");
         }
     }
@@ -174,9 +236,18 @@ void HostServices::unregisterSweep(SweepId sweepId) noexcept
     // 不能吞掉注销失败后继续析构会话，否则注册表会留下指向 cancellation_ 的悬空借用。
     // 本函数为 noexcept，极端的互斥锁故障会终止进程，不伪装成已安全收尾。
     std::lock_guard<std::mutex> lock(registry().mutex);
-    // 先移除所有尚未归还的裸句柄，再移除上下文，迟到操作只能得到“未知句柄”。
+    const auto context = registry().sweeps.find(sweepId);
+    const std::shared_ptr<VnaBufferPool> pool = context == registry().sweeps.end() ? nullptr : context->second.pool;
+    // 同一锁内封闭路由和句柄，避免 Discard 在两步之间丢失 pool；pool 不反向持有 registry 锁。
     for (auto handle = registry().handles.begin(); handle != registry().handles.end();) {
-        handle = handle->second == sweepId ? registry().handles.erase(handle) : std::next(handle);
+        if (handle->second == sweepId) {
+            if (pool) {
+                pool->discard(handle->first);
+            }
+            handle = registry().handles.erase(handle);
+        } else {
+            ++handle;
+        }
     }
     registry().sweeps.erase(sweepId);
 }

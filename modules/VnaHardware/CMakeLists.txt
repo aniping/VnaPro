@@ -6,13 +6,18 @@ add_library(
     src/DriverPluginLoader.cpp
     src/HostServices.cpp
     src/PosixDriverFile.cpp
+    src/VnaCheckedSize.cpp
     src/VnaBufferPool.cpp
+    src/VnaCommandAdmission.cpp
+    src/VnaConfigurationFile.cpp
     src/VnaEventDispatcher.cpp
     src/VnaEventQueue.cpp
     src/VnaFrameTracker.cpp
     src/VnaHardware.cpp
     src/VnaHardwareDiscovery.cpp
     src/VnaHardwareManager.cpp
+    src/VnaHardwareManagerFactory.cpp
+    src/VnaHardwareResourceLimits.cpp
     src/VnaHardwareSession.cpp
     src/VnaLogConfiguration.cpp
     src/VnaLogger.cpp
@@ -22,7 +27,10 @@ add_library(
     src/VnaSweepCommands.cpp
     src/VnaSweepTermination.cpp
     src/VnaPlanMarshaller.cpp
+    src/VnaPreparedCapacity.cpp
+    src/VnaPreparedResources.cpp
     src/VnaValidation.cpp
+    src/VnaWavePoolCapacity.cpp
     src/VnaWaveBlockCommands.cpp
     src/VnaWaveBlock.cpp
 )

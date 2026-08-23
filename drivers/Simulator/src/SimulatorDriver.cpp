@@ -77,7 +77,7 @@ namespace {
             descriptor.portCount = 4;
             descriptor.driverDeviceId = literalView("simulator-0");
             descriptor.vendor = literalView("VnaPro");
-            descriptor.model = literalView("Deterministic four-port simulator");
+            descriptor.model = literalView("Open-circuit four-port simulator");
             descriptor.serialNumber = literalView("SIM-0001");
             callback(&descriptor, context);
             return simulatorStatus(VNA_STATUS_OK, "");
@@ -181,7 +181,7 @@ namespace {
         api.abiMinor = VNA_DRIVER_ABI_MINOR_V1;
         api.metadata.structSize = static_cast<std::uint32_t>(sizeof(api.metadata));
         api.metadata.driverId = literalView("vnapro.simulator");
-        api.metadata.displayName = literalView("VnaPro deterministic simulator");
+        api.metadata.displayName = literalView("VnaPro physical simulator");
         api.Create = &createDriver;
         api.Destroy = &destroyDriver;
         api.Discover = &discoverDevices;

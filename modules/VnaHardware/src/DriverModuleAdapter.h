@@ -1,6 +1,7 @@
 #ifndef VNA_HARDWARE_DRIVER_MODULE_ADAPTER_H
 #define VNA_HARDWARE_DRIVER_MODULE_ADAPTER_H
 
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -43,7 +44,7 @@ public:
 
     Result<VnaCapabilities> connect();
     Result<VnaCapabilities> capabilities();
-    Result<PreparedSweep> prepare(const VnaSweepPlan &plan);
+    Result<PreparedSweep> prepare(VnaSweepPlan plan, std::size_t maximumPreparedPayloadBytes);
     VnaError execute(SweepId sweepId);
     VnaError requestAbort(SweepId sweepId);
     VnaError disconnect();

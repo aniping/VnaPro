@@ -92,7 +92,7 @@ struct ExecutionReport {
     // Native 表示设备直接接受计划，Compiled 表示驱动进行了等价的内部编排。
     ExecutionMode executionMode{ExecutionMode::Native};
     std::uint32_t physicalSweepCount{0};
-    std::size_t preferredBatchPoints{0};
+    std::size_t waveBlockPointCapacity{0};
     std::size_t estimatedBytesPerPoint{0};
     bool quantized{false};
     bool atomic{false};

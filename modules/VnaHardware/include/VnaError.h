@@ -30,7 +30,8 @@ enum class VnaErrorCode : std::uint32_t {
     Cancelled,
     DriverLoadFailed,
     DriverAbiMismatch,
-    InternalError
+    InternalError,
+    ResourceExhausted
 };
 
 // vendorCode 保留厂商原始诊断；code 是上层可稳定处理的统一错误分类。

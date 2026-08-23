@@ -27,7 +27,7 @@ public:
 // 管理器拥有驱动模块；sink 必须存活到对应发现完成或失败回调。
 class VnaHardwareManager final {
 public:
-    // 默认从驱动目录下的 vnapro.conf 读取日志配置。
+    // 默认从驱动目录下的 vnapro.conf 读取日志和硬件资源配置。
     static Result<std::unique_ptr<VnaHardwareManager>> create(std::string driverDirectory);
     // 显式配置入口适用于配置文件不与驱动同目录的部署；两条路径都在创建阶段完成校验。
     static Result<std::unique_ptr<VnaHardwareManager>> create(

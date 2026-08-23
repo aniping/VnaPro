@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "VnaHardwareManager.h"
+#include "VnaHardwareResourceLimits.h"
 
 namespace vna {
 namespace detail {
@@ -32,7 +33,9 @@ public:
         std::shared_ptr<detail::DriverModule> module;
     };
 
-    Impl(std::shared_ptr<detail::VnaLogger> logger, std::vector<std::shared_ptr<detail::DriverModule>> modules);
+    Impl(
+        std::shared_ptr<detail::VnaLogger> logger, std::vector<std::shared_ptr<detail::DriverModule>> modules,
+        detail::VnaHardwareResourceLimits limits);
     ~Impl();
     DiscoveryId discover(const DiscoveryOptions &options, IVnaDiscoverySink &sink);
     Result<std::shared_ptr<IVnaHardware>> open(const std::string &deviceId);
@@ -43,6 +46,8 @@ private:
     enum class DiscoveryRunResult : std::uint8_t { Completed, Stopped, TimedOut, CallbackFailed };
 
     static bool discoveryWasInterrupted(DiscoveryRunResult result);
+    Result<DeviceRecord> findDeviceForOpen(const std::string &deviceId);
+    Result<std::shared_ptr<IVnaHardware>> publishSession(std::shared_ptr<detail::VnaHardwareSession> session);
     void runDiscovery(DiscoveryId identifier, DiscoveryOptions options, IVnaDiscoverySink *sink);
     DiscoveryRunResult scanModules(
         DiscoveryId identifier, std::chrono::steady_clock::time_point deadline, IVnaDiscoverySink *sink,
@@ -60,11 +65,13 @@ private:
         DeviceDescriptor &descriptor);
     // 调用者持有 mutex_，避免检查与插入之间出现竞态。
     bool deviceIdCollides(const DeviceRecord &record) const;
+    // 调用者持有 mutex_，使 stopping_ 置位与会话/发现资源转移成为同一线性化事务。
     void takeShutdownResources(
-        std::vector<std::thread> &discoveryThreads, std::vector<std::shared_ptr<detail::VnaHardwareSession>> &sessions);
+        std::vector<std::thread> &discoveryThreads, std::vector<std::weak_ptr<detail::VnaHardwareSession>> &sessions);
 
     // logger_ 先声明、后析构，保证驱动模块 Destroy 期间日志后端仍然存活。
     std::shared_ptr<detail::VnaLogger> logger_;
+    const detail::VnaHardwareResourceLimits limits_;
     // modules_ 在 logger_ 之前析构，发现记录、会话适配器和函数表依赖动态库仍被装载。
     std::vector<std::shared_ptr<detail::DriverModule>> modules_;
     std::mutex mutex_;

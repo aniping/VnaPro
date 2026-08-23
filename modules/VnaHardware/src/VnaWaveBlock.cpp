@@ -91,6 +91,16 @@ std::uint32_t VnaWaveBlock::quality(std::size_t waveIndex, std::size_t pointOffs
     return pool_->quality(slotIndex_, waveIndex, pointOffset);
 }
 
+void VnaWaveBlock::copyWaveTo(
+    std::size_t waveIndex, std::complex<double> *destinationValues, std::uint32_t *destinationQuality,
+    std::size_t pointCount) const
+{
+    if (!pool_) {
+        throw std::logic_error("Wave block has no storage");
+    }
+    pool_->copyWaveTo(slotIndex_, waveIndex, destinationValues, destinationQuality, pointCount);
+}
+
 void VnaWaveBlock::release()
 {
     if (pool_) {

@@ -1,25 +1,39 @@
 #include "VnaEventQueue.h"
 
+#include <exception>
+#include <stdexcept>
 #include <utility>
 
 namespace vna::detail {
 
-EventQueue::EventQueue(std::size_t capacity) : slots_(capacity)
+EventQueue::EventQueue(std::size_t capacity, std::size_t maximumRetainedPayloadBytes)
+    : slots_(capacity), maximumRetainedPayloadBytes_(maximumRetainedPayloadBytes)
 {
     // 容量在构造后固定，环形槽位避免事件高频流中反复分配队列节点。
+    if (capacity == 0) {
+        throw std::invalid_argument("event queue capacity must be positive");
+    }
 }
 
 bool EventQueue::push(QueuedEvent event)
 {
     // 控制事件使用无超时反压：只要队列未关闭，就等待消费者腾出空间。
     std::unique_lock<std::mutex> lock(mutex_);
-    writable_.wait(lock, [this] { return closed_ || (count_ < slots_.size()); });
+    const std::size_t payloadBytes = event.retainedPayloadBytes;
+    if (payloadBytes > maximumRetainedPayloadBytes_) {
+        return false;
+    }
+    writable_.wait(lock, [this, payloadBytes] {
+        return closed_ ||
+               ((count_ < slots_.size()) && (payloadBytes <= (maximumRetainedPayloadBytes_ - retainedPayloadBytes_)));
+    });
     if (closed_) {
         return false;
     }
     slots_[tail_].emplace(std::move(event));
     tail_ = (tail_ + 1) % slots_.size();
     ++count_;
+    retainedPayloadBytes_ += payloadBytes;
     readable_.notify_one();
     return true;
 }
@@ -28,15 +42,35 @@ bool EventQueue::push(QueuedEvent event, std::chrono::milliseconds timeout)
 {
     // 数据事件采用有界等待，让上游能把拥塞转换为明确的 DATA_LOSS。
     std::unique_lock<std::mutex> lock(mutex_);
-    const bool ready = writable_.wait_for(lock, timeout, [this] { return closed_ || (count_ < slots_.size()); });
+    const std::size_t payloadBytes = event.retainedPayloadBytes;
+    if (payloadBytes > maximumRetainedPayloadBytes_) {
+        return false;
+    }
+    const bool ready = writable_.wait_for(lock, timeout, [this, payloadBytes] {
+        return closed_ ||
+               ((count_ < slots_.size()) && (payloadBytes <= (maximumRetainedPayloadBytes_ - retainedPayloadBytes_)));
+    });
     if (!ready || closed_) {
         return false;
     }
     slots_[tail_].emplace(std::move(event));
     tail_ = (tail_ + 1) % slots_.size();
     ++count_;
+    retainedPayloadBytes_ += payloadBytes;
     readable_.notify_one();
     return true;
+}
+
+void EventQueue::releaseRetainedPayload(std::size_t payloadBytes) noexcept
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (payloadBytes > retainedPayloadBytes_) {
+        // 下溢表示全局载荷预算不变量已经损坏；继续运行会让内存上限失真并可能绕过资源门禁。
+        // 此处按 fail-fast 策略终止进程，且不假设析构或其他常规清理仍会执行。
+        std::terminate();
+    }
+    retainedPayloadBytes_ -= payloadBytes;
+    writable_.notify_all();
 }
 
 bool EventQueue::pop(QueuedEvent &event)

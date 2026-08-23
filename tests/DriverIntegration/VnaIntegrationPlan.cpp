@@ -42,16 +42,21 @@ void verifyCompletedSweep(const HardwareSink &events)
     EXPECT_EQ(events.blockPointCount(0), 2U);
     EXPECT_EQ(events.blockPointCount(2), 1U);
 
-    // 入射波幅度为 1；跨一个端口的出射波使用 0.5 增益和确定性传播相位。
-    EXPECT_NEAR(events.blockValue(0, 0, 0).real(), 1.0, 1.0e-12);
-    EXPECT_NEAR(events.blockValue(0, 0, 0).imag(), 0.0, 1.0e-12);
+    // 0 dB 源的入射波接近单位幅度，但接收机噪声会让每个 Sweep 的复值发生微小变化。
+    const auto incident = events.blockValue(0, 0, 0);
+    EXPECT_TRUE(std::isfinite(incident.real()));
+    EXPECT_TRUE(std::isfinite(incident.imag()));
+    EXPECT_NEAR(std::abs(incident), 1.0, 2.0e-3);
     // 质量位零表示有效样本，确保模拟器没有把默认 Missing 标志泄漏给已填充数据。
     EXPECT_EQ(events.blockQuality(0, 0, 0), 0U);
-    constexpr double pi = 3.14159265358979323846;
-    EXPECT_NEAR(events.blockValue(0, 1, 0).real(), 0.5 * std::cos(-0.2 * pi), 1.0e-12);
+    // 内建 DUT 的不同端口彼此开路；跨端口只保留有限隔离泄漏和随 IFBW 变化的底噪。
+    const auto isolated = events.blockValue(0, 1, 0);
+    EXPECT_TRUE(std::isfinite(isolated.real()));
+    EXPECT_TRUE(std::isfinite(isolated.imag()));
+    EXPECT_LT(std::abs(isolated), 1.0e-3);
     // 尾块只有一点，专门验证第二个波使用本次 Acquire 容量作跨距。
     EXPECT_EQ(events.blockQuality(2, 1, 0), 0U);
-    EXPECT_NEAR(events.blockValue(2, 1, 0).real(), 0.5 * std::cos(-0.2008 * pi), 1.0e-12);
+    EXPECT_LT(std::abs(events.blockValue(2, 1, 0)), 1.0e-3);
 }
 
 }  // namespace vna::test

@@ -7,17 +7,26 @@ add_executable(
     DriverAbiLayoutTest.cpp
     DriverAbiVersionTest.cpp
     DriverPluginSecurityTest.cpp
+    SimulatorExecutionConcurrencyTest.cpp
+    SimulatorSparseLayoutTest.cpp
+    SimulatorTimingTest.cpp
+    SimulatorWaveModelTest.cpp
     VnaCallbackLifetimeTest.cpp
+    VnaCommandTestSupport.cpp
     VnaDriverIntegrationTest.cpp
+    VnaEventQueueResourceTest.cpp
     VnaFrameTrackerTest.cpp
+    VnaHostServicesResourceTest.cpp
     VnaIntegrationPlan.cpp
     VnaIntegrationTestSupport.cpp
+    VnaIntegrationWaveTestSupport.cpp
     VnaLoggingTest.cpp
+    VnaResourceLimitsTest.cpp
     VnaSweepTerminationTest.cpp
     VnaValidationTest.cpp
 )
 configure_file(vnapro-test.conf ${CMAKE_BINARY_DIR}/drivers/vnapro.conf COPYONLY)
-target_link_libraries(VnaHardwareTests PRIVATE VnaHardware GTest::gtest_main)
+target_link_libraries(VnaHardwareTests PRIVATE VnaHardware VnaSimulatorCore GTest::gtest_main)
 target_include_directories(
     VnaHardwareTests PRIVATE ${PROJECT_SOURCE_DIR}/modules/VnaHardware/src
 )
