@@ -9,8 +9,6 @@
 namespace vna::simulator {
 namespace {
 
-    constexpr std::uint32_t batchPoints = 2;
-
     VnaStringViewV1 literalView(const char *message)
     {
         return VnaStringViewV1{message, std::char_traits<char>::length(message)};
@@ -75,7 +73,7 @@ namespace {
     std::uint32_t contiguousBatchSize(const std::vector<Point> &points, std::size_t firstPoint, std::uint32_t layoutId)
     {
         // 一个块只能描述连续 pointIndex；遇到布局缺口必须结束当前批次。
-        const std::size_t end = std::min(points.size(), firstPoint + batchPoints);
+        const std::size_t end = std::min(points.size(), firstPoint + simulatorBatchPoints);
         const std::size_t nextMissing = nextPointWithLayout(points, firstPoint, layoutId);
         if (nextMissing != firstPoint) {
             return 0;
@@ -90,7 +88,8 @@ namespace {
     bool validWaveBuffer(const VnaMutableWaveBlockViewV1 &view, std::uint32_t pointCount, std::size_t waveCount)
     {
         const bool validStorage = (view.values != nullptr) && (view.qualityFlags != nullptr);
-        return (view.pointCapacity >= pointCount) && (view.waveCount == waveCount) && validStorage;
+        return (view.structSize >= sizeof(view)) && (view.reserved == 0) && (view.pointCapacity >= pointCount) &&
+               (view.waveCount == waveCount) && validStorage;
     }
 
 }  // namespace
@@ -123,7 +122,7 @@ VnaStatusV1 SimulatorDevice::rebuildLayouts(VnaPrepareResultViewV1 &result)
     }
     result.structSize = static_cast<std::uint32_t>(sizeof(result));
     result.physicalSweepCount = 1;
-    result.preferredBatchPoints = batchPoints;
+    result.preferredBatchPoints = simulatorBatchPoints;
     result.estimatedBytesPerPoint = estimatedBytes;
     result.executionFlags = VNA_EXECUTION_ATOMIC | VNA_EXECUTION_PHASE_COHERENT;
     result.layoutCount = layoutViews_.size();
@@ -159,22 +158,35 @@ VnaStatusV1 SimulatorDevice::execute(VnaSweepIdV1 sweepId)
             break;
         }
     }
-    // 无论成功、取消还是驱动错误，都只在一个出口释放活动扫频标记。
-    activeSweep_.store(0);
+    // 收尾与 RequestAbort 用同一把锁交握，避免请求返回 OK 却没有导致 Cancelled。
+    status = finishExecution(status);
     hostApi_.Log(VNA_LOG_INFO, literalView("simulator sweep finished"));
     return status;
 }
 
 bool SimulatorDevice::beginSweep(VnaSweepIdV1 sweepId)
 {
-    VnaSweepIdV1 inactiveSweep = 0;
+    std::lock_guard<std::mutex> lock(sweepMutex_);
     const bool ready = connected_ && prepared_ && (sweepId != 0);
-    if (!ready || !activeSweep_.compare_exchange_strong(inactiveSweep, sweepId)) {
+    if (!ready || (activeSweep_.load() != 0)) {
         return false;
     }
     // 中止只属于一次 SweepId，不能污染同一配置的后续重复执行。
     abortRequested_.store(false);
+    activeSweep_.store(sweepId);
     return true;
+}
+
+VnaStatusV1 SimulatorDevice::finishExecution(VnaStatusV1 status)
+{
+    std::lock_guard<std::mutex> lock(sweepMutex_);
+    // 若 RequestAbort 先获锁并返回 OK，本次 Execute 必须以 Cancelled 结束。
+    if ((status.code == VNA_STATUS_OK) && abortRequested_.load()) {
+        status = simulatorStatus(VNA_STATUS_CANCELLED, "simulator sweep was cancelled");
+    }
+    // 若本函数先获锁清空标识，稍后的 RequestAbort 只能返回 InvalidState。
+    activeSweep_.store(0);
+    return status;
 }
 
 VnaStatusV1 SimulatorDevice::executeLayout(VnaSweepIdV1 sweepId, std::size_t layoutIndex)
@@ -247,10 +259,14 @@ VnaStatusV1 SimulatorDevice::fillBatch(
 VnaStatusV1 SimulatorDevice::requestAbort(VnaSweepIdV1 sweepId)
 {
     // sweepId 防止迟到的中止请求误伤后来复用同一已准备配置的新扫描。
-    if ((sweepId == 0) || (activeSweep_.load() != sweepId)) {
-        return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator sweep is not active");
+    {
+        std::lock_guard<std::mutex> lock(sweepMutex_);
+        if ((sweepId == 0) || (activeSweep_.load() != sweepId)) {
+            return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator sweep is not active");
+        }
+        // 持锁写入使收尾要么看到请求，要么先将扫频置为非活动并让本请求失败。
+        abortRequested_.store(true);
     }
-    abortRequested_.store(true);
     hostApi_.Log(VNA_LOG_WARNING, literalView("simulator abort requested"));
     return simulatorStatus(VNA_STATUS_OK, "");
 }

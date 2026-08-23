@@ -114,9 +114,17 @@ void VnaSessionController::processPrepare(Command command)
 
 void VnaSessionController::processDisconnect(const Command &command)
 {
-    const DeviceState current = state();
-    // 运行中断开会破坏块所有权，因此必须先让扫频进入终态。
-    if ((current != DeviceState::Idle) && (current != DeviceState::Prepared) && (current != DeviceState::Fault)) {
+    DeviceState current;
+    bool sweepActive = false;
+    {
+        std::lock_guard<std::mutex> lock(dataMutex_);
+        current = state_;
+        sweepActive = activeSweep_ != 0;
+    }
+    // 即使中止请求已把状态置为 Fault，只要 Worker 尚未收尾也不得并发断开驱动。
+    const bool stableState =
+        (current == DeviceState::Idle) || (current == DeviceState::Prepared) || (current == DeviceState::Fault);
+    if (!stableState || sweepActive) {
         fail(command.commandId, commandError(VnaErrorCode::InvalidState, "disconnect requires an idle device"));
         return;
     }
@@ -133,9 +141,12 @@ void VnaSessionController::processDisconnect(const Command &command)
         activeConfiguration_ = 0;
         prepared_ = {};
         capabilities_ = {};
+        frameTracker_.reset();
+        pool_.reset();
     }
     transition(DeviceState::Disconnected);
     VnaLogger::write(VnaLogLevel::Info, "设备断开完成，deviceId=" + descriptor_.deviceId);
+    dispatcher_->postDisconnectCompleted(command.commandId);
 }
 
 void VnaSessionController::processWorkerFinished(const Command &command)

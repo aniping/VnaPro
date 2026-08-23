@@ -212,6 +212,22 @@ void VnaEventDispatcher::postStartCompleted(CommandId commandId, SweepId sweepId
     implementation_->postControl(std::move(event));
 }
 
+void VnaEventDispatcher::postAbortCompleted(CommandId commandId, SweepId sweepId)
+{
+    QueuedEvent event;
+    event.kind = EventKind::AbortCompleted;
+    event.aborted = AbortCompletedEvent{commandId, sweepId};
+    implementation_->postControl(std::move(event));
+}
+
+void VnaEventDispatcher::postDisconnectCompleted(CommandId commandId)
+{
+    QueuedEvent event;
+    event.kind = EventKind::DisconnectCompleted;
+    event.disconnected.commandId = commandId;
+    implementation_->postControl(std::move(event));
+}
+
 bool VnaEventDispatcher::postWaveBlock(VnaWaveBlock block)
 {
     QueuedEvent event;

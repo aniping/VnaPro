@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include "DriverModuleAdapter.h"
 #include "VnaEventDispatcher.h"
@@ -15,6 +16,7 @@
 namespace vna::detail {
 
 class VnaBufferPool;
+class VnaFrameTracker;
 
 // Actor 串行状态命令，Worker 独占阻塞式 Execute；两者只用内部命令传递完成结果。
 class VnaSessionController final {
@@ -61,13 +63,19 @@ private:
     void processDisconnect(const Command &command);
     void processWorkerFinished(const Command &command);
     VnaError validateAbort(const Command &command) const;
+    std::shared_ptr<VnaBufferPool> initializeSweep(
+        SweepId sweepId, VnaSweepPlan effectivePlan, std::vector<VnaWaveLayout> layouts, std::size_t batchPoints);
+    void rollbackSweepStart(SweepId sweepId, bool hostRouteRegistered) noexcept;
     void submitSweep(SweepId sweepId);
-    bool acceptBlock(VnaWaveBlock block);
+    VnaStatusV1 acceptBlock(VnaWaveBlock block);
+    bool recordSweepError(VnaErrorCode code);
     void transition(DeviceState next);
     void fail(CommandId commandId, VnaError error);
     void finishSweep(SweepId sweepId, VnaError error);
+    void finishAbortCommand(
+        CommandId commandId, SweepId sweepId, SweepTerminationReason reason, VnaErrorCode recordedError,
+        VnaError workerError);
     void performShutdown();
-    std::size_t expectedFrames() const;
 
     // descriptor_/adapter_ 在会话期不变；dispatcher_ 是所有公开回调的唯一出口。
     DeviceDescriptor descriptor_;
@@ -75,22 +83,24 @@ private:
     std::shared_ptr<VnaEventDispatcher> dispatcher_;
     // dataMutex_ 保护下面的状态快照和活动扫描身份，不保护驱动阻塞调用。
     mutable std::mutex dataMutex_;
-    std::condition_variable sweepFinished_;
     DeviceState state_{DeviceState::Disconnected};
     VnaCapabilities capabilities_;
     PreparedSweep prepared_;
     // configurationId 标识当前 Prepare 结果，sweepId 标识该配置的一次具体执行。
     ConfigurationId activeConfiguration_{0};
     SweepId activeSweep_{0};
-    // 三个布尔量分别防重复完成、记录已接受中止、记录数据通路故障，含义不能合并。
+    // 完成标志防止 Worker 的重复通知；中止 CommandId 要等扫描真正进入终态后才完成。
     bool completionEmitted_{false};
-    bool abortAccepted_{false};
-    bool sweepFaulted_{false};
-    // cancellation_ 被 HostServices 跨线程读取；receivedFrames_ 由分发入口累计。
+    CommandId pendingAbortCommand_{0};
+    // 数据通路或 RequestAbort 的首个错误在 Worker 只返回 OK/Cancelled 时决定最终故障。
+    VnaErrorCode sweepErrorCode_{VnaErrorCode::None};
+    // cancellation_ 被 HostServices 跨线程读取；帧追踪器按布局验证覆盖且拒绝重复提交。
     std::atomic<bool> cancellation_{false};
-    std::atomic<std::size_t> receivedFrames_{0};
+    std::shared_ptr<VnaFrameTracker> frameTracker_;
     // pool_ 同时被 HostServices 和已发布的 VnaWaveBlock 共享，允许块晚于扫描完成释放。
     std::shared_ptr<VnaBufferPool> pool_;
+    // shutdown 可从调用线程发起中止；与 Actor 的 abortAsync 共用此锁串行访问驱动。
+    std::mutex driverAbortMutex_;
 
     // 命令队列只由 Actor 消费，避免状态转换在调用线程并发发生。
     std::mutex commandMutex_;

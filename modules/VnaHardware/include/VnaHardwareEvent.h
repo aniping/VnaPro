@@ -56,6 +56,16 @@ struct StartCompletedEvent {
     SweepId sweepId{0};
 };
 
+struct AbortCompletedEvent {
+    // abort 命令只在目标扫描实际进入 Aborted 终态后完成，不能把请求已接受误当成完成。
+    CommandId commandId{0};
+    SweepId sweepId{0};
+};
+
+struct DisconnectCompletedEvent {
+    CommandId commandId{0};
+};
+
 struct SweepCompletion {
     SweepId sweepId{0};
     SweepTerminationReason reason{SweepTerminationReason::Completed};
@@ -71,6 +81,8 @@ struct CommandFailedEvent {
     VnaError error;
 };
 
+// 同一设备的回调在其事件线程上串行执行，不持有会话状态锁，回调可重入设备 API。
+// 不同设备可并行回调；sink 若共享上层状态，该状态的锁由调用方持有。
 class IVnaHardwareEventSink {
 public:
     virtual ~IVnaHardwareEventSink();
@@ -78,6 +90,8 @@ public:
     virtual void onConnectCompleted(const ConnectCompletedEvent &event) = 0;
     virtual void onPrepareCompleted(const PrepareCompletedEvent &event) = 0;
     virtual void onStartCompleted(const StartCompletedEvent &event) = 0;
+    virtual void onAbortCompleted(const AbortCompletedEvent &event) = 0;
+    virtual void onDisconnectCompleted(const DisconnectCompletedEvent &event) = 0;
     // 波块按移动语义交付；回调取得唯一所有权，析构时自动归还池中槽位。
     virtual void onWaveBlock(VnaWaveBlock block) = 0;
     virtual void onSweepCompleted(const SweepCompletion &event) = 0;

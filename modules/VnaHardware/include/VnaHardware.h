@@ -18,6 +18,8 @@ struct DeviceDescriptor {
 };
 
 // 设备命令异步返回 CommandId；最终结果只通过订阅事件交付，调用方不得据返回值推断成功。
+// 同一对象的查询、订阅和异步命令可由多线程并发调用，调用方无需持锁，会话内部负责同步。
+// 例外是管理器 shutdown 生命周期边界：关闭期间不得再调用本对象的任何方法。
 class IVnaHardware {
 public:
     virtual ~IVnaHardware();

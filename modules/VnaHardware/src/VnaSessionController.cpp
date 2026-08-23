@@ -1,6 +1,7 @@
 #include "VnaSessionController.h"
 
 #include <exception>
+#include <string>
 #include <utility>
 
 #include "HostServices.h"
@@ -218,24 +219,6 @@ void VnaSessionController::submitSweep(SweepId sweepId)
     workerReady_.notify_one();
 }
 
-bool VnaSessionController::acceptBlock(VnaWaveBlock block)
-{
-    const std::size_t frames = block.pointCount();
-    {
-        std::lock_guard<std::mutex> lock(dataMutex_);
-        // 扫描完成标志与 sweepId 双重过滤，阻止旧驱动线程把迟到数据注入下一次扫描。
-        if (completionEmitted_ || (block.sweepId() != activeSweep_)) {
-            return false;
-        }
-    }
-    // 发布发生在 dataMutex_ 之外，订阅回调重入查询会话状态时不会死锁。
-    if (!dispatcher_->postWaveBlock(std::move(block))) {
-        return false;
-    }
-    receivedFrames_.fetch_add(frames);
-    return true;
-}
-
 void VnaSessionController::transition(DeviceState next)
 {
     DeviceState previous;
@@ -262,17 +245,6 @@ void VnaSessionController::fail(CommandId commandId, VnaError error)
         "异步命令失败，deviceId=" + descriptor_.deviceId + "，commandId=" + std::to_string(commandId) +
             "，code=" + std::to_string(static_cast<std::uint32_t>(error.code)) + "，原因=" + error.description);
     dispatcher_->postCommandFailed(commandId, std::move(error));
-}
-
-std::size_t VnaSessionController::expectedFrames() const
-{
-    std::lock_guard<std::mutex> lock(dataMutex_);
-    std::size_t result = 0;
-    // 当前协议每个“频点 × 激励”提交一个帧，波数量只改变帧内列数，不增加帧计数。
-    for (const auto &point : prepared_.effectivePlan.points) {
-        result += point.excitations.size();
-    }
-    return result;
 }
 
 }  // namespace vna::detail

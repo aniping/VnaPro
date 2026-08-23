@@ -25,6 +25,8 @@ public:
     void postConnectCompleted(CommandId commandId);
     void postPrepareCompleted(CommandId commandId, PreparedSweep prepared);
     void postStartCompleted(CommandId commandId, SweepId sweepId);
+    void postAbortCompleted(CommandId commandId, SweepId sweepId);
+    void postDisconnectCompleted(CommandId commandId);
     bool postWaveBlock(VnaWaveBlock block);
     void postSweepCompleted(SweepCompletion completion);
     void postCommandFailed(CommandId commandId, VnaError error);

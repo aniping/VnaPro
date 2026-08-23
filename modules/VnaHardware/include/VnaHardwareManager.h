@@ -42,7 +42,8 @@ public:
     DiscoveryId discoverAsync(const DiscoveryOptions &options, IVnaDiscoverySink &sink);
     // open 只接受本管理器发现并登记的 DeviceId。
     Result<std::shared_ptr<IVnaHardware>> open(const std::string &deviceId);
-    // shutdown 与新的 discover/open 调用需要由上层同步，返回后不再产生发现回调。
+    // shutdown 需与 discover/open 及本管理器打开的全部会话 API 由上层同步。
+    // 开始关闭后不得再使用既有会话；返回后不再产生发现或设备事件回调。
     void shutdown();
 
 private:
