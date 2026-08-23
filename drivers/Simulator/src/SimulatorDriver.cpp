@@ -47,7 +47,8 @@ namespace {
     {
         try {
             // C ABI 不允许异常外逸；同时尊重 structSize，拒绝读取旧调用方不存在的字段。
-            if ((info == nullptr) || (info->structSize < sizeof(*info)) || (handle == nullptr)) {
+            if ((info == nullptr) || (info->structSize < sizeof(*info)) || (info->reserved != 0) ||
+                (handle == nullptr)) {
                 return simulatorStatus(VNA_STATUS_INVALID_ARGUMENT, "invalid simulator create request");
             }
             auto *driver = new SimulatorDriver();
@@ -150,7 +151,8 @@ namespace {
         VnaDeviceHandle handle, VnaSweepIdV1 sweepId, const VnaExecutionContextV1 *context) noexcept
     {
         try {
-            if ((handle == nullptr) || (context == nullptr) || (context->structSize < sizeof(*context))) {
+            if ((handle == nullptr) || (context == nullptr) || (context->structSize < sizeof(*context)) ||
+                (context->reserved != 0)) {
                 return simulatorStatus(VNA_STATUS_INVALID_ARGUMENT, "invalid simulator execution");
             }
             // V1 execution context 暂无额外字段，但仍校验版本化头部，为 ABI 扩展留出边界。
@@ -205,13 +207,17 @@ namespace {
     bool validApiRequest(
         std::uint32_t requestedVersion, const VnaDriverHostApiV1 *hostApi, const VnaDriverApiV1 *driverApi)
     {
-        const bool validPointers = (hostApi != nullptr) && (driverApi != nullptr);
-        if (!validPointers) {
+        if ((hostApi == nullptr) || (driverApi == nullptr)) {
             return false;
         }
-        const std::array<bool, 5> requirements{
-            requestedVersion == VNA_DRIVER_ABI_VERSION_V1, hostApi->structSize >= sizeof(*hostApi),
-            driverApi->structSize >= sizeof(*driverApi), hostApi->abiMajor == VNA_DRIVER_ABI_MAJOR_V1,
+        // 先检查双方表大小，之后才允许读取其余字段；当前实现只接受完整 ABI 1.0。
+        if ((hostApi->structSize < sizeof(*hostApi)) || (driverApi->structSize < sizeof(*driverApi)) ||
+            (driverApi->reserved != 0)) {
+            return false;
+        }
+        const std::array<bool, 4> requirements{
+            requestedVersion == VNA_DRIVER_ABI_VERSION_V1, hostApi->abiMajor == VNA_DRIVER_ABI_MAJOR_V1,
+            (hostApi->abiMinor == VNA_DRIVER_ABI_MINOR_V1) && (hostApi->reserved == 0),
             hasRequiredHostCallbacks(*hostApi)};
         return std::all_of(requirements.begin(), requirements.end(), [](bool valid) { return valid; });
     }

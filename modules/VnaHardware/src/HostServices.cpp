@@ -169,8 +169,10 @@ bool HostServices::registerSweep(
     return registry().sweeps.emplace(sweepId, SweepContext{std::move(pool), &cancellation, 0}).second;
 }
 
-void HostServices::unregisterSweep(SweepId sweepId)
+void HostServices::unregisterSweep(SweepId sweepId) noexcept
 {
+    // 不能吞掉注销失败后继续析构会话，否则注册表会留下指向 cancellation_ 的悬空借用。
+    // 本函数为 noexcept，极端的互斥锁故障会终止进程，不伪装成已安全收尾。
     std::lock_guard<std::mutex> lock(registry().mutex);
     // 先移除所有尚未归还的裸句柄，再移除上下文，迟到操作只能得到“未知句柄”。
     for (auto handle = registry().handles.begin(); handle != registry().handles.end();) {

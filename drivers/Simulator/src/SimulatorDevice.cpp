@@ -6,22 +6,18 @@
 
 namespace vna::simulator {
 namespace {
-
     // 与真实驱动一样，模拟器也给所有 ABI 数组设置硬上限，便于测试宿主的失败路径。
     constexpr std::size_t maximumPoints = 1000000;
     constexpr std::size_t maximumExcitations = 16;
     constexpr std::size_t maximumSources = 4;
     constexpr std::size_t maximumWaves = 8;
-    constexpr std::uint32_t batchPoints = 2;
     constexpr std::uint32_t knownPolicyFlags = VNA_POLICY_ALLOW_QUANTIZATION | VNA_POLICY_ALLOW_MULTIPLE_SWEEPS |
                                                VNA_POLICY_REQUIRE_PHASE_COHERENCE |
                                                VNA_POLICY_REQUIRE_ATOMIC_CONFIGURATION;
-
     void logMessage(const VnaDriverHostApiV1 &hostApi, std::uint32_t level, const char *message)
     {
         hostApi.Log(level, VnaStringViewV1{message, std::char_traits<char>::length(message)});
     }
-
     bool validFrequency(double value)
     {
         return std::isfinite(value) && (value >= 1000.0) && (value <= 20.0e9);
@@ -40,7 +36,7 @@ namespace {
 
     bool validPointView(const VnaPointPlanViewV1 &source)
     {
-        return validFrequency(source.frequencyHz) && validIfBandwidth(source.ifBandwidthHz) &&
+        return (source.reserved == 0) && validFrequency(source.frequencyHz) && validIfBandwidth(source.ifBandwidthHz) &&
                (source.dwellNanoseconds >= 0) &&
                validArray(source.excitationCount, maximumExcitations, source.excitations);
     }
@@ -54,37 +50,52 @@ namespace {
     {
         const bool validPower =
             std::isfinite(source.powerDbm) && (source.powerDbm >= -100.0) && (source.powerDbm <= 20.0);
-        return validPort(source.port) && validPower && std::isfinite(source.phaseDegrees);
+        return (source.reserved == 0) && validPort(source.port) && validPower && std::isfinite(source.phaseDegrees);
     }
 
     bool validWave(const VnaWaveKeyV1 &wave)
     {
         const bool validKind = (wave.kind == VNA_WAVE_INCIDENT) || (wave.kind == VNA_WAVE_OUTGOING);
-        return validKind && validPort(wave.port);
+        return (wave.reserved == 0) && validKind && validPort(wave.port);
     }
 
     bool validPrepareArguments(const VnaSweepPlanViewV1 *plan, const VnaPrepareResultViewV1 *result)
     {
         const bool validPlan = (plan != nullptr) && (plan->structSize >= sizeof(*plan));
-        const bool validResult = (result != nullptr) && (result->structSize >= sizeof(*result));
+        const bool validResult =
+            (result != nullptr) && (result->structSize >= sizeof(*result)) && (result->reserved == 0);
         return validPlan && validResult;
     }
 
     bool validTriggerMode(std::uint32_t triggerMode)
     {
-        return (triggerMode == VNA_TRIGGER_INTERNAL) || (triggerMode == VNA_TRIGGER_EXTERNAL);
+        // 当前模拟器没有外部触发输入，不能只靠能力位拒绝后继续接受该计划。
+        return triggerMode == VNA_TRIGGER_INTERNAL;
+    }
+
+    bool uniformDwellTime(const VnaSweepPlanViewV1 &plan)
+    {
+        // 模拟器未声明逐点驻留能力，直接 ABI 调用也必须保持整次扫描的驻留值一致。
+        const std::int64_t dwell = plan.points[0].dwellNanoseconds;
+        for (std::size_t index = 1; index < plan.pointCount; ++index) {
+            if (plan.points[index].dwellNanoseconds != dwell) {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool validPlanHeader(const VnaSweepPlanViewV1 &plan)
     {
         const bool validPoints = validArray(plan.pointCount, maximumPoints, plan.points);
         const bool validPolicies = (plan.policyFlags & ~knownPolicyFlags) == 0;
-        return validPoints && validTriggerMode(plan.triggerMode) && validPolicies;
+        return validPoints && (plan.reserved == 0) && validTriggerMode(plan.triggerMode) && validPolicies &&
+               uniformDwellTime(plan);
     }
 
     bool validExcitationView(const VnaExcitationPlanViewV1 &source)
     {
-        return validArray(source.sourceCount, maximumSources, source.sources) &&
+        return (source.reserved == 0) && validArray(source.sourceCount, maximumSources, source.sources) &&
                validArray(source.requiredWaveCount, maximumWaves, source.requiredWaves);
     }
 
@@ -164,8 +175,12 @@ VnaStatusV1 SimulatorDevice::disconnect()
 
 VnaStatusV1 SimulatorDevice::capabilities(VnaCapabilitiesViewV1 *view) const
 {
-    if (!connected_ || (view == nullptr) || (view->structSize < sizeof(*view))) {
+    if (!connected_) {
         return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator is not connected");
+    }
+    if ((view == nullptr) || (view->structSize < sizeof(*view)) || (view->reserved != 0) ||
+        (view->reservedFlags != 0)) {
+        return simulatorStatus(VNA_STATUS_INVALID_ARGUMENT, "invalid simulator capabilities view");
     }
     // 能力表与下面的 prepare 校验范围保持同源，避免“宣称支持但实际拒绝”。
     view->structSize = static_cast<std::uint32_t>(sizeof(*view));
@@ -178,17 +193,16 @@ VnaStatusV1 SimulatorDevice::capabilities(VnaCapabilitiesViewV1 *view) const
     view->maximumPowerDbm = 20.0;
     view->maximumPoints = maximumPoints;
     view->maximumExcitationsPerPoint = maximumExcitations;
-    view->preferredBatchPoints = batchPoints;
+    view->preferredBatchPoints = simulatorBatchPoints;
     view->featureFlags = VNA_CAPABILITY_PER_POINT_IF_BANDWIDTH | VNA_CAPABILITY_PER_POINT_POWER |
-                         VNA_CAPABILITY_PER_POINT_DWELL | VNA_CAPABILITY_SIMULTANEOUS_SOURCES | VNA_CAPABILITY_ABORT |
-                         VNA_CAPABILITY_INTERNAL_TRIGGER | VNA_CAPABILITY_EXTERNAL_TRIGGER;
+                         VNA_CAPABILITY_SIMULTANEOUS_SOURCES | VNA_CAPABILITY_ABORT | VNA_CAPABILITY_INTERNAL_TRIGGER;
     return simulatorStatus(VNA_STATUS_OK, "");
 }
 
 VnaStatusV1 SimulatorDevice::prepare(const VnaSweepPlanViewV1 *plan, VnaPrepareResultViewV1 *result)
 {
     if (!canPrepare()) {
-        return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator cannot prepare now");
+        return simulatorStatus(VNA_STATUS_INVALID_STATE, "prepare requires a connected idle simulator");
     }
     if (!validPrepareArguments(plan, result)) {
         return simulatorStatus(VNA_STATUS_INVALID_ARGUMENT, "invalid prepare arguments");

@@ -39,7 +39,7 @@ namespace {
 
     bool hasValidMetadata(const VnaDriverMetadataV1 &metadata)
     {
-        if (metadata.structSize < sizeof(VnaDriverMetadataV1)) {
+        if ((metadata.structSize < sizeof(VnaDriverMetadataV1)) || (metadata.reserved != 0)) {
             return false;
         }
         if (!validExternalString(metadata.driverId, false)) {
@@ -64,17 +64,6 @@ namespace {
         return (api.GetCapabilities != nullptr) && (api.Prepare != nullptr) && (api.Execute != nullptr);
     }
 
-    bool hasRequiredApi(const VnaDriverApiV1 &api)
-    {
-        // 主版本必须完全一致；次版本通过 structSize 和非空回调实现向后兼容。
-        const bool validVersion =
-            (api.structSize >= sizeof(VnaDriverApiV1)) && (api.abiMajor == VNA_DRIVER_ABI_MAJOR_V1);
-        const std::array<bool, 5> requirements{
-            validVersion, hasValidMetadata(api.metadata), hasModuleCallbacks(api), hasDeviceCallbacks(api),
-            hasAcquisitionCallbacks(api)};
-        return std::all_of(requirements.begin(), requirements.end(), [](bool present) { return present; });
-    }
-
     Result<VnaDriverApiV1> queryDriverApi(void *library)
     {
         // RTLD_LOCAL 限制符号外泄，此处再只查固定入口，避免依赖插件其他导出符号。
@@ -91,7 +80,7 @@ namespace {
             return Result<VnaDriverApiV1>::failure(
                 loadError(VnaErrorCode::DriverAbiMismatch, "driver rejected the host ABI"));
         }
-        if (!hasRequiredApi(api)) {
+        if (!driverApiIsValidForHost(api)) {
             return Result<VnaDriverApiV1>::failure(
                 loadError(VnaErrorCode::DriverAbiMismatch, "driver API table is incomplete"));
         }
@@ -188,6 +177,17 @@ namespace {
     }
 
 }  // namespace
+
+bool driverApiIsValidForHost(const VnaDriverApiV1 &api)
+{
+    // 当前只实现 ABI 1.0，尚无字段裁剪表；主、次版本和保留字段都必须精确匹配。
+    const bool validVersion = (api.structSize >= sizeof(VnaDriverApiV1)) && (api.abiMajor == VNA_DRIVER_ABI_MAJOR_V1) &&
+                              (api.abiMinor == VNA_DRIVER_ABI_MINOR_V1) && (api.reserved == 0);
+    const std::array<bool, 5> requirements{
+        validVersion, hasValidMetadata(api.metadata), hasModuleCallbacks(api), hasDeviceCallbacks(api),
+        hasAcquisitionCallbacks(api)};
+    return std::all_of(requirements.begin(), requirements.end(), [](bool present) { return present; });
+}
 
 Result<std::vector<std::shared_ptr<DriverModule>>> DriverPluginLoader::loadDirectory(const std::string &directory)
 {

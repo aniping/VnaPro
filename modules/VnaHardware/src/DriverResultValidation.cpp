@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <set>
 #include <string>
@@ -16,6 +17,12 @@ namespace {
     constexpr std::size_t maximumLayouts = 1024;
     constexpr std::size_t maximumWavesPerLayout = 256;
     constexpr std::size_t maximumBatchPoints = 1048576;
+    constexpr std::uint32_t knownCapabilityFlags = VNA_CAPABILITY_PER_POINT_IF_BANDWIDTH |
+                                                   VNA_CAPABILITY_PER_POINT_POWER | VNA_CAPABILITY_PER_POINT_DWELL |
+                                                   VNA_CAPABILITY_SIMULTANEOUS_SOURCES | VNA_CAPABILITY_ABORT |
+                                                   VNA_CAPABILITY_INTERNAL_TRIGGER | VNA_CAPABILITY_EXTERNAL_TRIGGER;
+    constexpr std::uint32_t knownExecutionFlags =
+        VNA_EXECUTION_QUANTIZED | VNA_EXECUTION_ATOMIC | VNA_EXECUTION_PHASE_COHERENT | VNA_EXECUTION_COMPILED;
 
     VnaError localError(VnaErrorCode code, std::string description)
     {
@@ -46,7 +53,7 @@ namespace {
         waves.reserve(source.waveCount);
         for (std::size_t index = 0; index < source.waveCount; ++index) {
             const auto &key = source.waveKeys[index];
-            if (!knownWaveKind(key.kind)) {
+            if ((key.reserved != 0) || !knownWaveKind(key.kind)) {
                 return Result<std::vector<VnaWaveKey>>::failure(
                     localError(VnaErrorCode::ProtocolError, "driver returned an unknown wave kind"));
             }
@@ -108,7 +115,9 @@ namespace {
     {
         // 批大小同时参与缓冲区乘法，除非落在宿主上限内，否则拒绝执行报告。
         const bool validBatch = (view.preferredBatchPoints > 0) && (view.preferredBatchPoints <= maximumBatchPoints);
-        return (view.structSize >= sizeof(view)) && (view.physicalSweepCount > 0) && validBatch;
+        const bool validFlags = (view.executionFlags & ~knownExecutionFlags) == 0;
+        return (view.structSize >= sizeof(view)) && (view.reserved == 0) && (view.physicalSweepCount > 0) &&
+               validBatch && validFlags;
     }
 
     bool reportsQuantization(const VnaPrepareResultViewV1 &view)
@@ -153,8 +162,8 @@ namespace {
     {
         const bool validBatch = (view.preferredBatchPoints > 0) && (view.preferredBatchPoints <= maximumBatchPoints);
         const std::array<bool, 5> dimensions{
-            view.structSize >= sizeof(view), view.portCount > 0, view.maximumPoints > 0,
-            view.maximumExcitationsPerPoint > 0, validBatch};
+            (view.structSize >= sizeof(view)) && (view.reserved == 0) && (view.reservedFlags == 0), view.portCount > 0,
+            view.maximumPoints > 0, view.maximumExcitationsPerPoint > 0, validBatch};
         return std::all_of(dimensions.begin(), dimensions.end(), [](bool valid) { return valid; });
     }
 
@@ -217,8 +226,9 @@ bool driverCapabilitiesAreValid(const VnaCapabilitiesViewV1 &view, bool abortCal
 {
     // 驱动只有在同时提供 abort 回调时才能声明中止能力，避免运行期出现空函数指针。
     const bool abortContractValid = ((view.featureFlags & VNA_CAPABILITY_ABORT) == 0) || abortCallbackAvailable;
+    const bool knownFlags = (view.featureFlags & ~knownCapabilityFlags) == 0;
     return capabilityRangesAreFinite(view) && capabilityRangesAreOrdered(view) && capabilityDimensionsAreValid(view) &&
-           abortContractValid;
+           abortContractValid && knownFlags;
 }
 
 Result<std::vector<VnaWaveLayout>> copyDriverLayouts(const VnaPrepareResultViewV1 &view)
@@ -231,6 +241,10 @@ Result<std::vector<VnaWaveLayout>> copyDriverLayouts(const VnaPrepareResultViewV
     std::vector<VnaWaveLayout> layouts;
     layouts.reserve(view.layoutCount);
     for (std::size_t index = 0; index < view.layoutCount; ++index) {
+        if (view.layouts[index].reserved != 0) {
+            return Result<std::vector<VnaWaveLayout>>::failure(
+                localError(VnaErrorCode::ProtocolError, "driver returned a nonzero reserved layout field"));
+        }
         auto waves = copyWaveKeys(view.layouts[index]);
         if (!waves.hasValue()) {
             return Result<std::vector<VnaWaveLayout>>::failure(waves.error());

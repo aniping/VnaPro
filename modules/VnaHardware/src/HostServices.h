@@ -18,7 +18,8 @@ public:
     // register/unregister 划定一个 SweepId 能够申请和提交缓冲区的唯一时间窗口。
     static bool registerSweep(
         SweepId sweepId, std::shared_ptr<VnaBufferPool> pool, const std::atomic<bool> &cancellation);
-    static void unregisterSweep(SweepId sweepId);
+    // 注销是幂等且不抛异常的收尾操作，可从 Worker 和关闭兜底路径重复调用。
+    static void unregisterSweep(SweepId sweepId) noexcept;
 };
 
 }  // namespace vna::detail

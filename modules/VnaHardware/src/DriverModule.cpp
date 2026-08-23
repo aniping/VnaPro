@@ -70,7 +70,7 @@ namespace {
     bool validDiscoveredDevice(const VnaDeviceDescriptorViewV1 *view, std::size_t currentCount)
     {
         // 先验证版本化头部，再读取其余字段，兼容旧结构并避免越界解释内存。
-        if ((view == nullptr) || (view->structSize < sizeof(VnaDeviceDescriptorViewV1))) {
+        if ((view == nullptr) || (view->structSize < sizeof(VnaDeviceDescriptorViewV1)) || (view->reserved != 0)) {
             return false;
         }
         const std::array<bool, 6> fields{

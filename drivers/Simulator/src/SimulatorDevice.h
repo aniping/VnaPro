@@ -12,6 +12,9 @@
 
 namespace vna::simulator {
 
+// 能力表与执行器共用批大小，避免声明值和实际提交策略漂移。
+inline constexpr std::uint32_t simulatorBatchPoints = 2;
+
 struct Source {
     std::uint16_t port{0};
     double powerDbm{0.0};
@@ -73,6 +76,7 @@ private:
 
     bool canPrepare() const;
     bool beginSweep(VnaSweepIdV1 sweepId);
+    VnaStatusV1 finishExecution(VnaStatusV1 status);
     VnaStatusV1 copyPlan(const VnaSweepPlanViewV1 &plan);
     VnaStatusV1 copyPoint(const VnaPointPlanViewV1 &source, Point &destination);
     VnaStatusV1 copyExcitation(const VnaExcitationPlanViewV1 &source, Excitation &destination);
@@ -95,7 +99,9 @@ private:
     std::vector<std::vector<VnaWaveKeyV1>> layoutWaves_;
     std::vector<std::uint16_t> layoutExcitations_;
     std::vector<VnaWaveLayoutViewV1> layoutViews_;
-    // execute 与 requestAbort 位于不同线程，原子量限定中止请求只作用于 activeSweep_。
+    // execute 与 requestAbort 位于不同线程；sweepMutex_ 使“接受中止”与“执行收尾”互斥。
+    // 原子量供执行热路径和取消回调无锁读取，互斥量则保证终态判定不丢请求。
+    std::mutex sweepMutex_;
     std::atomic<bool> abortRequested_{false};
     std::atomic<VnaSweepIdV1> activeSweep_{0};
 };

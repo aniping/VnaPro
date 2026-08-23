@@ -67,6 +67,10 @@ namespace detail {
             const VnaWaveKey &wave, const VnaCapabilities &capabilities, const std::string &path,
             ValidationReport &report)
         {
+            // enum class 仍可被强制转换成未定义值，序列化边界前必须失败关闭。
+            if ((wave.kind != WaveKind::Incident) && (wave.kind != WaveKind::Outgoing)) {
+                addError(report, path + ".kind", "wave kind is not defined by the public contract");
+            }
             if ((wave.port == 0) || (wave.port > capabilities.portCount)) {
                 addError(report, path + ".port", "wave port is outside the device port range");
             }
@@ -157,11 +161,57 @@ namespace detail {
             const TriggerConfiguration &trigger, const VnaCapabilities &capabilities, ValidationReport &report)
         {
             // 触发模式属于整份计划，不依赖频点，因此只需在顶层验证一次。
+            if ((trigger.mode != TriggerMode::Internal) && (trigger.mode != TriggerMode::External)) {
+                addError(report, "trigger.mode", "trigger mode is not defined by the public contract");
+                return;
+            }
             if ((trigger.mode == TriggerMode::Internal) && !capabilities.supportsInternalTrigger) {
                 addError(report, "trigger", "internal trigger is not supported");
             }
             if ((trigger.mode == TriggerMode::External) && !capabilities.supportsExternalTrigger) {
                 addError(report, "trigger", "external trigger is not supported");
+            }
+        }
+
+        void validateUniformPointSettings(
+            const VnaSweepPlan &plan, const VnaCapabilities &capabilities, ValidationReport &report)
+        {
+            const VnaPointPlan &first = plan.points.front();
+            for (std::size_t index = 1; index < plan.points.size(); ++index) {
+                const std::string path = "points[" + std::to_string(index) + "]";
+                if (!capabilities.perPointIfBandwidth && (plan.points[index].ifBandwidthHz != first.ifBandwidthHz)) {
+                    addError(report, path + ".ifBandwidthHz", "device requires one IF bandwidth for the sweep");
+                }
+                if (!capabilities.perPointDwell && (plan.points[index].dwellTime != first.dwellTime)) {
+                    addError(report, path + ".dwellTime", "device requires one dwell time for the sweep");
+                }
+            }
+        }
+
+        void validateUniformPower(
+            const VnaSweepPlan &plan, const VnaCapabilities &capabilities, ValidationReport &report)
+        {
+            if (capabilities.perPointPower) {
+                return;
+            }
+            // 同一“激励 ID + 源端口”的首次功率是整次扫描基准；不同源互不约束。
+            std::map<std::pair<ExcitationId, PortId>, double> powers;
+            for (std::size_t pointIndex = 0; pointIndex < plan.points.size(); ++pointIndex) {
+                const auto &point = plan.points[pointIndex];
+                for (std::size_t excitationIndex = 0; excitationIndex < point.excitations.size(); ++excitationIndex) {
+                    const auto &excitation = point.excitations[excitationIndex];
+                    for (std::size_t sourceIndex = 0; sourceIndex < excitation.sources.size(); ++sourceIndex) {
+                        const auto &source = excitation.sources[sourceIndex];
+                        const auto inserted =
+                            powers.emplace(std::make_pair(excitation.excitationId, source.port), source.powerDbm);
+                        if (!inserted.second && (inserted.first->second != source.powerDbm)) {
+                            const std::string path = "points[" + std::to_string(pointIndex) + "].excitations[" +
+                                                     std::to_string(excitationIndex) + "].sources[" +
+                                                     std::to_string(sourceIndex) + "].powerDbm";
+                            addError(report, path, "device requires one power per excitation source for the sweep");
+                        }
+                    }
+                }
             }
         }
 
@@ -200,6 +250,8 @@ namespace detail {
             return report;
         }
         validateTrigger(plan.trigger, capabilities, report);
+        validateUniformPointSettings(plan, capabilities, report);
+        validateUniformPower(plan, capabilities, report);
         // PointId 用于结果关联，ExcitationId 用于跨频点复用布局，两类身份都要稳定且唯一。
         std::set<PointId> pointIdentifiers;
         std::map<ExcitationId, std::vector<VnaWaveKey>> layouts;

@@ -9,6 +9,9 @@
 
 namespace vna::detail {
 
+// 对完整驱动根表执行 ABI 1.0、保留字段、元数据和必选回调校验。
+bool driverApiIsValidForHost(const VnaDriverApiV1 &api);
+
 // 仅返回通过目录权限、文件类型、ABI 表和模块句柄校验的驱动。
 class DriverPluginLoader final {
 public:
