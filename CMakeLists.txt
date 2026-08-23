@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(VnaPro LANGUAGES C CXX)
 
-option(VNA_BUILD_TESTS "Build VNA hardware tests" ON)
+option(VNA_BUILD_TESTS "Build VNA tests" ON)
 option(VNA_ENFORCE_PRODUCTION_TOOLCHAIN "Require the production GCC 7.3 toolchain" OFF)
 
 if(VNA_ENFORCE_PRODUCTION_TOOLCHAIN)
@@ -37,6 +37,7 @@ add_subdirectory(third-part/spdlog EXCLUDE_FROM_ALL)
 
 add_subdirectory(sdk/VnaDriver)
 add_subdirectory(modules/VnaHardware)
+add_subdirectory(modules/VnaAcquisition)
 add_subdirectory(drivers/Simulator)
 
 if(VNA_BUILD_TESTS)
@@ -45,4 +46,5 @@ if(VNA_BUILD_TESTS)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     add_subdirectory(third-part/googletest EXCLUDE_FROM_ALL)
     add_subdirectory(tests/DriverIntegration)
+    add_subdirectory(tests/Acquisition)
 endif()
