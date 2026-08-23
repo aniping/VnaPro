@@ -13,6 +13,8 @@ add_library(
     src/VnaHardwareDiscovery.cpp
     src/VnaHardwareManager.cpp
     src/VnaHardwareSession.cpp
+    src/VnaLogConfiguration.cpp
+    src/VnaLogger.cpp
     src/VnaSessionCommands.cpp
     src/VnaSessionController.cpp
     src/VnaSessionShutdown.cpp
@@ -26,7 +28,7 @@ target_include_directories(
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 target_include_directories(VnaHardware PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(VnaHardware PUBLIC VnaDriverSdk PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(VnaHardware PUBLIC VnaDriverSdk PRIVATE ${CMAKE_DL_LIBS} spdlog::spdlog)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_definitions(VnaHardware PUBLIC _GLIBCXX_USE_CXX11_ABI=1)
 endif()

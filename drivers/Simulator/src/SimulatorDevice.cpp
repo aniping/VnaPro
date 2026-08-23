@@ -17,6 +17,11 @@ namespace {
                                                VNA_POLICY_REQUIRE_PHASE_COHERENCE |
                                                VNA_POLICY_REQUIRE_ATOMIC_CONFIGURATION;
 
+    void logMessage(const VnaDriverHostApiV1 &hostApi, std::uint32_t level, const char *message)
+    {
+        hostApi.Log(level, VnaStringViewV1{message, std::char_traits<char>::length(message)});
+    }
+
     bool validFrequency(double value)
     {
         return std::isfinite(value) && (value >= 1000.0) && (value <= 20.0e9);
@@ -138,6 +143,7 @@ VnaStatusV1 SimulatorDevice::connect()
         return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator is already connected");
     }
     connected_ = true;
+    logMessage(hostApi_, VNA_LOG_INFO, "simulator connected");
     return simulatorStatus(VNA_STATUS_OK, "");
 }
 
@@ -199,6 +205,7 @@ VnaStatusV1 SimulatorDevice::prepare(const VnaSweepPlanViewV1 *plan, VnaPrepareR
         return layoutStatus;
     }
     transaction.commit();
+    logMessage(hostApi_, VNA_LOG_DEBUG, "simulator plan prepared");
     return simulatorStatus(VNA_STATUS_OK, "");
 }
 

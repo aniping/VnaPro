@@ -10,6 +10,7 @@
 #include "DriverPluginLoader.h"
 #include "VnaHardwareManagerImpl.h"
 #include "VnaHardwareSession.h"
+#include "VnaLogger.h"
 
 namespace vna {
 namespace {
@@ -39,10 +40,20 @@ namespace {
         }
     }
 
+    std::string defaultConfigurationFile(const std::string &driverDirectory)
+    {
+        if (driverDirectory.empty()) {
+            return "vnapro.conf";
+        }
+        const bool hasSeparator = !driverDirectory.empty() && (driverDirectory.back() == '/');
+        return driverDirectory + (hasSeparator ? "vnapro.conf" : "/vnapro.conf");
+    }
+
 }  // namespace
 
-VnaHardwareManager::Impl::Impl(std::vector<std::shared_ptr<detail::DriverModule>> modules)
-    : modules_(std::move(modules))
+VnaHardwareManager::Impl::Impl(
+    std::shared_ptr<detail::VnaLogger> logger, std::vector<std::shared_ptr<detail::DriverModule>> modules)
+    : logger_(std::move(logger)), modules_(std::move(modules))
 {
 }
 
@@ -53,6 +64,7 @@ VnaHardwareManager::Impl::~Impl()
 
 Result<std::shared_ptr<IVnaHardware>> VnaHardwareManager::Impl::open(const std::string &deviceId)
 {
+    detail::VnaLogger::write(detail::VnaLogLevel::Info, "正在打开设备，deviceId=" + deviceId);
     DeviceRecord record;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -70,12 +82,16 @@ Result<std::shared_ptr<IVnaHardware>> VnaHardwareManager::Impl::open(const std::
     }
     auto handle = record.module->createDevice(record.driverDeviceId);
     if (!handle.hasValue()) {
+        detail::VnaLogger::write(
+            detail::VnaLogLevel::Error, "创建设备失败，deviceId=" + deviceId + "，原因=" + handle.error().description);
         return Result<std::shared_ptr<IVnaHardware>>::failure(handle.error());
     }
     // adapter 同时持有设备句柄和模块引用，保证设备整个生命周期内动态库不会卸载。
     auto adapter = std::make_unique<detail::DriverModuleAdapter>(record.module, handle.takeValue());
     auto session = detail::VnaHardwareSession::create(record.descriptor, std::move(adapter));
     if (!session.hasValue()) {
+        detail::VnaLogger::write(
+            detail::VnaLogLevel::Error, "创建会话失败，deviceId=" + deviceId + "，原因=" + session.error().description);
         return Result<std::shared_ptr<IVnaHardware>>::failure(session.error());
     }
     std::shared_ptr<detail::VnaHardwareSession> concrete = session.takeValue();
@@ -84,6 +100,7 @@ Result<std::shared_ptr<IVnaHardware>> VnaHardwareManager::Impl::open(const std::
         // manager 仅保存 weak_ptr，用户释放会话时不会被管理器意外延长设备占用时间。
         sessions_.push_back(concrete);
     }
+    detail::VnaLogger::write(detail::VnaLogLevel::Info, "设备已打开，deviceId=" + deviceId);
     return Result<std::shared_ptr<IVnaHardware>>::success(std::move(concrete));
 }
 
@@ -93,6 +110,7 @@ void VnaHardwareManager::Impl::shutdown()
     if (stopping_.exchange(true)) {
         return;
     }
+    detail::VnaLogger::write(detail::VnaLogLevel::Info, "硬件管理器开始关闭");
     std::vector<std::thread> discoveryThreads;
     std::vector<std::shared_ptr<detail::VnaHardwareSession>> sessions;
     takeShutdownResources(discoveryThreads, sessions);
@@ -104,6 +122,7 @@ void VnaHardwareManager::Impl::shutdown()
     sessions_.clear();
     devices_.clear();
     modules_.clear();
+    detail::VnaLogger::write(detail::VnaLogLevel::Info, "硬件管理器关闭完成");
 }
 
 void VnaHardwareManager::Impl::takeShutdownResources(
@@ -121,13 +140,26 @@ void VnaHardwareManager::Impl::takeShutdownResources(
 
 Result<std::unique_ptr<VnaHardwareManager>> VnaHardwareManager::create(std::string driverDirectory)
 {
+    return create(driverDirectory, defaultConfigurationFile(driverDirectory));
+}
+
+Result<std::unique_ptr<VnaHardwareManager>> VnaHardwareManager::create(
+    std::string driverDirectory, std::string configurationFile)
+{
+    auto logger = detail::VnaLogger::acquire(configurationFile);
+    if (!logger.hasValue()) {
+        return Result<std::unique_ptr<VnaHardwareManager>>::failure(logger.error());
+    }
+    detail::VnaLogger::write(detail::VnaLogLevel::Info, "正在创建硬件管理器，驱动目录=" + driverDirectory);
     // 模块目录整体装载成功后才发布 manager，调用者不会拿到部分初始化对象。
     auto modules = detail::DriverPluginLoader::loadDirectory(driverDirectory);
     if (!modules.hasValue()) {
+        detail::VnaLogger::write(detail::VnaLogLevel::Error, "驱动模块加载失败：" + modules.error().description);
         return Result<std::unique_ptr<VnaHardwareManager>>::failure(modules.error());
     }
-    auto implementation = std::make_unique<Impl>(modules.takeValue());
+    auto implementation = std::make_unique<Impl>(logger.takeValue(), modules.takeValue());
     auto manager = std::unique_ptr<VnaHardwareManager>(new VnaHardwareManager(std::move(implementation)));
+    detail::VnaLogger::write(detail::VnaLogLevel::Info, "硬件管理器创建完成");
     return Result<std::unique_ptr<VnaHardwareManager>>::success(std::move(manager));
 }
 

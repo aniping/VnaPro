@@ -5,6 +5,7 @@
 
 #include "HostServices.h"
 #include "VnaBufferPool.h"
+#include "VnaLogger.h"
 #include "VnaValidation.h"
 
 namespace vna::detail {
@@ -16,6 +17,14 @@ namespace {
         error.code = VnaErrorCode::InternalError;
         error.description = description;
         return error;
+    }
+
+    const char *stateName(DeviceState state)
+    {
+        static constexpr const char *names[]{"Disconnected", "Connecting", "Idle",     "Preparing",     "Prepared",
+                                             "Starting",     "Running",    "Aborting", "Disconnecting", "Fault"};
+        const std::size_t index = static_cast<std::size_t>(state);
+        return index < (sizeof(names) / sizeof(names[0])) ? names[index] : "Unknown";
     }
 
 }  // namespace
@@ -238,6 +247,9 @@ void VnaSessionController::transition(DeviceState next)
         }
         state_ = next;
     }
+    VnaLogger::write(
+        VnaLogLevel::Info,
+        "设备状态迁移，deviceId=" + descriptor_.deviceId + "，" + stateName(previous) + " -> " + stateName(next));
     dispatcher_->postStateChanged(previous, next);
 }
 
@@ -245,6 +257,10 @@ void VnaSessionController::fail(CommandId commandId, VnaError error)
 {
     error.deviceId = descriptor_.deviceId;
     error.commandId = commandId;
+    VnaLogger::write(
+        VnaLogLevel::Error,
+        "异步命令失败，deviceId=" + descriptor_.deviceId + "，commandId=" + std::to_string(commandId) +
+            "，code=" + std::to_string(static_cast<std::uint32_t>(error.code)) + "，原因=" + error.description);
     dispatcher_->postCommandFailed(commandId, std::move(error));
 }
 

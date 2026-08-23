@@ -5,6 +5,8 @@
 #include <mutex>
 #include <string>
 
+#include "VnaLogger.h"
+
 namespace vna::detail {
 namespace {
 
@@ -38,8 +40,10 @@ namespace {
         return result;
     }
 
-    void logMessage(std::uint32_t, VnaStringViewV1) noexcept
+    void logMessage(std::uint32_t level, VnaStringViewV1 message) noexcept
     {
+        // 驱动日志先做长度和空指针校验，再复制到宿主日志后端，绝不保留 ABI 视图。
+        VnaLogger::writeDriver(level, message);
     }
 
     std::uint8_t isCancellationRequested(VnaSweepIdV1 sweepId) noexcept

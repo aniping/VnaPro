@@ -45,7 +45,7 @@ TEST(DriverPluginSecurityTest, RejectsExternallyWritableDirectory)
     // 组/其他用户可写的目录允许替换插件，加载器必须在枚举前直接拒绝。
     TemporaryDirectory directory;
     ASSERT_EQ(chmod(directory.path().c_str(), 0777), 0);
-    auto result = vna::VnaHardwareManager::create(directory.path());
+    auto result = vna::VnaHardwareManager::create(directory.path(), VNA_TEST_LOG_CONFIGURATION);
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().description, "driver directory is not trusted");
 }

@@ -27,6 +27,14 @@
 #define VNA_STATUS_CANCELLED UINT32_C(11)
 #define VNA_STATUS_INTERNAL_ERROR UINT32_C(12)
 
+/* 驱动日志级别按严重程度递增；Host 会按配置过滤，不得在逐点热路径调用。 */
+#define VNA_LOG_TRACE UINT32_C(0)
+#define VNA_LOG_DEBUG UINT32_C(1)
+#define VNA_LOG_INFO UINT32_C(2)
+#define VNA_LOG_WARNING UINT32_C(3)
+#define VNA_LOG_ERROR UINT32_C(4)
+#define VNA_LOG_CRITICAL UINT32_C(5)
+
 /* 波类型使用端口参考方向：Incident 对应入射波 a，Outgoing 对应出射波 b。 */
 #define VNA_WAVE_INCIDENT UINT32_C(0)
 #define VNA_WAVE_OUTGOING UINT32_C(1)

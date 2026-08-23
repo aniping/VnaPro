@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "DriverModuleAdapter.h"
+#include "VnaLogger.h"
 
 namespace vna {
 namespace {
@@ -92,6 +93,9 @@ bool VnaHardwareManager::Impl::discoveryWasInterrupted(DiscoveryRunResult result
 DiscoveryId VnaHardwareManager::Impl::discover(const DiscoveryOptions &options, IVnaDiscoverySink &sink)
 {
     const DiscoveryId identifier = nextDiscovery_.fetch_add(1);
+    detail::VnaLogger::write(
+        detail::VnaLogLevel::Info, "设备发现已启动，discoveryId=" + std::to_string(identifier) +
+                                       "，timeoutMs=" + std::to_string(options.timeout.count()));
     std::lock_guard<std::mutex> lock(mutex_);
     // 线程对象在 manager 内集中保存，析构时才能逐一 join，避免后台访问已销毁状态。
     if (!stopping_.load()) {
@@ -120,6 +124,9 @@ bool VnaHardwareManager::Impl::registerDevice(
         devices_[record.descriptor.deviceId] = record;
     }
     descriptor = std::move(discovered.first);
+    detail::VnaLogger::write(
+        detail::VnaLogLevel::Info, "发现设备，deviceId=" + descriptor.deviceId + "，model=" + descriptor.model +
+                                       "，ports=" + std::to_string(descriptor.portCount));
     return true;
 }
 
@@ -163,9 +170,11 @@ void VnaHardwareManager::Impl::finishDiscovery(DiscoveryId identifier, IVnaDisco
         return;
     }
     if (moduleSucceeded) {
+        detail::VnaLogger::write(detail::VnaLogLevel::Info, "设备发现完成，discoveryId=" + std::to_string(identifier));
         notifyDiscoveryCompleted(sink, identifier);
         return;
     }
+    detail::VnaLogger::write(detail::VnaLogLevel::Error, "设备发现失败，discoveryId=" + std::to_string(identifier));
     notifyDiscoveryFailure(
         sink, identifier, discoveryError(VnaErrorCode::DriverLoadFailed, "all drivers failed discovery"));
 }

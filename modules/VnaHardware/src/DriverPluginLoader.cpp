@@ -12,6 +12,7 @@
 
 #include "HostServices.h"
 #include "PosixDriverFile.h"
+#include "VnaLogger.h"
 
 namespace vna::detail {
 namespace {
@@ -176,7 +177,11 @@ namespace {
         for (const auto &name : names) {
             auto module = loadCandidate(rootDescriptor, name);
             if (module.hasValue()) {
+                VnaLogger::write(VnaLogLevel::Info, "驱动插件加载成功：" + name);
                 modules.push_back(module.takeValue());
+            } else {
+                VnaLogger::write(
+                    VnaLogLevel::Warning, "驱动插件被拒绝：" + name + "，原因=" + module.error().description);
             }
         }
         return modules;
@@ -186,6 +191,7 @@ namespace {
 
 Result<std::vector<std::shared_ptr<DriverModule>>> DriverPluginLoader::loadDirectory(const std::string &directory)
 {
+    VnaLogger::write(VnaLogLevel::Debug, "开始扫描驱动目录：" + directory);
     // 目录描述符一直存活到所有插件完成加载，防止枚举结果在 dlopen 前被路径替换。
     auto root = openTrustedDriverDirectory(directory);
     if (!root.hasValue()) {

@@ -3,6 +3,7 @@
 #include <string>
 #include <utility>
 
+#include "VnaLogger.h"
 #include "VnaValidation.h"
 
 namespace vna::detail {
@@ -65,6 +66,9 @@ void VnaSessionController::processConnect(const Command &command)
         capabilities_ = connected.takeValue();
     }
     transition(DeviceState::Idle);
+    VnaLogger::write(
+        VnaLogLevel::Info,
+        "设备连接完成，deviceId=" + descriptor_.deviceId + "，commandId=" + std::to_string(command.commandId));
     dispatcher_->postConnectCompleted(command.commandId);
 }
 
@@ -101,6 +105,9 @@ void VnaSessionController::processPrepare(Command command)
         prepared_ = prepared;
         pool_.reset();
     }
+    VnaLogger::write(
+        VnaLogLevel::Info, "扫描计划准备完成，deviceId=" + descriptor_.deviceId +
+                               "，configurationId=" + std::to_string(prepared.configurationId));
     transition(DeviceState::Prepared);
     dispatcher_->postPrepareCompleted(command.commandId, std::move(prepared));
 }
@@ -128,6 +135,7 @@ void VnaSessionController::processDisconnect(const Command &command)
         capabilities_ = {};
     }
     transition(DeviceState::Disconnected);
+    VnaLogger::write(VnaLogLevel::Info, "设备断开完成，deviceId=" + descriptor_.deviceId);
 }
 
 void VnaSessionController::processWorkerFinished(const Command &command)

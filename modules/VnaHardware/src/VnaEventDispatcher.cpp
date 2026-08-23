@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "VnaEventQueue.h"
+#include "VnaLogger.h"
 
 namespace vna::detail {
 
@@ -128,6 +129,7 @@ private:
         } catch (...) {
             subscriber->endCall();
             subscriber->deactivate();
+            VnaLogger::write(VnaLogLevel::Error, "硬件事件回调抛出异常，订阅已停用");
         }
     }
 

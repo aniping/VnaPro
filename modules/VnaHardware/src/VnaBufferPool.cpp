@@ -7,6 +7,8 @@
 #include <string>
 #include <utility>
 
+#include "VnaLogger.h"
+
 namespace vna::detail {
 namespace {
 
@@ -121,6 +123,7 @@ VnaStatusV1 VnaBufferPool::acquire(
             slots_.begin(), slots_.end(), [](const auto &slot) { return slot->state == Slot::State::Free; });
     });
     if (!available) {
+        VnaLogger::write(VnaLogLevel::Warning, "波缓冲池等待空闲槽位超时");
         return makeStatus(VNA_STATUS_TIMEOUT, "wave buffer pool exhausted");
     }
     // 条件变量谓词与持锁后的查找使用同一互斥量，因此这里一定能找到空闲槽位。
@@ -163,6 +166,7 @@ VnaStatusV1 VnaBufferPool::commit(
     // 回调可能重入订阅/关闭路径，必须在调用前释放池互斥量。
     lock.unlock();
     if (!callback_(std::move(block))) {
+        VnaLogger::write(VnaLogLevel::Error, "波数据分发队列已满，当前扫描将按 DataLoss 结束");
         return makeStatus(VNA_STATUS_DATA_LOSS, "wave dispatch queue is full");
     }
     return makeStatus(VNA_STATUS_OK, "");

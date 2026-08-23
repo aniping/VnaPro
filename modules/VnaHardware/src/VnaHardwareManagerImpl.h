@@ -19,6 +19,7 @@ namespace detail {
 
     class DriverModule;
     class VnaHardwareSession;
+    class VnaLogger;
 
 }  // namespace detail
 
@@ -31,7 +32,7 @@ public:
         std::shared_ptr<detail::DriverModule> module;
     };
 
-    explicit Impl(std::vector<std::shared_ptr<detail::DriverModule>> modules);
+    Impl(std::shared_ptr<detail::VnaLogger> logger, std::vector<std::shared_ptr<detail::DriverModule>> modules);
     ~Impl();
     DiscoveryId discover(const DiscoveryOptions &options, IVnaDiscoverySink &sink);
     Result<std::shared_ptr<IVnaHardware>> open(const std::string &deviceId);
@@ -62,7 +63,9 @@ private:
     void takeShutdownResources(
         std::vector<std::thread> &discoveryThreads, std::vector<std::shared_ptr<detail::VnaHardwareSession>> &sessions);
 
-    // modules_ 必须最后释放，发现记录、会话适配器和函数表都依赖动态库仍被装载。
+    // logger_ 先声明、后析构，保证驱动模块 Destroy 期间日志后端仍然存活。
+    std::shared_ptr<detail::VnaLogger> logger_;
+    // modules_ 在 logger_ 之前析构，发现记录、会话适配器和函数表依赖动态库仍被装载。
     std::vector<std::shared_ptr<detail::DriverModule>> modules_;
     std::mutex mutex_;
     std::map<std::string, DeviceRecord> devices_;

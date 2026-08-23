@@ -11,6 +11,7 @@
 
 #include "HostServices.h"
 #include "VnaBufferPool.h"
+#include "VnaLogger.h"
 
 namespace vna::detail {
 namespace {
@@ -123,6 +124,8 @@ void VnaSessionController::processStart(const Command &command)
         return;
     }
     transition(DeviceState::Running);
+    VnaLogger::write(
+        VnaLogLevel::Info, "扫描已启动，deviceId=" + descriptor_.deviceId + "，sweepId=" + std::to_string(sweepId));
     dispatcher_->postStartCompleted(command.commandId, sweepId);
     submitSweep(sweepId);
 }
@@ -192,6 +195,10 @@ void VnaSessionController::finishSweep(SweepId sweepId, VnaError error)
     transition(isFaultTermination(reason) ? DeviceState::Fault : DeviceState::Prepared);
     const std::size_t lost = lostFrameCount(reason, expected, received);
     dispatcher_->postSweepCompleted(SweepCompletion{sweepId, reason, expected, received, lost});
+    VnaLogger::write(
+        VnaLogLevel::Info, "扫描已结束，deviceId=" + descriptor_.deviceId + "，sweepId=" + std::to_string(sweepId) +
+                               "，reason=" + std::to_string(static_cast<std::uint32_t>(reason)) +
+                               "，received=" + std::to_string(received) + "，expected=" + std::to_string(expected));
     sweepFinished_.notify_all();
 }
 

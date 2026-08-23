@@ -11,6 +11,11 @@ namespace {
 
     constexpr std::uint32_t batchPoints = 2;
 
+    VnaStringViewV1 literalView(const char *message)
+    {
+        return VnaStringViewV1{message, std::char_traits<char>::length(message)};
+    }
+
     bool equalWaves(const std::vector<VnaWaveKeyV1> &left, const std::vector<Wave> &right)
     {
         if (left.size() != right.size()) {
@@ -145,6 +150,7 @@ VnaStatusV1 SimulatorDevice::execute(VnaSweepIdV1 sweepId)
     if (!beginSweep(sweepId)) {
         return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator cannot execute now");
     }
+    hostApi_.Log(VNA_LOG_INFO, literalView("simulator sweep started"));
     VnaStatusV1 status = simulatorStatus(VNA_STATUS_OK, "");
     // 按布局输出能让每个块保持固定 waveCount 和 waveIndex 语义。
     for (std::size_t index = 0; index < layoutViews_.size(); ++index) {
@@ -155,6 +161,7 @@ VnaStatusV1 SimulatorDevice::execute(VnaSweepIdV1 sweepId)
     }
     // 无论成功、取消还是驱动错误，都只在一个出口释放活动扫频标记。
     activeSweep_.store(0);
+    hostApi_.Log(VNA_LOG_INFO, literalView("simulator sweep finished"));
     return status;
 }
 
@@ -244,6 +251,7 @@ VnaStatusV1 SimulatorDevice::requestAbort(VnaSweepIdV1 sweepId)
         return simulatorStatus(VNA_STATUS_INVALID_STATE, "simulator sweep is not active");
     }
     abortRequested_.store(true);
+    hostApi_.Log(VNA_LOG_WARNING, literalView("simulator abort requested"));
     return simulatorStatus(VNA_STATUS_OK, "");
 }
 
