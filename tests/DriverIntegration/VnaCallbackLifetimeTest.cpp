@@ -84,6 +84,12 @@ public:
     void onStartCompleted(const vna::StartCompletedEvent &) override
     {
     }
+    void onAbortCompleted(const vna::AbortCompletedEvent &) override
+    {
+    }
+    void onDisconnectCompleted(const vna::DisconnectCompletedEvent &) override
+    {
+    }
     void onWaveBlock(vna::VnaWaveBlock) override
     {
     }

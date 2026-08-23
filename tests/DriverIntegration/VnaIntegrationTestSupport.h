@@ -39,6 +39,8 @@ public:
     void onConnectCompleted(const ConnectCompletedEvent &event) override;
     void onPrepareCompleted(const PrepareCompletedEvent &event) override;
     void onStartCompleted(const StartCompletedEvent &event) override;
+    void onAbortCompleted(const AbortCompletedEvent &event) override;
+    void onDisconnectCompleted(const DisconnectCompletedEvent &event) override;
     void onWaveBlock(VnaWaveBlock block) override;
     void onSweepCompleted(const SweepCompletion &event) override;
     void onCommandFailed(const CommandFailedEvent &event) override;
@@ -46,16 +48,25 @@ public:
     bool waitConnected();
     bool waitPrepared(std::size_t count);
     bool waitStarted(std::size_t count);
+    bool waitAborted(std::size_t count);
+    bool waitDisconnected(std::size_t count);
     bool waitCompleted(std::size_t count);
     bool waitFailures(std::size_t count);
     bool waitState(DeviceState state);
     ConfigurationId configuration() const;
     SweepId sweep(std::size_t index) const;
     SweepCompletion completion(std::size_t index) const;
+    bool abortFollowedSweep() const;
+    bool disconnectFollowedState() const;
     std::size_t blockCount() const;
     std::uint64_t blockSequence(std::size_t index) const;
     std::uint32_t blockPointCount(std::size_t index) const;
     std::complex<double> blockValue(std::size_t block, std::size_t wave, std::size_t point) const;
+    std::uint32_t blockQuality(std::size_t block, std::size_t wave, std::size_t point) const;
+    void abortOnNextStart(IVnaHardware &hardware);
+    bool completedCommand(CommandId commandId) const;
+    bool failedCommand(CommandId commandId) const;
+    CommandId triggeredAbortCommand() const;
     void clearBlocks();
     std::size_t failureCount() const;
 
@@ -76,6 +87,15 @@ private:
     ConfigurationId configuration_{0};
     std::size_t prepareCount_{0};
     std::vector<SweepId> sweeps_;
+    std::vector<AbortCompletedEvent> aborts_;
+    std::size_t disconnectCount_{0};
+    bool abortFollowedSweep_{false};
+    bool disconnectFollowedState_{false};
+    // 非空时由下一个 StartCompleted 回调立即发起中止，覆盖 Start/Execute 交接窗口。
+    IVnaHardware *abortOnStart_{nullptr};
+    CommandId triggeredAbortCommand_{0};
+    std::vector<CommandId> completedCommands_;
+    std::vector<CommandId> failedCommands_;
     std::vector<VnaWaveBlock> blocks_;
     std::vector<SweepCompletion> completions_;
     std::vector<VnaError> failures_;

@@ -1,9 +1,7 @@
 #include "VnaIntegrationTestSupport.h"
 
-#include <cmath>
+#include <algorithm>
 #include <utility>
-
-#include <gtest/gtest.h>
 
 namespace vna::test {
 
@@ -56,10 +54,11 @@ void HardwareSink::onStateChanged(const StateChangedEvent &event)
     changed_.notify_all();
 }
 
-void HardwareSink::onConnectCompleted(const ConnectCompletedEvent &)
+void HardwareSink::onConnectCompleted(const ConnectCompletedEvent &event)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     connected_ = true;
+    completedCommands_.push_back(event.commandId);
     changed_.notify_all();
 }
 
@@ -69,14 +68,50 @@ void HardwareSink::onPrepareCompleted(const PrepareCompletedEvent &event)
     // 同时记录最新配置和完成次数，支持验证失败 Prepare 不会覆盖既有配置。
     configuration_ = event.prepared.configurationId;
     ++prepareCount_;
+    completedCommands_.push_back(event.commandId);
     changed_.notify_all();
 }
 
 void HardwareSink::onStartCompleted(const StartCompletedEvent &event)
 {
-    // 保存所有 sweepId，后续用例可区分中止请求是否误作用于下一次执行。
+    // 先取走一次性动作，但不能持测试状态锁调用硬件 API，避免回调重入造成锁反转。
+    IVnaHardware *abortTarget = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        abortTarget = std::exchange(abortOnStart_, nullptr);
+    }
+    // 在用户可观察 StartCompleted 的最早时刻入队，专门压测 Worker 尚未进入 Execute 的窗口。
+    CommandId abortCommand = 0;
+    if (abortTarget != nullptr) {
+        abortCommand = abortTarget->abortAsync(event.sweepId);
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // 一次持锁发布关联字段，waitStarted() 成功后不会观察到半完成的回调快照。
+        sweeps_.push_back(event.sweepId);
+        completedCommands_.push_back(event.commandId);
+        if (abortCommand != 0) {
+            triggeredAbortCommand_ = abortCommand;
+        }
+    }
+    changed_.notify_all();
+}
+
+void HardwareSink::onAbortCompleted(const AbortCompletedEvent &event)
+{
     std::lock_guard<std::mutex> lock(mutex_);
-    sweeps_.push_back(event.sweepId);
+    abortFollowedSweep_ = !completions_.empty() && (completions_.back().sweepId == event.sweepId);
+    aborts_.push_back(event);
+    completedCommands_.push_back(event.commandId);
+    changed_.notify_all();
+}
+
+void HardwareSink::onDisconnectCompleted(const DisconnectCompletedEvent &event)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    disconnectFollowedState_ = state_ == DeviceState::Disconnected;
+    ++disconnectCount_;
+    completedCommands_.push_back(event.commandId);
     changed_.notify_all();
 }
 
@@ -99,6 +134,7 @@ void HardwareSink::onCommandFailed(const CommandFailedEvent &event)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     failures_.push_back(event.error);
+    failedCommands_.push_back(event.commandId);
     changed_.notify_all();
 }
 
@@ -115,6 +151,16 @@ bool HardwareSink::waitPrepared(std::size_t count)
 bool HardwareSink::waitStarted(std::size_t count)
 {
     return waitFor([this, count] { return sweeps_.size() >= count; });
+}
+
+bool HardwareSink::waitAborted(std::size_t count)
+{
+    return waitFor([this, count] { return aborts_.size() >= count; });
+}
+
+bool HardwareSink::waitDisconnected(std::size_t count)
+{
+    return waitFor([this, count] { return disconnectCount_ >= count; });
 }
 
 bool HardwareSink::waitCompleted(std::size_t count)
@@ -150,6 +196,18 @@ SweepCompletion HardwareSink::completion(std::size_t index) const
     return completions_.at(index);
 }
 
+bool HardwareSink::abortFollowedSweep() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return abortFollowedSweep_;
+}
+
+bool HardwareSink::disconnectFollowedState() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return disconnectFollowedState_;
+}
+
 std::size_t HardwareSink::blockCount() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -174,6 +232,36 @@ std::complex<double> HardwareSink::blockValue(std::size_t block, std::size_t wav
     return blocks_.at(block).value(wave, point);
 }
 
+std::uint32_t HardwareSink::blockQuality(std::size_t block, std::size_t wave, std::size_t point) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return blocks_.at(block).quality(wave, point);
+}
+
+void HardwareSink::abortOnNextStart(IVnaHardware &hardware)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    abortOnStart_ = &hardware;
+}
+
+bool HardwareSink::completedCommand(CommandId commandId) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::find(completedCommands_.begin(), completedCommands_.end(), commandId) != completedCommands_.end();
+}
+
+bool HardwareSink::failedCommand(CommandId commandId) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::find(failedCommands_.begin(), failedCommands_.end(), commandId) != failedCommands_.end();
+}
+
+CommandId HardwareSink::triggeredAbortCommand() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return triggeredAbortCommand_;
+}
+
 void HardwareSink::clearBlocks()
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -185,46 +273,6 @@ std::size_t HardwareSink::failureCount() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return failures_.size();
-}
-
-VnaSweepPlan makePlan()
-{
-    // 五个点故意超过批大小 2，用一个计划同时覆盖完整批和尾部短批。
-    VnaSweepPlan plan;
-    for (std::uint32_t index = 0; index < 5; ++index) {
-        VnaExcitationPlan excitation;
-        excitation.excitationId = 1;
-        excitation.sources.push_back(VnaSourcePlan{1, 0.0, 0.0});
-        excitation.requiredWaves.push_back(VnaWaveKey{WaveKind::Incident, 1});
-        excitation.requiredWaves.push_back(VnaWaveKey{WaveKind::Outgoing, 2});
-
-        VnaPointPlan point;
-        point.pointId = index + 1;
-        point.frequencyHz = 1.0e9 + (static_cast<double>(index) * 1.0e6);
-        point.ifBandwidthHz = 1000.0 + static_cast<double>(index);
-        point.dwellTime = std::chrono::microseconds(10);
-        point.excitations.push_back(std::move(excitation));
-        plan.points.push_back(std::move(point));
-    }
-    return plan;
-}
-
-void verifyCompletedSweep(const HardwareSink &events)
-{
-    EXPECT_EQ(events.completion(0).reason, SweepTerminationReason::Completed);
-    // 五个点按批次容量 2 被拆为 2、2、1 三个连续块。
-    ASSERT_EQ(events.blockCount(), 3U);
-    EXPECT_EQ(events.blockSequence(0), 0U);
-    EXPECT_EQ(events.blockSequence(1), 1U);
-    EXPECT_EQ(events.blockSequence(2), 2U);
-    EXPECT_EQ(events.blockPointCount(0), 2U);
-    EXPECT_EQ(events.blockPointCount(2), 1U);
-
-    // 入射波幅度为 1；跨一个端口的出射波使用 0.5 增益和确定性传播相位。
-    EXPECT_NEAR(events.blockValue(0, 0, 0).real(), 1.0, 1.0e-12);
-    EXPECT_NEAR(events.blockValue(0, 0, 0).imag(), 0.0, 1.0e-12);
-    constexpr double pi = 3.14159265358979323846;
-    EXPECT_NEAR(events.blockValue(0, 1, 0).real(), 0.5 * std::cos(-0.2 * pi), 1.0e-12);
 }
 
 }  // namespace vna::test

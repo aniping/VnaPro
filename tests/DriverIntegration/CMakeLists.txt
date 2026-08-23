@@ -5,11 +5,15 @@ add_test(NAME VnaDriverC99Contract COMMAND VnaDriverC99Contract)
 add_executable(
     VnaHardwareTests
     DriverAbiLayoutTest.cpp
+    DriverAbiVersionTest.cpp
     DriverPluginSecurityTest.cpp
     VnaCallbackLifetimeTest.cpp
     VnaDriverIntegrationTest.cpp
+    VnaFrameTrackerTest.cpp
+    VnaIntegrationPlan.cpp
     VnaIntegrationTestSupport.cpp
     VnaLoggingTest.cpp
+    VnaSweepTerminationTest.cpp
     VnaValidationTest.cpp
 )
 configure_file(vnapro-test.conf ${CMAKE_BINARY_DIR}/drivers/vnapro.conf COPYONLY)
@@ -20,6 +24,7 @@ target_include_directories(
 target_compile_definitions(
     VnaHardwareTests PRIVATE
     VNA_TEST_DRIVER_DIRECTORY="$<TARGET_FILE_DIR:VnaDriverSimulator>"
+    VNA_TEST_DRIVER_MODULE="$<TARGET_FILE:VnaDriverSimulator>"
     VNA_TEST_LOG_CONFIGURATION="${CMAKE_BINARY_DIR}/drivers/vnapro.conf"
 )
 add_dependencies(VnaHardwareTests VnaDriverSimulator)
