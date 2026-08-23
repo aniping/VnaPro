@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 project(VnaPro LANGUAGES C CXX)
 
 option(VNA_BUILD_TESTS "Build VNA tests" ON)
+option(VNA_BUILD_BENCHMARKS "Build manual VNA throughput benchmarks" OFF)
 option(VNA_ENFORCE_PRODUCTION_TOOLCHAIN "Require the production GCC 7.3 toolchain" OFF)
 
 if(VNA_ENFORCE_PRODUCTION_TOOLCHAIN)
@@ -39,6 +40,10 @@ add_subdirectory(sdk/VnaDriver)
 add_subdirectory(modules/VnaHardware)
 add_subdirectory(modules/VnaAcquisition)
 add_subdirectory(drivers/Simulator)
+
+if(VNA_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
 
 if(VNA_BUILD_TESTS)
     include(CTest)
