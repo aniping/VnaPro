@@ -19,6 +19,8 @@ enum class EventKind : std::uint8_t {
     ConnectCompleted,
     PrepareCompleted,
     StartCompleted,
+    AbortCompleted,
+    DisconnectCompleted,
     WaveBlock,
     SweepCompleted,
     CommandFailed
@@ -32,6 +34,8 @@ struct QueuedEvent {
     ConnectCompletedEvent connected;
     PrepareCompletedEvent prepared;
     StartCompletedEvent started;
+    AbortCompletedEvent aborted;
+    DisconnectCompletedEvent disconnected;
     VnaWaveBlock block;
     SweepCompletion completed;
     CommandFailedEvent failed;

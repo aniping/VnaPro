@@ -122,6 +122,12 @@ void dispatchEvent(IVnaHardwareEventSink &sink, QueuedEvent event)
         case EventKind::StartCompleted:
             sink.onStartCompleted(event.started);
             break;
+        case EventKind::AbortCompleted:
+            sink.onAbortCompleted(event.aborted);
+            break;
+        case EventKind::DisconnectCompleted:
+            sink.onDisconnectCompleted(event.disconnected);
+            break;
         case EventKind::WaveBlock:
             sink.onWaveBlock(std::move(event.block));
             break;

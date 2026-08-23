@@ -9,6 +9,7 @@ add_library(
     src/VnaBufferPool.cpp
     src/VnaEventDispatcher.cpp
     src/VnaEventQueue.cpp
+    src/VnaFrameTracker.cpp
     src/VnaHardware.cpp
     src/VnaHardwareDiscovery.cpp
     src/VnaHardwareManager.cpp
@@ -19,8 +20,10 @@ add_library(
     src/VnaSessionController.cpp
     src/VnaSessionShutdown.cpp
     src/VnaSweepCommands.cpp
+    src/VnaSweepTermination.cpp
     src/VnaPlanMarshaller.cpp
     src/VnaValidation.cpp
+    src/VnaWaveBlockCommands.cpp
     src/VnaWaveBlock.cpp
 )
 target_include_directories(

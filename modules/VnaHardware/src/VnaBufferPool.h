@@ -20,8 +20,8 @@ namespace vna::detail {
 // 固定槽位池把 ABI 裸句柄限制在受控生命周期内，并给生产者提供明确的背压。
 class VnaBufferPool final : public std::enable_shared_from_this<VnaBufferPool> {
 public:
-    // 回调取得移动专属数据块；返回 false 表示下游背压导致本块无法发布。
-    using CommitCallback = std::function<bool(VnaWaveBlock)>;
+    // 回调取得移动专属数据块，并把协议错误或下游背压的准确状态返回给驱动。
+    using CommitCallback = std::function<VnaStatusV1(VnaWaveBlock)>;
 
     static std::shared_ptr<VnaBufferPool> create(
         const std::vector<VnaWaveLayout> &layouts, std::size_t pointCapacity, std::size_t slotCount,
@@ -52,7 +52,8 @@ private:
     const Slot &checkedSlot(std::size_t slotIndex) const;
     std::size_t checkedValueIndex(const Slot &slot, std::size_t waveIndex, std::size_t pointOffset) const;
 
-    // layouts_ 决定每个 layoutId 的 waveCount，pointCapacity_ 决定每波固定跨距。
+    // layouts_ 决定每个 layoutId 的 waveCount；pointCapacity_ 是池的最大容量。
+    // 每次 Acquire 记录的 acquiredCapacity 才是该块各波之间的实际跨距。
     std::vector<VnaWaveLayout> layouts_;
     std::size_t pointCapacity_{0};
     std::vector<std::unique_ptr<Slot>> slots_;

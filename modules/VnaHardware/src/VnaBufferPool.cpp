@@ -49,7 +49,12 @@ namespace {
         VnaMutableWaveBlockViewV1 *view)
     {
         const bool validOutput = (handle != nullptr) && (view != nullptr);
-        return validOutput && (requestedCapacity > 0) && (requestedCapacity <= maximumCapacity);
+        if (!validOutput) {
+            return false;
+        }
+        // view 来自 ABI 调用方，覆盖完整结构前必须校验可写大小和保留字段。
+        return (view->structSize >= sizeof(*view)) && (view->reserved == 0) && (requestedCapacity > 0) &&
+               (requestedCapacity <= maximumCapacity);
     }
 
 }  // namespace
@@ -124,7 +129,7 @@ VnaStatusV1 VnaBufferPool::acquire(
     });
     if (!available) {
         VnaLogger::write(VnaLogLevel::Warning, "波缓冲池等待空闲槽位超时");
-        return makeStatus(VNA_STATUS_TIMEOUT, "wave buffer pool exhausted");
+        return makeStatus(VNA_STATUS_DATA_LOSS, "wave buffer pool exhausted");
     }
     // 条件变量谓词与持锁后的查找使用同一互斥量，因此这里一定能找到空闲槽位。
     const auto slot =
@@ -158,6 +163,18 @@ VnaStatusV1 VnaBufferPool::commit(
     if (!validCommit(slot, pointCount)) {
         return makeStatus(VNA_STATUS_INVALID_ARGUMENT, "invalid wave block commit");
     }
+    // ABI 1.0 没有定义的质量位不能透传到公开对象，否则上层无法稳定解释。
+    static constexpr std::uint32_t knownQualityFlags = VNA_QUALITY_OVERLOAD | VNA_QUALITY_UNLOCKED |
+                                                       VNA_QUALITY_SOURCE_UNSETTLED | VNA_QUALITY_REFERENCE_LOW |
+                                                       VNA_QUALITY_MISSING;
+    for (std::uint32_t wave = 0; wave < slot->waveCount; ++wave) {
+        for (std::uint32_t point = 0; point < pointCount; ++point) {
+            const std::size_t index = (wave * slot->acquiredCapacity) + point;
+            if ((slot->qualityFlags[index] & ~knownQualityFlags) != 0) {
+                return makeStatus(VNA_STATUS_PROTOCOL_ERROR, "wave block contains unknown quality flags");
+            }
+        }
+    }
     slot->firstPointIndex = firstPointIndex;
     slot->pointCount = pointCount;
     slot->state = Slot::State::Committed;
@@ -165,9 +182,11 @@ VnaStatusV1 VnaBufferPool::commit(
     VnaWaveBlock block(shared_from_this(), slot->index, slot->sweepId, sequence, slot->layoutId);
     // 回调可能重入订阅/关闭路径，必须在调用前释放池互斥量。
     lock.unlock();
-    if (!callback_(std::move(block))) {
-        VnaLogger::write(VnaLogLevel::Error, "波数据分发队列已满，当前扫描将按 DataLoss 结束");
-        return makeStatus(VNA_STATUS_DATA_LOSS, "wave dispatch queue is full");
+    const VnaStatusV1 result = callback_(std::move(block));
+    if (result.code != VNA_STATUS_OK) {
+        VnaLogger::write(
+            VnaLogLevel::Error, "波数据提交被拒绝，code=" + std::to_string(result.code) + "，当前扫描将按故障结束");
+        return result;
     }
     return makeStatus(VNA_STATUS_OK, "");
 }
@@ -251,8 +270,8 @@ std::size_t VnaBufferPool::checkedValueIndex(const Slot &slot, std::size_t waveI
     if ((waveIndex >= slot.waveCount) || (pointOffset >= slot.pointCount)) {
         throw std::out_of_range("Wave block index is out of range");
     }
-    // 每个波保留完整 pointCapacity_ 跨距，而不是当前块 pointCount，布局在租约期内固定。
-    return (waveIndex * pointCapacity_) + pointOffset;
+    // 跨距必须使用本次 Acquire 返回的 pointCapacity，它可能小于池的最大容量。
+    return (waveIndex * slot.acquiredCapacity) + pointOffset;
 }
 
 }  // namespace vna::detail
