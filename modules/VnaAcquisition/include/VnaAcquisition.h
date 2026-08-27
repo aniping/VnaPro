@@ -140,9 +140,13 @@ public:
     IVnaAcquisitionSink &operator=(IVnaAcquisitionSink &&) = delete;
 
     // 回调在硬件事件线程串行执行；Sink 必须比 Engine 存活更久，且回调内不得销毁 Engine。
+    // 已接纳命令的回调允许早于对应 prepareAsync()/start() 向调用方返回，调用方必须先建立接收上下文。
     // Prepared 成功结果和 frame 均保证非空、不可变；Sink 可按需保留其 shared_ptr 共享所有权。
     virtual void onPrepared(CommandId commandId, Result<std::shared_ptr<const PreparedAcquisition>> outcome) = 0;
+    // 返回形成 Sweep 级反压；Engine 在回调返回前不会交付该 Run 的后续帧或终态。
     virtual void onSweepReady(std::shared_ptr<const RawSweepFrame> frame) = 0;
+    // 成功帧总在同 Run 终态前交付；每个被 start() 成功接纳的 Run（成功结果携带 RunId）恰有一个终态；
+    // 该终态回调可早于调用线程观察到 start() 的成功返回。
     // completion 是仅在本次回调期间有效的借用；跨回调保存时必须复制。
     virtual void onRunCompleted(const AcquisitionRunCompletion &completion) = 0;
 };
@@ -157,6 +161,7 @@ public:
     IVnaAcquisitionEngine &operator=(IVnaAcquisitionEngine &&) = delete;
 
     // 公开方法线程安全；终态回调交付期间，非回调线程的调用会等待。
+    // 提交成功只表示命令或 Run 已接纳，不表示调用方会先于相应事件回调观察到返回值。
     virtual Result<CommandId> prepareAsync(VnaSweepPlan plan) = 0;
     virtual Result<AcquisitionRunId> start(AcquisitionRunRequest request) = 0;
     virtual VnaError requestStop(AcquisitionRunId runId) = 0;

@@ -24,3 +24,12 @@ target_compile_definitions(
 target_link_libraries(VnaLocalThroughputBenchmark PRIVATE VnaAcquisition)
 add_dependencies(VnaLocalThroughputBenchmark VnaDriverSimulator)
 vna_enable_warnings(VnaLocalThroughputBenchmark)
+
+add_executable(VnaMeasurementBenchmark MeasurementBuildBenchmark.cpp)
+target_include_directories(
+    VnaMeasurementBenchmark PRIVATE
+    ${PROJECT_SOURCE_DIR}/modules/VnaAcquisition/src
+    ${PROJECT_SOURCE_DIR}/modules/VnaMeasurement/src
+)
+target_link_libraries(VnaMeasurementBenchmark PRIVATE VnaMeasurement)
+vna_enable_warnings(VnaMeasurementBenchmark)

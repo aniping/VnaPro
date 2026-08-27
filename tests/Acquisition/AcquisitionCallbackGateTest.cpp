@@ -85,11 +85,15 @@ TEST_F(AcquisitionTest, RepeatedStopIsAcceptedAfterSweepCompletionIsLatched)
 
     ASSERT_TRUE(completeCurrentSweep(1303));
     ASSERT_TRUE(callback.waitUntilArrived());
+    EXPECT_EQ(sink_.frameCount(), 0U);
+    EXPECT_EQ(sink_.completionCount(), 0U);
     const VnaError repeatedStop = engine_->requestStop(run.value());
     callback.release();
 
     EXPECT_EQ(repeatedStop.code, VnaErrorCode::None);
+    ASSERT_TRUE(sink_.waitForFrames(1));
     ASSERT_TRUE(sink_.waitForCompletions(1));
+    EXPECT_EQ(sink_.frameCount(), 1U);
     EXPECT_EQ(sink_.completion(0).termination, AcquisitionRunTermination::Stopped);
     EXPECT_EQ(sink_.completionCount(), 1U);
 }
