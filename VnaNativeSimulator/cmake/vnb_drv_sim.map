@@ -1,0 +1,14 @@
+{
+    global:
+        DrvHwInit;
+        DrvGetSweepData;
+        DrvStartSweep;
+        DrvActivateRxLink;
+        DrvSetRfPowerOn;
+        DrvSetFastSweepMode;
+        DrvGetIDN;
+        DrvCheckSweepPortPower;
+        DrvDataFrameDownload;
+    local:
+        *;
+};
