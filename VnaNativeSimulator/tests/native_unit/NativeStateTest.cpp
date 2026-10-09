@@ -1,6 +1,3 @@
-#include "NativeUnitTestFixtures.h"
-#include "NativeSimulatorState.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -10,6 +7,9 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
+
+#include "NativeSimulatorState.h"
+#include "NativeUnitTestFixtures.h"
 
 using vna_native::DRV_SIM_INTERNAL_ERROR;
 using vna_native::DRV_SIM_INVALID_ARGUMENT;
@@ -26,17 +26,15 @@ using vna_native::NormalFrameSnapshot;
 
 namespace {
 
-std::uint32_t Download(NativeSimulatorState* state,
-                       vna_test::EncodedFrame* frame,
-                       std::uint32_t pointCount) {
-    return state->DataFrameDownload(
-        pointCount, frame->parameters.data(),
-        static_cast<std::uint32_t>(frame->parameters.size()),
-        frame->powerTable.data(),
+std::uint32_t Download(NativeSimulatorState* state, vna_test::EncodedFrame* frame, std::uint32_t pointCount)
+{
+    return state->DataFrameDownload(pointCount, frame->parameters.data(),
+        static_cast<std::uint32_t>(frame->parameters.size()), frame->powerTable.data(),
         static_cast<std::uint32_t>(frame->powerTable.size()));
 }
 
-void Configure(NativeSimulatorState* state) {
+void Configure(NativeSimulatorState* state)
+{
     VNA_EXPECT_EQ(DRV_SIM_OK, state->HwInit());
     VNA_EXPECT_EQ(DRV_SIM_OK, state->SetRfPowerOn(1U));
     VNA_EXPECT_EQ(DRV_SIM_OK, state->ActivateRxLink(0xFU));
@@ -45,10 +43,10 @@ void Configure(NativeSimulatorState* state) {
 
 class ThrowAtPoint : public FailureInjector {
 public:
-    explicit ThrowAtPoint(FailurePoint point)
-        : point_(point), throwCount_(0U) {}
+    explicit ThrowAtPoint(FailurePoint point) : point_(point), throwCount_(0U) {}
 
-    void ThrowIfRequested(FailurePoint point) override {
+    void ThrowIfRequested(FailurePoint point) override
+    {
         if (point == point_) {
             ++throwCount_;
             throw std::runtime_error("单元测试故障注入");
@@ -64,10 +62,10 @@ private:
 
 }  // namespace
 
-VNA_TEST(NativeStateRequiresInitializationWithoutWritingOutputs) {
+VNA_TEST(NativeStateRequiresInitializationWithoutWritingOutputs)
+{
     NativeSimulatorState state;
-    vna_test::EncodedFrame frame =
-        vna_test::MakeEncodedFrame(1U, 0U, UINT64_C(1000000000));
+    vna_test::EncodedFrame frame = vna_test::MakeEncodedFrame(1U, 0U, UINT64_C(1000000000));
     double iq[16] = {13.0};
     char idn[16] = "unchanged";
     std::uint32_t checkBitmap = 0xABCDU;
@@ -78,10 +76,8 @@ VNA_TEST(NativeStateRequiresInitializationWithoutWritingOutputs) {
     VNA_EXPECT_EQ(DRV_SIM_NOT_INITIALIZED, state.ActivateRxLink(1U));
     VNA_EXPECT_EQ(DRV_SIM_NOT_INITIALIZED, state.SetRfPowerOn(1U));
     VNA_EXPECT_EQ(DRV_SIM_NOT_INITIALIZED, state.SetFastSweepMode(7U));
-    VNA_EXPECT_EQ(DRV_SIM_NOT_INITIALIZED,
-                  state.GetIDN(idn, static_cast<int>(sizeof(idn))));
-    VNA_EXPECT_EQ(DRV_SIM_NOT_INITIALIZED,
-                  state.CheckSweepPortPower(1U, &checkBitmap, &index, 1U));
+    VNA_EXPECT_EQ(DRV_SIM_NOT_INITIALIZED, state.GetIDN(idn, static_cast<int>(sizeof(idn))));
+    VNA_EXPECT_EQ(DRV_SIM_NOT_INITIALIZED, state.CheckSweepPortPower(1U, &checkBitmap, &index, 1U));
     VNA_EXPECT_EQ(DRV_SIM_NOT_INITIALIZED, Download(&state, &frame, 1U));
 
     VNA_EXPECT_EQ(13.0, iq[0]);
@@ -90,7 +86,8 @@ VNA_TEST(NativeStateRequiresInitializationWithoutWritingOutputs) {
     VNA_EXPECT_EQ(42U, index);
 }
 
-VNA_TEST(NativeStatePersistsConfigurationAndResetsDeterministically) {
+VNA_TEST(NativeStatePersistsConfigurationAndResetsDeterministically)
+{
     NativeSimulatorState state;
     VNA_EXPECT_EQ(DRV_SIM_OK, state.HwInit());
     NativeSimulatorSnapshot snapshot = state.SnapshotForTest();
@@ -132,30 +129,24 @@ VNA_TEST(NativeStatePersistsConfigurationAndResetsDeterministically) {
     }
 }
 
-VNA_TEST(NativeStateOwnsIndependentFramesForEveryPort) {
+VNA_TEST(NativeStateOwnsIndependentFramesForEveryPort)
+{
     NativeSimulatorState state;
     VNA_EXPECT_EQ(DRV_SIM_OK, state.HwInit());
     std::vector<vna_test::EncodedFrame> inputs;
     for (std::uint32_t port = 0U; port < 4U; ++port) {
-        inputs.push_back(vna_test::MakeEncodedFrame(
-            2U, port, UINT64_C(0x100000000) * (port + 1U) + 17U));
-        inputs.back().powerTable[0U] =
-            std::numeric_limits<double>::quiet_NaN();
-        inputs.back().powerTable[1U] =
-            std::numeric_limits<double>::infinity();
-        inputs.back().powerTable[2U] =
-            -std::numeric_limits<double>::infinity();
+        inputs.push_back(vna_test::MakeEncodedFrame(2U, port, UINT64_C(0x100000000) * (port + 1U) + 17U));
+        inputs.back().powerTable[0U] = std::numeric_limits<double>::quiet_NaN();
+        inputs.back().powerTable[1U] = std::numeric_limits<double>::infinity();
+        inputs.back().powerTable[2U] = -std::numeric_limits<double>::infinity();
         VNA_EXPECT_EQ(DRV_SIM_OK, Download(&state, &inputs.back(), 2U));
     }
 
     for (std::uint32_t port = 0U; port < 4U; ++port) {
-        const std::uint64_t firstFrequency =
-            UINT64_C(0x100000000) * (port + 1U) + 17U;
+        const std::uint64_t firstFrequency = UINT64_C(0x100000000) * (port + 1U) + 17U;
         const std::vector<double> expectedTable = inputs[port].powerTable;
-        std::fill(inputs[port].parameters.begin(),
-                  inputs[port].parameters.end(), 0U);
-        std::fill(inputs[port].powerTable.begin(),
-                  inputs[port].powerTable.end(), -1.0);
+        std::fill(inputs[port].parameters.begin(), inputs[port].parameters.end(), 0U);
+        std::fill(inputs[port].powerTable.begin(), inputs[port].powerTable.end(), -1.0);
         std::vector<std::uint32_t>().swap(inputs[port].parameters);
         std::vector<double>().swap(inputs[port].powerTable);
 
@@ -164,13 +155,10 @@ VNA_TEST(NativeStateOwnsIndependentFramesForEveryPort) {
         VNA_EXPECT_EQ(port, copy.sourcePort);
         VNA_EXPECT_EQ(2U, copy.points.size());
         for (std::size_t point = 0U; point < copy.points.size(); ++point) {
-            VNA_EXPECT_EQ(firstFrequency +
-                              static_cast<std::uint64_t>(point) *
-                                  UINT64_C(0x100000003),
-                          copy.points[point].frequencyRaw);
+            VNA_EXPECT_EQ(firstFrequency + static_cast<std::uint64_t>(point) * UINT64_C(0x100000003),
+                copy.points[point].frequencyRaw);
             VNA_EXPECT_EQ(port, copy.points[point].sourcePort);
-            VNA_EXPECT_EQ(static_cast<std::uint32_t>(100U + point),
-                          copy.points[point].ifBandwidthRaw);
+            VNA_EXPECT_EQ(static_cast<std::uint32_t>(100U + point), copy.points[point].ifBandwidthRaw);
         }
         VNA_EXPECT_EQ(expectedTable.size(), copy.tableData.size());
         for (std::size_t index = 0U; index < expectedTable.size(); ++index) {
@@ -183,10 +171,10 @@ VNA_TEST(NativeStateOwnsIndependentFramesForEveryPort) {
     }
 }
 
-VNA_TEST(NativeStateEnforcesStartGetAndPendingRules) {
+VNA_TEST(NativeStateEnforcesStartGetAndPendingRules)
+{
     NativeSimulatorState state;
-    vna_test::EncodedFrame frame =
-        vna_test::MakeEncodedFrame(2U, 1U, UINT64_C(1000000000));
+    vna_test::EncodedFrame frame = vna_test::MakeEncodedFrame(2U, 1U, UINT64_C(1000000000));
     VNA_EXPECT_EQ(DRV_SIM_OK, state.HwInit());
     VNA_EXPECT_EQ(DRV_SIM_RF_DISABLED, state.StartSweep(2U, 1U));
     VNA_EXPECT_EQ(DRV_SIM_OK, state.SetRfPowerOn(1U));
@@ -219,20 +207,17 @@ VNA_TEST(NativeStateEnforcesStartGetAndPendingRules) {
     VNA_EXPECT_EQ(DRV_SIM_INVALID_STATE, state.GetSweepData(2U, output.data()));
 }
 
-VNA_TEST(NativeStateFrameCommitHasStrongExceptionGuarantee) {
+VNA_TEST(NativeStateFrameCommitHasStrongExceptionGuarantee)
+{
     NativeSimulatorState state;
     VNA_EXPECT_EQ(DRV_SIM_OK, state.HwInit());
-    vna_test::EncodedFrame oldFrame =
-        vna_test::MakeEncodedFrame(1U, 0U, UINT64_C(111));
-    vna_test::EncodedFrame replacement =
-        vna_test::MakeEncodedFrame(2U, 0U, UINT64_C(222));
+    vna_test::EncodedFrame oldFrame = vna_test::MakeEncodedFrame(1U, 0U, UINT64_C(111));
+    vna_test::EncodedFrame replacement = vna_test::MakeEncodedFrame(2U, 0U, UINT64_C(222));
     VNA_EXPECT_EQ(DRV_SIM_OK, Download(&state, &oldFrame, 1U));
 
-    std::shared_ptr<ThrowAtPoint> injector(
-        new ThrowAtPoint(FailurePoint::kBeforeFrameCommit));
+    std::shared_ptr<ThrowAtPoint> injector(new ThrowAtPoint(FailurePoint::kBeforeFrameCommit));
     state.SetFailureInjectorForTest(injector);
-    VNA_EXPECT_EQ(DRV_SIM_INTERNAL_ERROR,
-                  Download(&state, &replacement, 2U));
+    VNA_EXPECT_EQ(DRV_SIM_INTERNAL_ERROR, Download(&state, &replacement, 2U));
     VNA_EXPECT_EQ(1U, injector->ThrowCount());
 
     NormalFrameSnapshot stored;
@@ -247,15 +232,14 @@ VNA_TEST(NativeStateFrameCommitHasStrongExceptionGuarantee) {
     VNA_EXPECT_EQ(222U, stored.points[0].frequencyRaw);
 }
 
-VNA_TEST(NativeStatePendingCommitHasStrongExceptionGuarantee) {
+VNA_TEST(NativeStatePendingCommitHasStrongExceptionGuarantee)
+{
     NativeSimulatorState state;
     Configure(&state);
-    vna_test::EncodedFrame frame =
-        vna_test::MakeEncodedFrame(1U, 0U, UINT64_C(333));
+    vna_test::EncodedFrame frame = vna_test::MakeEncodedFrame(1U, 0U, UINT64_C(333));
     VNA_EXPECT_EQ(DRV_SIM_OK, Download(&state, &frame, 1U));
 
-    std::shared_ptr<ThrowAtPoint> injector(
-        new ThrowAtPoint(FailurePoint::kBeforePendingCommit));
+    std::shared_ptr<ThrowAtPoint> injector(new ThrowAtPoint(FailurePoint::kBeforePendingCommit));
     state.SetFailureInjectorForTest(injector);
     VNA_EXPECT_EQ(DRV_SIM_INTERNAL_ERROR, state.StartSweep(1U, 0U));
     VNA_EXPECT_EQ(1U, injector->ThrowCount());
@@ -267,13 +251,12 @@ VNA_TEST(NativeStatePendingCommitHasStrongExceptionGuarantee) {
     VNA_EXPECT_EQ(DRV_SIM_OK, state.GetSweepData(1U, output.data()));
 }
 
-VNA_TEST(NativeStateSerializesConcurrentConfigurationAndDownloads) {
+VNA_TEST(NativeStateSerializesConcurrentConfigurationAndDownloads)
+{
     NativeSimulatorState state;
     Configure(&state);
-    vna_test::EncodedFrame portZero =
-        vna_test::MakeEncodedFrame(2U, 0U, UINT64_C(1000));
-    vna_test::EncodedFrame portOne =
-        vna_test::MakeEncodedFrame(2U, 1U, UINT64_C(2000));
+    vna_test::EncodedFrame portZero = vna_test::MakeEncodedFrame(2U, 0U, UINT64_C(1000));
+    vna_test::EncodedFrame portOne = vna_test::MakeEncodedFrame(2U, 1U, UINT64_C(2000));
     VNA_EXPECT_EQ(DRV_SIM_OK, Download(&state, &portZero, 2U));
     VNA_EXPECT_EQ(DRV_SIM_OK, Download(&state, &portOne, 2U));
 
@@ -295,8 +278,7 @@ VNA_TEST(NativeStateSerializesConcurrentConfigurationAndDownloads) {
     });
     std::thread third([&state, &failures]() {
         for (std::uint32_t index = 0U; index < iterations; ++index) {
-            if (state.ActivateRxLink((index % 15U) + 1U) != DRV_SIM_OK ||
-                state.SetFastSweepMode(0U) != DRV_SIM_OK ||
+            if (state.ActivateRxLink((index % 15U) + 1U) != DRV_SIM_OK || state.SetFastSweepMode(0U) != DRV_SIM_OK ||
                 state.SetRfPowerOn(index % 2U) != DRV_SIM_OK) {
                 ++failures;
             }
@@ -305,8 +287,7 @@ VNA_TEST(NativeStateSerializesConcurrentConfigurationAndDownloads) {
     std::thread fourth([&state, &failures]() {
         for (std::uint32_t index = 0U; index < iterations; ++index) {
             const NativeSimulatorSnapshot snapshot = state.SnapshotForTest();
-            if (!snapshot.initialized || !snapshot.frameValid[0U] ||
-                !snapshot.frameValid[1U]) {
+            if (!snapshot.initialized || !snapshot.frameValid[0U] || !snapshot.frameValid[1U]) {
                 ++failures;
             }
         }

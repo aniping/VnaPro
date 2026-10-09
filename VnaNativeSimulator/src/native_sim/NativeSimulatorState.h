@@ -1,20 +1,17 @@
 #ifndef VNAPRO_NATIVE_SIM_NATIVE_SIMULATOR_STATE_H
 #define VNAPRO_NATIVE_SIM_NATIVE_SIMULATOR_STATE_H
 
-#include "NormalFrameDecoder.h"
-
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <vector>
 
+#include "NormalFrameDecoder.h"
+
 namespace vna_native {
 
-enum class FailurePoint {
-    kBeforeFrameCommit,
-    kBeforePendingCommit
-};
+enum class FailurePoint { kBeforeFrameCommit, kBeforePendingCommit };
 
 class VNA_NATIVE_HIDDEN FailureInjector {
 public:
@@ -46,28 +43,20 @@ public:
 
     std::uint32_t HwInit();
     std::uint32_t GetSweepData(std::uint32_t pointCount, double* iqData);
-    std::uint32_t StartSweep(std::uint32_t pointCount,
-                             std::uint32_t sourcePort);
+    std::uint32_t StartSweep(std::uint32_t pointCount, std::uint32_t sourcePort);
     std::uint32_t ActivateRxLink(std::uint32_t rxPortBitmap);
     std::uint32_t SetRfPowerOn(std::uint32_t enabled);
     std::uint32_t SetFastSweepMode(std::uint32_t mode);
     std::uint32_t GetIDN(char* buffer, int capacity);
-    std::uint32_t CheckSweepPortPower(std::uint32_t rfPortBitmap,
-                                      std::uint32_t* checkBitmap,
-                                      std::uint16_t* overFreqIndex,
-                                      std::uint32_t indexCapacity);
-    std::uint32_t DataFrameDownload(std::uint32_t pointCount,
-                                    const std::uint32_t* paramData,
-                                    std::uint32_t paramDataLen,
-                                    const double* tableData,
-                                    std::uint32_t tableDataLen);
+    std::uint32_t CheckSweepPortPower(std::uint32_t rfPortBitmap, std::uint32_t* checkBitmap,
+        std::uint16_t* overFreqIndex, std::uint32_t indexCapacity);
+    std::uint32_t DataFrameDownload(std::uint32_t pointCount, const std::uint32_t* paramData,
+        std::uint32_t paramDataLen, const double* tableData, std::uint32_t tableDataLen);
 
     // 以下接口只供直接链接内部对象的单元测试使用，不属于 C ABI。
     NativeSimulatorSnapshot SnapshotForTest() const;
-    std::uint32_t CopyFrameForTest(std::uint32_t sourcePort,
-                                   NormalFrameSnapshot* output) const;
-    void SetFailureInjectorForTest(
-        std::shared_ptr<FailureInjector> failureInjector);
+    std::uint32_t CopyFrameForTest(std::uint32_t sourcePort, NormalFrameSnapshot* output) const;
+    void SetFailureInjectorForTest(std::shared_ptr<FailureInjector> failureInjector);
 
 private:
     struct FrameSlot {

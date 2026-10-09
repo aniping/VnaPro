@@ -1,17 +1,16 @@
 #include "NativeLibraryProbe.h"
 
-#include <cstring>
 #include <dlfcn.h>
+
+#include <cstring>
 #include <sstream>
 
 namespace vna_test {
 namespace {
 
 template <typename FunctionPointer>
-bool ResolveSymbol(void* handle,
-                   const char* symbolName,
-                   FunctionPointer* target,
-                   std::string* errorMessage) {
+bool ResolveSymbol(void* handle, const char* symbolName, FunctionPointer* target, std::string* errorMessage)
+{
     dlerror();
     void* symbol = dlsym(handle, symbolName);
     const char* loaderError = dlerror();
@@ -22,8 +21,7 @@ bool ResolveSymbol(void* handle,
         return false;
     }
 
-    static_assert(sizeof(FunctionPointer) == sizeof(symbol),
-                  "当前 POSIX 平台的函数指针尺寸必须与 dlsym 结果一致");
+    static_assert(sizeof(FunctionPointer) == sizeof(symbol), "当前 POSIX 平台的函数指针尺寸必须与 dlsym 结果一致");
     std::memcpy(target, &symbol, sizeof(symbol));
     return true;
 }
@@ -39,16 +37,19 @@ NativeFunctions::NativeFunctions()
       setFastSweepMode(NULL),
       getIDN(NULL),
       checkSweepPortPower(NULL),
-      dataFrameDownload(NULL) {}
+      dataFrameDownload(NULL)
+{
+}
 
 NativeLibraryProbe::NativeLibraryProbe() : handle_(NULL), functions_() {}
 
-NativeLibraryProbe::~NativeLibraryProbe() {
+NativeLibraryProbe::~NativeLibraryProbe()
+{
     Close();
 }
 
-bool NativeLibraryProbe::Open(const std::string& absolutePath,
-                              std::string* errorMessage) {
+bool NativeLibraryProbe::Open(const std::string& absolutePath, std::string* errorMessage)
+{
     Close();
     if (absolutePath.empty() || absolutePath[0] != '/') {
         if (errorMessage != NULL) {
@@ -68,7 +69,8 @@ bool NativeLibraryProbe::Open(const std::string& absolutePath,
     return true;
 }
 
-void NativeLibraryProbe::Close() {
+void NativeLibraryProbe::Close()
+{
     functions_ = NativeFunctions();
     if (handle_ != NULL) {
         dlclose(handle_);
@@ -76,12 +78,13 @@ void NativeLibraryProbe::Close() {
     }
 }
 
-bool NativeLibraryProbe::IsOpen() const {
+bool NativeLibraryProbe::IsOpen() const
+{
     return handle_ != NULL;
 }
 
-bool NativeLibraryProbe::ResolveAll(std::vector<std::string>* missingSymbols,
-                                    std::string* errorMessage) {
+bool NativeLibraryProbe::ResolveAll(std::vector<std::string>* missingSymbols, std::string* errorMessage)
+{
     bool allResolved = true;
     if (missingSymbols != NULL) {
         missingSymbols->clear();
@@ -93,20 +96,18 @@ bool NativeLibraryProbe::ResolveAll(std::vector<std::string>* missingSymbols,
         return false;
     }
 
-#define VNA_RESOLVE(symbol_name, member_name)                                  \
-    do {                                                                       \
-        std::string vna_symbol_error;                                          \
-        if (!ResolveSymbol(handle_, symbol_name, &functions_.member_name,      \
-                           &vna_symbol_error)) {                               \
-            allResolved = false;                                               \
-            if (missingSymbols != NULL) {                                     \
-                missingSymbols->push_back(symbol_name);                       \
-            }                                                                  \
-            if (errorMessage != NULL && errorMessage->empty()) {              \
-                *errorMessage = std::string(symbol_name) + ": " +            \
-                                vna_symbol_error;                              \
-            }                                                                  \
-        }                                                                      \
+#define VNA_RESOLVE(symbol_name, member_name)                                                   \
+    do {                                                                                        \
+        std::string vna_symbol_error;                                                           \
+        if (!ResolveSymbol(handle_, symbol_name, &functions_.member_name, &vna_symbol_error)) { \
+            allResolved = false;                                                                \
+            if (missingSymbols != NULL) {                                                       \
+                missingSymbols->push_back(symbol_name);                                         \
+            }                                                                                   \
+            if (errorMessage != NULL && errorMessage->empty()) {                                \
+                *errorMessage = std::string(symbol_name) + ": " + vna_symbol_error;             \
+            }                                                                                   \
+        }                                                                                       \
     } while (false)
 
     if (errorMessage != NULL) {
@@ -119,15 +120,15 @@ bool NativeLibraryProbe::ResolveAll(std::vector<std::string>* missingSymbols,
     VNA_RESOLVE(vna_native::kDrvSetRfPowerOnSymbol, setRfPowerOn);
     VNA_RESOLVE(vna_native::kDrvSetFastSweepModeSymbol, setFastSweepMode);
     VNA_RESOLVE(vna_native::kDrvGetIDNSymbol, getIDN);
-    VNA_RESOLVE(vna_native::kDrvCheckSweepPortPowerSymbol,
-                checkSweepPortPower);
+    VNA_RESOLVE(vna_native::kDrvCheckSweepPortPowerSymbol, checkSweepPortPower);
     VNA_RESOLVE(vna_native::kDrvDataFrameDownloadSymbol, dataFrameDownload);
 #undef VNA_RESOLVE
 
     return allResolved;
 }
 
-const NativeFunctions& NativeLibraryProbe::Functions() const {
+const NativeFunctions& NativeLibraryProbe::Functions() const
+{
     return functions_;
 }
 

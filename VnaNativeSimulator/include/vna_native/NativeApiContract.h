@@ -49,16 +49,12 @@ static constexpr const char kDrvActivateRxLinkSymbol[] = "DrvActivateRxLink";
 static constexpr const char kDrvSetRfPowerOnSymbol[] = "DrvSetRfPowerOn";
 static constexpr const char kDrvSetFastSweepModeSymbol[] = "DrvSetFastSweepMode";
 static constexpr const char kDrvGetIDNSymbol[] = "DrvGetIDN";
-static constexpr const char kDrvCheckSweepPortPowerSymbol[] =
-    "DrvCheckSweepPortPower";
-static constexpr const char kDrvDataFrameDownloadSymbol[] =
-    "DrvDataFrameDownload";
+static constexpr const char kDrvCheckSweepPortPowerSymbol[] = "DrvCheckSweepPortPower";
+static constexpr const char kDrvDataFrameDownloadSymbol[] = "DrvDataFrameDownload";
 
 typedef std::uint32_t(VNA_NATIVE_CALL* DrvHwInitFn)();
-typedef std::uint32_t(VNA_NATIVE_CALL* DrvGetSweepDataFn)(std::uint32_t,
-                                                         double*);
-typedef std::uint32_t(VNA_NATIVE_CALL* DrvStartSweepFn)(std::uint32_t,
-                                                       std::uint32_t);
+typedef std::uint32_t(VNA_NATIVE_CALL* DrvGetSweepDataFn)(std::uint32_t, double*);
+typedef std::uint32_t(VNA_NATIVE_CALL* DrvStartSweepFn)(std::uint32_t, std::uint32_t);
 typedef std::uint32_t(VNA_NATIVE_CALL* DrvActivateRxLinkFn)(std::uint32_t);
 typedef std::uint32_t(VNA_NATIVE_CALL* DrvSetRfPowerOnFn)(std::uint32_t);
 typedef std::uint32_t(VNA_NATIVE_CALL* DrvSetFastSweepModeFn)(std::uint32_t);
@@ -73,29 +69,16 @@ typedef std::uint32_t(VNA_NATIVE_CALL* DrvDataFrameDownloadFn)(
 extern "C" {
 
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvHwInit();
-VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL
-DrvGetSweepData(std::uint32_t pointCount, double* iqData);
-VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL
-DrvStartSweep(std::uint32_t pointCount, std::uint32_t sourcePort);
-VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL
-DrvActivateRxLink(std::uint32_t rxPortBitmap);
-VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL
-DrvSetRfPowerOn(std::uint32_t enabled);
-VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL
-DrvSetFastSweepMode(std::uint32_t mode);
-VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetIDN(char* buffer,
-                                                         int capacity);
+VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetSweepData(std::uint32_t pointCount, double* iqData);
+VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvStartSweep(std::uint32_t pointCount, std::uint32_t sourcePort);
+VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvActivateRxLink(std::uint32_t rxPortBitmap);
+VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvSetRfPowerOn(std::uint32_t enabled);
+VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvSetFastSweepMode(std::uint32_t mode);
+VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetIDN(char* buffer, int capacity);
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvCheckSweepPortPower(
-    std::uint32_t rfPortBitmap,
-    std::uint32_t* checkBitmap,
-    std::uint16_t* overFreqIndex,
-    std::uint32_t indexCapacity);
-VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvDataFrameDownload(
-    std::uint32_t pointCount,
-    std::uint32_t* paramData,
-    std::uint32_t paramDataLen,
-    double* tableData,
-    std::uint32_t tableDataLen);
+    std::uint32_t rfPortBitmap, std::uint32_t* checkBitmap, std::uint16_t* overFreqIndex, std::uint32_t indexCapacity);
+VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvDataFrameDownload(std::uint32_t pointCount, std::uint32_t* paramData,
+    std::uint32_t paramDataLen, double* tableData, std::uint32_t tableDataLen);
 
 }  // extern "C"
 

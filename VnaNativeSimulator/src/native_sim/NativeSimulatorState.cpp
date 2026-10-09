@@ -1,29 +1,26 @@
 #include "NativeSimulatorState.h"
 
-#include "SignalModel.h"
-
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <limits>
 #include <utility>
 
+#include "SignalModel.h"
+
 namespace vna_native {
 namespace {
 
 const char kSimulatorIdn[] = "VnaPro,NativeSimulator,4PORT,1.0";
 
-std::uint32_t ValidateIqShape(std::uint32_t pointCount,
-                              std::size_t* valueCount) {
+std::uint32_t ValidateIqShape(std::uint32_t pointCount, std::size_t* valueCount)
+{
     if (valueCount == NULL || pointCount == 0U) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
 
-    const std::uint64_t count =
-        static_cast<std::uint64_t>(pointCount) *
-        static_cast<std::uint64_t>(kIqValuesPerPoint);
-    const std::uint64_t maxSize =
-        static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)());
+    const std::uint64_t count = static_cast<std::uint64_t>(pointCount) * static_cast<std::uint64_t>(kIqValuesPerPoint);
+    const std::uint64_t maxSize = static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)());
     if (count > maxSize || count > maxSize / sizeof(double)) {
         return DRV_SIM_SIZE_OVERFLOW;
     }
@@ -32,11 +29,10 @@ std::uint32_t ValidateIqShape(std::uint32_t pointCount,
     return DRV_SIM_OK;
 }
 
-bool IndexBytesFit(std::uint32_t indexCapacity) {
-    const std::uint64_t bytes =
-        static_cast<std::uint64_t>(indexCapacity) * sizeof(std::uint16_t);
-    return bytes <= static_cast<std::uint64_t>(
-                        (std::numeric_limits<std::size_t>::max)());
+bool IndexBytesFit(std::uint32_t indexCapacity)
+{
+    const std::uint64_t bytes = static_cast<std::uint64_t>(indexCapacity) * sizeof(std::uint16_t);
+    return bytes <= static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)());
 }
 
 }  // namespace
@@ -50,23 +46,25 @@ NativeSimulatorSnapshot::NativeSimulatorSnapshot()
       fastSweepMode(0U),
       pendingSweep(false),
       pendingPointCount(0U),
-      pendingSourcePort(0U) {
+      pendingSourcePort(0U)
+{
     frameValid.fill(false);
     framePointCount.fill(0U);
 }
 
 NativeSimulatorState::FrameSlot::FrameSlot() : valid(false) {}
 
-void NativeSimulatorState::FrameSlot::Swap(FrameSlot& other) noexcept {
+void NativeSimulatorState::FrameSlot::Swap(FrameSlot& other) noexcept
+{
     using std::swap;
     swap(valid, other.valid);
     frame.Swap(other.frame);
 }
 
-NativeSimulatorState::PendingSweep::PendingSweep()
-    : valid(false), pointCount(0U), sourcePort(0U) {}
+NativeSimulatorState::PendingSweep::PendingSweep() : valid(false), pointCount(0U), sourcePort(0U) {}
 
-void NativeSimulatorState::PendingSweep::Swap(PendingSweep& other) noexcept {
+void NativeSimulatorState::PendingSweep::Swap(PendingSweep& other) noexcept
+{
     using std::swap;
     swap(valid, other.valid);
     swap(pointCount, other.pointCount);
@@ -80,14 +78,18 @@ NativeSimulatorState::NativeSimulatorState()
       rxConfigured_(false),
       rxPortBitmap_(0U),
       fastModeConfigured_(false),
-      fastSweepMode_(0U) {}
+      fastSweepMode_(0U)
+{
+}
 
-NativeSimulatorState& NativeSimulatorState::Instance() {
+NativeSimulatorState& NativeSimulatorState::Instance()
+{
     static NativeSimulatorState state;
     return state;
 }
 
-std::uint32_t NativeSimulatorState::HwInit() {
+std::uint32_t NativeSimulatorState::HwInit()
+{
     try {
         std::array<FrameSlot, kNativePortCount> emptyFrames;
         PendingSweep emptyPending;
@@ -107,14 +109,13 @@ std::uint32_t NativeSimulatorState::HwInit() {
     }
 }
 
-std::uint32_t NativeSimulatorState::GetSweepData(std::uint32_t pointCount,
-                                                 double* iqData) {
+std::uint32_t NativeSimulatorState::GetSweepData(std::uint32_t pointCount, double* iqData)
+{
     if (iqData == NULL) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
     std::size_t expectedValueCount = 0U;
-    const std::uint32_t shapeStatus =
-        ValidateIqShape(pointCount, &expectedValueCount);
+    const std::uint32_t shapeStatus = ValidateIqShape(pointCount, &expectedValueCount);
     if (shapeStatus != DRV_SIM_OK) {
         return shapeStatus;
     }
@@ -131,9 +132,7 @@ std::uint32_t NativeSimulatorState::GetSweepData(std::uint32_t pointCount,
             return DRV_SIM_INTERNAL_ERROR;
         }
 
-        std::copy(pendingSweep_.iqData.begin(),
-                  pendingSweep_.iqData.end(),
-                  iqData);
+        std::copy(pendingSweep_.iqData.begin(), pendingSweep_.iqData.end(), iqData);
         PendingSweep consumed;
         pendingSweep_.Swap(consumed);
         return DRV_SIM_OK;
@@ -142,11 +141,10 @@ std::uint32_t NativeSimulatorState::GetSweepData(std::uint32_t pointCount,
     }
 }
 
-std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount,
-                                               std::uint32_t sourcePort) {
+std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount, std::uint32_t sourcePort)
+{
     std::size_t expectedValueCount = 0U;
-    const std::uint32_t shapeStatus =
-        ValidateIqShape(pointCount, &expectedValueCount);
+    const std::uint32_t shapeStatus = ValidateIqShape(pointCount, &expectedValueCount);
     if (shapeStatus != DRV_SIM_OK) {
         return shapeStatus;
     }
@@ -166,18 +164,15 @@ std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount,
             return DRV_SIM_INVALID_STATE;
         }
 
-        const FrameSlot& frameSlot =
-            downloadedFrames_[static_cast<std::size_t>(sourcePort)];
-        if (!frameSlot.valid || frameSlot.frame.points.size() != pointCount ||
-            pendingSweep_.valid) {
+        const FrameSlot& frameSlot = downloadedFrames_[static_cast<std::size_t>(sourcePort)];
+        if (!frameSlot.valid || frameSlot.frame.points.size() != pointCount || pendingSweep_.valid) {
             return DRV_SIM_INVALID_STATE;
         }
 
         PendingSweep candidate;
         candidate.pointCount = pointCount;
         candidate.sourcePort = sourcePort;
-        const std::uint32_t generateStatus =
-            SignalModel::Generate(frameSlot.frame, &candidate.iqData);
+        const std::uint32_t generateStatus = SignalModel::Generate(frameSlot.frame, &candidate.iqData);
         if (generateStatus != DRV_SIM_OK) {
             return generateStatus;
         }
@@ -194,8 +189,8 @@ std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount,
     }
 }
 
-std::uint32_t NativeSimulatorState::ActivateRxLink(
-    std::uint32_t rxPortBitmap) {
+std::uint32_t NativeSimulatorState::ActivateRxLink(std::uint32_t rxPortBitmap)
+{
     try {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!initialized_) {
@@ -213,7 +208,8 @@ std::uint32_t NativeSimulatorState::ActivateRxLink(
     }
 }
 
-std::uint32_t NativeSimulatorState::SetRfPowerOn(std::uint32_t enabled) {
+std::uint32_t NativeSimulatorState::SetRfPowerOn(std::uint32_t enabled)
+{
     try {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!initialized_) {
@@ -234,7 +230,8 @@ std::uint32_t NativeSimulatorState::SetRfPowerOn(std::uint32_t enabled) {
     }
 }
 
-std::uint32_t NativeSimulatorState::SetFastSweepMode(std::uint32_t mode) {
+std::uint32_t NativeSimulatorState::SetFastSweepMode(std::uint32_t mode)
+{
     try {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!initialized_) {
@@ -252,7 +249,8 @@ std::uint32_t NativeSimulatorState::SetFastSweepMode(std::uint32_t mode) {
     }
 }
 
-std::uint32_t NativeSimulatorState::GetIDN(char* buffer, int capacity) {
+std::uint32_t NativeSimulatorState::GetIDN(char* buffer, int capacity)
+{
     if (buffer == NULL || capacity <= 0) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
@@ -282,12 +280,9 @@ std::uint32_t NativeSimulatorState::GetIDN(char* buffer, int capacity) {
 }
 
 std::uint32_t NativeSimulatorState::CheckSweepPortPower(
-    std::uint32_t rfPortBitmap,
-    std::uint32_t* checkBitmap,
-    std::uint16_t* overFreqIndex,
-    std::uint32_t indexCapacity) {
-    if (checkBitmap == NULL ||
-        (indexCapacity > 0U && overFreqIndex == NULL)) {
+    std::uint32_t rfPortBitmap, std::uint32_t* checkBitmap, std::uint16_t* overFreqIndex, std::uint32_t indexCapacity)
+{
+    if (checkBitmap == NULL || (indexCapacity > 0U && overFreqIndex == NULL)) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
     if (!IndexBytesFit(indexCapacity)) {
@@ -305,9 +300,8 @@ std::uint32_t NativeSimulatorState::CheckSweepPortPower(
 
         *checkBitmap = 0U;
         if (indexCapacity > 0U) {
-            std::fill(overFreqIndex,
-                      overFreqIndex + static_cast<std::size_t>(indexCapacity),
-                      static_cast<std::uint16_t>(0U));
+            std::fill(
+                overFreqIndex, overFreqIndex + static_cast<std::size_t>(indexCapacity), static_cast<std::uint16_t>(0U));
         }
         return DRV_SIM_NOT_SUPPORTED;
     } catch (...) {
@@ -315,14 +309,11 @@ std::uint32_t NativeSimulatorState::CheckSweepPortPower(
     }
 }
 
-std::uint32_t NativeSimulatorState::DataFrameDownload(
-    std::uint32_t pointCount,
-    const std::uint32_t* paramData,
-    std::uint32_t paramDataLen,
-    const double* tableData,
-    std::uint32_t tableDataLen) {
-    const std::uint32_t shapeStatus = NormalFrameDecoder::ValidateInputShape(
-        pointCount, paramData, paramDataLen, tableData, tableDataLen);
+std::uint32_t NativeSimulatorState::DataFrameDownload(std::uint32_t pointCount, const std::uint32_t* paramData,
+    std::uint32_t paramDataLen, const double* tableData, std::uint32_t tableDataLen)
+{
+    const std::uint32_t shapeStatus =
+        NormalFrameDecoder::ValidateInputShape(pointCount, paramData, paramDataLen, tableData, tableDataLen);
     if (shapeStatus != DRV_SIM_OK) {
         return shapeStatus;
     }
@@ -334,13 +325,8 @@ std::uint32_t NativeSimulatorState::DataFrameDownload(
         }
 
         NormalFrameSnapshot decodedFrame;
-        const std::uint32_t decodeStatus = NormalFrameDecoder::Decode(
-            pointCount,
-            paramData,
-            paramDataLen,
-            tableData,
-            tableDataLen,
-            &decodedFrame);
+        const std::uint32_t decodeStatus =
+            NormalFrameDecoder::Decode(pointCount, paramData, paramDataLen, tableData, tableDataLen, &decodedFrame);
         if (decodeStatus != DRV_SIM_OK) {
             return decodeStatus;
         }
@@ -349,15 +335,15 @@ std::uint32_t NativeSimulatorState::DataFrameDownload(
         candidate.valid = true;
         candidate.frame.Swap(decodedFrame);
         ThrowIfRequested(FailurePoint::kBeforeFrameCommit);
-        downloadedFrames_[static_cast<std::size_t>(candidate.frame.sourcePort)]
-            .Swap(candidate);
+        downloadedFrames_[static_cast<std::size_t>(candidate.frame.sourcePort)].Swap(candidate);
         return DRV_SIM_OK;
     } catch (...) {
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
 
-NativeSimulatorSnapshot NativeSimulatorState::SnapshotForTest() const {
+NativeSimulatorSnapshot NativeSimulatorState::SnapshotForTest() const
+{
     std::lock_guard<std::mutex> lock(mutex_);
     NativeSimulatorSnapshot snapshot;
     snapshot.initialized = initialized_;
@@ -368,8 +354,7 @@ NativeSimulatorSnapshot NativeSimulatorState::SnapshotForTest() const {
     snapshot.fastSweepMode = fastSweepMode_;
     for (std::size_t port = 0U; port < downloadedFrames_.size(); ++port) {
         snapshot.frameValid[port] = downloadedFrames_[port].valid;
-        snapshot.framePointCount[port] = static_cast<std::uint32_t>(
-            downloadedFrames_[port].frame.points.size());
+        snapshot.framePointCount[port] = static_cast<std::uint32_t>(downloadedFrames_[port].frame.points.size());
     }
     snapshot.pendingSweep = pendingSweep_.valid;
     snapshot.pendingPointCount = pendingSweep_.pointCount;
@@ -377,17 +362,15 @@ NativeSimulatorSnapshot NativeSimulatorState::SnapshotForTest() const {
     return snapshot;
 }
 
-std::uint32_t NativeSimulatorState::CopyFrameForTest(
-    std::uint32_t sourcePort,
-    NormalFrameSnapshot* output) const {
+std::uint32_t NativeSimulatorState::CopyFrameForTest(std::uint32_t sourcePort, NormalFrameSnapshot* output) const
+{
     if (output == NULL || sourcePort >= kNativePortCount) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
 
     try {
         std::lock_guard<std::mutex> lock(mutex_);
-        const FrameSlot& frameSlot =
-            downloadedFrames_[static_cast<std::size_t>(sourcePort)];
+        const FrameSlot& frameSlot = downloadedFrames_[static_cast<std::size_t>(sourcePort)];
         if (!frameSlot.valid) {
             return DRV_SIM_INVALID_STATE;
         }
@@ -399,13 +382,14 @@ std::uint32_t NativeSimulatorState::CopyFrameForTest(
     }
 }
 
-void NativeSimulatorState::SetFailureInjectorForTest(
-    std::shared_ptr<FailureInjector> failureInjector) {
+void NativeSimulatorState::SetFailureInjectorForTest(std::shared_ptr<FailureInjector> failureInjector)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     failureInjector_.swap(failureInjector);
 }
 
-void NativeSimulatorState::ThrowIfRequested(FailurePoint point) {
+void NativeSimulatorState::ThrowIfRequested(FailurePoint point)
+{
     if (failureInjector_) {
         failureInjector_->ThrowIfRequested(point);
     }

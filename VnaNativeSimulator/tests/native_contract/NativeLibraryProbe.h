@@ -1,10 +1,10 @@
 #ifndef VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_LIBRARY_PROBE_H
 #define VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_LIBRARY_PROBE_H
 
-#include "vna_native/NativeApiContract.h"
-
 #include <string>
 #include <vector>
+
+#include "vna_native/NativeApiContract.h"
 
 namespace vna_test {
 
@@ -34,8 +34,7 @@ public:
     void Close();
 
     bool IsOpen() const;
-    bool ResolveAll(std::vector<std::string>* missingSymbols,
-                    std::string* errorMessage);
+    bool ResolveAll(std::vector<std::string>* missingSymbols, std::string* errorMessage);
 
     const NativeFunctions& Functions() const;
 

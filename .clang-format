@@ -1,0 +1,32 @@
+---
+BasedOnStyle: Google
+Language: Cpp
+
+IndentWidth: 4
+ColumnLimit: 120
+Standard: Latest
+AccessModifierOffset: -4
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+PointerAlignment: Left
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: Never
+  AfterClass: false
+  AfterStruct: false
+  AfterEnum: false
+  AfterNamespace: false
+  BeforeElse: false
+  BeforeCatch: false
+
+SpaceAfterCStyleCast: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+
+AlignAfterOpenBracket: DontAlign
+AllowShortBlocksOnASingleLine: Never
+...

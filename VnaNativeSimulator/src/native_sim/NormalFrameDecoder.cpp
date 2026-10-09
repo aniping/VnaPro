@@ -8,35 +8,32 @@
 namespace vna_native {
 namespace {
 
-bool CheckedElementBytes(std::uint64_t elementCount, std::size_t elementSize) {
+bool CheckedElementBytes(std::uint64_t elementCount, std::size_t elementSize)
+{
     if (elementSize == 0U) {
         return false;
     }
-    const std::uint64_t maxSize =
-        static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)());
+    const std::uint64_t maxSize = static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)());
     return elementCount <= maxSize / elementSize;
 }
 
 }  // namespace
 
-NormalFramePoint::NormalFramePoint()
-    : frequencyRaw(0U), sourcePort(0U), ifBandwidthRaw(0U) {}
+NormalFramePoint::NormalFramePoint() : frequencyRaw(0U), sourcePort(0U), ifBandwidthRaw(0U) {}
 
 NormalFrameSnapshot::NormalFrameSnapshot() : sourcePort(0U) {}
 
-void NormalFrameSnapshot::Swap(NormalFrameSnapshot& other) noexcept {
+void NormalFrameSnapshot::Swap(NormalFrameSnapshot& other) noexcept
+{
     using std::swap;
     swap(sourcePort, other.sourcePort);
     points.swap(other.points);
     tableData.swap(other.tableData);
 }
 
-std::uint32_t NormalFrameDecoder::ValidateInputShape(
-    std::uint32_t pointCount,
-    const std::uint32_t* paramData,
-    std::uint32_t paramDataLen,
-    const double* tableData,
-    std::uint32_t tableDataLen) {
+std::uint32_t NormalFrameDecoder::ValidateInputShape(std::uint32_t pointCount, const std::uint32_t* paramData,
+    std::uint32_t paramDataLen, const double* tableData, std::uint32_t tableDataLen)
+{
     if (paramData == NULL || tableData == NULL) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
@@ -45,17 +42,11 @@ std::uint32_t NormalFrameDecoder::ValidateInputShape(
     }
 
     const std::uint64_t points = static_cast<std::uint64_t>(pointCount);
-    const std::uint64_t expectedParamCount =
-        1U + static_cast<std::uint64_t>(kParamValuesPerPoint) * points;
-    const std::uint64_t expectedTableCount =
-        static_cast<std::uint64_t>(kTableValuesPerPoint) * points;
+    const std::uint64_t expectedParamCount = 1U + static_cast<std::uint64_t>(kParamValuesPerPoint) * points;
+    const std::uint64_t expectedTableCount = static_cast<std::uint64_t>(kTableValuesPerPoint) * points;
 
-    if (expectedParamCount >
-            static_cast<std::uint64_t>(
-                (std::numeric_limits<std::uint32_t>::max)()) ||
-        expectedTableCount >
-            static_cast<std::uint64_t>(
-                (std::numeric_limits<std::uint32_t>::max)()) ||
+    if (expectedParamCount > static_cast<std::uint64_t>((std::numeric_limits<std::uint32_t>::max)()) ||
+        expectedTableCount > static_cast<std::uint64_t>((std::numeric_limits<std::uint32_t>::max)()) ||
         !CheckedElementBytes(expectedParamCount, sizeof(std::uint32_t)) ||
         !CheckedElementBytes(expectedTableCount, sizeof(double)) ||
         !CheckedElementBytes(points, sizeof(NormalFramePoint))) {
@@ -69,18 +60,14 @@ std::uint32_t NormalFrameDecoder::ValidateInputShape(
     return DRV_SIM_OK;
 }
 
-std::uint32_t NormalFrameDecoder::Decode(std::uint32_t pointCount,
-                                         const std::uint32_t* paramData,
-                                         std::uint32_t paramDataLen,
-                                         const double* tableData,
-                                         std::uint32_t tableDataLen,
-                                         NormalFrameSnapshot* output) {
+std::uint32_t NormalFrameDecoder::Decode(std::uint32_t pointCount, const std::uint32_t* paramData,
+    std::uint32_t paramDataLen, const double* tableData, std::uint32_t tableDataLen, NormalFrameSnapshot* output)
+{
     if (output == NULL) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
 
-    const std::uint32_t shapeStatus = ValidateInputShape(
-        pointCount, paramData, paramDataLen, tableData, tableDataLen);
+    const std::uint32_t shapeStatus = ValidateInputShape(pointCount, paramData, paramDataLen, tableData, tableDataLen);
     if (shapeStatus != DRV_SIM_OK) {
         return shapeStatus;
     }
@@ -91,14 +78,11 @@ std::uint32_t NormalFrameDecoder::Decode(std::uint32_t pointCount,
         if (firstSourcePort >= kNativePortCount) {
             return DRV_SIM_INVALID_ARGUMENT;
         }
-        for (std::uint32_t pointIndex = 1U; pointIndex < pointCount;
-             ++pointIndex) {
+        for (std::uint32_t pointIndex = 1U; pointIndex < pointCount; ++pointIndex) {
             const std::size_t base =
-                1U + static_cast<std::size_t>(kParamValuesPerPoint) *
-                         static_cast<std::size_t>(pointIndex);
+                1U + static_cast<std::size_t>(kParamValuesPerPoint) * static_cast<std::size_t>(pointIndex);
             const std::uint32_t sourcePort = paramData[base + 2U];
-            if (sourcePort >= kNativePortCount ||
-                sourcePort != firstSourcePort) {
+            if (sourcePort >= kNativePortCount || sourcePort != firstSourcePort) {
                 return DRV_SIM_INVALID_ARGUMENT;
             }
         }
@@ -106,11 +90,9 @@ std::uint32_t NormalFrameDecoder::Decode(std::uint32_t pointCount,
         if (paramData[0U] != 0U) {
             return DRV_SIM_NOT_SUPPORTED;
         }
-        for (std::uint32_t pointIndex = 0U; pointIndex < pointCount;
-             ++pointIndex) {
+        for (std::uint32_t pointIndex = 0U; pointIndex < pointCount; ++pointIndex) {
             const std::size_t base =
-                1U + static_cast<std::size_t>(kParamValuesPerPoint) *
-                         static_cast<std::size_t>(pointIndex);
+                1U + static_cast<std::size_t>(kParamValuesPerPoint) * static_cast<std::size_t>(pointIndex);
             if (paramData[base + 3U] != 0U || paramData[base + 5U] != 0U) {
                 return DRV_SIM_NOT_SUPPORTED;
             }
@@ -120,23 +102,17 @@ std::uint32_t NormalFrameDecoder::Decode(std::uint32_t pointCount,
         candidate.sourcePort = firstSourcePort;
         candidate.points.resize(static_cast<std::size_t>(pointCount));
 
-        for (std::uint32_t pointIndex = 0U; pointIndex < pointCount;
-             ++pointIndex) {
+        for (std::uint32_t pointIndex = 0U; pointIndex < pointCount; ++pointIndex) {
             const std::size_t base =
-                1U + static_cast<std::size_t>(kParamValuesPerPoint) *
-                         static_cast<std::size_t>(pointIndex);
-            NormalFramePoint& point =
-                candidate.points[static_cast<std::size_t>(pointIndex)];
+                1U + static_cast<std::size_t>(kParamValuesPerPoint) * static_cast<std::size_t>(pointIndex);
+            NormalFramePoint& point = candidate.points[static_cast<std::size_t>(pointIndex)];
             point.frequencyRaw =
-                (static_cast<std::uint64_t>(paramData[base]) << 32U) |
-                static_cast<std::uint64_t>(paramData[base + 1U]);
+                (static_cast<std::uint64_t>(paramData[base]) << 32U) | static_cast<std::uint64_t>(paramData[base + 1U]);
             point.sourcePort = paramData[base + 2U];
             point.ifBandwidthRaw = paramData[base + 4U];
         }
 
-        candidate.tableData.assign(
-            tableData,
-            tableData + static_cast<std::size_t>(tableDataLen));
+        candidate.tableData.assign(tableData, tableData + static_cast<std::size_t>(tableDataLen));
         output->Swap(candidate);
         return DRV_SIM_OK;
     } catch (...) {

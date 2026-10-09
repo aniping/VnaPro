@@ -1,5 +1,6 @@
 #include "../TestSupport.h"
 
-int main() {
+int main()
+{
     return vna_test::RunRegisteredTests();
 }

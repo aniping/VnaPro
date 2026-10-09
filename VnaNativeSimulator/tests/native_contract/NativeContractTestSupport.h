@@ -1,14 +1,14 @@
 #ifndef VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_CONTRACT_TEST_SUPPORT_H
 #define VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_CONTRACT_TEST_SUPPORT_H
 
-#include "../TestSupport.h"
-#include "NativeLibraryProbe.h"
-
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
 #include <vector>
+
+#include "../TestSupport.h"
+#include "NativeLibraryProbe.h"
 
 namespace vna_test {
 
@@ -30,9 +30,8 @@ struct FrameInput {
     std::vector<std::uint64_t> frequencies;
 };
 
-inline FrameInput MakeNormalFrame(std::uint32_t pointCount,
-                                  std::uint32_t sourcePort,
-                                  std::uint64_t firstFrequency) {
+inline FrameInput MakeNormalFrame(std::uint32_t pointCount, std::uint32_t sourcePort, std::uint64_t firstFrequency)
+{
     FrameInput frame;
     frame.parameters.resize(1U + 6U * pointCount, 0U);
     frame.powerTable.resize(9U * pointCount, 0.0);
@@ -40,8 +39,7 @@ inline FrameInput MakeNormalFrame(std::uint32_t pointCount,
     frame.parameters[0] = 0U;
 
     for (std::uint32_t point = 0U; point < pointCount; ++point) {
-        const std::uint64_t frequency =
-            firstFrequency + static_cast<std::uint64_t>(point) * 1234567ULL;
+        const std::uint64_t frequency = firstFrequency + static_cast<std::uint64_t>(point) * 1234567ULL;
         const std::size_t base = 1U + 6U * point;
         frame.frequencies.push_back(frequency);
         frame.parameters[base] = static_cast<std::uint32_t>(frequency >> 32U);
@@ -54,18 +52,16 @@ inline FrameInput MakeNormalFrame(std::uint32_t pointCount,
     return frame;
 }
 
-inline std::uint32_t DownloadFrame(const NativeFunctions& functions,
-                                   FrameInput* frame) {
-    const std::uint32_t pointCount =
-        static_cast<std::uint32_t>(frame->frequencies.size());
-    return functions.dataFrameDownload(
-        pointCount, frame->parameters.data(),
-        static_cast<std::uint32_t>(frame->parameters.size()),
-        frame->powerTable.data(),
+inline std::uint32_t DownloadFrame(const NativeFunctions& functions, FrameInput* frame)
+{
+    const std::uint32_t pointCount = static_cast<std::uint32_t>(frame->frequencies.size());
+    return functions.dataFrameDownload(pointCount, frame->parameters.data(),
+        static_cast<std::uint32_t>(frame->parameters.size()), frame->powerTable.data(),
         static_cast<std::uint32_t>(frame->powerTable.size()));
 }
 
-inline double FrequencyFactor(std::uint64_t frequency) {
+inline double FrequencyFactor(std::uint64_t frequency)
+{
     std::uint64_t mixed = frequency;
     mixed = (mixed ^ (mixed >> 33U)) * UINT64_C(0xff51afd7ed558ccd);
     mixed = (mixed ^ (mixed >> 33U)) * UINT64_C(0xc4ceb9fe1a85ec53);
@@ -73,28 +69,22 @@ inline double FrequencyFactor(std::uint64_t frequency) {
     return static_cast<double>(mixed >> 11U) / 9007199254740992.0;
 }
 
-inline std::vector<double> ExpectedIq(
-    const std::vector<std::uint64_t>& frequencies,
-    std::uint32_t sourcePort) {
+inline std::vector<double> ExpectedIq(const std::vector<std::uint64_t>& frequencies, std::uint32_t sourcePort)
+{
     std::vector<double> output(frequencies.size() * 16U, 0.0);
     const double sourceLabel = static_cast<double>(sourcePort + 1U);
 
     for (std::size_t point = 0U; point < frequencies.size(); ++point) {
         const double factor = FrequencyFactor(frequencies[point]);
-        const double sourceAReal =
-            1.0 + 0.1 * sourceLabel + 0.01 * sourceLabel;
+        const double sourceAReal = 1.0 + 0.1 * sourceLabel + 0.01 * sourceLabel;
         const double sourceAImag = 0.001 * factor;
 
         for (std::uint32_t receiver = 1U; receiver <= 4U; ++receiver) {
             const double receiverLabel = static_cast<double>(receiver);
-            const double aReal =
-                1.0 + 0.1 * receiverLabel + 0.01 * sourceLabel;
+            const double aReal = 1.0 + 0.1 * receiverLabel + 0.01 * sourceLabel;
             const double aImag = 0.001 * factor;
             const double hReal =
-                (receiver == sourcePort + 1U
-                     ? 0.20
-                     : 0.02 * receiverLabel * sourceLabel) +
-                0.001 * factor;
+                (receiver == sourcePort + 1U ? 0.20 : 0.02 * receiverLabel * sourceLabel) + 0.001 * factor;
             const double hImag = 0.005 * (receiverLabel - sourceLabel);
             const double bReal = hReal * sourceAReal - hImag * sourceAImag;
             const double bImag = hReal * sourceAImag + hImag * sourceAReal;
@@ -108,20 +98,17 @@ inline std::vector<double> ExpectedIq(
     return output;
 }
 
-inline void ExpectIqNear(const std::vector<double>& expected,
-                         const double* actual) {
+inline void ExpectIqNear(const std::vector<double>& expected, const double* actual)
+{
     for (std::size_t index = 0U; index < expected.size(); ++index) {
-        if (!std::isfinite(actual[index]) ||
-            std::fabs(expected[index] - actual[index]) > 1.0e-12) {
-            VNA_FAIL(std::string("IQ 偏移 ") + ToString(index) +
-                     " 不符合黄金值，实际为 " + ToString(actual[index]) +
+        if (!std::isfinite(actual[index]) || std::fabs(expected[index] - actual[index]) > 1.0e-12) {
+            VNA_FAIL(std::string("IQ 偏移 ") + ToString(index) + " 不符合黄金值，实际为 " + ToString(actual[index]) +
                      "，期望为 " + ToString(expected[index]));
         }
     }
 }
 
-void RunNativeNormalSweepTests(TestRunner* runner,
-                               NativeLibraryProbe* library);
+void RunNativeNormalSweepTests(TestRunner* runner, NativeLibraryProbe* library);
 
 }  // namespace vna_test
 
