@@ -4,6 +4,8 @@
 #include "NativeSimulatorState.h"
 #include "vna_native/NativeApiContract.h"
 
+// 九个编译期断言防止声明与动态加载器所用的函数指针类型分叉。
+// 这里只比较本工程的类型；符号是否齐全还需由动态加载/导出符号检查验证。
 static_assert(std::is_same<decltype(&DrvHwInit), vna_native::DrvHwInitFn>::value,
     "DrvHwInit signature does not match NativeApiContract");
 static_assert(std::is_same<decltype(&DrvGetSweepData), vna_native::DrvGetSweepDataFn>::value,
@@ -23,6 +25,9 @@ static_assert(std::is_same<decltype(&DrvCheckSweepPortPower), vna_native::DrvChe
 static_assert(std::is_same<decltype(&DrvDataFrameDownload), vna_native::DrvDataFrameDownloadFn>::value,
     "DrvDataFrameDownload signature does not match NativeApiContract");
 
+// 导出层只转发到进程内单例，状态校验、互斥和信号生成由 NativeSimulatorState 负责。
+// 每个入口都在 try 内取得 Instance()，连首次构造单例的异常也转换为 INTERNAL_ERROR。
+// C++ 异常不能越过 C ABI；以下入口沿用同一捕获规则。
 extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvHwInit()
 {
     try {

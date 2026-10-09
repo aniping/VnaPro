@@ -2,6 +2,10 @@
 
 本目录是独立的原生驱动模拟模块。它只实现当前函数表中的 9 个 `Drv*` C ABI，不依赖 `demo/`、单板或厂商动态库，也不包含 `VnaDriver`、`VnaHal`、校准、DYN 或快扫实现。
 
+## 开发文档
+
+阅读和修改代码请参考[模拟模块开发文档](../docs/模拟模块开发文档.md)，其中包含源码阅读顺序、最小调用示例、帧和 IQ 布局、状态与内存生命周期、错误定位及修改验证入口。范围与验收要求见[硬件模拟方案](../docs/硬件模拟方案.md)。
+
 ## 构建与测试
 
 构建需要 CMake 3.13 或更高版本、兼容 C++14 的编译器，以及平台提供的线程库和动态加载库。导出符号测试还需要 `nm`（Linux 通常由 binutils 提供，macOS 由 Xcode Command Line Tools 提供）。
@@ -11,7 +15,7 @@
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+cmake -E chdir build ctest --output-on-failure
 ```
 
 生成的模拟库名称为：
@@ -35,7 +39,7 @@ cmake -S . -B build-ubsan -DVNA_SIM_ENABLE_UBSAN=ON
 cmake -S . -B build-tsan -DVNA_SIM_ENABLE_TSAN=ON
 ```
 
-每个目录均使用 `cmake --build <目录> --parallel` 和 `ctest --test-dir <目录> --output-on-failure` 完成验证。
+每个目录均使用 `cmake --build <目录> --parallel` 和 `cmake -E chdir <目录> ctest --output-on-failure` 完成验证。
 
 ## 编译约束
 

@@ -19,6 +19,7 @@ std::uint32_t ValidateIqShape(std::uint32_t pointCount, std::size_t* valueCount)
         return DRV_SIM_INVALID_ARGUMENT;
     }
 
+    // 先用 64 位计算元素数，再校验字节数，避免在 32 位进程中分配大小溢出。
     const std::uint64_t count = static_cast<std::uint64_t>(pointCount) * static_cast<std::uint64_t>(kIqValuesPerPoint);
     const std::uint64_t maxSize = static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)());
     if (count > maxSize || count > maxSize / sizeof(double)) {
@@ -91,6 +92,7 @@ NativeSimulatorState& NativeSimulatorState::Instance()
 std::uint32_t NativeSimulatorState::HwInit()
 {
     try {
+        // 先构造空对象再交换；初始化可重复调用，旧帧和未读取结果都会被清除。
         std::array<FrameSlot, kNativePortCount> emptyFrames;
         PendingSweep emptyPending;
         std::lock_guard<std::mutex> lock(mutex_);
@@ -111,6 +113,7 @@ std::uint32_t NativeSimulatorState::HwInit()
 
 std::uint32_t NativeSimulatorState::GetSweepData(std::uint32_t pointCount, double* iqData)
 {
+    // 指针与形状错误优先于状态错误，尚未初始化也能返回具体的入参错误。
     if (iqData == NULL) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
@@ -132,6 +135,8 @@ std::uint32_t NativeSimulatorState::GetSweepData(std::uint32_t pointCount, doubl
             return DRV_SIM_INTERNAL_ERROR;
         }
 
+        // 先完成复制再清空 pending：点数不匹配等失败不会丢掉结果，成功读取只能发生一次。
+        // 无容量参数，因此只能校验声明点数；实际缓冲区大小由调用方保证。
         std::copy(pendingSweep_.iqData.begin(), pendingSweep_.iqData.end(), iqData);
         PendingSweep consumed;
         pendingSweep_.Swap(consumed);
@@ -143,6 +148,8 @@ std::uint32_t NativeSimulatorState::GetSweepData(std::uint32_t pointCount, doubl
 
 std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount, std::uint32_t sourcePort)
 {
+    // 点数形状先校验；锁内依次检查初始化、端口、RF、配置及帧/pending 状态。
+    // 这些检查的先后决定同时存在多项错误时返回哪个错误码。
     std::size_t expectedValueCount = 0U;
     const std::uint32_t shapeStatus = ValidateIqShape(pointCount, &expectedValueCount);
     if (shapeStatus != DRV_SIM_OK) {
@@ -169,6 +176,7 @@ std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount, std::ui
             return DRV_SIM_INVALID_STATE;
         }
 
+        // 生成期间始终持锁：帧不会被另一线程替换，RF 关闭或重初始化也不能穿插提交。
         PendingSweep candidate;
         candidate.pointCount = pointCount;
         candidate.sourcePort = sourcePort;
@@ -181,6 +189,7 @@ std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount, std::ui
         }
         candidate.valid = true;
 
+        // 分配、计算和测试异常均发生在提交前；Swap 不抛异常，失败时共享状态保持原样。
         ThrowIfRequested(FailurePoint::kBeforePendingCommit);
         pendingSweep_.Swap(candidate);
         return DRV_SIM_OK;
@@ -221,6 +230,7 @@ std::uint32_t NativeSimulatorState::SetRfPowerOn(std::uint32_t enabled)
 
         rfEnabled_ = enabled == 1U;
         if (!rfEnabled_) {
+            // RF 关闭视为取消尚未读取的扫描；再次打开后可复用现有配置和下载帧。
             PendingSweep cleared;
             pendingSweep_.Swap(cleared);
         }
@@ -298,6 +308,7 @@ std::uint32_t NativeSimulatorState::CheckSweepPortPower(
             return DRV_SIM_INVALID_ARGUMENT;
         }
 
+        // 只给出可预测的空输出；不能将清零结果解释为真实功率检查已通过。
         *checkBitmap = 0U;
         if (indexCapacity > 0U) {
             std::fill(
@@ -312,6 +323,7 @@ std::uint32_t NativeSimulatorState::CheckSweepPortPower(
 std::uint32_t NativeSimulatorState::DataFrameDownload(std::uint32_t pointCount, const std::uint32_t* paramData,
     std::uint32_t paramDataLen, const double* tableData, std::uint32_t tableDataLen)
 {
+    // 形状检查不读取数组内容；初始化检查通过后才在锁内解码、复制调用方数据。
     const std::uint32_t shapeStatus =
         NormalFrameDecoder::ValidateInputShape(pointCount, paramData, paramDataLen, tableData, tableDataLen);
     if (shapeStatus != DRV_SIM_OK) {
@@ -324,6 +336,7 @@ std::uint32_t NativeSimulatorState::DataFrameDownload(std::uint32_t pointCount, 
             return DRV_SIM_NOT_INITIALIZED;
         }
 
+        // 先解码至临时帧，任何字段错误或分配异常都不会破坏已下载的旧帧。
         NormalFrameSnapshot decodedFrame;
         const std::uint32_t decodeStatus =
             NormalFrameDecoder::Decode(pointCount, paramData, paramDataLen, tableData, tableDataLen, &decodedFrame);
@@ -334,6 +347,7 @@ std::uint32_t NativeSimulatorState::DataFrameDownload(std::uint32_t pointCount, 
         FrameSlot candidate;
         candidate.valid = true;
         candidate.frame.Swap(decodedFrame);
+        // Decode 已验证源端口范围；此处通过不抛异常的 Swap 一次性提交该端口的新帧。
         ThrowIfRequested(FailurePoint::kBeforeFrameCommit);
         downloadedFrames_[static_cast<std::size_t>(candidate.frame.sourcePort)].Swap(candidate);
         return DRV_SIM_OK;
@@ -344,6 +358,7 @@ std::uint32_t NativeSimulatorState::DataFrameDownload(std::uint32_t pointCount, 
 
 NativeSimulatorSnapshot NativeSimulatorState::SnapshotForTest() const
 {
+    // 在同一临界区复制摘要，测试不会看到不同调用时刻拼接出的状态。
     std::lock_guard<std::mutex> lock(mutex_);
     NativeSimulatorSnapshot snapshot;
     snapshot.initialized = initialized_;
@@ -374,6 +389,7 @@ std::uint32_t NativeSimulatorState::CopyFrameForTest(std::uint32_t sourcePort, N
         if (!frameSlot.valid) {
             return DRV_SIM_INVALID_STATE;
         }
+        // 先完成深拷贝再替换 output，内存分配失败时保留测试调用方原有输出。
         NormalFrameSnapshot candidate = frameSlot.frame;
         output->Swap(candidate);
         return DRV_SIM_OK;
@@ -384,12 +400,14 @@ std::uint32_t NativeSimulatorState::CopyFrameForTest(std::uint32_t sourcePort, N
 
 void NativeSimulatorState::SetFailureInjectorForTest(std::shared_ptr<FailureInjector> failureInjector)
 {
+    // 传入空 shared_ptr 可禁用注入；本状态持有的旧引用在退出临界区后释放。
     std::lock_guard<std::mutex> lock(mutex_);
     failureInjector_.swap(failureInjector);
 }
 
 void NativeSimulatorState::ThrowIfRequested(FailurePoint point)
 {
+    // 仅由持锁的提交路径调用；异常由外层入口转换为 INTERNAL_ERROR。
     if (failureInjector_) {
         failureInjector_->ThrowIfRequested(point);
     }
