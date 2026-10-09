@@ -7,7 +7,8 @@
 // 这里集中声明 ABI；模拟器的行为和错误码不能据此推定为厂商驱动的完整合同。
 // 本头文件使用 C++ 类型，extern "C" 只约束导出函数的链接名称。
 // EXPORT 公开入口，HIDDEN 隐藏内部实现；CALL 预留调用约定，目前未指定额外约定。
-// 当前开发与验收覆盖 Linux/macOS；Windows 宏分支不代表已验证厂商的调用约定。
+// 模拟器已覆盖 Linux/macOS 与 Windows MinGW；
+// 这不代表已验证真实厂商 Windows 驱动的调用约定。
 #if defined(_WIN32)
 #if defined(VNA_NATIVE_BUILD_SHARED)
 #define VNA_NATIVE_EXPORT __declspec(dllexport)

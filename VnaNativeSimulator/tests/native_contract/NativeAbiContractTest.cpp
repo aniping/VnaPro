@@ -139,6 +139,15 @@ int main(int argc, char** argv)
     vna_test::TestRunner runner;
     vna_test::NativeLibraryProbe library;
     std::string openError;
+    runner.Run("拒绝依赖当前工作目录的动态库路径", [&library, &openError]() {
+        VNA_EXPECT_FALSE(library.Open("libvnb_drv_sim", &openError));
+        VNA_EXPECT_FALSE(library.IsOpen());
+#if defined(_WIN32)
+        VNA_EXPECT_FALSE(library.Open("C:libvnb_drv_sim.dll", &openError));
+        VNA_EXPECT_FALSE(library.Open("\\libvnb_drv_sim.dll", &openError));
+        VNA_EXPECT_FALSE(library.Open("/libvnb_drv_sim.dll", &openError));
+#endif
+    });
     runner.Run("按绝对路径打开模拟动态库", [&library, &openError, argv]() {
         VNA_EXPECT_TRUE(library.Open(argv[1], &openError));
         VNA_EXPECT_TRUE(library.IsOpen());

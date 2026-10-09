@@ -80,7 +80,9 @@ set_target_properties(vnb_drv_sim PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     OUTPUT_NAME vnb_drv_sim
     VISIBILITY_INLINES_HIDDEN YES
+    WINDOWS_EXPORT_ALL_SYMBOLS OFF
 )
+target_compile_definitions(vnb_drv_sim PRIVATE VNA_NATIVE_BUILD_SHARED)
 target_include_directories(vnb_drv_sim PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/native_sim
@@ -143,6 +145,7 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             -DLIBRARY_FILE=$<TARGET_FILE:vnb_drv_sim>
             -DNM_TOOL=${CMAKE_NM}
+            -DOBJDUMP_TOOL=${CMAKE_OBJDUMP}
             -DHOST_SYSTEM=${CMAKE_SYSTEM_NAME}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckNativeExports.cmake
     )
