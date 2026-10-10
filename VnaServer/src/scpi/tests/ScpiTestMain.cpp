@@ -5,14 +5,16 @@
 #include <stdexcept>
 #include <thread>
 
-#include "ControlledDevice.h"
 #include "../../../../VnaNativeSimulator/tests/SimulatorEnvironment.h"
+#include "Fixture.h"
+#include "NativeFixture.h"
 #include "scpi/ScpiEngine.h"
 #include "scpi/ScpiParser.h"
 #include "vna_core/AcquisitionCore.h"
 #include "vna_service/InstrumentService.h"
 
 namespace {
+using vna_scpi_test::NativeFixture;
 std::string driver;
 void expect(bool condition, const std::string& message)
 {
@@ -23,17 +25,6 @@ void near(double value, double expected)
 {
     expect(std::fabs(value - expected) < 1e-10, "numeric mismatch: " + std::to_string(value));
 }
-struct Fixture {
-    vna_core::AcquisitionCore core;
-    vna_service::InstrumentService service;
-    explicit Fixture() : core(driver), service(core)
-    {
-        expect(core.initialize().get().ok, "initialize failed");
-        std::string error;
-        expect(service.bootstrapMockProfile(error), error);
-    }
-    ~Fixture() { core.close(); }
-};
 void drain(vna_scpi::ScpiEngine& engine)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -72,7 +63,7 @@ void run(const char* name, void (*test)(), unsigned& failed)
 }
 void parserAndCompoundResponse()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     vna_scpi::ScpiEngine engine(fixture.service);
     expect(command(engine, "*IDN?;*OPC?") == "VnaPro,NativeSimulator,4PORT,1.0;+1\n", "compound response boundary");
     const auto result = command(engine, "SENSe1:FREQuency:STARt 2MHz;STOP 3e6;STARt?;STOP?");
@@ -86,7 +77,7 @@ void parserAndCompoundResponse()
 }
 void configurationAndRevision()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     expect(fixture.service.tryAcquireControl(), "control");
     const auto revision = fixture.service.settings().revision;
     const auto first = fixture.service.setStartHz(150000000.0, revision);
@@ -124,7 +115,7 @@ void configurationAndRevision()
 }
 void singleFrameAndReceivers()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     vna_scpi::ScpiEngine engine(fixture.service);
     command(engine, "*CLS;SENS1:SWE:POIN 21");
     command(engine, "CALC1:PAR:DEF:EXT 'wave_a','A1,2';:CALC1:PAR:DEF:EXT 'wave_b','B1,2'");
@@ -147,7 +138,7 @@ void singleFrameAndReceivers()
 }
 void pendingBarriersAndErrors()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     vna_scpi::ScpiEngine engine(fixture.service);
     command(engine, "*CLS;*ESE 1;*SRE 32");
     expect(engine.submitLine("SENS1:SWE:MODE SING;*OPC;*WAI;*STB?;*ESR?;*ESR?"), "single submit");
@@ -176,7 +167,7 @@ void pendingBarriersAndErrors()
 }
 void busyAdmissionAndOldRun()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     vna_scpi::ScpiEngine engine(fixture.service);
     command(engine, "*CLS;SENS1:SWE:MODE SING;*OPC?");
     const auto revision = fixture.service.settings().revision;
@@ -190,7 +181,7 @@ void busyAdmissionAndOldRun()
 }
 void disconnectAndInstrumentErrors()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     {
         vna_scpi::ScpiEngine engine(fixture.service);
         vna_scpi::ScpiEngine refused(fixture.service);
@@ -211,7 +202,7 @@ void disconnectAndInstrumentErrors()
 }
 void softwareBounds()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     vna_scpi::ScpiEngine engine(fixture.service);
     expect(!engine.submitLine(std::string(16385U, 'A')), "line bound");
     for (unsigned index = 0; index < 32U; ++index)
@@ -280,7 +271,7 @@ void failedSingleCannotReturnOldFrame()
 }
 void malformedHeaders()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     vna_scpi::ScpiEngine engine(fixture.service);
     command(engine, "*CLS");
     expect(command(engine, "?").empty(), "bare query has no fake output");
@@ -354,7 +345,7 @@ void configurationPreservesDirectSettings()
 }
 void embeddedNulNumeric()
 {
-    Fixture fixture;
+    NativeFixture fixture(driver);
     vna_scpi::ScpiEngine engine(fixture.service);
     command(engine, "*CLS");
     const auto revision = fixture.service.settings().revision;
@@ -390,7 +381,8 @@ int main(int argc, char** argv)
     run("blocked finite operation and OPC budget", blockedFiniteAndWatchBudget, failed);
     run("failed single preserves old frame but rejects data", failedSingleCannotReturnOldFrame, failed);
     run("malformed query headers", malformedHeaders, failed);
-    run("invalid receiver rejects curve, valid receiver and next scan survive", invalidReceiverCannotProduceCurve, failed);
+    run("invalid receiver rejects curve, valid receiver and next scan survive", invalidReceiverCannotProduceCurve,
+        failed);
     run("configuration and direct settings cannot overwrite", configurationPreservesDirectSettings, failed);
     run("embedded NUL numeric suffix", embeddedNulNumeric, failed);
     return failed == 0U ? 0 : 1;

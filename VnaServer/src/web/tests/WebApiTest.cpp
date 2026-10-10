@@ -7,7 +7,7 @@
 #include <thread>
 #include <vector>
 
-#include "ControlledDevice.h"
+#include "Fixture.h"
 #include "web/HttpApi.h"
 #include "web/Json.h"
 #include "web/WebEndpoint.h"
@@ -302,8 +302,8 @@ void invalidPointsRemainExplicit()
     HttpApi api(*fixture.service);
     const auto token = claim(api);
     fixture.device->setInvalidSamples(true);
-    const auto id = accepted(request(api, "POST", "/api/v1/operations",
-        "{\"action\":\"single\",\"requestId\":\"invalid-samples\"}", token));
+    const auto id = accepted(
+        request(api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"invalid-samples\"}", token));
     require(stringField(finish(api, id, token).json, "state") == "completed", "Full invalid-data frame completes");
     const auto held = fixture.core->readView().frame;
     require(held && std::isnan(held->ports.front().iq[16U]) && std::isinf(held->ports.front().iq[33U]),
@@ -331,8 +331,8 @@ void invalidPointsRemainExplicit()
     }
     require(fixture.service->errorCount() == 0U, "HTTP diagnostics do not consume or add SCPI errors");
     fixture.device->setInvalidSamples(false);
-    const auto recovered = accepted(request(api, "POST", "/api/v1/operations",
-        "{\"action\":\"single\",\"requestId\":\"valid-again\"}", token));
+    const auto recovered = accepted(
+        request(api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"valid-again\"}", token));
     require(stringField(finish(api, recovered, token).json, "state") == "completed", "Next valid scan completes");
     const auto next = request(api, "GET", "/api/v1/frame");
     for (const auto& valid : field(field(next.json, "traces").array.front(), "valid").array)

@@ -12,7 +12,8 @@ if(BUILD_TESTING)
     target_link_libraries(vna_web_tests PRIVATE vna_web)
     target_include_directories(vna_web_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaService/tests
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaCore/src)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaCore/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaCore/tests)
     target_compile_options(vna_web_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME web_api COMMAND vna_web_tests)
     set_tests_properties(web_api PROPERTIES TIMEOUT 20)

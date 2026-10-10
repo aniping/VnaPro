@@ -9,7 +9,8 @@ if(BUILD_TESTING)
     target_link_libraries(vna_scpi_tests PRIVATE vna_scpi)
     target_include_directories(vna_scpi_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaService/tests
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaCore/src)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaCore/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaCore/tests)
     target_compile_options(vna_scpi_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME service_scpi COMMAND vna_scpi_tests $<TARGET_FILE:vnb_drv_sim>)
     set_tests_properties(service_scpi PROPERTIES TIMEOUT 20)
