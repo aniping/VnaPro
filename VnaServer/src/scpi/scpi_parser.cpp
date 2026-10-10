@@ -1,14 +1,18 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #include "scpi/scpi_parser.h"
 
-#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <map>
 #include <sstream>
 
+#include "scpi/scpi_constants.h"
+
 namespace vna_scpi {
-std::string trim(const std::string &value)
+std::string Trim(const std::string &value)
 {
     const auto first = value.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) {
@@ -17,7 +21,7 @@ std::string trim(const std::string &value)
     return value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1U);
 }
 
-std::string upper(std::string value)
+std::string Upper(std::string value)
 {
     for (char &character : value) {
         character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
@@ -25,7 +29,7 @@ std::string upper(std::string value)
     return value;
 }
 
-std::string quote(const std::string &value)
+std::string Quote(const std::string &value)
 {
     std::string encoded = "\"";
     for (char character : value) {
@@ -38,7 +42,11 @@ std::string quote(const std::string &value)
 }
 
 namespace {
-std::vector<std::string> splitQuoted(const std::string &input, char separator, bool *valid)
+constexpr double KILOHERTZ_SCALE = 1000.0;
+constexpr double MEGAHERTZ_SCALE = 1000000.0;
+constexpr double GIGAHERTZ_SCALE = 1000000000.0;
+
+std::vector<std::string> SplitQuoted(const std::string &input, char separator, bool &valid)
 {
     std::vector<std::string> parts;
     std::string part;
@@ -49,7 +57,8 @@ std::vector<std::string> splitQuoted(const std::string &input, char separator, b
             part += character;
             if (character == delimiter) {
                 if (index + 1U < input.size() && input[index + 1U] == delimiter) {
-                    part += input[++index];
+                    ++index;
+                    part += input[index];
                 } else {
                     delimiter = 0;
                 }
@@ -58,33 +67,31 @@ std::vector<std::string> splitQuoted(const std::string &input, char separator, b
             delimiter = character;
             part += character;
         } else if (character == separator) {
-            parts.push_back(trim(part));
+            parts.push_back(Trim(part));
             part.clear();
         } else {
             part += character;
         }
     }
-    parts.push_back(trim(part));
-    if (valid != nullptr) {
-        *valid = delimiter == 0;
-    }
+    parts.push_back(Trim(part));
+    valid = delimiter == 0;
     return parts;
 }
 
-std::string keyword(std::string token)
+std::string Keyword(std::string token)
 {
-    token = upper(token);
+    token = Upper(token);
     std::string suffix;
     while (!token.empty() && std::isdigit(static_cast<unsigned char>(token.back()))) {
         suffix.insert(suffix.begin(), token.back());
         token.pop_back();
     }
-    const std::map<std::string, std::string> names = {{"SENSE", "SENS"}, {"FREQUENCY", "FREQ"}, {"START", "STAR"},
-        {"SWEEP", "SWE"}, {"POINTS", "POIN"}, {"BANDWIDTH", "BAND"}, {"BWIDTH", "BWID"}, {"RESOLUTION", "RES"},
-        {"TRIGGER", "TRIG"}, {"SEQUENCE", "SEQ"}, {"SOURCE", "SOUR"}, {"SCOPE", "SCOP"}, {"INITIATE", "INIT"},
-        {"CONTINUOUS", "CONT"}, {"IMMEDIATE", "IMM"}, {"CALCULATE", "CALC"}, {"PARAMETER", "PAR"}, {"DEFINE", "DEF"},
-        {"EXTENDED", "EXT"}, {"SELECT", "SEL"}, {"CATALOG", "CAT"}, {"DELETE", "DEL"}, {"FORMAT", "FORM"},
-        {"VALUES", "VAL"}, {"SYSTEM", "SYST"}, {"ERROR", "ERR"}, {"COUNT", "COUN"}};
+    static const std::map<std::string, std::string> names = {{"SENSE", "SENS"}, {"FREQUENCY", "FREQ"},
+        {"START", "STAR"}, {"SWEEP", "SWE"}, {"POINTS", "POIN"}, {"BANDWIDTH", "BAND"}, {"BWIDTH", "BWID"},
+        {"RESOLUTION", "RES"}, {"TRIGGER", "TRIG"}, {"SEQUENCE", "SEQ"}, {"SOURCE", "SOUR"}, {"SCOPE", "SCOP"},
+        {"INITIATE", "INIT"}, {"CONTINUOUS", "CONT"}, {"IMMEDIATE", "IMM"}, {"CALCULATE", "CALC"}, {"PARAMETER", "PAR"},
+        {"DEFINE", "DEF"}, {"EXTENDED", "EXT"}, {"SELECT", "SEL"}, {"CATALOG", "CAT"}, {"DELETE", "DEL"},
+        {"FORMAT", "FORM"}, {"VALUES", "VAL"}, {"SYSTEM", "SYST"}, {"ERROR", "ERR"}, {"COUNT", "COUN"}};
     const auto found = names.find(token);
     if (found != names.end()) {
         token = found->second;
@@ -94,22 +101,58 @@ std::string keyword(std::string token)
     }
     return token + suffix;
 }
+
+bool ParseHeader(const std::string &header, std::vector<std::string> &parent, ParsedCommand &command)
+{
+    if (header.back() == ':') {
+        command.errorCode = SYNTAX_ERROR;
+        command.error = "Trailing header separator";
+        return false;
+    }
+    const bool absolute = header.front() == ':';
+    std::vector<std::string> tokens = absolute ? std::vector<std::string>() : parent;
+    std::stringstream path(absolute ? header.substr(1) : header);
+    std::string token;
+    while (std::getline(path, token, ':')) {
+        if (token.empty()) {
+            command.errorCode = SYNTAX_ERROR;
+            command.error = "Empty header keyword";
+            return false;
+        }
+        tokens.push_back(Keyword(token));
+    }
+    if (tokens.empty()) {
+        command.errorCode = SYNTAX_ERROR;
+        command.error = "Missing header";
+        return false;
+    }
+    parent = tokens;
+    parent.pop_back();
+    for (const auto &item : tokens) {
+        if (!command.path.empty()) {
+            command.path += ':';
+        }
+        command.path += item;
+    }
+    return true;
+}
 }  // namespace
 
-std::vector<std::string> splitProgram(const std::string &input)
+std::vector<std::string> SplitProgram(const std::string &input)
 {
-    return splitQuoted(input, ';', nullptr);
+    bool valid = false;
+    return SplitQuoted(input, ';', valid);
 }
 
-ParsedCommand parseCommand(const std::string &unit, std::vector<std::string> &parent)
+ParsedCommand ParseCommand(const std::string &unit, std::vector<std::string> &parent)
 {
     ParsedCommand command;
-    const std::string text = trim(unit);
+    const std::string text = Trim(unit);
     const auto space = text.find_first_of(" \t");
     std::string header = text.substr(0, space);
-    const std::string parameters = space == std::string::npos ? std::string() : trim(text.substr(space));
+    const std::string parameters = space == std::string::npos ? std::string() : Trim(text.substr(space));
     if (header.empty()) {
-        command.errorCode = -102;
+        command.errorCode = SYNTAX_ERROR;
         command.error = "Empty program unit";
         return command;
     }
@@ -118,57 +161,25 @@ ParsedCommand parseCommand(const std::string &unit, std::vector<std::string> &pa
         header.pop_back();
     }
     if (header.empty()) {
-        command.errorCode = -102;
+        command.errorCode = SYNTAX_ERROR;
         command.error = "Missing query header";
         return command;
     }
     if (header.find('?') != std::string::npos) {
-        command.errorCode = -102;
+        command.errorCode = SYNTAX_ERROR;
         command.error = "Invalid query header";
         return command;
     }
     if (header.front() == '*') {
-        command.path = upper(header);
-    } else {
-        if (header.back() == ':') {
-            command.errorCode = -102;
-            command.error = "Trailing header separator";
-            return command;
-        }
-        const bool absolute = header.front() == ':';
-        if (absolute) {
-            header.erase(header.begin());
-        }
-        std::vector<std::string> tokens = absolute ? std::vector<std::string>() : parent;
-        std::stringstream path(header);
-        std::string token;
-        while (std::getline(path, token, ':')) {
-            if (token.empty()) {
-                command.errorCode = -102;
-                command.error = "Empty header keyword";
-                return command;
-            }
-            tokens.push_back(keyword(token));
-        }
-        if (tokens.empty()) {
-            command.errorCode = -102;
-            command.error = "Missing header";
-            return command;
-        }
-        parent = tokens;
-        parent.pop_back();
-        for (const auto &item : tokens) {
-            if (!command.path.empty()) {
-                command.path += ':';
-            }
-            command.path += item;
-        }
+        command.path = Upper(header);
+    } else if (!ParseHeader(header, parent, command)) {
+        return command;
     }
     if (!parameters.empty()) {
         bool valid = false;
-        command.arguments = splitQuoted(parameters, ',', &valid);
+        command.arguments = SplitQuoted(parameters, ',', valid);
         if (!valid) {
-            command.errorCode = -102;
+            command.errorCode = SYNTAX_ERROR;
             command.error = "Unterminated string";
             return command;
         }
@@ -176,9 +187,9 @@ ParsedCommand parseCommand(const std::string &unit, std::vector<std::string> &pa
     return command;
 }
 
-bool numeric(const std::string &text, double &value, bool frequencyUnits)
+bool Numeric(const std::string &text, double &value, bool frequencyUnits)
 {
-    const std::string input = trim(text);
+    const std::string input = Trim(text);
     if (input.empty()) {
         return false;
     }
@@ -188,7 +199,7 @@ bool numeric(const std::string &text, double &value, bool frequencyUnits)
         return false;
     }
     const std::size_t parsedLength = static_cast<std::size_t>(end - input.c_str());
-    const std::string unit = upper(trim(input.substr(parsedLength)));
+    const std::string unit = Upper(Trim(input.substr(parsedLength)));
     double scale = 1.0;
     if (!unit.empty()) {
         if (!frequencyUnits) {
@@ -197,11 +208,11 @@ bool numeric(const std::string &text, double &value, bool frequencyUnits)
         if (unit == "HZ") {
             scale = 1.0;
         } else if (unit == "KHZ") {
-            scale = 1000.0;
+            scale = KILOHERTZ_SCALE;
         } else if (unit == "MHZ") {
-            scale = 1000000.0;
+            scale = MEGAHERTZ_SCALE;
         } else if (unit == "GHZ") {
-            scale = 1000000000.0;
+            scale = GIGAHERTZ_SCALE;
         } else {
             return false;
         }
@@ -210,10 +221,10 @@ bool numeric(const std::string &text, double &value, bool frequencyUnits)
     return std::isfinite(value);
 }
 
-bool integer(const std::string &text, unsigned &value, unsigned maximum)
+bool Integer(const std::string &text, unsigned &value, unsigned maximum)
 {
     double parsed = 0;
-    if (!numeric(text, parsed) || parsed < 0.0 || parsed > maximum || std::floor(parsed) != parsed) {
+    if (!Numeric(text, parsed) || parsed < 0.0 || parsed > maximum || std::floor(parsed) != parsed) {
         return false;
     }
     value = static_cast<unsigned>(parsed);
