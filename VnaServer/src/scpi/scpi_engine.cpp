@@ -1,10 +1,11 @@
 /*
  * Copyright (c) 2026 Huawei Device Co., Ltd.
  */
+#include "scpi/scpi_engine.h"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
-#include <deque>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -12,13 +13,12 @@
 #include <vector>
 
 #include "scpi/scpi_constants.h"
-#include "scpi/scpi_engine.h"
 #include "scpi/scpi_parser.h"
 #include "vna_service/instrument_service.h"
 
 namespace vna_scpi {
 namespace {
-const std::size_t kOutputBudget = 1024U * 1024U;
+const std::string SCPI_CONTROL_OWNER = "SCPI";
 
 bool OperationReady(const vna_service::Operation &operation)
 {
@@ -68,14 +68,14 @@ bool ReceiverParameter(const std::string &text, vna_service::Measurement &measur
     if (comma == std::string::npos) {
         return false;
     }
-    const std::string receiver = trim(text.substr(0, comma));
+    const std::string receiver = Trim(text.substr(0, comma));
     unsigned source = 0;
     unsigned port = 0;
     const char kind =
         receiver.empty() ? '\0' : static_cast<char>(std::tolower(static_cast<unsigned char>(receiver.front())));
     if (receiver.size() != 2U || (kind != 'a' && kind != 'b') ||
-        !integer(receiver.substr(1), port, RECEIVER_PORT_MAXIMUM) || port == 0U ||
-        !integer(text.substr(comma + 1U), source, RECEIVER_PORT_MAXIMUM) || source == 0U) {
+        !Integer(receiver.substr(1), port, RECEIVER_PORT_MAXIMUM) || port == 0U ||
+        !Integer(text.substr(comma + 1U), source, RECEIVER_PORT_MAXIMUM) || source == 0U) {
         return false;
     }
     measurement.receiverKind = kind;
@@ -90,88 +90,21 @@ bool Matches(const std::string &value, const char *shortName, const char *fullNa
 }
 }  // namespace
 
-class ScpiEngine::Impl {
-public:
-    struct Message {
-        std::vector<std::string> units;
-        std::vector<std::string> parent;
-        std::size_t position = 0;
-        std::string response;
-        bool queryFailed = false;
-    };
-
-    struct OpcWatch {
-        std::vector<vna_service::Operation> operations;
-        unsigned generation = 0;
-    };
-
-    explicit Impl(vna_service::InstrumentService &value) : service_(value), control_(value.tryAcquireControl())
-    {
-    }
-
-    vna_service::InstrumentService &service_;
-    bool control_;
-    bool connected_ = true;
-    bool transportOutputPending_ = false;
-    std::deque<Message> messages_;
-    std::deque<std::string> output_;
-    std::size_t outputBytes_ = 0;
-    vna_service::Operation sequential_;
-    bool waiting_ = false;
-    bool waitingQuery_ = false;
-    std::vector<vna_service::Operation> barrier_;
-    std::vector<OpcWatch> watches_;
-    std::vector<double> encoding_;
-    std::size_t encoded_ = 0;
-    std::string encodedResponse_;
-
-    bool HasPending() const;
-
-    void RecordCommandError(const ParsedCommand &command, int code, const std::string &text);
-
-    bool CheckArguments(const ParsedCommand &command, std::size_t count);
-
-    void AppendResponse(const std::string &unit);
-
-    void BeginEncoding(vna_service::DataResult data, const ParsedCommand &command);
-
-    void EncodeBatch();
-
-    void SetOperation(vna_service::Operation operation, bool asynchronous = false);
-
-    bool NumericArgument(const ParsedCommand &command, double &value, double minimum, double maximum, bool hz);
-
-    bool QueryNumeric(const ParsedCommand &command, double current, double minimum, double maximum);
-
-    void Dispatch(const ParsedCommand &command);
-    bool DispatchCommon(const ParsedCommand &command);
-    void DispatchIdentity(const ParsedCommand &command);
-    void DispatchClearStatus(const ParsedCommand &command);
-    void DispatchOperationComplete(const ParsedCommand &command);
-    void DispatchWait(const ParsedCommand &command);
-    void DispatchEnableRegister(const ParsedCommand &command);
-    void DispatchStatusRegister(const ParsedCommand &command);
-    void DispatchNextError(const ParsedCommand &command);
-    void DispatchErrorCount(const ParsedCommand &command);
-
-    void Poll();
-};
-
-bool ScpiEngine::Impl::HasPending() const
+bool ScpiEngine::HasPending() const noexcept
 {
     return !messages_.empty() || sequential_.valid() || waiting_ || !encoding_.empty() || !watches_.empty() ||
-           service_.hasPending();
+           service_.HasPending();
 }
 
-void ScpiEngine::Impl::RecordCommandError(const ParsedCommand &command, int code, const std::string &text)
+void ScpiEngine::RecordCommandError(const ParsedCommand &command, int code, const std::string &text)
 {
-    service_.recordError(code, text);
+    service_.RecordError(code, text);
     if (command.query && !messages_.empty()) {
         messages_.front().queryFailed = true;
     }
 }
 
-bool ScpiEngine::Impl::CheckArguments(const ParsedCommand &command, std::size_t count)
+bool ScpiEngine::CheckArguments(const ParsedCommand &command, std::size_t count)
 {
     if (command.arguments.size() == count) {
         return true;
@@ -181,14 +114,14 @@ bool ScpiEngine::Impl::CheckArguments(const ParsedCommand &command, std::size_t 
     return false;
 }
 
-void ScpiEngine::Impl::AppendResponse(const std::string &unit)
+void ScpiEngine::AppendResponse(const std::string &unit)
 {
     if (messages_.empty() || !connected_) {
         return;
     }
-    Message &message = messages_.front();
-    if (message.response.size() + unit.size() + 2U > kOutputBudget) {
-        service_.recordError(INPUT_BUFFER_OVERRUN, "Response exceeds software output budget");
+    ScpiMessage &message = messages_.front();
+    if ((message.response.size() + unit.size() + 2U) > RESPONSE_MESSAGE_BYTE_LIMIT) {
+        service_.RecordError(INPUT_BUFFER_OVERRUN, "Response exceeds software output budget");
         message.queryFailed = true;
         return;
     }
@@ -198,7 +131,7 @@ void ScpiEngine::Impl::AppendResponse(const std::string &unit)
     message.response += unit;
 }
 
-void ScpiEngine::Impl::BeginEncoding(vna_service::DataResult data, const ParsedCommand &command)
+void ScpiEngine::BeginEncoding(vna_service::DataResult data, const ParsedCommand &command)
 {
     if (!data.ok) {
         RecordCommandError(command, DATA_CORRUPT_OR_STALE, data.error);
@@ -215,7 +148,7 @@ void ScpiEngine::Impl::BeginEncoding(vna_service::DataResult data, const ParsedC
     }
 }
 
-void ScpiEngine::Impl::EncodeBatch()
+void ScpiEngine::EncodeBatch()
 {
     if (encoding_.empty()) {
         return;
@@ -227,8 +160,8 @@ void ScpiEngine::Impl::EncodeBatch()
         }
         encodedResponse_ += Number(encoding_[encoded_]);
     }
-    if (encodedResponse_.size() > kOutputBudget) {
-        service_.recordError(INPUT_BUFFER_OVERRUN, "Array exceeds software output budget");
+    if (encodedResponse_.size() > NUMERIC_ARRAY_BYTE_LIMIT) {
+        service_.RecordError(INPUT_BUFFER_OVERRUN, "Array exceeds software output budget");
         messages_.front().queryFailed = true;
         encoding_.clear();
         encodedResponse_.clear();
@@ -239,39 +172,38 @@ void ScpiEngine::Impl::EncodeBatch()
     }
 }
 
-void ScpiEngine::Impl::SetOperation(vna_service::Operation operation, bool asynchronous)
+void ScpiEngine::SetOperation(vna_service::Operation operation, bool asynchronous)
 {
     if (!asynchronous) {
         sequential_ = std::move(operation);
     }
 }
 
-bool ScpiEngine::Impl::NumericArgument(
-    const ParsedCommand &command, double &value, double minimum, double maximum, bool hz)
+bool ScpiEngine::NumericArgument(const ParsedCommand &command, double &value, double minimum, double maximum, bool hz)
 {
     if (!CheckArguments(command, 1U)) {
         return false;
     }
-    const std::string parameter = upper(command.arguments.front());
+    const std::string parameter = Upper(command.arguments.front());
     if (parameter == "MIN" || parameter == "MINIMUM") {
         value = minimum;
     } else if (parameter == "MAX" || parameter == "MAXIMUM") {
         value = maximum;
-    } else if (!numeric(command.arguments.front(), value, hz)) {
+    } else if (!Numeric(command.arguments.front(), value, hz)) {
         RecordCommandError(command, DATA_TYPE_ERROR, "Numeric data or unit is invalid");
         return false;
     }
     return true;
 }
 
-bool ScpiEngine::Impl::QueryNumeric(const ParsedCommand &command, double current, double minimum, double maximum)
+bool ScpiEngine::QueryNumeric(const ParsedCommand &command, double current, double minimum, double maximum)
 {
     if (command.arguments.empty()) {
         AppendResponse(Number(current));
         return true;
     }
     if (command.arguments.size() == 1U) {
-        const auto parameter = upper(command.arguments.front());
+        const auto parameter = Upper(command.arguments.front());
         if (Matches(parameter, "MIN", "MINIMUM")) {
             AppendResponse(Number(minimum));
             return true;
@@ -285,287 +217,19 @@ bool ScpiEngine::Impl::QueryNumeric(const ParsedCommand &command, double current
     return false;
 }
 
-void ScpiEngine::Impl::Dispatch(const ParsedCommand &command)
+void ScpiEngine::Dispatch(const ParsedCommand &command)
 {
-    const std::string &path = command.path;
-    const auto &settings = service_.settings();
     if (command.errorCode != 0) {
         RecordCommandError(command, command.errorCode, command.error);
         return;
     }
-    if (DispatchCommon(command)) {
-        return;
-    }
-    if (path == "SENS1:FREQ:STAR" || path == "SENS1:FREQ:STOP") {
-        const bool start = path == "SENS1:FREQ:STAR";
-        if (command.query) {
-            QueryNumeric(
-                command, start ? settings.startHz : settings.stopHz, FREQUENCY_MINIMUM_HZ, FREQUENCY_MAXIMUM_HZ);
-            return;
-        }
-        double value = 0;
-        if (NumericArgument(command, value, FREQUENCY_MINIMUM_HZ, FREQUENCY_MAXIMUM_HZ, true)) {
-            SetOperation(start ? service_.setStartHz(value) : service_.setStopHz(value));
-        }
-        return;
-    }
-    if (path == "SENS1:SWE:POIN") {
-        if (command.query) {
-            if (command.arguments.empty()) {
-                AppendResponse(std::to_string(settings.points));
-            } else if (command.arguments.size() == 1U && Matches(upper(command.arguments.front()), "MIN", "MINIMUM")) {
-                AppendResponse(std::to_string(SWEEP_POINTS_MINIMUM));
-            } else if (command.arguments.size() == 1U && Matches(upper(command.arguments.front()), "MAX", "MAXIMUM")) {
-                AppendResponse(std::to_string(SWEEP_POINTS_MAXIMUM));
-            } else {
-                RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Query accepts only MINimum or MAXimum");
-            }
-            return;
-        }
-        double value = 0;
-        if (!NumericArgument(command, value, SWEEP_POINTS_MINIMUM, SWEEP_POINTS_MAXIMUM, false)) {
-            return;
-        }
-        if (value < SWEEP_POINTS_MINIMUM || value > SWEEP_POINTS_MAXIMUM || value != static_cast<unsigned>(value)) {
-            RecordCommandError(command, DATA_OUT_OF_RANGE, "Point count outside 2..10001");
-            return;
-        }
-        SetOperation(service_.setPoints(static_cast<unsigned>(value)));
-        return;
-    }
-    if (path == "SENS1:BAND" || path == "SENS1:BAND:RES" || path == "SENS1:BWID" || path == "SENS1:BWID:RES") {
-        if (command.query) {
-            QueryNumeric(command, settings.ifBandwidthHz, IF_BANDWIDTH_MINIMUM_HZ, IF_BANDWIDTH_MAXIMUM_HZ);
-            return;
-        }
-        double value = 0;
-        if (NumericArgument(command, value, IF_BANDWIDTH_MINIMUM_HZ, IF_BANDWIDTH_MAXIMUM_HZ, true)) {
-            SetOperation(service_.setIfBandwidthHz(value));
-        }
-        return;
-    }
-    if (path == "SENS1:SWE:TYPE") {
-        if (command.query) {
-            if (CheckArguments(command, 0)) {
-                AppendResponse("LIN");
-            }
-        } else if (CheckArguments(command, 1)) {
-            if (!Matches(upper(command.arguments.front()), "LIN", "LINEAR")) {
-                RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only LINear sweep is supported");
-            } else if (settings.sweepMode != vna_service::SweepMode::Hold || service_.hasPending()) {
-                RecordCommandError(command, SETTINGS_CONFLICT, "Configuration requires HOLD");
-            }
-        }
-        return;
-    }
-    if (path == "TRIG:SOUR" || path == "TRIG:SEQ:SOUR" || path == "INIT:CONT" || path == "INIT1:CONT") {
-        const bool boolean = path.find("INIT") == 0U;
-        if (command.query) {
-            if (CheckArguments(command, 0)) {
-                AppendResponse(boolean
-                                   ? (settings.triggerSource == vna_service::TriggerSource::Immediate ? "1" : "0")
-                                   : (settings.triggerSource == vna_service::TriggerSource::Immediate ? "IMM" : "MAN"));
-            }
-            return;
-        }
-        if (!CheckArguments(command, 1)) {
-            return;
-        }
-        const std::string value = upper(command.arguments.front());
-        vna_service::TriggerSource source;
-        if (boolean && (value == "ON" || value == "1")) {
-            source = vna_service::TriggerSource::Immediate;
-        } else if (boolean && (value == "OFF" || value == "0")) {
-            source = vna_service::TriggerSource::Manual;
-        } else if (!boolean && Matches(value, "IMM", "IMMEDIATE")) {
-            source = vna_service::TriggerSource::Immediate;
-        } else if (!boolean && Matches(value, "MAN", "MANUAL")) {
-            source = vna_service::TriggerSource::Manual;
-        } else {
-            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported trigger source");
-            return;
-        }
-        const bool asynchronous =
-            source == vna_service::TriggerSource::Immediate && settings.sweepMode == vna_service::SweepMode::Single;
-        SetOperation(service_.setTriggerSource(source), asynchronous);
-        return;
-    }
-    if (path == "TRIG:SCOP" || path == "TRIG:SEQ:SCOP") {
-        if (command.query) {
-            if (CheckArguments(command, 0)) {
-                AppendResponse(settings.currentTriggerScope ? "CURR" : "ALL");
-            }
-            return;
-        }
-        if (!CheckArguments(command, 1)) {
-            return;
-        }
-        const std::string value = upper(command.arguments.front());
-        if (value == "ALL") {
-            service_.setCurrentTriggerScope(false);
-        } else if (Matches(value, "CURR", "CURRENT")) {
-            service_.setCurrentTriggerScope(true);
-        } else {
-            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported trigger scope");
-        }
-        return;
-    }
-    if (path == "SENS1:SWE:MODE") {
-        if (command.query) {
-            if (CheckArguments(command, 0)) {
-                AppendResponse(settings.sweepMode == vna_service::SweepMode::Hold
-                                   ? "HOLD"
-                                   : (settings.sweepMode == vna_service::SweepMode::Single ? "SING" : "CONT"));
-            }
-            return;
-        }
-        if (!CheckArguments(command, 1)) {
-            return;
-        }
-        const std::string value = upper(command.arguments.front());
-        vna_service::SweepMode mode;
-        if (value == "HOLD") {
-            mode = vna_service::SweepMode::Hold;
-        } else if (Matches(value, "CONT", "CONTINUOUS")) {
-            mode = vna_service::SweepMode::Continuous;
-        } else if (Matches(value, "SING", "SINGLE")) {
-            mode = vna_service::SweepMode::Single;
-        } else {
-            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported sweep mode");
-            return;
-        }
-        SetOperation(service_.setSweepMode(mode),
-            mode == vna_service::SweepMode::Single && settings.triggerSource == vna_service::TriggerSource::Immediate);
-        return;
-    }
-    if ((path == "INIT" || path == "INIT1" || path == "INIT:IMM" || path == "INIT1:IMM") && !command.query) {
-        if (CheckArguments(command, 0)) {
-            SetOperation(service_.trigger(), true);
-        }
-        return;
-    }
-    if (path == "CALC1:PAR:DEF:EXT" || path == "CALC1:PAR:EXT") {
-        if (command.query) {
-            RecordCommandError(command, UNDEFINED_HEADER, "Undefined query header");
-            return;
-        }
-        if (!CheckArguments(command, 2)) {
-            return;
-        }
-        vna_service::Measurement measurement;
-        std::string parameter;
-        if (!StringArgument(command.arguments[0], measurement.name) ||
-            !StringArgument(command.arguments[1], parameter)) {
-            RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name and parameter require quoted strings");
-            return;
-        }
-        if (!ReceiverParameter(parameter, measurement)) {
-            RecordCommandError(
-                command, ILLEGAL_PARAMETER_VALUE, "Only logical a1..a4/b1..b4 non-ratio receivers are supported");
-            return;
-        }
-        SetOperation(service_.defineMeasurement(measurement));
-        return;
-    }
-    if (path == "CALC1:PAR:SEL") {
-        if (command.query) {
-            if (CheckArguments(command, 0)) {
-                AppendResponse(quote(settings.selectedMeasurement));
-            }
-            return;
-        }
-        if (!CheckArguments(command, 1)) {
-            return;
-        }
-        std::string name;
-        if (!StringArgument(command.arguments.front(), name)) {
-            RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name requires a string");
-            return;
-        }
-        service_.selectMeasurement(name);
-        return;
-    }
-    if (path == "CALC1:PAR:CAT:EXT" && command.query) {
-        if (command.arguments.size() > 1U) {
-            RecordCommandError(command, PARAMETER_NOT_ALLOWED, "Too many parameters");
-            return;
-        }
-        if (!command.arguments.empty()) {
-            const auto value = upper(command.arguments.front());
-            if (!Matches(value, "NORM", "NORMAL") && !Matches(value, "DEF", "DEFINE") &&
-                !Matches(value, "DISP", "DISPLAY")) {
-                RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported catalog option");
-                return;
-            }
-        }
-        std::string catalog;
-        for (const auto &measurement : settings.measurements) {
-            if (!catalog.empty()) {
-                catalog += ',';
-            }
-            std::string parameter = measurement.parameter();
-            std::replace(parameter.begin(), parameter.end(), ',', '_');
-            catalog += measurement.name + ',' + parameter;
-        }
-        AppendResponse(quote(catalog.empty() ? "NO CATALOG" : catalog));
-        return;
-    }
-    if ((path == "CALC1:PAR:DEL" || path == "CALC1:PAR:DEL:NAME") && !command.query) {
-        if (!CheckArguments(command, 1)) {
-            return;
-        }
-        std::string name;
-        if (!StringArgument(command.arguments.front(), name)) {
-            RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name requires a string");
-            return;
-        }
-        SetOperation(service_.deleteMeasurement(name));
-        return;
-    }
-    if (path == "FORM" || path == "FORM:DATA") {
-        if (command.query) {
-            if (CheckArguments(command, 0)) {
-                AppendResponse("ASC,0");
-            }
-            return;
-        }
-        if (command.arguments.empty() || command.arguments.size() > 2U) {
-            RecordCommandError(command, MISSING_PARAMETER, "FORM requires ASCii[,0]");
-            return;
-        }
-        if (!Matches(upper(command.arguments[0]), "ASC", "ASCII")) {
-            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only ASCii data format is implemented");
-            return;
-        }
-        if (command.arguments.size() == 2U) {
-            unsigned precision = 0;
-            if (!integer(command.arguments[1], precision, 0U)) {
-                RecordCommandError(command, DATA_OUT_OF_RANGE, "Only ASCii,0 is implemented");
-            }
-        }
-        return;
-    }
-    if ((path == "SENS1:X" || path == "SENS1:X:VAL") && command.query) {
-        if (CheckArguments(command, 0)) {
-            BeginEncoding(service_.stimulusAxis(), command);
-        }
-        return;
-    }
-    if (path == "CALC1:DATA" && command.query) {
-        if (!CheckArguments(command, 1)) {
-            return;
-        }
-        if (upper(command.arguments.front()) != "RDATA") {
-            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only RDATA is implemented");
-            return;
-        }
-        BeginEncoding(service_.measurementData(), command);
+    if (DispatchCommon(command) || DispatchSweep(command) || DispatchMeasurement(command)) {
         return;
     }
     RecordCommandError(command, UNDEFINED_HEADER, "Undefined header");
 }
 
-bool ScpiEngine::Impl::DispatchCommon(const ParsedCommand &command)
+bool ScpiEngine::DispatchCommon(const ParsedCommand &command)
 {
     const std::string &path = command.path;
     if (path == "*IDN" && command.query) {
@@ -603,27 +267,99 @@ bool ScpiEngine::Impl::DispatchCommon(const ParsedCommand &command)
     return false;
 }
 
-void ScpiEngine::Impl::DispatchIdentity(const ParsedCommand &command)
+bool ScpiEngine::DispatchSweep(const ParsedCommand &command)
+{
+    const std::string &path = command.path;
+    if (path == "SENS1:FREQ:STAR" || path == "SENS1:FREQ:STOP") {
+        DispatchFrequency(command);
+        return true;
+    }
+    if (path == "SENS1:SWE:POIN") {
+        DispatchPoints(command);
+        return true;
+    }
+    if (path == "SENS1:BAND" || path == "SENS1:BAND:RES" || path == "SENS1:BWID" || path == "SENS1:BWID:RES") {
+        DispatchBandwidth(command);
+        return true;
+    }
+    if (path == "SENS1:SWE:TYPE") {
+        DispatchSweepType(command);
+        return true;
+    }
+    if (path == "TRIG:SOUR" || path == "TRIG:SEQ:SOUR" || path == "INIT:CONT" || path == "INIT1:CONT") {
+        DispatchTriggerSource(command);
+        return true;
+    }
+    if (path == "TRIG:SCOP" || path == "TRIG:SEQ:SCOP") {
+        DispatchTriggerScope(command);
+        return true;
+    }
+    if (path == "SENS1:SWE:MODE") {
+        DispatchSweepMode(command);
+        return true;
+    }
+    if ((path == "INIT" || path == "INIT1" || path == "INIT:IMM" || path == "INIT1:IMM") && !command.query) {
+        DispatchInitiate(command);
+        return true;
+    }
+    return false;
+}
+
+bool ScpiEngine::DispatchMeasurement(const ParsedCommand &command)
+{
+    const std::string &path = command.path;
+    if (path == "CALC1:PAR:DEF:EXT" || path == "CALC1:PAR:EXT") {
+        DispatchDefineMeasurement(command);
+        return true;
+    }
+    if (path == "CALC1:PAR:SEL") {
+        DispatchSelectMeasurement(command);
+        return true;
+    }
+    if (path == "CALC1:PAR:CAT:EXT" && command.query) {
+        DispatchMeasurementCatalog(command);
+        return true;
+    }
+    if ((path == "CALC1:PAR:DEL" || path == "CALC1:PAR:DEL:NAME") && !command.query) {
+        DispatchDeleteMeasurement(command);
+        return true;
+    }
+    if (path == "FORM" || path == "FORM:DATA") {
+        DispatchDataFormat(command);
+        return true;
+    }
+    if ((path == "SENS1:X" || path == "SENS1:X:VAL") && command.query) {
+        DispatchStimulusAxis(command);
+        return true;
+    }
+    if (path == "CALC1:DATA" && command.query) {
+        DispatchMeasurementData(command);
+        return true;
+    }
+    return false;
+}
+
+void ScpiEngine::DispatchIdentity(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
-        AppendResponse(service_.identity());
+        AppendResponse(service_.Identity());
     }
 }
 
-void ScpiEngine::Impl::DispatchClearStatus(const ParsedCommand &command)
+void ScpiEngine::DispatchClearStatus(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
-        service_.clearStatus();
+        service_.ClearStatus();
     }
 }
 
-void ScpiEngine::Impl::DispatchOperationComplete(const ParsedCommand &command)
+void ScpiEngine::DispatchOperationComplete(const ParsedCommand &command)
 {
     if (!CheckArguments(command, 0)) {
         return;
     }
     if (command.query) {
-        barrier_ = service_.pendingOperations();
+        barrier_ = service_.PendingOperations();
         waiting_ = true;
         waitingQuery_ = true;
     } else {
@@ -631,97 +367,407 @@ void ScpiEngine::Impl::DispatchOperationComplete(const ParsedCommand &command)
             RecordCommandError(command, INPUT_BUFFER_OVERRUN, "OPC pending buffer overrun");
             return;
         }
-        OpcWatch watch;
-        watch.operations = service_.pendingOperations();
-        watch.generation = service_.statusGeneration();
+        ScpiOpcWatch watch;
+        watch.operations = service_.PendingOperations();
+        watch.generation = service_.StatusGeneration();
         if (AllReady(watch.operations)) {
-            service_.markOperationComplete();
+            service_.MarkOperationComplete();
         } else {
             watches_.push_back(std::move(watch));
         }
     }
 }
 
-void ScpiEngine::Impl::DispatchWait(const ParsedCommand &command)
+void ScpiEngine::DispatchWait(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
-        barrier_ = service_.pendingOperations();
+        barrier_ = service_.PendingOperations();
         waiting_ = true;
         waitingQuery_ = false;
     }
 }
 
-void ScpiEngine::Impl::DispatchEnableRegister(const ParsedCommand &command)
+void ScpiEngine::DispatchEnableRegister(const ParsedCommand &command)
 {
     const std::string &path = command.path;
     if (command.query) {
         if (CheckArguments(command, 0)) {
-            AppendResponse(std::to_string(path == "*ESE" ? service_.eventEnable() : service_.serviceRequestEnable()));
+            AppendResponse(std::to_string(path == "*ESE" ? service_.EventEnable() : service_.ServiceRequestEnable()));
         }
     } else {
         unsigned mask = 0;
         if (!CheckArguments(command, 1)) {
             return;
         }
-        if (!integer(command.arguments.front(), mask, REGISTER_MASK_MAXIMUM)) {
+        if (!Integer(command.arguments.front(), mask, REGISTER_MASK_MAXIMUM)) {
             RecordCommandError(command, DATA_OUT_OF_RANGE, "Register mask outside 0..255");
             return;
         }
         if (path == "*ESE") {
-            service_.setEventEnable(mask);
+            service_.SetEventEnable(mask);
         } else {
-            service_.setServiceRequestEnable(mask);
+            service_.SetServiceRequestEnable(mask);
         }
     }
 }
 
-void ScpiEngine::Impl::DispatchStatusRegister(const ParsedCommand &command)
+void ScpiEngine::DispatchStatusRegister(const ParsedCommand &command)
 {
     const std::string &path = command.path;
     if (CheckArguments(command, 0)) {
         AppendResponse(
-            std::to_string(path == "*ESR" ? service_.readEventRegister()
-                                          : service_.statusByte(!output_.empty() || transportOutputPending_)));
+            std::to_string(path == "*ESR" ? service_.ReadEventRegister()
+                                          : service_.StatusByte(!output_.empty() || transportOutputPending_)));
     }
 }
 
-void ScpiEngine::Impl::DispatchNextError(const ParsedCommand &command)
+void ScpiEngine::DispatchNextError(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
-        const auto value = service_.popError();
-        AppendResponse(std::to_string(value.code) + ',' + quote(value.message));
+        const auto value = service_.PopError();
+        AppendResponse(std::to_string(value.code) + ',' + Quote(value.message));
     }
 }
 
-void ScpiEngine::Impl::DispatchErrorCount(const ParsedCommand &command)
+void ScpiEngine::DispatchErrorCount(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
-        AppendResponse(std::to_string(service_.errorCount()));
+        AppendResponse(std::to_string(service_.ErrorCount()));
     }
 }
 
-void ScpiEngine::Impl::Poll()
+void ScpiEngine::DispatchFrequency(const ParsedCommand &command)
 {
-    service_.poll();
+    const std::string &path = command.path;
+    const auto &settings = service_.Settings();
+    const bool start = path == "SENS1:FREQ:STAR";
+    if (command.query) {
+        QueryNumeric(command, start ? settings.startHz : settings.stopHz, FREQUENCY_MINIMUM_HZ, FREQUENCY_MAXIMUM_HZ);
+        return;
+    }
+    double value = 0;
+    if (NumericArgument(command, value, FREQUENCY_MINIMUM_HZ, FREQUENCY_MAXIMUM_HZ, true)) {
+        SetOperation(start ? service_.SetStartHz(value) : service_.SetStopHz(value));
+    }
+}
+
+void ScpiEngine::DispatchPoints(const ParsedCommand &command)
+{
+    const auto &settings = service_.Settings();
+    if (command.query) {
+        if (command.arguments.empty()) {
+            AppendResponse(std::to_string(settings.points));
+        } else if (command.arguments.size() == 1U && Matches(Upper(command.arguments.front()), "MIN", "MINIMUM")) {
+            AppendResponse(std::to_string(SWEEP_POINTS_MINIMUM));
+        } else if (command.arguments.size() == 1U && Matches(Upper(command.arguments.front()), "MAX", "MAXIMUM")) {
+            AppendResponse(std::to_string(SWEEP_POINTS_MAXIMUM));
+        } else {
+            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Query accepts only MINimum or MAXimum");
+        }
+        return;
+    }
+    double value = 0;
+    if (!NumericArgument(command, value, SWEEP_POINTS_MINIMUM, SWEEP_POINTS_MAXIMUM, false)) {
+        return;
+    }
+    if (value < SWEEP_POINTS_MINIMUM || value > SWEEP_POINTS_MAXIMUM || value != static_cast<unsigned>(value)) {
+        RecordCommandError(command, DATA_OUT_OF_RANGE, "Point count outside 2..10001");
+        return;
+    }
+    SetOperation(service_.SetPoints(static_cast<unsigned>(value)));
+}
+
+void ScpiEngine::DispatchBandwidth(const ParsedCommand &command)
+{
+    const auto &settings = service_.Settings();
+    if (command.query) {
+        QueryNumeric(command, settings.ifBandwidthHz, IF_BANDWIDTH_MINIMUM_HZ, IF_BANDWIDTH_MAXIMUM_HZ);
+        return;
+    }
+    double value = 0;
+    if (NumericArgument(command, value, IF_BANDWIDTH_MINIMUM_HZ, IF_BANDWIDTH_MAXIMUM_HZ, true)) {
+        SetOperation(service_.SetIfBandwidthHz(value));
+    }
+}
+
+void ScpiEngine::DispatchSweepType(const ParsedCommand &command)
+{
+    const auto &settings = service_.Settings();
+    if (command.query) {
+        if (CheckArguments(command, 0)) {
+            AppendResponse("LIN");
+        }
+    } else if (CheckArguments(command, 1)) {
+        if (!Matches(Upper(command.arguments.front()), "LIN", "LINEAR")) {
+            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only LINear sweep is supported");
+        } else if (settings.sweepMode != vna_service::SweepMode::HOLD || service_.HasPending()) {
+            RecordCommandError(command, SETTINGS_CONFLICT, "Configuration requires HOLD");
+        }
+    }
+}
+
+void ScpiEngine::DispatchTriggerSource(const ParsedCommand &command)
+{
+    const std::string &path = command.path;
+    const auto &settings = service_.Settings();
+    const bool boolean = path.find("INIT") == 0U;
+    if (command.query) {
+        if (CheckArguments(command, 0)) {
+            AppendResponse(boolean ? (settings.triggerSource == vna_service::TriggerSource::IMMEDIATE ? "1" : "0")
+                                   : (settings.triggerSource == vna_service::TriggerSource::IMMEDIATE ? "IMM" : "MAN"));
+        }
+        return;
+    }
+    if (!CheckArguments(command, 1)) {
+        return;
+    }
+    const std::string value = Upper(command.arguments.front());
+    vna_service::TriggerSource source = vna_service::TriggerSource::MANUAL;
+    if (boolean && (value == "ON" || value == "1")) {
+        source = vna_service::TriggerSource::IMMEDIATE;
+    } else if (boolean && (value == "OFF" || value == "0")) {
+        source = vna_service::TriggerSource::MANUAL;
+    } else if (!boolean && Matches(value, "IMM", "IMMEDIATE")) {
+        source = vna_service::TriggerSource::IMMEDIATE;
+    } else if (!boolean && Matches(value, "MAN", "MANUAL")) {
+        source = vna_service::TriggerSource::MANUAL;
+    } else {
+        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported trigger source");
+        return;
+    }
+    const bool asynchronous =
+        source == vna_service::TriggerSource::IMMEDIATE && settings.sweepMode == vna_service::SweepMode::SINGLE;
+    SetOperation(service_.SetTriggerSource(source), asynchronous);
+}
+
+void ScpiEngine::DispatchTriggerScope(const ParsedCommand &command)
+{
+    const auto &settings = service_.Settings();
+    if (command.query) {
+        if (CheckArguments(command, 0)) {
+            AppendResponse(settings.currentTriggerScope ? "CURR" : "ALL");
+        }
+        return;
+    }
+    if (!CheckArguments(command, 1)) {
+        return;
+    }
+    const std::string value = Upper(command.arguments.front());
+    if (value == "ALL") {
+        service_.SetCurrentTriggerScope(false);
+    } else if (Matches(value, "CURR", "CURRENT")) {
+        service_.SetCurrentTriggerScope(true);
+    } else {
+        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported trigger scope");
+    }
+}
+
+void ScpiEngine::DispatchSweepMode(const ParsedCommand &command)
+{
+    const auto &settings = service_.Settings();
+    if (command.query) {
+        if (CheckArguments(command, 0)) {
+            AppendResponse(settings.sweepMode == vna_service::SweepMode::HOLD
+                               ? "HOLD"
+                               : (settings.sweepMode == vna_service::SweepMode::SINGLE ? "SING" : "CONT"));
+        }
+        return;
+    }
+    if (!CheckArguments(command, 1)) {
+        return;
+    }
+    const std::string value = Upper(command.arguments.front());
+    vna_service::SweepMode mode = vna_service::SweepMode::HOLD;
+    if (value == "HOLD") {
+        mode = vna_service::SweepMode::HOLD;
+    } else if (Matches(value, "CONT", "CONTINUOUS")) {
+        mode = vna_service::SweepMode::CONTINUOUS;
+    } else if (Matches(value, "SING", "SINGLE")) {
+        mode = vna_service::SweepMode::SINGLE;
+    } else {
+        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported sweep mode");
+        return;
+    }
+    SetOperation(service_.SetSweepMode(mode),
+        mode == vna_service::SweepMode::SINGLE && settings.triggerSource == vna_service::TriggerSource::IMMEDIATE);
+}
+
+void ScpiEngine::DispatchInitiate(const ParsedCommand &command)
+{
+    if (CheckArguments(command, 0)) {
+        SetOperation(service_.Trigger(), true);
+    }
+}
+
+void ScpiEngine::DispatchDefineMeasurement(const ParsedCommand &command)
+{
+    if (command.query) {
+        RecordCommandError(command, UNDEFINED_HEADER, "Undefined query header");
+        return;
+    }
+    if (!CheckArguments(command, 2)) {
+        return;
+    }
+    vna_service::Measurement measurement;
+    std::string parameter;
+    if (!StringArgument(command.arguments[0], measurement.name) || !StringArgument(command.arguments[1], parameter)) {
+        RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name and parameter require quoted strings");
+        return;
+    }
+    if (!ReceiverParameter(parameter, measurement)) {
+        RecordCommandError(
+            command, ILLEGAL_PARAMETER_VALUE, "Only logical a1..a4/b1..b4 non-ratio receivers are supported");
+        return;
+    }
+    SetOperation(service_.DefineMeasurement(measurement));
+}
+
+void ScpiEngine::DispatchSelectMeasurement(const ParsedCommand &command)
+{
+    const auto &settings = service_.Settings();
+    if (command.query) {
+        if (CheckArguments(command, 0)) {
+            AppendResponse(Quote(settings.selectedMeasurement));
+        }
+        return;
+    }
+    if (!CheckArguments(command, 1)) {
+        return;
+    }
+    std::string name;
+    if (!StringArgument(command.arguments.front(), name)) {
+        RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name requires a string");
+        return;
+    }
+    service_.SelectMeasurement(name);
+}
+
+void ScpiEngine::DispatchMeasurementCatalog(const ParsedCommand &command)
+{
+    const auto &settings = service_.Settings();
+    if (command.arguments.size() > 1U) {
+        RecordCommandError(command, PARAMETER_NOT_ALLOWED, "Too many parameters");
+        return;
+    }
+    if (!command.arguments.empty()) {
+        const auto value = Upper(command.arguments.front());
+        if (!Matches(value, "NORM", "NORMAL") && !Matches(value, "DEF", "DEFINE") &&
+            !Matches(value, "DISP", "DISPLAY")) {
+            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported catalog option");
+            return;
+        }
+    }
+    std::string catalog;
+    for (const auto &measurement : settings.measurements) {
+        if (!catalog.empty()) {
+            catalog += ',';
+        }
+        std::string parameter = measurement.Parameter();
+        std::replace(parameter.begin(), parameter.end(), ',', '_');
+        catalog += measurement.name + ',' + parameter;
+    }
+    AppendResponse(Quote(catalog.empty() ? "NO CATALOG" : catalog));
+}
+
+void ScpiEngine::DispatchDeleteMeasurement(const ParsedCommand &command)
+{
+    if (!CheckArguments(command, 1)) {
+        return;
+    }
+    std::string name;
+    if (!StringArgument(command.arguments.front(), name)) {
+        RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name requires a string");
+        return;
+    }
+    SetOperation(service_.DeleteMeasurement(name));
+}
+
+void ScpiEngine::DispatchDataFormat(const ParsedCommand &command)
+{
+    if (command.query) {
+        if (CheckArguments(command, 0)) {
+            AppendResponse("ASC,0");
+        }
+        return;
+    }
+    if (command.arguments.empty() || command.arguments.size() > 2U) {
+        RecordCommandError(command, MISSING_PARAMETER, "FORM requires ASCii[,0]");
+        return;
+    }
+    if (!Matches(Upper(command.arguments[0]), "ASC", "ASCII")) {
+        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only ASCii data format is implemented");
+        return;
+    }
+    if (command.arguments.size() == 2U) {
+        unsigned precision = 0;
+        if (!Integer(command.arguments[1], precision, 0U)) {
+            RecordCommandError(command, DATA_OUT_OF_RANGE, "Only ASCii,0 is implemented");
+        }
+    }
+}
+
+void ScpiEngine::DispatchStimulusAxis(const ParsedCommand &command)
+{
+    if (CheckArguments(command, 0)) {
+        BeginEncoding(service_.StimulusAxis(), command);
+    }
+}
+
+void ScpiEngine::DispatchMeasurementData(const ParsedCommand &command)
+{
+    if (!CheckArguments(command, 1)) {
+        return;
+    }
+    if (Upper(command.arguments.front()) != "RDATA") {
+        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only RDATA is implemented");
+        return;
+    }
+    BeginEncoding(service_.MeasurementData(), command);
+}
+
+void ScpiEngine::Poll()
+{
+    service_.Poll();
+    PollOperationWatches();
+    if (!PollBarrier()) {
+        return;
+    }
+    EncodeBatch();
+    if (!encoding_.empty()) {
+        return;
+    }
+    PollMessages();
+    if (!connected_ && !HasPending() && control_) {
+        service_.ReleaseControl(SCPI_CONTROL_OWNER);
+        control_ = false;
+    }
+}
+
+void ScpiEngine::PollOperationWatches()
+{
     for (auto watch = watches_.begin(); watch != watches_.end();) {
-        if (watch->generation != service_.statusGeneration()) {
+        if (watch->generation != service_.StatusGeneration()) {
             watch = watches_.erase(watch);
         } else if (AllReady(watch->operations)) {
-            service_.markOperationComplete();
+            service_.MarkOperationComplete();
             watch = watches_.erase(watch);
         } else {
             ++watch;
         }
     }
+}
+
+bool ScpiEngine::PollBarrier()
+{
     if (sequential_.valid()) {
         if (!OperationReady(sequential_)) {
-            return;
+            return false;
         }
         sequential_ = vna_service::Operation();
     }
     if (waiting_) {
         if (!AllReady(barrier_)) {
-            return;
+            return false;
         }
         if (waitingQuery_) {
             AppendResponse("+1");
@@ -729,16 +775,17 @@ void ScpiEngine::Impl::Poll()
         waiting_ = false;
         barrier_.clear();
     }
-    EncodeBatch();
-    if (!encoding_.empty()) {
-        return;
-    }
+    return true;
+}
+
+void ScpiEngine::PollMessages()
+{
     // Parsing/dispatching is bounded independently of numeric encoding.
-    for (unsigned count = 0; count < 32U && !messages_.empty(); ++count) {
-        Message &message = messages_.front();
+    for (unsigned count = 0; count < DISPATCH_BATCH_SIZE && !messages_.empty(); ++count) {
+        ScpiMessage &message = messages_.front();
         if (message.position == message.units.size()) {
             if (connected_ && !message.queryFailed && !message.response.empty()) {
-                if (outputBytes_ + message.response.size() + 1U > kOutputBudget) {
+                if ((outputBytes_ + message.response.size() + 1U) > RESPONSE_QUEUE_BYTE_LIMIT) {
                     return;
                 }
                 message.response += '\n';
@@ -748,93 +795,82 @@ void ScpiEngine::Impl::Poll()
             messages_.pop_front();
             continue;
         }
-        const ParsedCommand command = parseCommand(message.units[message.position++], message.parent);
+        const ParsedCommand command = ParseCommand(message.units[message.position], message.parent);
+        ++message.position;
         Dispatch(command);
         if (sequential_.valid() || waiting_ || !encoding_.empty()) {
             break;
         }
     }
-    if (!connected_ && !HasPending() && control_) {
-        service_.releaseControl();
-        control_ = false;
-    }
 }
 
-ScpiEngine::ScpiEngine(vna_service::InstrumentService &service_) : impl_(new Impl(service_))
+ScpiEngine::ScpiEngine(vna_service::InstrumentService &service) : service_(service)
 {
+    // Acquire only after all allocating members have constructed successfully.
+    control_ = service.TryAcquireControl(SCPI_CONTROL_OWNER);
 }
 
-ScpiEngine::~ScpiEngine()
+ScpiEngine::~ScpiEngine() noexcept
 {
     // The owner normally drains first. An idle engine may also be destroyed directly.
-    if (impl_->control_ && !impl_->HasPending()) {
-        impl_->service_.releaseControl();
+    if (control_ && !HasPending()) {
+        service_.ReleaseControl(SCPI_CONTROL_OWNER);
     }
 }
 
-bool ScpiEngine::submitLine(const std::string &line)
+bool ScpiEngine::SubmitLine(const std::string &line)
 {
-    if (!impl_->connected_ || !impl_->control_ || impl_->messages_.size() >= 32U || line.size() > 16384U) {
+    if (!connected_ || !control_ || messages_.size() >= MESSAGE_QUEUE_LIMIT || line.size() > LINE_BUDGET) {
         return false;
     }
-    if (trim(line).empty()) {
+    if (Trim(line).empty()) {
         return true;
     }
-    Impl::Message message;
-    message.units = splitProgram(line);
-    if (message.units.size() > 128U) {
+    ScpiMessage message;
+    message.units = SplitProgram(line);
+    if (message.units.size() > PROGRAM_UNIT_LIMIT) {
         return false;
     }
-    impl_->messages_.push_back(std::move(message));
+    messages_.push_back(std::move(message));
     return true;
 }
 
-void ScpiEngine::poll()
+std::string ScpiEngine::TakeOutput()
 {
-    impl_->Poll();
-}
-
-std::string ScpiEngine::takeOutput()
-{
-    if (impl_->output_.empty()) {
+    if (output_.empty()) {
         return std::string();
     }
-    std::string output_ = std::move(impl_->output_.front());
-    impl_->output_.pop_front();
-    impl_->outputBytes_ -= output_.size();
-    return output_;
+    std::string output = std::move(output_.front());
+    output_.pop_front();
+    outputBytes_ -= output.size();
+    return output;
 }
 
-bool ScpiEngine::hasPending() const
+bool ScpiEngine::HasControl() const noexcept
 {
-    return impl_->HasPending();
+    return control_;
 }
 
-bool ScpiEngine::hasControl() const
+void ScpiEngine::SetTransportOutputPending(bool pending) noexcept
 {
-    return impl_->control_;
+    transportOutputPending_ = pending;
 }
 
-void ScpiEngine::setTransportOutputPending(bool pending)
+void ScpiEngine::Disconnect() noexcept
 {
-    impl_->transportOutputPending_ = pending;
-}
-
-void ScpiEngine::disconnect()
-{
-    impl_->connected_ = false;
-    impl_->output_.clear();
-    impl_->outputBytes_ = 0;
-    impl_->encoding_.clear();
-    impl_->encodedResponse_.clear();
-    for (auto &message : impl_->messages_) {
+    connected_ = false;
+    output_.clear();
+    outputBytes_ = 0;
+    encoding_.clear();
+    encodedResponse_.clear();
+    for (auto &message : messages_) {
         message.response.clear();
     }
 }
 
-bool ScpiEngine::canReleaseControl() const
+bool ScpiEngine::CanReleaseControl() const noexcept
 {
-    return !impl_->connected_ && !impl_->control_ && !impl_->HasPending();
+    return !connected_ && !control_ && !HasPending();
 }
 
 }  // namespace vna_scpi
