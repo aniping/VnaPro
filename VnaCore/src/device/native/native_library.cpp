@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #include "device/native/native_library.h"
 
 #include <cctype>
@@ -19,7 +23,7 @@ namespace vna_core {
 namespace detail {
 namespace {
 
-bool isAbsolutePath(const std::string &path)
+bool IsAbsolutePath(const std::string &path)
 {
 #if defined(_WIN32)
     const bool driveRooted = path.size() >= 3U && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':' &&
@@ -32,7 +36,7 @@ bool isAbsolutePath(const std::string &path)
 }
 
 template <typename Function>
-Function resolve(void *handle, const char *name)
+Function Resolve(void *handle, const char *name)
 {
 #if defined(_WIN32)
     const FARPROC symbol = GetProcAddress(static_cast<HMODULE>(handle), name);
@@ -43,21 +47,21 @@ Function resolve(void *handle, const char *name)
         throw std::runtime_error(std::string("native symbol missing: ") + name);
     }
     static_assert(sizeof(Function) == sizeof(symbol), "Native function pointer size mismatch");
-    Function function;
+    Function function = nullptr;
     std::memcpy(&function, &symbol, sizeof(function));
     return function;
 }
 
 }  // namespace
 
-NativeLibrary::~NativeLibrary()
+NativeLibrary::~NativeLibrary() noexcept
 {
-    close();
+    Close();
 }
 
-void NativeLibrary::open(const std::string &path)
+void NativeLibrary::Open(const std::string &path)
 {
-    if (!isAbsolutePath(path)) {
+    if (!IsAbsolutePath(path)) {
         throw std::runtime_error("native library path must be absolute");
     }
     if (handle_) {
@@ -76,26 +80,26 @@ void NativeLibrary::open(const std::string &path)
     }
 #endif
     try {
-        functions_.hwInit = resolve<vna_native::DrvHwInitFn>(handle_, vna_native::kDrvHwInitSymbol);
-        functions_.getSweepData = resolve<vna_native::DrvGetSweepDataFn>(handle_, vna_native::kDrvGetSweepDataSymbol);
-        functions_.startSweep = resolve<vna_native::DrvStartSweepFn>(handle_, vna_native::kDrvStartSweepSymbol);
+        functions_.hwInit = Resolve<vna_native::DrvHwInitFn>(handle_, vna_native::g_drvHwInitSymbol);
+        functions_.getSweepData = Resolve<vna_native::DrvGetSweepDataFn>(handle_, vna_native::g_drvGetSweepDataSymbol);
+        functions_.startSweep = Resolve<vna_native::DrvStartSweepFn>(handle_, vna_native::g_drvStartSweepSymbol);
         functions_.activateRxLink =
-            resolve<vna_native::DrvActivateRxLinkFn>(handle_, vna_native::kDrvActivateRxLinkSymbol);
-        functions_.setRfPowerOn = resolve<vna_native::DrvSetRfPowerOnFn>(handle_, vna_native::kDrvSetRfPowerOnSymbol);
+            Resolve<vna_native::DrvActivateRxLinkFn>(handle_, vna_native::g_drvActivateRxLinkSymbol);
+        functions_.setRfPowerOn = Resolve<vna_native::DrvSetRfPowerOnFn>(handle_, vna_native::g_drvSetRfPowerOnSymbol);
         functions_.setFastSweepMode =
-            resolve<vna_native::DrvSetFastSweepModeFn>(handle_, vna_native::kDrvSetFastSweepModeSymbol);
-        functions_.getIDN = resolve<vna_native::DrvGetIDNFn>(handle_, vna_native::kDrvGetIDNSymbol);
+            Resolve<vna_native::DrvSetFastSweepModeFn>(handle_, vna_native::g_drvSetFastSweepModeSymbol);
+        functions_.getIdn = Resolve<vna_native::DrvGetIDNFn>(handle_, vna_native::g_drvGetIdnSymbol);
         functions_.checkSweepPortPower =
-            resolve<vna_native::DrvCheckSweepPortPowerFn>(handle_, vna_native::kDrvCheckSweepPortPowerSymbol);
+            Resolve<vna_native::DrvCheckSweepPortPowerFn>(handle_, vna_native::g_drvCheckSweepPortPowerSymbol);
         functions_.dataFrameDownload =
-            resolve<vna_native::DrvDataFrameDownloadFn>(handle_, vna_native::kDrvDataFrameDownloadSymbol);
+            Resolve<vna_native::DrvDataFrameDownloadFn>(handle_, vna_native::g_drvDataFrameDownloadSymbol);
     } catch (...) {
-        close();
+        Close();
         throw;
     }
 }
 
-void NativeLibrary::close()
+void NativeLibrary::Close() noexcept
 {
     functions_ = NativeFunctions();
     if (handle_) {

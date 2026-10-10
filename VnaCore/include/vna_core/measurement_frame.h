@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #ifndef VNAPRO_VNA_CORE_MEASUREMENT_FRAME_H
 #define VNAPRO_VNA_CORE_MEASUREMENT_FRAME_H
 
@@ -10,7 +14,7 @@
 
 namespace vna_core {
 
-struct MeasurementFrame {
+struct MeasurementFrame final {
     std::uint32_t channelId = 1U;
     std::uint64_t runId = 0U;
     std::uint64_t configRevision = 0U;
