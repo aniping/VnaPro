@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
+#include "web/http_api.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -10,18 +16,19 @@
 #include <stdexcept>
 #include <utility>
 
+#include "vna_core/frame_layout.h"
 #include "vna_service/instrument_service.h"
-#include "web/http_api.h"
+#include "vna_service/service_error_code.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
 
 namespace vna_web {
-HttpResponse httpError(unsigned status, const std::string &code, const std::string &message)
+HttpResponse HttpError(unsigned status, const std::string &code, const std::string &message)
 {
     HttpResponse response;
     response.status = status;
-    response.json = Json::makeObject();
-    Json error = Json::makeObject();
+    response.json = Json::MakeObject();
+    Json error = Json::MakeObject();
     error["code"] = Json(code);
     error["message"] = Json(message);
     response.json["error"] = std::move(error);
@@ -29,56 +36,70 @@ HttpResponse httpError(unsigned status, const std::string &code, const std::stri
 }
 
 namespace {
-std::string text(const Json &value, const std::string &key, bool optional = false)
+constexpr unsigned LEASE_SECONDS = 30U;
+constexpr unsigned RETENTION_SECONDS = 60U;
+constexpr std::size_t SESSION_LIMIT = 32U;
+constexpr std::size_t RETRY_LIMIT = 32U;
+constexpr std::size_t OPERATION_LIMIT = 128U;
+constexpr std::size_t NAME_LENGTH_LIMIT = 128U;
+constexpr unsigned DISPLAY_POINT_LIMIT = 2001U;
+constexpr unsigned DISPLAY_TRACE_LIMIT = 4U;
+constexpr unsigned SWEEP_POINT_LIMIT = 10001U;
+constexpr unsigned TOKEN_WORD_COUNT = 4U;
+constexpr int TOKEN_WORD_HEX_WIDTH = 8;
+constexpr unsigned DECIMAL_BASE = 10U;
+constexpr unsigned CONTROL_CHARACTER_LIMIT = 32U;
+
+std::string Text(const Json &value, const std::string &key, bool optional = false)
 {
-    const Json *item = value.find(key);
+    const Json *item = value.Find(key);
     if (item == nullptr && optional) {
         return std::string();
     }
-    if (item == nullptr || item->type != Json::Type::String) {
+    if (item == nullptr || item->type != Json::Type::STRING) {
         throw std::runtime_error(key + " must be a string");
     }
     return item->string;
 }
 
-double numeric(const Json &value, const std::string &key)
+double Numeric(const Json &value, const std::string &key)
 {
-    const Json *item = value.find(key);
-    if (item == nullptr || item->type != Json::Type::Number || !std::isfinite(item->number)) {
+    const Json *item = value.Find(key);
+    if (item == nullptr || item->type != Json::Type::NUMBER || !std::isfinite(item->number)) {
         throw std::runtime_error(key + " must be finite numeric data");
     }
     return item->number;
 }
 
-unsigned positiveInteger(const Json &value, const std::string &key, unsigned maximum)
+unsigned PositiveInteger(const Json &value, const std::string &key, unsigned maximum)
 {
-    const double number = numeric(value, key);
+    const double number = Numeric(value, key);
     if (number < 1 || number > maximum || std::floor(number) != number) {
         throw std::runtime_error(key + " out of range");
     }
     return static_cast<unsigned>(number);
 }
 
-std::uint64_t revision(const Json &value)
+std::uint64_t Revision(const Json &value)
 {
-    const std::string string = text(value, "expectedRevision");
+    const std::string string = Text(value, "expectedRevision");
     if (string.empty()) {
         throw std::runtime_error("expectedRevision is empty");
     }
     std::uint64_t result = 0;
     for (char digit : string) {
         if (digit < '0' || digit > '9' ||
-            result > ((std::numeric_limits<std::uint64_t>::max)() - (digit - '0')) / 10U) {
+            result > ((std::numeric_limits<std::uint64_t>::max)() - (digit - '0')) / DECIMAL_BASE) {
             throw std::runtime_error("expectedRevision must be a decimal uint64 string");
         }
-        result = result * 10U + static_cast<unsigned>(digit - '0');
+        result = result * DECIMAL_BASE + static_cast<unsigned>(digit - '0');
     }
     return result;
 }
 
-void allowed(const Json &value, const std::vector<std::string> &keys)
+void Allowed(const Json &value, const std::vector<std::string> &keys)
 {
-    if (value.type != Json::Type::Object) {
+    if (value.type != Json::Type::OBJECT) {
         throw std::runtime_error("JSON body must be an object");
     }
     for (const auto &item : value.object) {
@@ -88,46 +109,47 @@ void allowed(const Json &value, const std::vector<std::string> &keys)
     }
 }
 
-bool ready(const vna_service::Operation &value)
+bool Ready(const vna_service::Operation &value)
 {
     return value.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-std::string coreState(vna_core::CoreState value)
+std::string CoreStateName(vna_core::CoreState value)
 {
     switch (value) {
-        case vna_core::CoreState::Uninitialized:
+        case vna_core::CoreState::UNINITIALIZED:
             return "Uninitialized";
-        case vna_core::CoreState::Ready:
+        case vna_core::CoreState::READY:
             return "Ready";
-        case vna_core::CoreState::Running:
+        case vna_core::CoreState::RUNNING:
             return "Running";
-        case vna_core::CoreState::Faulted:
+        case vna_core::CoreState::FAULTED:
             return "Faulted";
-        case vna_core::CoreState::Closed:
+        case vna_core::CoreState::CLOSED:
             return "Closed";
+        default:
+            return "Uninitialized";
     }
-    return "Uninitialized";
 }
 
-Json measurementJson(const vna_service::Measurement &measurement)
+Json MeasurementJson(const vna_service::Measurement &measurement)
 {
-    Json value = Json::makeObject();
+    Json value = Json::MakeObject();
     value["name"] = Json(measurement.name);
     value["receiverKind"] = Json(std::string(1, measurement.receiverKind));
     value["receiverPort"] = Json(measurement.receiverPort);
     value["sourcePort"] = Json(measurement.sourcePort);
-    value["parameter"] = Json(measurement.parameter());
+    value["parameter"] = Json(measurement.Parameter());
     return value;
 }
 
-bool safeName(const std::string &value)
+bool SafeName(const std::string &value)
 {
-    if (value.empty() || value.size() > 128U || value == "." || value == "..") {
+    if (value.empty() || value.size() > NAME_LENGTH_LIMIT || value == "." || value == "..") {
         return false;
     }
     for (unsigned char character : value) {
-        if (character < 32U || character == '/' || character == '\\') {
+        if (character < CONTROL_CHARACTER_LIMIT || character == '/' || character == '\\') {
             return false;
         }
     }
@@ -135,174 +157,101 @@ bool safeName(const std::string &value)
 }
 }  // namespace
 
-class HttpApi::Impl {
-public:
-    struct Retry {
-        std::string requestId, fingerprint, operationId;
-    };
-
-    struct Session {
-        Clock::time_point expires, touched;
-        bool releasing = false;
-        std::deque<Retry> retries;
-    };
-
-    struct Record {
-        vna_service::Operation operation;
-        std::string owner;
-        Clock::time_point created, completed;
-        bool done = false;
-        vna_service::OperationResult result;
-    };
-
-    Impl(vna_service::InstrumentService &value, Now clock) : service(value), now(std::move(clock))
-    {
+HttpApi::HttpApi(vna_service::InstrumentService &service, Now clock) : service_(service), now_(std::move(clock))
+{
+    if (!now_) {
+        throw std::invalid_argument("HTTP clock callback is required");
     }
+}
 
-    vna_service::InstrumentService &service;
-    Now now;
-    std::map<std::string, Session> sessions;
-    std::map<std::string, Record> records;
-    std::uint64_t sequence = 0;
-    bool shuttingDown = false;
-    std::random_device random;
-
-    std::string token();
-
-    std::string headerToken(const HttpRequest &request) const;
-
-    void poll();
-
-    HttpResponse status(const HttpRequest &request);
-
-    HttpResponse frame();
-
-    HttpResponse operation(const std::string &id, const std::string &requester);
-
-    HttpResponse accepted(const std::string &id, const std::string &owner);
-
-    HttpResponse claim(const Json &body);
-
-    HttpResponse release(const std::string &id);
-
-    HttpResponse write(const HttpRequest &request, const Json &body);
-
-    HttpResponse handle(const HttpRequest &request);
-};
-
-std::string HttpApi::Impl::token()
+std::string HttpApi::Token()
 {
     std::ostringstream value;
+    value.exceptions(std::ios::badbit | std::ios::failbit);
     value << "web-" << std::hex << std::setfill('0');
-    for (unsigned index = 0; index < 4U; ++index) {
-        value << std::setw(8) << static_cast<std::uint32_t>(random());
+    for (unsigned index = 0; index < TOKEN_WORD_COUNT; ++index) {
+        value << std::setw(TOKEN_WORD_HEX_WIDTH) << static_cast<std::uint32_t>(random_());
     }
     return value.str();
 }
 
-std::string HttpApi::Impl::headerToken(const HttpRequest &request) const
+std::string HttpApi::HeaderToken(const HttpRequest &request) const
 {
     const auto found = request.headers.find("x-vna-session");
     return found == request.headers.end() ? std::string() : found->second;
 }
 
-void HttpApi::Impl::poll()
+void HttpApi::Poll()
 {
-    service.poll();
-    const auto time = now();
-    for (auto &item : records) {
-        Record &record = item.second;
-        if (!record.done && ready(record.operation)) {
-            record.done = true;
-            record.result = record.operation.get();
+    service_.Poll();
+    const auto time = now_();
+    for (auto &item : records_) {
+        HttpOperationRecord &record = item.second;
+        if (!record.done && Ready(record.operation)) {
+            auto result = record.operation.get();
+            record.result = std::move(result);
             record.completed = time;
+            record.done = true;
         }
     }
-    for (auto record = records.begin(); record != records.end();) {
-        if (record->second.done && time - record->second.completed >= std::chrono::seconds(60)) {
-            record = records.erase(record);
+    for (auto record = records_.begin(); record != records_.end();) {
+        if (record->second.done && time - record->second.completed >= std::chrono::seconds(RETENTION_SECONDS)) {
+            record = records_.erase(record);
         } else {
             ++record;
         }
     }
-    for (auto &item : sessions) {
-        Session &session = item.second;
-        if (service.controlOwner() == item.first && (shuttingDown || time >= session.expires || session.releasing)) {
+    for (auto &item : sessions_) {
+        HttpSession &session = item.second;
+        if (service_.ControlOwner() == item.first && (shuttingDown_ || time >= session.expires || session.releasing)) {
             session.releasing = true;
-            service.beginReleaseControl(item.first);
-            if (!service.hasPending()) {
-                service.releaseControl(item.first);
+            service_.BeginReleaseControl(item.first);
+            if (!service_.HasPending()) {
+                service_.ReleaseControl(item.first);
             }
         }
     }
-    for (auto session = sessions.begin(); session != sessions.end();) {
-        if (service.controlOwner() != session->first && time - session->second.touched >= std::chrono::seconds(60)) {
-            session = sessions.erase(session);
+    for (auto session = sessions_.begin(); session != sessions_.end();) {
+        if (service_.ControlOwner() != session->first &&
+            time - session->second.touched >= std::chrono::seconds(RETENTION_SECONDS)) {
+            session = sessions_.erase(session);
         } else {
             ++session;
         }
     }
 }
 
-HttpResponse HttpApi::Impl::status(const HttpRequest &request)
+HttpResponse HttpApi::Status(const HttpRequest &request) const
 {
-    const auto snapshot = service.snapshot();
+    const auto snapshot = service_.Snapshot();
     const auto &settings = snapshot.settings;
     HttpResponse response;
-    Json &value = response.json = Json::makeObject();
-    value["identity"] = Json(service.identity());
+    Json &value = response.json = Json::MakeObject();
+    value["identity"] = Json(service_.Identity());
     value["backend"] = Json("NativeSimulator");
-    value["state"] = Json(coreState(snapshot.core.state));
+    value["state"] = Json(CoreStateName(snapshot.core.state));
     value["error"] = Json(snapshot.core.error);
     value["pending"] = Json(snapshot.pending);
     value["revision"] = Json(std::to_string(settings.revision));
     value["runId"] = Json(std::to_string(snapshot.core.runId));
     value["activeConfigValid"] = Json(
-        snapshot.core.state != vna_core::CoreState::Faulted && snapshot.core.state != vna_core::CoreState::Closed &&
+        snapshot.core.state != vna_core::CoreState::FAULTED && snapshot.core.state != vna_core::CoreState::CLOSED &&
         snapshot.core.configRevision != 0U && snapshot.core.configRevision == settings.revision);
-    Json config = Json::makeObject();
-    config["startHz"] = Json(settings.startHz);
-    config["stopHz"] = Json(settings.stopHz);
-    config["points"] = Json(settings.points);
-    config["ifBandwidthHz"] = Json(settings.ifBandwidthHz);
-    config["triggerSource"] = Json(settings.triggerSource == vna_service::TriggerSource::Immediate ? "IMM" : "MAN");
-    config["sweepMode"] = Json(settings.sweepMode == vna_service::SweepMode::Hold     ? "HOLD"
-                               : settings.sweepMode == vna_service::SweepMode::Single ? "SING"
-                                                                                      : "CONT");
-    value["config"] = std::move(config);
-    Json measurements = Json::makeArray();
+    value["config"] = ConfigurationJson(settings);
+    Json measurements = Json::MakeArray();
     for (const auto &measurement : settings.measurements) {
-        measurements.array.push_back(measurementJson(measurement));
+        measurements.array.push_back(MeasurementJson(measurement));
     }
     value["measurements"] = std::move(measurements);
-    Json control = Json::makeObject();
-    const std::string owner = snapshot.controlOwner;
-    const std::string requester = headerToken(request);
-    const bool mine = !owner.empty() && owner != "SCPI" && owner == requester && !snapshot.releasing;
-    control["owner"] = Json(owner.empty() ? "none" : owner == "SCPI" ? "scpi" : "web");
-    control["hasControl"] = Json(mine);
-    control["releasing"] = Json(snapshot.releasing);
-    double remaining = 0;
-    const auto session = sessions.find(owner);
-    if (session != sessions.end()) {
-        remaining = (std::max)(0.0, std::chrono::duration<double, std::milli>(session->second.expires - now()).count());
-    }
-    control["leaseRemainingMs"] = Json(remaining);
-    const std::string reason = mine                 ? std::string()
-                               : snapshot.releasing ? "Control is releasing"
-                               : owner == "SCPI"    ? "SCPI controller active"
-                               : owner.empty()      ? "Claim control to write"
-                                                    : "Another Web session controls instrument";
-    control["readOnlyReason"] = Json(reason);
-    value["control"] = std::move(control);
+    value["control"] = ControlJson(snapshot, request);
     return response;
 }
 
-HttpResponse HttpApi::Impl::frame()
+HttpResponse HttpApi::Frame() const
 {
-    const auto snapshot = service.snapshot();
+    const auto snapshot = service_.Snapshot();
     HttpResponse response;
-    Json &value = response.json = Json::makeObject();
+    Json &value = response.json = Json::MakeObject();
     if (!snapshot.core.frame) {
         value["available"] = Json(false);
         value["current"] = Json(false);
@@ -312,17 +261,17 @@ HttpResponse HttpApi::Impl::frame()
     const auto &frame = *snapshot.core.frame;
     const std::size_t count = frame.plan.frequencyHz.size();
     if (count == 0U) {
-        return httpError(409, "no_physical_axis", "Frame does not have a verified physical frequency axis");
+        return HttpError(409, "no_physical_axis", "Frame does not have a verified physical frequency axis");
     }
-    const unsigned display = static_cast<unsigned>((std::min)(count, static_cast<std::size_t>(2001U)));
+    const unsigned display = static_cast<unsigned>((std::min)(count, static_cast<std::size_t>(DISPLAY_POINT_LIMIT)));
     std::vector<std::size_t> indexes;
     for (unsigned index = 0; index < display; ++index) {
         indexes.push_back(display == 1U ? 0U : index * (count - 1U) / (display - 1U));
     }
     value["available"] = Json(true);
     value["current"] =
-        Json(!snapshot.finitePending && snapshot.core.state != vna_core::CoreState::Faulted &&
-             snapshot.core.state != vna_core::CoreState::Closed && frame.configRevision == snapshot.settings.revision &&
+        Json(!snapshot.finitePending && snapshot.core.state != vna_core::CoreState::FAULTED &&
+             snapshot.core.state != vna_core::CoreState::CLOSED && frame.configRevision == snapshot.settings.revision &&
              frame.configRevision == snapshot.core.configRevision && frame.runId == snapshot.core.runId);
     value["channelId"] = Json(frame.channelId);
     value["runId"] = Json(std::to_string(frame.runId));
@@ -331,60 +280,39 @@ HttpResponse HttpApi::Impl::frame()
     value["originalPointCount"] = Json(static_cast<unsigned>(count));
     value["displayPointCount"] = Json(display);
     value["decimated"] = Json(count > display);
-    Json axis = Json::makeArray();
+    Json axis = Json::MakeArray();
     for (auto index : indexes) {
         axis.array.emplace_back(frame.plan.frequencyHz[index]);
     }
     value["frequencyHz"] = std::move(axis);
-    Json traces = Json::makeArray();
+    Json traces = Json::MakeArray();
     for (const auto &measurement : snapshot.settings.measurements) {
-        if (traces.array.size() == 4U) {
+        if (traces.array.size() == DISPLAY_TRACE_LIMIT) {
             break;
         }
-        Json trace = measurementJson(measurement);
-        Json real = Json::makeArray(), imaginary = Json::makeArray(), validity = Json::makeArray();
-        const auto port =
-            std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const vna_core::PortFrame &item) {
-                return item.sourcePort == measurement.sourcePort;
-            });
-        const bool available = port != frame.ports.end() && port->iq.size() == count * 16U &&
-                               (frame.plan.receiverMask & (1U << (measurement.receiverPort - 1U))) != 0U;
-        const unsigned component = (measurement.receiverPort - 1U) * 4U + (measurement.receiverKind == 'b' ? 2U : 0U);
-        for (auto index : indexes) {
-            const double re = available ? port->iq[index * 16U + component] : 0;
-            const double im = available ? port->iq[index * 16U + component + 1U] : 0;
-            const bool valid = available && std::isfinite(re) && std::isfinite(im);
-            real.array.push_back(valid ? Json(re) : Json());
-            imaginary.array.push_back(valid ? Json(im) : Json());
-            validity.array.emplace_back(valid);
-        }
-        trace["available"] = Json(available);
-        trace["real"] = std::move(real);
-        trace["imag"] = std::move(imaginary);
-        trace["valid"] = std::move(validity);
-        traces.array.push_back(std::move(trace));
+        traces.array.push_back(TraceJson(frame, measurement, indexes));
     }
     value["traces"] = std::move(traces);
     return response;
 }
 
-HttpResponse HttpApi::Impl::operation(const std::string &id, const std::string &requester)
+HttpResponse HttpApi::OperationStatus(const std::string &id, const std::string &requester) const
 {
-    const auto found = records.find(id);
-    if (found == records.end()) {
-        return httpError(404, "operation_not_found", "Operation is unknown or expired");
+    const auto found = records_.find(id);
+    if (found == records_.end()) {
+        return HttpError(404, "operation_not_found", "Operation is unknown or expired");
     }
     if (requester.empty() || requester != found->second.owner) {
-        return httpError(403, "not_operation_owner", "Operation result belongs to another session");
+        return HttpError(403, "not_operation_owner", "Operation result belongs to another session");
     }
-    const Record &record = found->second;
+    const HttpOperationRecord &record = found->second;
     HttpResponse response;
-    response.json = Json::makeObject();
+    response.json = Json::MakeObject();
     response.json["operationId"] = Json(id);
     response.json["state"] = Json(!record.done ? "pending" : record.result.ok ? "completed" : "failed");
     Json value;
     if (record.done) {
-        value = Json::makeObject();
+        value = Json::MakeObject();
         value["ok"] = Json(record.result.ok);
         value["errorCode"] = Json(static_cast<double>(record.result.errorCode));
         value["message"] = Json(record.result.message);
@@ -393,280 +321,413 @@ HttpResponse HttpApi::Impl::operation(const std::string &id, const std::string &
     return response;
 }
 
-HttpResponse HttpApi::Impl::accepted(const std::string &id, const std::string &owner)
+HttpResponse HttpApi::Accepted(const std::string &id, const std::string &owner) const
 {
-    HttpResponse response = operation(id, owner);
+    HttpResponse response = OperationStatus(id, owner);
     response.status = 202;
     response.json.object.erase("result");
     return response;
 }
 
-HttpResponse HttpApi::Impl::claim(const Json &body)
+HttpResponse HttpApi::Claim(const Json &body)
 {
-    allowed(body, {"sessionId"});
-    const std::string requested = text(body, "sessionId", true);
-    if (service.controlReleasing()) {
-        return httpError(409, "control_releasing", "Previous controller is still completing accepted operations");
+    Allowed(body, {"sessionId"});
+    const std::string requested = Text(body, "sessionId", true);
+    if (service_.ControlReleasing()) {
+        return HttpError(409, "control_releasing", "Previous controller is still completing accepted operations");
     }
-    if (!service.controlOwner().empty() && service.controlOwner() != requested) {
-        return httpError(409, "control_busy", "Another controller holds the instrument");
+    if (!service_.ControlOwner().empty() && service_.ControlOwner() != requested) {
+        return HttpError(409, "control_busy", "Another controller holds the instrument");
     }
     std::string id = requested;
     if (id.empty()) {
-        if (sessions.size() >= 32U) {
-            return httpError(429, "session_limit", "Web session budget is full");
+        if (sessions_.size() >= SESSION_LIMIT) {
+            return HttpError(429, "session_limit", "Web session budget is full");
         }
         do {
-            id = token();
-        } while (sessions.count(id) != 0U);
-        sessions[id] = Session();
-    } else if (sessions.count(id) == 0U) {
-        return httpError(403, "invalid_session", "Session is unknown or expired");
+            id = Token();
+        } while (sessions_.count(id) != 0U);
+        sessions_[id] = HttpSession();
+    } else if (sessions_.count(id) == 0U) {
+        return HttpError(403, "invalid_session", "Session is unknown or expired");
     }
-    if (service.controlOwner().empty() && !service.tryAcquireControl(id)) {
-        return httpError(409, "control_busy", "Instrument control is unavailable");
-    }
-    Session &session = sessions[id];
-    session.releasing = false;
-    session.expires = now() + std::chrono::seconds(30);
-    session.touched = now();
+    const auto time = now_();
     HttpResponse response;
-    response.json = Json::makeObject();
+    response.json = Json::MakeObject();
     response.json["sessionId"] = Json(id);
     response.json["hasControl"] = Json(true);
-    response.json["leaseSeconds"] = Json(30U);
+    response.json["leaseSeconds"] = Json(LEASE_SECONDS);
+    if (service_.ControlOwner().empty() && !service_.TryAcquireControl(id)) {
+        return HttpError(409, "control_busy", "Instrument control is unavailable");
+    }
+    HttpSession &session = sessions_[id];
+    session.releasing = false;
+    session.expires = time + std::chrono::seconds(LEASE_SECONDS);
+    session.touched = time;
     return response;
 }
 
-HttpResponse HttpApi::Impl::release(const std::string &id)
+HttpResponse HttpApi::Release(const std::string &id)
 {
-    const auto found = sessions.find(id);
-    if (found == sessions.end()) {
-        return httpError(403, "invalid_session", "Missing or expired session");
+    const auto found = sessions_.find(id);
+    if (found == sessions_.end()) {
+        return HttpError(403, "invalid_session", "Missing or expired session");
     }
-    if (service.controlOwner() != id) {
-        return httpError(403, "not_controller", "Session does not hold instrument control");
+    if (service_.ControlOwner() != id) {
+        return HttpError(403, "not_controller", "Session does not hold instrument control");
     }
     found->second.releasing = true;
-    found->second.touched = now();
-    service.beginReleaseControl(id);
-    if (!service.hasPending()) {
-        service.releaseControl(id);
+    found->second.touched = now_();
+    service_.BeginReleaseControl(id);
+    if (!service_.HasPending()) {
+        service_.ReleaseControl(id);
     }
     HttpResponse response;
-    response.json = Json::makeObject();
+    response.json = Json::MakeObject();
     response.json["releasing"] = Json(true);
     return response;
 }
 
-HttpResponse HttpApi::Impl::write(const HttpRequest &request, const Json &body)
+HttpResponse HttpApi::Write(const HttpRequest &request, const Json &body)
 {
-    const std::string id = headerToken(request);
-    const auto found = sessions.find(id);
-    if (found == sessions.end()) {
-        return httpError(403, "invalid_session", "X-Vna-Session is missing or expired");
+    const std::string id = HeaderToken(request);
+    const auto found = sessions_.find(id);
+    if (found == sessions_.end()) {
+        return HttpError(403, "invalid_session", "X-Vna-Session is missing or expired");
     }
-    Session &session = found->second;
-    if (service.controlOwner() != id || session.releasing || service.controlReleasing() || now() >= session.expires) {
-        return httpError(409, "not_controller", "Session does not have active write control");
+    HttpSession &session = found->second;
+    if (service_.ControlOwner() != id || session.releasing || service_.ControlReleasing() ||
+        now_() >= session.expires) {
+        return HttpError(409, "not_controller", "Session does not have active write control");
     }
-    const std::string requestId = text(body, "requestId");
-    if (!safeName(requestId)) {
+    const std::string requestId = Text(body, "requestId");
+    if (!SafeName(requestId)) {
         throw std::runtime_error("requestId must contain 1..128 safe characters");
     }
-    const std::string fingerprint = request.method + '\n' + request.path + '\n' + stringifyJson(body);
-    for (const Retry &retry : session.retries) {
-        if (retry.requestId != requestId) {
-            continue;
-        }
-        if (retry.fingerprint != fingerprint) {
-            return httpError(409, "request_id_conflict", "requestId was used with different content");
-        }
-        if (records.count(retry.operationId) == 0U) {
-            return httpError(410, "operation_expired", "Original operation record has expired");
-        }
-        return accepted(retry.operationId, id);
+    const std::string fingerprint = request.method + '\n' + request.path + '\n' + StringifyJson(body);
+    HttpResponse previous;
+    if (RetryResponse(session, {requestId, fingerprint, id}, previous)) {
+        return previous;
     }
-    if (records.size() >= 128U) {
-        return httpError(429, "operation_limit", "Operation record budget is full");
+    if (records_.size() >= OPERATION_LIMIT) {
+        return HttpError(429, "operation_limit", "Operation record budget is full");
     }
-    vna_service::Operation operationValue;
-    if (request.path == "/api/v1/config" && request.method == "POST") {
-        allowed(body, {"requestId", "expectedRevision", "startHz", "stopHz", "points", "ifBandwidthHz"});
-        const auto expected = revision(body);
-        if (expected != service.settings().revision) {
-            return httpError(409, "revision_conflict", "Configuration revision changed");
-        }
-        vna_service::ConfigPatch patch;
-        if (body.find("startHz")) {
-            patch.hasStartHz = true;
-            patch.startHz = numeric(body, "startHz");
-        }
-        if (body.find("stopHz")) {
-            patch.hasStopHz = true;
-            patch.stopHz = numeric(body, "stopHz");
-        }
-        if (body.find("points")) {
-            patch.hasPoints = true;
-            patch.points = positiveInteger(body, "points", 10001U);
-        }
-        if (body.find("ifBandwidthHz")) {
-            patch.hasIfBandwidthHz = true;
-            patch.ifBandwidthHz = numeric(body, "ifBandwidthHz");
-        }
-        operationValue = service.applyConfiguration(patch, expected, id);
-    } else if (request.path == "/api/v1/operations" && request.method == "POST") {
-        allowed(body, {"requestId", "action"});
-        const std::string action = text(body, "action");
-        if (action == "single") {
-            operationValue = service.runSingle(id);
-        } else if (action == "continuous") {
-            operationValue = service.runContinuous(id);
-        } else if (action == "hold") {
-            operationValue = service.setSweepMode(vna_service::SweepMode::Hold, id);
-        } else if (action == "trigger") {
-            operationValue = service.trigger(id);
-        } else {
-            throw std::runtime_error("Unknown operation action");
-        }
-    } else if (request.path == "/api/v1/measurements" && request.method == "POST") {
-        allowed(body, {"requestId", "expectedRevision", "name", "receiverKind", "receiverPort", "sourcePort"});
-        const auto expected = revision(body);
-        if (expected != service.settings().revision) {
-            return httpError(409, "revision_conflict", "Configuration revision changed");
-        }
-        vna_service::Measurement measurement;
-        measurement.name = text(body, "name");
-        const auto kind = text(body, "receiverKind");
-        if (!safeName(measurement.name) || kind.size() != 1U ||
-            (kind != "a" && kind != "b" && kind != "A" && kind != "B")) {
-            throw std::runtime_error("Invalid measurement name or receiver kind");
-        }
-        measurement.receiverKind = kind.front();
-        measurement.receiverPort = positiveInteger(body, "receiverPort", 4U);
-        measurement.sourcePort = positiveInteger(body, "sourcePort", 4U);
-        operationValue = service.defineMeasurement(measurement, expected, id);
-    } else if (request.path.find("/api/v1/measurements/") == 0U && request.method == "DELETE") {
-        allowed(body, {"requestId", "expectedRevision"});
-        const auto expected = revision(body);
-        if (expected != service.settings().revision) {
-            return httpError(409, "revision_conflict", "Configuration revision changed");
-        }
-        const std::string name = request.path.substr(std::string("/api/v1/measurements/").size());
-        if (!safeName(name)) {
-            throw std::runtime_error("Invalid measurement name");
-        }
-        operationValue = service.deleteMeasurement(name, expected, id);
-    } else {
-        return httpError(404, "route_not_found", "Unknown API route");
-    }
-    if (ready(operationValue)) {
-        const auto failed = operationValue.get();
-        if (!failed.ok) {
-            return httpError(failed.errorCode == -363 ? 429U : 409U, "operation_rejected", failed.message);
-        }
-    }
-    const std::string operationId = "op-" + std::to_string(++sequence);
-    Record record;
-    record.operation = operationValue;
-    record.owner = id;
-    record.created = now();
-    records.emplace(operationId, std::move(record));
-    session.retries.push_back({requestId, fingerprint, operationId});
-    if (session.retries.size() > 32U) {
-        session.retries.pop_front();
-    }
-    session.touched = now();
-    return accepted(operationId, id);
+    return RecordWrite(request, body, session, {requestId, fingerprint, id});
 }
 
-HttpResponse HttpApi::Impl::handle(const HttpRequest &request)
+HttpResponse HttpApi::Route(const HttpRequest &request)
 {
-    poll();  // Enforce lease expiry even between event-loop ticks.
+    Poll();  // Enforce lease expiry even between event-loop ticks.
     if (request.method == "GET") {
         if (request.path == "/api/v1/status") {
-            return status(request);
+            return Status(request);
         }
         if (request.path == "/api/v1/frame") {
-            return frame();
+            return Frame();
         }
         const std::string prefix = "/api/v1/operations/";
         if (request.path.find(prefix) == 0U) {
-            return operation(request.path.substr(prefix.size()), headerToken(request));
+            return OperationStatus(request.path.substr(prefix.size()), HeaderToken(request));
         }
-        return httpError(404, "route_not_found", "Unknown API route");
+        return HttpError(404, "route_not_found", "Unknown API route");
     }
-    if (shuttingDown) {
-        return httpError(503, "shutting_down", "Server is shutting down");
+    if (shuttingDown_) {
+        return HttpError(503, "shutting_down", "Server is shutting down");
     }
     if (request.method != "POST" && request.method != "DELETE") {
-        return httpError(405, "method_not_allowed", "Unsupported API method");
+        return HttpError(405, "method_not_allowed", "Unsupported API method");
     }
     if (request.method != "POST" &&
         (request.path == "/api/v1/config" || request.path == "/api/v1/operations" ||
             request.path == "/api/v1/measurements" || request.path == "/api/v1/control/claim" ||
             request.path == "/api/v1/control/release")) {
-        return httpError(405, "method_not_allowed", "This API route requires POST");
+        return HttpError(405, "method_not_allowed", "This API route requires POST");
     }
     if (request.method != "DELETE" && request.path.find("/api/v1/measurements/") == 0U) {
-        return httpError(405, "method_not_allowed", "Measurement deletion requires DELETE");
+        return HttpError(405, "method_not_allowed", "Measurement deletion requires DELETE");
     }
-    Json body = request.body.empty() ? Json::makeObject() : parseJson(request.body);
-    if (body.type != Json::Type::Object) {
+    Json body = request.body.empty() ? Json::MakeObject() : ParseJson(request.body);
+    if (body.type != Json::Type::OBJECT) {
         throw std::runtime_error("JSON body must be an object");
     }
     if (request.path == "/api/v1/control/claim" && request.method == "POST") {
-        return claim(body);
+        return Claim(body);
     }
     if (request.path == "/api/v1/control/release" && request.method == "POST") {
-        allowed(body, {});
-        return release(headerToken(request));
+        Allowed(body, {});
+        return Release(HeaderToken(request));
     }
-    return write(request, body);
+    return Write(request, body);
 }
 
-HttpApi::HttpApi(vna_service::InstrumentService &service, Now now) : impl_(new Impl(service, std::move(now)))
-{
-}
-
-HttpApi::~HttpApi() = default;
-
-HttpResponse HttpApi::handle(const HttpRequest &request)
+HttpResponse HttpApi::Handle(const HttpRequest &request)
 {
     try {
-        return impl_->handle(request);
+        return Route(request);
     } catch (const std::exception &error) {
-        return httpError(400, "invalid_request", error.what());
+        return HttpError(400, "invalid_request", error.what());
     }
 }
 
-void HttpApi::poll()
+void HttpApi::BeginShutdown()
 {
-    impl_->poll();
-}
-
-void HttpApi::beginShutdown()
-{
-    impl_->shuttingDown = true;
-    for (auto &session : impl_->sessions) {
+    shuttingDown_ = true;
+    for (auto &session : sessions_) {
         session.second.releasing = true;
-        impl_->service.beginReleaseControl(session.first);
+        service_.BeginReleaseControl(session.first);
     }
-    impl_->poll();
+    Poll();
 }
 
-bool HttpApi::drained() const
+bool HttpApi::Drained() const
 {
-    for (const auto &item : impl_->records) {
+    for (const auto &item : records_) {
         if (!item.second.done) {
             return false;
         }
     }
-    for (const auto &item : impl_->sessions) {
-        if (impl_->service.controlOwner() == item.first) {
+    for (const auto &item : sessions_) {
+        if (service_.ControlOwner() == item.first) {
             return false;
         }
     }
     return true;
 }
+
+Json HttpApi::ConfigurationJson(const vna_service::InstrumentSettings &settings)
+{
+    Json config = Json::MakeObject();
+    config["startHz"] = Json(settings.startHz);
+    config["stopHz"] = Json(settings.stopHz);
+    config["points"] = Json(settings.points);
+    config["ifBandwidthHz"] = Json(settings.ifBandwidthHz);
+    config["triggerSource"] = Json(settings.triggerSource == vna_service::TriggerSource::IMMEDIATE ? "IMM" : "MAN");
+    config["sweepMode"] = Json(settings.sweepMode == vna_service::SweepMode::HOLD     ? "HOLD"
+                               : settings.sweepMode == vna_service::SweepMode::SINGLE ? "SING"
+                                                                                      : "CONT");
+    return config;
+}
+
+Json HttpApi::ControlJson(const vna_service::InstrumentSnapshot &snapshot, const HttpRequest &request) const
+{
+    Json control = Json::MakeObject();
+    const std::string owner = snapshot.controlOwner;
+    const std::string requester = HeaderToken(request);
+    const bool mine = !owner.empty() && owner != "SCPI" && owner == requester && !snapshot.releasing;
+    control["owner"] = Json(owner.empty() ? "none" : owner == "SCPI" ? "scpi" : "web");
+    control["hasControl"] = Json(mine);
+    control["releasing"] = Json(snapshot.releasing);
+    double remaining = 0;
+    const auto session = sessions_.find(owner);
+    if (session != sessions_.end()) {
+        remaining =
+            (std::max)(0.0, std::chrono::duration<double, std::milli>(session->second.expires - now_()).count());
+    }
+    control["leaseRemainingMs"] = Json(remaining);
+    const std::string reason = mine                 ? std::string()
+                               : snapshot.releasing ? "Control is releasing"
+                               : owner == "SCPI"    ? "SCPI controller active"
+                               : owner.empty()      ? "Claim control to write"
+                                                    : "Another Web session controls instrument";
+    control["readOnlyReason"] = Json(reason);
+    return control;
+}
+
+Json HttpApi::TraceJson(const vna_core::MeasurementFrame &frame, const vna_service::Measurement &measurement,
+    const std::vector<std::size_t> &indexes)
+{
+    const std::size_t count = frame.plan.frequencyHz.size();
+    Json trace = MeasurementJson(measurement);
+    Json real = Json::MakeArray();
+    Json imaginary = Json::MakeArray();
+    Json validity = Json::MakeArray();
+    const auto port =
+        std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const vna_core::PortFrame &item) {
+            return item.sourcePort == measurement.sourcePort;
+        });
+    const bool available = port != frame.ports.end() && port->iq.size() == count * vna_core::IQ_VALUES_PER_POINT &&
+                           (frame.plan.receiverMask & (1U << (measurement.receiverPort - 1U))) != 0U;
+    const unsigned component = (measurement.receiverPort - 1U) * vna_core::IQ_VALUES_PER_RECEIVER +
+                               (measurement.receiverKind == 'b' ? vna_core::COMPLEX_COMPONENT_COUNT : 0U);
+    for (auto index : indexes) {
+        const double re = available ? port->iq[index * vna_core::IQ_VALUES_PER_POINT + component] : 0;
+        const double im = available ? port->iq[index * vna_core::IQ_VALUES_PER_POINT + component + 1U] : 0;
+        const bool valid = available && std::isfinite(re) && std::isfinite(im);
+        real.array.push_back(valid ? Json(re) : Json());
+        imaginary.array.push_back(valid ? Json(im) : Json());
+        validity.array.emplace_back(valid);
+    }
+    trace["available"] = Json(available);
+    trace["real"] = std::move(real);
+    trace["imag"] = std::move(imaginary);
+    trace["valid"] = std::move(validity);
+    return trace;
+}
+
+HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const Json &body, const std::string &id)
+{
+    HttpWriteResult result;
+    auto &operationValue = result.operation;
+    if (request.path == "/api/v1/config" && request.method == "POST") {
+        Allowed(body, {"requestId", "expectedRevision", "startHz", "stopHz", "points", "ifBandwidthHz"});
+        const auto expected = Revision(body);
+        if (expected != service_.Settings().revision) {
+            result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
+            return result;
+        }
+        const auto patch = ConfigurationPatch(body);
+        operationValue = service_.ApplyConfiguration(patch, expected, id);
+    } else if (request.path == "/api/v1/operations" && request.method == "POST") {
+        Allowed(body, {"requestId", "action"});
+        operationValue = StartAction(body, id);
+    } else if (request.path == "/api/v1/measurements" && request.method == "POST") {
+        Allowed(body, {"requestId", "expectedRevision", "name", "receiverKind", "receiverPort", "sourcePort"});
+        const auto expected = Revision(body);
+        if (expected != service_.Settings().revision) {
+            result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
+            return result;
+        }
+        const auto measurement = MeasurementDefinition(body);
+        operationValue = service_.DefineMeasurement(measurement, expected, id);
+    } else if (request.path.find("/api/v1/measurements/") == 0U && request.method == "DELETE") {
+        Allowed(body, {"requestId", "expectedRevision"});
+        const auto expected = Revision(body);
+        if (expected != service_.Settings().revision) {
+            result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
+            return result;
+        }
+        const std::string name = request.path.substr(std::string("/api/v1/measurements/").size());
+        if (!SafeName(name)) {
+            throw std::runtime_error("Invalid measurement name");
+        }
+        operationValue = service_.DeleteMeasurement(name, expected, id);
+    } else {
+        result.response = HttpError(404, "route_not_found", "Unknown API route");
+        return result;
+    }
+    result.admitted = true;
+    return result;
+}
+
+vna_service::ConfigPatch HttpApi::ConfigurationPatch(const Json &body)
+{
+    vna_service::ConfigPatch patch;
+    if (body.Find("startHz")) {
+        patch.hasStartHz = true;
+        patch.startHz = Numeric(body, "startHz");
+    }
+    if (body.Find("stopHz")) {
+        patch.hasStopHz = true;
+        patch.stopHz = Numeric(body, "stopHz");
+    }
+    if (body.Find("points")) {
+        patch.hasPoints = true;
+        patch.points = PositiveInteger(body, "points", SWEEP_POINT_LIMIT);
+    }
+    if (body.Find("ifBandwidthHz")) {
+        patch.hasIfBandwidthHz = true;
+        patch.ifBandwidthHz = Numeric(body, "ifBandwidthHz");
+    }
+    return patch;
+}
+
+vna_service::Measurement HttpApi::MeasurementDefinition(const Json &body)
+{
+    vna_service::Measurement measurement;
+    measurement.name = Text(body, "name");
+    const auto kind = Text(body, "receiverKind");
+    if (!SafeName(measurement.name) || kind.size() != 1U ||
+        (kind != "a" && kind != "b" && kind != "A" && kind != "B")) {
+        throw std::runtime_error("Invalid measurement name or receiver kind");
+    }
+    measurement.receiverKind = kind.front();
+    measurement.receiverPort = PositiveInteger(body, "receiverPort", vna_core::PHYSICAL_PORT_COUNT);
+    measurement.sourcePort = PositiveInteger(body, "sourcePort", vna_core::PHYSICAL_PORT_COUNT);
+    return measurement;
+}
+
+vna_service::Operation HttpApi::StartAction(const Json &body, const std::string &id)
+{
+    const std::string action = Text(body, "action");
+    if (action == "single") {
+        return service_.RunSingle(id);
+    } else if (action == "continuous") {
+        return service_.RunContinuous(id);
+    } else if (action == "hold") {
+        return service_.SetSweepMode(vna_service::SweepMode::HOLD, id);
+    } else if (action == "trigger") {
+        return service_.Trigger(id);
+    } else {
+        throw std::runtime_error("Unknown operation action");
+    }
+}
+
+bool HttpApi::RetryResponse(const HttpSession &session, const HttpWriteIdentity &request, HttpResponse &response) const
+{
+    for (const HttpRetry &retry : session.retries) {
+        if (retry.requestId != request.requestId) {
+            continue;
+        }
+        if (retry.fingerprint != request.fingerprint) {
+            response = HttpError(409, "request_id_conflict", "requestId was used with different content");
+            return true;
+        }
+        if (records_.count(retry.operationId) == 0U) {
+            response = HttpError(410, "operation_expired", "Original operation record has expired");
+            return true;
+        }
+        response = Accepted(retry.operationId, request.owner);
+        return true;
+    }
+    return false;
+}
+
+HttpResponse HttpApi::RecordWrite(
+    const HttpRequest &request, const Json &body, HttpSession &session, const HttpWriteIdentity &identity)
+{
+    const auto time = now_();
+    const std::string operationId = "op-" + std::to_string(++sequence_);
+    HttpOperationRecord record;
+    record.owner = identity.owner;
+    record.created = time;
+    const auto reserved = records_.emplace(operationId, std::move(record)).first;
+    bool admitted = false;
+    try {
+        session.retries.push_back({identity.requestId, identity.fingerprint, operationId});
+        auto submitted = StartWrite(request, body, identity.owner);
+        if (!submitted.admitted) {
+            RollbackWrite(session, operationId);
+            return submitted.response;
+        }
+        reserved->second.operation = submitted.operation;
+        admitted = true;
+        if (Ready(submitted.operation)) {
+            const auto result = submitted.operation.get();
+            if (!result.ok) {
+                RollbackWrite(session, operationId);
+                return HttpError(result.errorCode == vna_service::detail::INPUT_BUFFER_OVERRUN ? 429U : 409U,
+                    "operation_rejected", result.message);
+            }
+        }
+    } catch (...) {
+        if (!admitted) {
+            RollbackWrite(session, operationId);
+        }
+        throw;
+    }
+    if (session.retries.size() > RETRY_LIMIT) {
+        session.retries.pop_front();
+    }
+    session.touched = time;
+    return Accepted(operationId, identity.owner);
+}
+
+void HttpApi::RollbackWrite(HttpSession &session, const std::string &operationId) noexcept
+{
+    records_.erase(operationId);
+    if (!session.retries.empty() && session.retries.back().operationId == operationId) {
+        session.retries.pop_back();
+    }
+}
+
 }  // namespace vna_web
