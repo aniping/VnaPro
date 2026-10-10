@@ -20,4 +20,4 @@ cmake --build build --target vna_core_concurrency_tests vna_core_native_tests
 cmake -E chdir build ctest -R "core_" --output-on-failure
 ```
 
-并发测试通过门控设备检查 Stop 的 FIFO 屏障、后置触发拒绝、完整多源帧发布、部分配置失败、准备失败、恢复、队列满时 Close 准入及全部 ticket 终结。集成测试通过实际动态加载模拟 DLL 验证四源完整帧、频率高 32 位、身份缓存、帧不可变和加载失败。
+并发测试包含 11 组场景：门控 Stop FIFO 屏障、后置触发拒绝、配置失败与恢复、队列满时 Close 准入，且 64 个已接受触发必须全部成功；新增采集中成功配置切换、旧帧完整 plan/频轴/IQ 深比较、第二源短 IQ，以及三提交者/两读取者的 144 票据压力验证。集成测试动态加载模拟 DLL，四源、两频点及全部 IQ 分量逐值匹配固定 golden，并覆盖频率高 32 位、身份缓存及加载失败。全目标 ThreadSanitizer 与端到端数值验收见[验收记录](../docs/模拟设备采集验收.md)。
