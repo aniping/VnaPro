@@ -11,238 +11,16 @@
 #include <utility>
 #include <vector>
 
-#include "device/DeviceSession.h"
+#include "support/ConcurrencyAssertions.h"
+#include "support/Fixture.h"
+#include "support/ReleaseGateOnExit.h"
+#include "support/WorkerStartOnExit.h"
 #include "vna_core/AcquisitionCore.h"
-
-namespace vna_core {
-namespace detail {
-
-class CoreTestAccess {
-public:
-    static std::unique_ptr<AcquisitionCore> create(std::unique_ptr<DeviceSession> device)
-    {
-        return std::unique_ptr<AcquisitionCore>(new AcquisitionCore(std::move(device)));
-    }
-};
-
-}  // namespace detail
-}  // namespace vna_core
 
 namespace {
 using namespace vna_core;
+using namespace vna_core_test;
 using namespace std::chrono;
-
-void require(bool value, const char* message)
-{
-    if (!value) {
-        throw std::runtime_error(message);
-    }
-}
-
-CommandResult await(const Ticket& ticket)
-{
-    require(ticket.wait_for(seconds(3)) == std::future_status::ready, "ticket did not terminate");
-    return ticket.get();
-}
-
-SweepPlan makePlan(std::uint32_t variant = 0U)
-{
-    SweepPlan plan;
-    plan.frequencyRaw = {UINT64_C(1000000) + variant, UINT64_C(0x100000001) + variant};
-    if (variant % 2U != 0U) {
-        plan.frequencyRaw.push_back(UINT64_C(0x200000003) + variant);
-    }
-    for (const auto frequency : plan.frequencyRaw) {
-        plan.frequencyHz.push_back(static_cast<double>(frequency));
-    }
-    plan.ifBandwidthRaw = 1000U + variant;
-    plan.receiverMask = variant % 2U == 0U ? 0xFU : 0x5U;
-    plan.sourcePorts = variant % 2U == 0U ? std::vector<std::uint32_t>{1U, 4U} :
-                                           std::vector<std::uint32_t>{4U, 2U, 1U};
-    plan.tableData.assign(9U * plan.frequencyRaw.size(), 0.5 + static_cast<double>(variant) / 1024.0);
-    return plan;
-}
-
-bool samePlan(const SweepPlan& left, const SweepPlan& right)
-{
-    return left.frequencyRaw == right.frequencyRaw && left.frequencyHz == right.frequencyHz &&
-           left.ifBandwidthRaw == right.ifBandwidthRaw && left.receiverMask == right.receiverMask &&
-           left.sourcePorts == right.sourcePorts && left.tableData == right.tableData;
-}
-
-double sampleValue(const SweepPlan& plan, std::uint64_t frame, std::uint32_t source, std::size_t point,
-    std::size_t receiver, std::size_t component)
-{
-    // Exact binary fields distinguish configuration, frame, source, point and all 16 IQ slots.
-    return static_cast<double>(frame) * 68719476736.0 + static_cast<double>(plan.ifBandwidthRaw) * 1048576.0 +
-           static_cast<double>(source) * 65536.0 + static_cast<double>(point) * 256.0 +
-           static_cast<double>(receiver) * 16.0 + static_cast<double>(component) +
-           static_cast<double>(plan.frequencyRaw[point] & UINT64_C(0x3FF)) / 1024.0;
-}
-
-void requireFrameContent(const MeasurementFrame& frame)
-{
-    require(frame.ports.size() == frame.plan.sourcePorts.size(), "published frame is missing a source");
-    for (std::size_t source = 0U; source < frame.ports.size(); ++source) {
-        const auto& port = frame.ports[source];
-        require(port.sourcePort == frame.plan.sourcePorts[source], "published sources were mixed or reordered");
-        require(port.iq.size() == 16U * frame.plan.frequencyRaw.size(), "published IQ shape is incomplete");
-        for (std::size_t point = 0U; point < frame.plan.frequencyRaw.size(); ++point) {
-            for (std::size_t receiver = 0U; receiver < 4U; ++receiver) {
-                for (std::size_t component = 0U; component < 4U; ++component) {
-                    require(port.iq[16U * point + 4U * receiver + component] ==
-                                sampleValue(frame.plan, frame.frameSeq, port.sourcePort, point, receiver, component),
-                        "published IQ mixes configurations, frames, points or receivers");
-                }
-            }
-        }
-    }
-}
-
-void requireUnchanged(const MeasurementFrame& frame, const MeasurementFrame& snapshot)
-{
-    require(frame.channelId == snapshot.channelId && frame.runId == snapshot.runId &&
-                frame.configRevision == snapshot.configRevision && frame.frameSeq == snapshot.frameSeq &&
-                samePlan(frame.plan, snapshot.plan) && frame.ports.size() == snapshot.ports.size(),
-        "retained frame metadata or full plan was mutated");
-    for (std::size_t source = 0U; source < frame.ports.size(); ++source) {
-        require(frame.ports[source].sourcePort == snapshot.ports[source].sourcePort &&
-                    frame.ports[source].iq == snapshot.ports[source].iq,
-            "retained frame source or IQ buffer was mutated");
-    }
-}
-
-class ControlledDevice : public detail::DeviceSession {
-public:
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool blockNext = false;
-    bool entered = false;
-    bool release = false;
-    bool failApply = false;
-    bool failPrepare = false;
-    bool failShutdown = false;
-    std::size_t failAcquireAt = 0U;
-    std::size_t shortAcquireAt = 0U;
-    std::size_t acquisitions = 0U;
-    std::uint64_t acquisitionFrame = 0U;
-    std::thread::id deviceThread;
-    bool wrongThread = false;
-    bool shutdownCalled = false;
-    SweepPlan applied;
-
-    std::string initialize() override
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        recordThread();
-        return "TestDevice";
-    }
-    void applyPlan(const SweepPlan& plan) override
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        recordThread();
-        if (failPrepare) {
-            failPrepare = false;
-            throw detail::PlanPreparationError();
-        }
-        applied = plan;  // Simulate a partial mutation before reporting failure.
-        if (failApply) {
-            failApply = false;
-            throw std::runtime_error("controlled partial configuration failure");
-        }
-    }
-    void enableRf() override
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        recordThread();
-        acquisitionFrame = 0U;
-    }
-    std::vector<double> acquirePort(const SweepPlan& plan, std::uint32_t source) override
-    {
-        std::unique_lock<std::mutex> lock(mutex);
-        recordThread();
-        require(samePlan(plan, applied), "device received a plan different from its applied configuration");
-        if (source == plan.sourcePorts.front()) {
-            ++acquisitionFrame;
-        }
-        ++acquisitions;
-        cv.notify_all();
-        if (blockNext) {
-            blockNext = false;
-            entered = true;
-            cv.notify_all();
-            cv.wait(lock, [this] { return release; });
-        }
-        if (acquisitions == failAcquireAt) {
-            throw std::runtime_error("controlled second-port acquisition failure");
-        }
-        std::vector<double> iq;
-        iq.reserve(16U * plan.frequencyRaw.size());
-        for (std::size_t point = 0U; point < plan.frequencyRaw.size(); ++point) {
-            for (std::size_t receiver = 0U; receiver < 4U; ++receiver) {
-                for (std::size_t component = 0U; component < 4U; ++component) {
-                    iq.push_back(sampleValue(plan, acquisitionFrame, source, point, receiver, component));
-                }
-            }
-        }
-        if (acquisitions == shortAcquireAt) {
-            iq.pop_back();
-        }
-        return iq;
-    }
-    void shutdown() override
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        recordThread();
-        shutdownCalled = true;
-        if (failShutdown) {
-            throw std::runtime_error("controlled RF-off failure");
-        }
-    }
-    void arm()
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        blockNext = true;
-        entered = release = false;
-    }
-    void waitEntered()
-    {
-        std::unique_lock<std::mutex> lock(mutex);
-        require(cv.wait_for(lock, seconds(3), [this] { return entered; }), "gate was never entered");
-    }
-    void releaseGate()
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        release = true;
-        cv.notify_all();
-    }
-    void recordThread()
-    {
-        if (deviceThread == std::thread::id()) {
-            deviceThread = std::this_thread::get_id();
-        }
-        wrongThread = wrongThread || deviceThread != std::this_thread::get_id();
-    }
-};
-
-struct Fixture {
-    ControlledDevice* device;
-    std::unique_ptr<AcquisitionCore> core;
-    Fixture()
-    {
-        auto owned = std::unique_ptr<ControlledDevice>(new ControlledDevice);
-        device = owned.get();
-        core = detail::CoreTestAccess::create(std::move(owned));
-        require(await(core->initialize()).ok, "initialize failed");
-        require(core->readView().deviceIdn == "TestDevice", "identity was not published");
-        require(await(core->configure(makePlan())).ok, "configure failed");
-    }
-    ~Fixture()
-    {
-        device->releaseGate();
-        core->close();
-    }
-};
 
 void testStopFifo()
 {
@@ -360,11 +138,6 @@ void testPreparationFailurePreservesConfiguration()
     require(!await(f.core->stop(0U)).ok, "zero run identifier was accepted");
 }
 
-struct ReleaseGateOnExit {
-    ControlledDevice* device;
-    ~ReleaseGateOnExit() { device->releaseGate(); }
-};
-
 void testCloseReservedAndTicketsTerminate()
 {
     Fixture f;
@@ -460,8 +233,7 @@ void testConfigurationSwitchAtFrameBoundary()
     requireFrameContent(*oldFrame);
     require(!await(f.core->triggerOnce(started.runId, started.configRevision)).ok,
         "old-revision trigger was accepted after successful replacement");
-    require(await(f.core->triggerOnce(started.runId, changed.configRevision)).ok,
-        "new configuration frame failed");
+    require(await(f.core->triggerOnce(started.runId, changed.configRevision)).ok, "new configuration frame failed");
     const auto newFrame = f.core->readView().frame;
     require(newFrame->runId == started.runId && newFrame->frameSeq == 3U &&
                 newFrame->configRevision == changed.configRevision && samePlan(newFrame->plan, replacement),
@@ -526,18 +298,7 @@ void testConcurrentSubmittersAndReaders()
     std::vector<std::pair<std::uint64_t, SweepPlan>> committedPlans{{started.configRevision, makePlan()}};
     std::vector<std::future<void>> submitters;
     std::vector<std::future<void>> readers;
-    struct WorkerStartOnExit {
-        std::promise<void>& signal;
-        std::atomic<bool>& finished;
-        bool pending = true;
-        ~WorkerStartOnExit()
-        {
-            if (pending) {
-                finished.store(true);
-                signal.set_value();
-            }
-        }
-    } releaseWorkersOnExit{startWorkers, finished};
+    WorkerStartOnExit releaseWorkersOnExit{startWorkers, finished};
     for (std::size_t submitter = 0U; submitter < 3U; ++submitter) {
         submitters.push_back(std::async(std::launch::async, [&, submitter] {
             startSignal.wait();
@@ -640,8 +401,8 @@ void testConcurrentSubmittersAndReaders()
     requireUnchanged(*retained, baseline);
     {
         std::lock_guard<std::mutex> lock(f.device->mutex);
-        require(!f.device->wrongThread && f.device->shutdownCalled &&
-                    f.device->deviceThread != std::this_thread::get_id(),
+        require(
+            !f.device->wrongThread && f.device->shutdownCalled && f.device->deviceThread != std::this_thread::get_id(),
             "concurrent clients caused device I/O to escape its single worker");
     }
     std::cout << "stress: 144 tickets, " << successfulTriggers.load() << " frames, " << rejectedTriggers.load()
