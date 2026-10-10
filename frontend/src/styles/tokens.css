@@ -1,0 +1,31 @@
+:root {
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 12px;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  color-scheme: dark;
+  --instrument-width: 1280px;
+  --instrument-height: 800px;
+  --toolbar-height: 42px;
+  --statusbar-height: 32px;
+  --softtool-width: 272px;
+  --hardkey-width: 160px;
+  --color-shell: #101619;
+  --color-toolbar: #28343b;
+  --color-panel: #1c282e;
+  --color-panel-dark: #121b20;
+  --color-slot: #4a606d;
+  --color-slot-hover: #5b7482;
+  --color-border: #060d11;
+  --color-grid: #4b5f6c;
+  --color-plot: #000000;
+  --color-text: #edf3f5;
+  --color-muted: #acbcc4;
+  --color-disabled: #80929c;
+  --color-active: #008fda;
+  --color-focus: #ffe553;
+  --color-success: #71d9a0;
+  --color-warning: #ffd261;
+  --color-error: #ff9691;
+  --font-data: "Consolas", "Lucida Console", monospace;
+}

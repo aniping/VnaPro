@@ -1,0 +1,63 @@
+* { box-sizing: border-box; }
+html, body, #app { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; background: #070b0e; color: var(--color-text); }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+button { -webkit-tap-highlight-color: transparent; }
+
+.instrument-viewport { width: 100%; height: 100%; overflow: hidden; background: #070b0e; }
+.instrument-canvas { width: var(--instrument-width); height: var(--instrument-height); transform-origin: top left; background: var(--color-shell); }
+.instrument-shell { display: grid; grid-template-rows: minmax(0, 1fr) var(--statusbar-height); width: 100%; height: 100%; }
+.instrument-workspace { display: grid; grid-template-columns: minmax(0, 1fr) var(--softtool-width) var(--hardkey-width); min-height: 0; overflow: hidden; }
+.instrument-workspace.softtool-hidden { grid-template-columns: minmax(0, 1fr) var(--hardkey-width); }
+.measurement-stage { display: grid; grid-template-rows: var(--toolbar-height) minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--color-plot); }
+
+.instrument-toolbar { display: flex; align-items: center; height: var(--toolbar-height); min-width: 0; padding: 3px 5px; overflow: hidden; background: var(--color-toolbar); border-bottom: 1px solid #080f12; box-shadow: inset 0 1px #3d4b53; }
+.toolbar-group { display: flex; flex: 0 0 auto; align-items: center; height: 34px; gap: 1px; }
+.toolbar-button { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; padding: 0; border: 1px solid transparent; border-radius: 2px; background: transparent; color: #dde7eb; }
+.toolbar-button:not(:disabled):hover { border-color: #667a85; background: #42535e; }
+.toolbar-button:not(:disabled):active, .toolbar-button[aria-pressed="true"] { border-color: #37b7f1; background: #1475a8; }
+.toolbar-button:disabled { color: #687a84; opacity: .8; }
+.toolbar-button.glyph-accent:not(:disabled) { color: #77ccef; }
+.toolbar-separator { flex: 0 0 1px; width: 1px; height: 26px; margin: 0 4px; background: #566771; }
+.toolbar-flex-spacer { flex: 1 1 auto; min-width: 8px; }
+.toolbar-identity { flex: 0 0 auto; margin-right: 12px; color: #e3edf2; font-size: 15px; font-weight: 600; letter-spacing: -.6px; user-select: none; }
+.toolbar-identity > span { color: #71c7ee; font-weight: 400; }
+.toolbar-identity small { margin-left: 8px; color: #a6bbc6; font-size: 9px; font-weight: 400; letter-spacing: 1px; }
+.toolbar-rf { margin-left: 0; }
+
+.hardkey-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; padding: 7px 7px 8px; overflow: hidden; border-left: 2px solid #050b0e; background: #11181d; }
+.hardkey-group { flex: 0 0 auto; }
+.hardkey-group h2 { height: 18px; margin: 0 0 3px; color: #edf4f7; font-size: 12px; font-weight: 500; line-height: 18px; }
+.hardkey-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.hardkey { display: flex; flex-direction: column; justify-content: center; min-width: 0; height: 50px; padding: 5px 6px; border: 1px solid #617b88; border-radius: 1px; color: #fff; background: #4b626f; font-size: 12px; line-height: 1.22; text-align: left; box-shadow: inset 0 1px rgb(255 255 255 / 5%); }
+.hardkey:not(:disabled):hover { border-color: #8ca8b7; background: #5e7785; }
+.hardkey.active:not(:disabled), .hardkey:not(:disabled):active { border-color: #47baff; background: #008fdc; }
+.hardkey:disabled { color: #8295a0; border-color: #3c505c; background: #2b3c46; box-shadow: none; }
+.hardkey.help { align-items: center; background: #eda029; color: #18323d; border-color: #ffbe55; }
+.hardkey.help:hover { background: #ffb641; }
+.hardkey-help-glyph { display: grid; place-items: center; width: 24px; height: 24px; border: 1.7px solid currentColor; border-radius: 50%; font-size: 18px; font-weight: 500; }
+.hardkey.preset:disabled { color: #769ba8; background: #244b58; border-color: #336574; }
+.hardkey-footnote { display: flex; align-items: baseline; justify-content: space-between; margin-top: auto; padding-top: 10px; color: #7f929d; font-size: 11px; letter-spacing: -.2px; }
+.hardkey-footnote small { color: #73858e; font-size: 8px; letter-spacing: .7px; }
+
+.instrument-status-bar { display: flex; align-items: center; min-width: 0; padding: 0 6px 0 3px; gap: 8px; border-top: 1px solid #50616a; background: #33424b; color: #e2ebef; font-size: 11px; overflow: hidden; }
+.instrument-menu { display: flex; flex: 0 0 auto; align-items: center; height: 100%; gap: 0; }
+.instrument-menu button { height: 26px; padding: 0 7px; border: 1px solid transparent; border-radius: 1px; color: #f0f5f7; background: transparent; font-size: 11px; }
+.instrument-menu button:hover { border-color: #6a838f; background: #4b626f; }
+.status-message { flex: 1 1 auto; min-width: 0; color: #bbcbd3; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.status-message.error { color: #ffc5c2; }
+.status-metadata { display: flex; flex: 0 0 auto; gap: 8px; color: #b4c6cf; font-family: var(--font-data); font-size: 10px; }
+.status-channel { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; white-space: nowrap; }
+.status-channel i { width: 6px; height: 6px; border-radius: 50%; background: #cf9b4f; }
+.status-channel i.online { background: #88d472; }
+.status-channel i.fault { background: #ff7d76; }
+.status-control { flex: 0 0 auto; min-width: 58px; height: 23px; padding: 0 6px; border: 1px solid #81949e; border-radius: 1px; color: #e7f2f6; background: #455c6a; font-size: 10px; }
+.status-control.local { color: #9de5c1; border-color: #648e82; background: #28473f; }
+.status-control:not(:disabled):hover { border-color: #a8c4d1; background: #536e7d; }
+.status-control:disabled { border-color: #60737d; color: #b4c4cc; }
+.status-clock { flex: 0 0 auto; width: 50px; color: #d2dfe5; font-variant-numeric: tabular-nums; text-align: right; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
