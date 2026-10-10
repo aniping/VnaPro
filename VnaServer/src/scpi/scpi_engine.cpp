@@ -1,5 +1,3 @@
-#include "scpi/scpi_engine.h"
-
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -10,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "scpi/scpi_engine.h"
 #include "scpi/scpi_parser.h"
 #include "vna_service/instrument_service.h"
 
@@ -120,131 +119,23 @@ public:
     std::size_t encoded = 0;
     std::string encodedResponse;
 
-    bool pending() const
-    {
-        return !messages.empty() || sequential.valid() || waiting || !encoding.empty() || !watches.empty() ||
-               service.hasPending();
-    }
+    bool pending() const;
 
-    void error(const ParsedCommand &command, int code, const std::string &text)
-    {
-        service.recordError(code, text);
-        if (command.query && !messages.empty()) {
-            messages.front().queryFailed = true;
-        }
-    }
+    void error(const ParsedCommand &command, int code, const std::string &text);
 
-    bool arguments(const ParsedCommand &command, std::size_t count)
-    {
-        if (command.arguments.size() == count) {
-            return true;
-        }
-        error(command, command.arguments.size() < count ? -109 : -108, "Parameter count mismatch");
-        return false;
-    }
+    bool arguments(const ParsedCommand &command, std::size_t count);
 
-    void response(const std::string &unit)
-    {
-        if (messages.empty() || !connected) {
-            return;
-        }
-        Message &message = messages.front();
-        if (message.response.size() + unit.size() + 2U > kOutputBudget) {
-            service.recordError(-363, "Response exceeds software output budget");
-            message.queryFailed = true;
-            return;
-        }
-        if (!message.response.empty()) {
-            message.response += ';';
-        }
-        message.response += unit;
-    }
+    void response(const std::string &unit);
 
-    void beginEncoding(vna_service::DataResult data, const ParsedCommand &command)
-    {
-        if (!data.ok) {
-            error(command, -230, data.error);
-            return;
-        }
-        if (!connected) {
-            return;
-        }
-        encoding = std::move(data.values);
-        encoded = 0;
-        encodedResponse.clear();
-        if (encoding.empty()) {
-            error(command, -230, "Empty data array");
-        }
-    }
+    void beginEncoding(vna_service::DataResult data, const ParsedCommand &command);
 
-    void encodeBatch()
-    {
-        if (encoding.empty()) {
-            return;
-        }
-        const std::size_t end = (std::min)(encoded + 256U, encoding.size());
-        for (; encoded < end; ++encoded) {
-            if (encoded != 0U) {
-                encodedResponse += ',';
-            }
-            encodedResponse += number(encoding[encoded]);
-        }
-        if (encodedResponse.size() > kOutputBudget) {
-            service.recordError(-363, "Array exceeds software output budget");
-            messages.front().queryFailed = true;
-            encoding.clear();
-            encodedResponse.clear();
-        } else if (encoded == encoding.size()) {
-            response(encodedResponse);
-            encoding.clear();
-            encodedResponse.clear();
-        }
-    }
+    void encodeBatch();
 
-    void setOperation(vna_service::Operation operation, bool asynchronous = false)
-    {
-        if (!asynchronous) {
-            sequential = std::move(operation);
-        }
-    }
+    void setOperation(vna_service::Operation operation, bool asynchronous = false);
 
-    bool numericArgument(const ParsedCommand &command, double &value, double minimum, double maximum, bool hz)
-    {
-        if (!arguments(command, 1U)) {
-            return false;
-        }
-        const std::string parameter = upper(command.arguments.front());
-        if (parameter == "MIN" || parameter == "MINIMUM") {
-            value = minimum;
-        } else if (parameter == "MAX" || parameter == "MAXIMUM") {
-            value = maximum;
-        } else if (!numeric(command.arguments.front(), value, hz)) {
-            error(command, -104, "Numeric data or unit is invalid");
-            return false;
-        }
-        return true;
-    }
+    bool numericArgument(const ParsedCommand &command, double &value, double minimum, double maximum, bool hz);
 
-    bool queryNumeric(const ParsedCommand &command, double current, double minimum, double maximum)
-    {
-        if (command.arguments.empty()) {
-            response(number(current));
-            return true;
-        }
-        if (command.arguments.size() == 1U) {
-            const auto parameter = upper(command.arguments.front());
-            if (matches(parameter, "MIN", "MINIMUM")) {
-                response(number(minimum));
-                return true;
-            }
-            if (matches(parameter, "MAX", "MAXIMUM")) {
-                response(number(maximum));
-                return true;
-            }
-        }
-        error(command, -224, "Query accepts only MINimum or MAXimum");
-        return false;
-    }
+    bool queryNumeric(const ParsedCommand &command, double current, double minimum, double maximum);
 
     void dispatch(const ParsedCommand &command)
     {
@@ -611,66 +502,195 @@ public:
         error(command, -113, "Undefined header");
     }
 
-    void poll()
-    {
-        service.poll();
-        for (auto watch = watches.begin(); watch != watches.end();) {
-            if (watch->generation != service.statusGeneration()) {
-                watch = watches.erase(watch);
-            } else if (allReady(watch->operations)) {
-                service.markOperationComplete();
-                watch = watches.erase(watch);
-            } else {
-                ++watch;
-            }
+    void poll();
+};
+
+bool ScpiEngine::Impl::pending() const
+{
+    return !messages.empty() || sequential.valid() || waiting || !encoding.empty() || !watches.empty() ||
+           service.hasPending();
+}
+
+void ScpiEngine::Impl::error(const ParsedCommand &command, int code, const std::string &text)
+{
+    service.recordError(code, text);
+    if (command.query && !messages.empty()) {
+        messages.front().queryFailed = true;
+    }
+}
+
+bool ScpiEngine::Impl::arguments(const ParsedCommand &command, std::size_t count)
+{
+    if (command.arguments.size() == count) {
+        return true;
+    }
+    error(command, command.arguments.size() < count ? -109 : -108, "Parameter count mismatch");
+    return false;
+}
+
+void ScpiEngine::Impl::response(const std::string &unit)
+{
+    if (messages.empty() || !connected) {
+        return;
+    }
+    Message &message = messages.front();
+    if (message.response.size() + unit.size() + 2U > kOutputBudget) {
+        service.recordError(-363, "Response exceeds software output budget");
+        message.queryFailed = true;
+        return;
+    }
+    if (!message.response.empty()) {
+        message.response += ';';
+    }
+    message.response += unit;
+}
+
+void ScpiEngine::Impl::beginEncoding(vna_service::DataResult data, const ParsedCommand &command)
+{
+    if (!data.ok) {
+        error(command, -230, data.error);
+        return;
+    }
+    if (!connected) {
+        return;
+    }
+    encoding = std::move(data.values);
+    encoded = 0;
+    encodedResponse.clear();
+    if (encoding.empty()) {
+        error(command, -230, "Empty data array");
+    }
+}
+
+void ScpiEngine::Impl::encodeBatch()
+{
+    if (encoding.empty()) {
+        return;
+    }
+    const std::size_t end = (std::min)(encoded + 256U, encoding.size());
+    for (; encoded < end; ++encoded) {
+        if (encoded != 0U) {
+            encodedResponse += ',';
         }
-        if (sequential.valid()) {
-            if (!operationReady(sequential)) {
-                return;
-            }
-            sequential = vna_service::Operation();
+        encodedResponse += number(encoding[encoded]);
+    }
+    if (encodedResponse.size() > kOutputBudget) {
+        service.recordError(-363, "Array exceeds software output budget");
+        messages.front().queryFailed = true;
+        encoding.clear();
+        encodedResponse.clear();
+    } else if (encoded == encoding.size()) {
+        response(encodedResponse);
+        encoding.clear();
+        encodedResponse.clear();
+    }
+}
+
+void ScpiEngine::Impl::setOperation(vna_service::Operation operation, bool asynchronous)
+{
+    if (!asynchronous) {
+        sequential = std::move(operation);
+    }
+}
+
+bool ScpiEngine::Impl::numericArgument(
+    const ParsedCommand &command, double &value, double minimum, double maximum, bool hz)
+{
+    if (!arguments(command, 1U)) {
+        return false;
+    }
+    const std::string parameter = upper(command.arguments.front());
+    if (parameter == "MIN" || parameter == "MINIMUM") {
+        value = minimum;
+    } else if (parameter == "MAX" || parameter == "MAXIMUM") {
+        value = maximum;
+    } else if (!numeric(command.arguments.front(), value, hz)) {
+        error(command, -104, "Numeric data or unit is invalid");
+        return false;
+    }
+    return true;
+}
+
+bool ScpiEngine::Impl::queryNumeric(const ParsedCommand &command, double current, double minimum, double maximum)
+{
+    if (command.arguments.empty()) {
+        response(number(current));
+        return true;
+    }
+    if (command.arguments.size() == 1U) {
+        const auto parameter = upper(command.arguments.front());
+        if (matches(parameter, "MIN", "MINIMUM")) {
+            response(number(minimum));
+            return true;
         }
-        if (waiting) {
-            if (!allReady(barrier)) {
-                return;
-            }
-            if (waitingQuery) {
-                response("+1");
-            }
-            waiting = false;
-            barrier.clear();
-        }
-        encodeBatch();
-        if (!encoding.empty()) {
-            return;
-        }
-        // Parsing/dispatching is bounded independently of numeric encoding.
-        for (unsigned count = 0; count < 32U && !messages.empty(); ++count) {
-            Message &message = messages.front();
-            if (message.position == message.units.size()) {
-                if (connected && !message.queryFailed && !message.response.empty()) {
-                    if (outputBytes + message.response.size() + 1U > kOutputBudget) {
-                        return;
-                    }
-                    message.response += '\n';
-                    outputBytes += message.response.size();
-                    output.push_back(std::move(message.response));
-                }
-                messages.pop_front();
-                continue;
-            }
-            const ParsedCommand command = parseCommand(message.units[message.position++], message.parent);
-            dispatch(command);
-            if (sequential.valid() || waiting || !encoding.empty()) {
-                break;
-            }
-        }
-        if (!connected && !pending() && control) {
-            service.releaseControl();
-            control = false;
+        if (matches(parameter, "MAX", "MAXIMUM")) {
+            response(number(maximum));
+            return true;
         }
     }
-};
+    error(command, -224, "Query accepts only MINimum or MAXimum");
+    return false;
+}
+
+void ScpiEngine::Impl::poll()
+{
+    service.poll();
+    for (auto watch = watches.begin(); watch != watches.end();) {
+        if (watch->generation != service.statusGeneration()) {
+            watch = watches.erase(watch);
+        } else if (allReady(watch->operations)) {
+            service.markOperationComplete();
+            watch = watches.erase(watch);
+        } else {
+            ++watch;
+        }
+    }
+    if (sequential.valid()) {
+        if (!operationReady(sequential)) {
+            return;
+        }
+        sequential = vna_service::Operation();
+    }
+    if (waiting) {
+        if (!allReady(barrier)) {
+            return;
+        }
+        if (waitingQuery) {
+            response("+1");
+        }
+        waiting = false;
+        barrier.clear();
+    }
+    encodeBatch();
+    if (!encoding.empty()) {
+        return;
+    }
+    // Parsing/dispatching is bounded independently of numeric encoding.
+    for (unsigned count = 0; count < 32U && !messages.empty(); ++count) {
+        Message &message = messages.front();
+        if (message.position == message.units.size()) {
+            if (connected && !message.queryFailed && !message.response.empty()) {
+                if (outputBytes + message.response.size() + 1U > kOutputBudget) {
+                    return;
+                }
+                message.response += '\n';
+                outputBytes += message.response.size();
+                output.push_back(std::move(message.response));
+            }
+            messages.pop_front();
+            continue;
+        }
+        const ParsedCommand command = parseCommand(message.units[message.position++], message.parent);
+        dispatch(command);
+        if (sequential.valid() || waiting || !encoding.empty()) {
+            break;
+        }
+    }
+    if (!connected && !pending() && control) {
+        service.releaseControl();
+        control = false;
+    }
+}
 
 ScpiEngine::ScpiEngine(vna_service::InstrumentService &service) : impl_(new Impl(service))
 {
