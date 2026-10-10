@@ -53,8 +53,11 @@ function(vna_apply_link_settings target_name)
 endfunction()
 
 set(VNA_SIM_CORE_SOURCES
+    src/native_sim/native_frame_slot.cpp
+    src/native_sim/native_pending_sweep.cpp
     src/native_sim/native_simulator_state.cpp
     src/native_sim/normal_frame_decoder.cpp
+    src/native_sim/normal_frame_snapshot.cpp
     src/native_sim/signal_model.cpp
 )
 
@@ -103,12 +106,21 @@ endif()
 if(BUILD_TESTING)
     add_executable(vnb_drv_sim_unit_tests
         $<TARGET_OBJECTS:vnb_drv_sim_core>
+        tests/test_failure.cpp
+        tests/joined_threads.cpp
+        tests/test_runner.cpp
+        tests/test_support.cpp
         tests/native_unit/unit_test_main.cpp
+        tests/native_unit/native_unit_test_fixtures.cpp
         tests/native_unit/native_api_signature_test.cpp
         tests/native_unit/native_state_test.cpp
         tests/native_unit/noise_mode_test.cpp
         tests/native_unit/normal_frame_decoder_test.cpp
         tests/native_unit/signal_model_test.cpp
+    )
+    set_target_properties(vnb_drv_sim_unit_tests PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN YES
     )
     target_include_directories(vnb_drv_sim_unit_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -120,6 +132,11 @@ if(BUILD_TESTING)
     vna_apply_link_settings(vnb_drv_sim_unit_tests)
 
     add_executable(vnb_drv_sim_contract_tests
+        tests/joined_threads.cpp
+        tests/test_failure.cpp
+        tests/test_runner.cpp
+        tests/test_support.cpp
+        tests/native_contract/native_contract_test_support.cpp
         tests/native_contract/native_library_probe.cpp
         tests/native_contract/native_abi_contract_test.cpp
         tests/native_contract/native_normal_sweep_test.cpp
