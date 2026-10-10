@@ -137,370 +137,7 @@ public:
 
     bool queryNumeric(const ParsedCommand &command, double current, double minimum, double maximum);
 
-    void dispatch(const ParsedCommand &command)
-    {
-        const std::string &path = command.path;
-        const auto &settings = service.settings();
-        if (command.errorCode != 0) {
-            error(command, command.errorCode, command.error);
-            return;
-        }
-        if (path == "*IDN" && command.query) {
-            if (arguments(command, 0)) {
-                response(service.identity());
-            }
-            return;
-        }
-        if (path == "*CLS" && !command.query) {
-            if (arguments(command, 0)) {
-                service.clearStatus();
-            }
-            return;
-        }
-        if (path == "*OPC") {
-            if (!arguments(command, 0)) {
-                return;
-            }
-            if (command.query) {
-                barrier = service.pendingOperations();
-                waiting = true;
-                waitingQuery = true;
-            } else {
-                if (watches.size() >= 32U) {
-                    error(command, -363, "OPC pending buffer overrun");
-                    return;
-                }
-                OpcWatch watch;
-                watch.operations = service.pendingOperations();
-                watch.generation = service.statusGeneration();
-                if (allReady(watch.operations)) {
-                    service.markOperationComplete();
-                } else {
-                    watches.push_back(std::move(watch));
-                }
-            }
-            return;
-        }
-        if (path == "*WAI" && !command.query) {
-            if (arguments(command, 0)) {
-                barrier = service.pendingOperations();
-                waiting = true;
-                waitingQuery = false;
-            }
-            return;
-        }
-        if (path == "*ESE" || path == "*SRE") {
-            if (command.query) {
-                if (arguments(command, 0)) {
-                    response(std::to_string(path == "*ESE" ? service.eventEnable() : service.serviceRequestEnable()));
-                }
-            } else {
-                unsigned mask = 0;
-                if (!arguments(command, 1)) {
-                    return;
-                }
-                if (!integer(command.arguments.front(), mask, 255U)) {
-                    error(command, -222, "Register mask outside 0..255");
-                    return;
-                }
-                if (path == "*ESE") {
-                    service.setEventEnable(mask);
-                } else {
-                    service.setServiceRequestEnable(mask);
-                }
-            }
-            return;
-        }
-        if ((path == "*ESR" || path == "*STB") && command.query) {
-            if (arguments(command, 0)) {
-                response(
-                    std::to_string(path == "*ESR" ? service.readEventRegister()
-                                                  : service.statusByte(!output.empty() || transportOutputPending)));
-            }
-            return;
-        }
-        if ((path == "SYST:ERR" || path == "SYST:ERR:NEXT") && command.query) {
-            if (arguments(command, 0)) {
-                const auto value = service.popError();
-                response(std::to_string(value.code) + ',' + quote(value.message));
-            }
-            return;
-        }
-        if (path == "SYST:ERR:COUN" && command.query) {
-            if (arguments(command, 0)) {
-                response(std::to_string(service.errorCount()));
-            }
-            return;
-        }
-        if (path == "SENS1:FREQ:STAR" || path == "SENS1:FREQ:STOP") {
-            const bool start = path == "SENS1:FREQ:STAR";
-            if (command.query) {
-                queryNumeric(command, start ? settings.startHz : settings.stopHz, 1.0, 1000000000.0);
-                return;
-            }
-            double value = 0;
-            if (numericArgument(command, value, 1.0, 1000000000.0, true)) {
-                setOperation(start ? service.setStartHz(value) : service.setStopHz(value));
-            }
-            return;
-        }
-        if (path == "SENS1:SWE:POIN") {
-            if (command.query) {
-                if (command.arguments.empty()) {
-                    response(std::to_string(settings.points));
-                } else if (command.arguments.size() == 1U &&
-                           matches(upper(command.arguments.front()), "MIN", "MINIMUM")) {
-                    response("2");
-                } else if (command.arguments.size() == 1U &&
-                           matches(upper(command.arguments.front()), "MAX", "MAXIMUM")) {
-                    response("10001");
-                } else {
-                    error(command, -224, "Query accepts only MINimum or MAXimum");
-                }
-                return;
-            }
-            double value = 0;
-            if (!numericArgument(command, value, 2.0, 10001.0, false)) {
-                return;
-            }
-            if (value < 2.0 || value > 10001.0 || value != static_cast<unsigned>(value)) {
-                error(command, -222, "Point count outside 2..10001");
-                return;
-            }
-            setOperation(service.setPoints(static_cast<unsigned>(value)));
-            return;
-        }
-        if (path == "SENS1:BAND" || path == "SENS1:BAND:RES" || path == "SENS1:BWID" || path == "SENS1:BWID:RES") {
-            if (command.query) {
-                queryNumeric(command, settings.ifBandwidthHz, 10.0, 100000.0);
-                return;
-            }
-            double value = 0;
-            if (numericArgument(command, value, 10.0, 100000.0, true)) {
-                setOperation(service.setIfBandwidthHz(value));
-            }
-            return;
-        }
-        if (path == "SENS1:SWE:TYPE") {
-            if (command.query) {
-                if (arguments(command, 0)) {
-                    response("LIN");
-                }
-            } else if (arguments(command, 1)) {
-                if (!matches(upper(command.arguments.front()), "LIN", "LINEAR")) {
-                    error(command, -224, "Only LINear sweep is supported");
-                } else if (settings.sweepMode != vna_service::SweepMode::Hold || service.hasPending()) {
-                    error(command, -221, "Configuration requires HOLD");
-                }
-            }
-            return;
-        }
-        if (path == "TRIG:SOUR" || path == "TRIG:SEQ:SOUR" || path == "INIT:CONT" || path == "INIT1:CONT") {
-            const bool boolean = path.find("INIT") == 0U;
-            if (command.query) {
-                if (arguments(command, 0)) {
-                    response(boolean
-                                 ? (settings.triggerSource == vna_service::TriggerSource::Immediate ? "1" : "0")
-                                 : (settings.triggerSource == vna_service::TriggerSource::Immediate ? "IMM" : "MAN"));
-                }
-                return;
-            }
-            if (!arguments(command, 1)) {
-                return;
-            }
-            const std::string value = upper(command.arguments.front());
-            vna_service::TriggerSource source;
-            if (boolean && (value == "ON" || value == "1")) {
-                source = vna_service::TriggerSource::Immediate;
-            } else if (boolean && (value == "OFF" || value == "0")) {
-                source = vna_service::TriggerSource::Manual;
-            } else if (!boolean && matches(value, "IMM", "IMMEDIATE")) {
-                source = vna_service::TriggerSource::Immediate;
-            } else if (!boolean && matches(value, "MAN", "MANUAL")) {
-                source = vna_service::TriggerSource::Manual;
-            } else {
-                error(command, -224, "Unsupported trigger source");
-                return;
-            }
-            const bool asynchronous =
-                source == vna_service::TriggerSource::Immediate && settings.sweepMode == vna_service::SweepMode::Single;
-            setOperation(service.setTriggerSource(source), asynchronous);
-            return;
-        }
-        if (path == "TRIG:SCOP" || path == "TRIG:SEQ:SCOP") {
-            if (command.query) {
-                if (arguments(command, 0)) {
-                    response(settings.currentTriggerScope ? "CURR" : "ALL");
-                }
-                return;
-            }
-            if (!arguments(command, 1)) {
-                return;
-            }
-            const std::string value = upper(command.arguments.front());
-            if (value == "ALL") {
-                service.setCurrentTriggerScope(false);
-            } else if (matches(value, "CURR", "CURRENT")) {
-                service.setCurrentTriggerScope(true);
-            } else {
-                error(command, -224, "Unsupported trigger scope");
-            }
-            return;
-        }
-        if (path == "SENS1:SWE:MODE") {
-            if (command.query) {
-                if (arguments(command, 0)) {
-                    response(settings.sweepMode == vna_service::SweepMode::Hold
-                                 ? "HOLD"
-                                 : (settings.sweepMode == vna_service::SweepMode::Single ? "SING" : "CONT"));
-                }
-                return;
-            }
-            if (!arguments(command, 1)) {
-                return;
-            }
-            const std::string value = upper(command.arguments.front());
-            vna_service::SweepMode mode;
-            if (value == "HOLD") {
-                mode = vna_service::SweepMode::Hold;
-            } else if (matches(value, "CONT", "CONTINUOUS")) {
-                mode = vna_service::SweepMode::Continuous;
-            } else if (matches(value, "SING", "SINGLE")) {
-                mode = vna_service::SweepMode::Single;
-            } else {
-                error(command, -224, "Unsupported sweep mode");
-                return;
-            }
-            setOperation(
-                service.setSweepMode(mode), mode == vna_service::SweepMode::Single &&
-                                                settings.triggerSource == vna_service::TriggerSource::Immediate);
-            return;
-        }
-        if ((path == "INIT" || path == "INIT1" || path == "INIT:IMM" || path == "INIT1:IMM") && !command.query) {
-            if (arguments(command, 0)) {
-                setOperation(service.trigger(), true);
-            }
-            return;
-        }
-        if (path == "CALC1:PAR:DEF:EXT" || path == "CALC1:PAR:EXT") {
-            if (command.query) {
-                error(command, -113, "Undefined query header");
-                return;
-            }
-            if (!arguments(command, 2)) {
-                return;
-            }
-            vna_service::Measurement measurement;
-            std::string parameter;
-            if (!stringArgument(command.arguments[0], measurement.name) ||
-                !stringArgument(command.arguments[1], parameter)) {
-                error(command, -104, "Measurement name and parameter require quoted strings");
-                return;
-            }
-            if (!receiverParameter(parameter, measurement)) {
-                error(command, -224, "Only logical a1..a4/b1..b4 non-ratio receivers are supported");
-                return;
-            }
-            setOperation(service.defineMeasurement(measurement));
-            return;
-        }
-        if (path == "CALC1:PAR:SEL") {
-            if (command.query) {
-                if (arguments(command, 0)) {
-                    response(quote(settings.selectedMeasurement));
-                }
-                return;
-            }
-            if (!arguments(command, 1)) {
-                return;
-            }
-            std::string name;
-            if (!stringArgument(command.arguments.front(), name)) {
-                error(command, -104, "Measurement name requires a string");
-                return;
-            }
-            service.selectMeasurement(name);
-            return;
-        }
-        if (path == "CALC1:PAR:CAT:EXT" && command.query) {
-            if (command.arguments.size() > 1U) {
-                error(command, -108, "Too many parameters");
-                return;
-            }
-            if (!command.arguments.empty()) {
-                const auto value = upper(command.arguments.front());
-                if (!matches(value, "NORM", "NORMAL") && !matches(value, "DEF", "DEFINE") &&
-                    !matches(value, "DISP", "DISPLAY")) {
-                    error(command, -224, "Unsupported catalog option");
-                    return;
-                }
-            }
-            std::string catalog;
-            for (const auto &measurement : settings.measurements) {
-                if (!catalog.empty()) {
-                    catalog += ',';
-                }
-                std::string parameter = measurement.parameter();
-                std::replace(parameter.begin(), parameter.end(), ',', '_');
-                catalog += measurement.name + ',' + parameter;
-            }
-            response(quote(catalog.empty() ? "NO CATALOG" : catalog));
-            return;
-        }
-        if ((path == "CALC1:PAR:DEL" || path == "CALC1:PAR:DEL:NAME") && !command.query) {
-            if (!arguments(command, 1)) {
-                return;
-            }
-            std::string name;
-            if (!stringArgument(command.arguments.front(), name)) {
-                error(command, -104, "Measurement name requires a string");
-                return;
-            }
-            setOperation(service.deleteMeasurement(name));
-            return;
-        }
-        if (path == "FORM" || path == "FORM:DATA") {
-            if (command.query) {
-                if (arguments(command, 0)) {
-                    response("ASC,0");
-                }
-                return;
-            }
-            if (command.arguments.empty() || command.arguments.size() > 2U) {
-                error(command, -109, "FORM requires ASCii[,0]");
-                return;
-            }
-            if (!matches(upper(command.arguments[0]), "ASC", "ASCII")) {
-                error(command, -224, "Only ASCii data format is implemented");
-                return;
-            }
-            if (command.arguments.size() == 2U) {
-                unsigned precision = 0;
-                if (!integer(command.arguments[1], precision, 0U)) {
-                    error(command, -222, "Only ASCii,0 is implemented");
-                }
-            }
-            return;
-        }
-        if ((path == "SENS1:X" || path == "SENS1:X:VAL") && command.query) {
-            if (arguments(command, 0)) {
-                beginEncoding(service.stimulusAxis(), command);
-            }
-            return;
-        }
-        if (path == "CALC1:DATA" && command.query) {
-            if (!arguments(command, 1)) {
-                return;
-            }
-            if (upper(command.arguments.front()) != "RDATA") {
-                error(command, -224, "Only RDATA is implemented");
-                return;
-            }
-            beginEncoding(service.measurementData(), command);
-            return;
-        }
-        error(command, -113, "Undefined header");
-    }
+    void dispatch(const ParsedCommand &command);
 
     void poll();
 };
@@ -630,6 +267,366 @@ bool ScpiEngine::Impl::queryNumeric(const ParsedCommand &command, double current
     }
     error(command, -224, "Query accepts only MINimum or MAXimum");
     return false;
+}
+
+void ScpiEngine::Impl::dispatch(const ParsedCommand &command)
+{
+    const std::string &path = command.path;
+    const auto &settings = service.settings();
+    if (command.errorCode != 0) {
+        error(command, command.errorCode, command.error);
+        return;
+    }
+    if (path == "*IDN" && command.query) {
+        if (arguments(command, 0)) {
+            response(service.identity());
+        }
+        return;
+    }
+    if (path == "*CLS" && !command.query) {
+        if (arguments(command, 0)) {
+            service.clearStatus();
+        }
+        return;
+    }
+    if (path == "*OPC") {
+        if (!arguments(command, 0)) {
+            return;
+        }
+        if (command.query) {
+            barrier = service.pendingOperations();
+            waiting = true;
+            waitingQuery = true;
+        } else {
+            if (watches.size() >= 32U) {
+                error(command, -363, "OPC pending buffer overrun");
+                return;
+            }
+            OpcWatch watch;
+            watch.operations = service.pendingOperations();
+            watch.generation = service.statusGeneration();
+            if (allReady(watch.operations)) {
+                service.markOperationComplete();
+            } else {
+                watches.push_back(std::move(watch));
+            }
+        }
+        return;
+    }
+    if (path == "*WAI" && !command.query) {
+        if (arguments(command, 0)) {
+            barrier = service.pendingOperations();
+            waiting = true;
+            waitingQuery = false;
+        }
+        return;
+    }
+    if (path == "*ESE" || path == "*SRE") {
+        if (command.query) {
+            if (arguments(command, 0)) {
+                response(std::to_string(path == "*ESE" ? service.eventEnable() : service.serviceRequestEnable()));
+            }
+        } else {
+            unsigned mask = 0;
+            if (!arguments(command, 1)) {
+                return;
+            }
+            if (!integer(command.arguments.front(), mask, 255U)) {
+                error(command, -222, "Register mask outside 0..255");
+                return;
+            }
+            if (path == "*ESE") {
+                service.setEventEnable(mask);
+            } else {
+                service.setServiceRequestEnable(mask);
+            }
+        }
+        return;
+    }
+    if ((path == "*ESR" || path == "*STB") && command.query) {
+        if (arguments(command, 0)) {
+            response(std::to_string(path == "*ESR" ? service.readEventRegister()
+                                                   : service.statusByte(!output.empty() || transportOutputPending)));
+        }
+        return;
+    }
+    if ((path == "SYST:ERR" || path == "SYST:ERR:NEXT") && command.query) {
+        if (arguments(command, 0)) {
+            const auto value = service.popError();
+            response(std::to_string(value.code) + ',' + quote(value.message));
+        }
+        return;
+    }
+    if (path == "SYST:ERR:COUN" && command.query) {
+        if (arguments(command, 0)) {
+            response(std::to_string(service.errorCount()));
+        }
+        return;
+    }
+    if (path == "SENS1:FREQ:STAR" || path == "SENS1:FREQ:STOP") {
+        const bool start = path == "SENS1:FREQ:STAR";
+        if (command.query) {
+            queryNumeric(command, start ? settings.startHz : settings.stopHz, 1.0, 1000000000.0);
+            return;
+        }
+        double value = 0;
+        if (numericArgument(command, value, 1.0, 1000000000.0, true)) {
+            setOperation(start ? service.setStartHz(value) : service.setStopHz(value));
+        }
+        return;
+    }
+    if (path == "SENS1:SWE:POIN") {
+        if (command.query) {
+            if (command.arguments.empty()) {
+                response(std::to_string(settings.points));
+            } else if (command.arguments.size() == 1U && matches(upper(command.arguments.front()), "MIN", "MINIMUM")) {
+                response("2");
+            } else if (command.arguments.size() == 1U && matches(upper(command.arguments.front()), "MAX", "MAXIMUM")) {
+                response("10001");
+            } else {
+                error(command, -224, "Query accepts only MINimum or MAXimum");
+            }
+            return;
+        }
+        double value = 0;
+        if (!numericArgument(command, value, 2.0, 10001.0, false)) {
+            return;
+        }
+        if (value < 2.0 || value > 10001.0 || value != static_cast<unsigned>(value)) {
+            error(command, -222, "Point count outside 2..10001");
+            return;
+        }
+        setOperation(service.setPoints(static_cast<unsigned>(value)));
+        return;
+    }
+    if (path == "SENS1:BAND" || path == "SENS1:BAND:RES" || path == "SENS1:BWID" || path == "SENS1:BWID:RES") {
+        if (command.query) {
+            queryNumeric(command, settings.ifBandwidthHz, 10.0, 100000.0);
+            return;
+        }
+        double value = 0;
+        if (numericArgument(command, value, 10.0, 100000.0, true)) {
+            setOperation(service.setIfBandwidthHz(value));
+        }
+        return;
+    }
+    if (path == "SENS1:SWE:TYPE") {
+        if (command.query) {
+            if (arguments(command, 0)) {
+                response("LIN");
+            }
+        } else if (arguments(command, 1)) {
+            if (!matches(upper(command.arguments.front()), "LIN", "LINEAR")) {
+                error(command, -224, "Only LINear sweep is supported");
+            } else if (settings.sweepMode != vna_service::SweepMode::Hold || service.hasPending()) {
+                error(command, -221, "Configuration requires HOLD");
+            }
+        }
+        return;
+    }
+    if (path == "TRIG:SOUR" || path == "TRIG:SEQ:SOUR" || path == "INIT:CONT" || path == "INIT1:CONT") {
+        const bool boolean = path.find("INIT") == 0U;
+        if (command.query) {
+            if (arguments(command, 0)) {
+                response(boolean ? (settings.triggerSource == vna_service::TriggerSource::Immediate ? "1" : "0")
+                                 : (settings.triggerSource == vna_service::TriggerSource::Immediate ? "IMM" : "MAN"));
+            }
+            return;
+        }
+        if (!arguments(command, 1)) {
+            return;
+        }
+        const std::string value = upper(command.arguments.front());
+        vna_service::TriggerSource source;
+        if (boolean && (value == "ON" || value == "1")) {
+            source = vna_service::TriggerSource::Immediate;
+        } else if (boolean && (value == "OFF" || value == "0")) {
+            source = vna_service::TriggerSource::Manual;
+        } else if (!boolean && matches(value, "IMM", "IMMEDIATE")) {
+            source = vna_service::TriggerSource::Immediate;
+        } else if (!boolean && matches(value, "MAN", "MANUAL")) {
+            source = vna_service::TriggerSource::Manual;
+        } else {
+            error(command, -224, "Unsupported trigger source");
+            return;
+        }
+        const bool asynchronous =
+            source == vna_service::TriggerSource::Immediate && settings.sweepMode == vna_service::SweepMode::Single;
+        setOperation(service.setTriggerSource(source), asynchronous);
+        return;
+    }
+    if (path == "TRIG:SCOP" || path == "TRIG:SEQ:SCOP") {
+        if (command.query) {
+            if (arguments(command, 0)) {
+                response(settings.currentTriggerScope ? "CURR" : "ALL");
+            }
+            return;
+        }
+        if (!arguments(command, 1)) {
+            return;
+        }
+        const std::string value = upper(command.arguments.front());
+        if (value == "ALL") {
+            service.setCurrentTriggerScope(false);
+        } else if (matches(value, "CURR", "CURRENT")) {
+            service.setCurrentTriggerScope(true);
+        } else {
+            error(command, -224, "Unsupported trigger scope");
+        }
+        return;
+    }
+    if (path == "SENS1:SWE:MODE") {
+        if (command.query) {
+            if (arguments(command, 0)) {
+                response(settings.sweepMode == vna_service::SweepMode::Hold
+                             ? "HOLD"
+                             : (settings.sweepMode == vna_service::SweepMode::Single ? "SING" : "CONT"));
+            }
+            return;
+        }
+        if (!arguments(command, 1)) {
+            return;
+        }
+        const std::string value = upper(command.arguments.front());
+        vna_service::SweepMode mode;
+        if (value == "HOLD") {
+            mode = vna_service::SweepMode::Hold;
+        } else if (matches(value, "CONT", "CONTINUOUS")) {
+            mode = vna_service::SweepMode::Continuous;
+        } else if (matches(value, "SING", "SINGLE")) {
+            mode = vna_service::SweepMode::Single;
+        } else {
+            error(command, -224, "Unsupported sweep mode");
+            return;
+        }
+        setOperation(service.setSweepMode(mode),
+            mode == vna_service::SweepMode::Single && settings.triggerSource == vna_service::TriggerSource::Immediate);
+        return;
+    }
+    if ((path == "INIT" || path == "INIT1" || path == "INIT:IMM" || path == "INIT1:IMM") && !command.query) {
+        if (arguments(command, 0)) {
+            setOperation(service.trigger(), true);
+        }
+        return;
+    }
+    if (path == "CALC1:PAR:DEF:EXT" || path == "CALC1:PAR:EXT") {
+        if (command.query) {
+            error(command, -113, "Undefined query header");
+            return;
+        }
+        if (!arguments(command, 2)) {
+            return;
+        }
+        vna_service::Measurement measurement;
+        std::string parameter;
+        if (!stringArgument(command.arguments[0], measurement.name) ||
+            !stringArgument(command.arguments[1], parameter)) {
+            error(command, -104, "Measurement name and parameter require quoted strings");
+            return;
+        }
+        if (!receiverParameter(parameter, measurement)) {
+            error(command, -224, "Only logical a1..a4/b1..b4 non-ratio receivers are supported");
+            return;
+        }
+        setOperation(service.defineMeasurement(measurement));
+        return;
+    }
+    if (path == "CALC1:PAR:SEL") {
+        if (command.query) {
+            if (arguments(command, 0)) {
+                response(quote(settings.selectedMeasurement));
+            }
+            return;
+        }
+        if (!arguments(command, 1)) {
+            return;
+        }
+        std::string name;
+        if (!stringArgument(command.arguments.front(), name)) {
+            error(command, -104, "Measurement name requires a string");
+            return;
+        }
+        service.selectMeasurement(name);
+        return;
+    }
+    if (path == "CALC1:PAR:CAT:EXT" && command.query) {
+        if (command.arguments.size() > 1U) {
+            error(command, -108, "Too many parameters");
+            return;
+        }
+        if (!command.arguments.empty()) {
+            const auto value = upper(command.arguments.front());
+            if (!matches(value, "NORM", "NORMAL") && !matches(value, "DEF", "DEFINE") &&
+                !matches(value, "DISP", "DISPLAY")) {
+                error(command, -224, "Unsupported catalog option");
+                return;
+            }
+        }
+        std::string catalog;
+        for (const auto &measurement : settings.measurements) {
+            if (!catalog.empty()) {
+                catalog += ',';
+            }
+            std::string parameter = measurement.parameter();
+            std::replace(parameter.begin(), parameter.end(), ',', '_');
+            catalog += measurement.name + ',' + parameter;
+        }
+        response(quote(catalog.empty() ? "NO CATALOG" : catalog));
+        return;
+    }
+    if ((path == "CALC1:PAR:DEL" || path == "CALC1:PAR:DEL:NAME") && !command.query) {
+        if (!arguments(command, 1)) {
+            return;
+        }
+        std::string name;
+        if (!stringArgument(command.arguments.front(), name)) {
+            error(command, -104, "Measurement name requires a string");
+            return;
+        }
+        setOperation(service.deleteMeasurement(name));
+        return;
+    }
+    if (path == "FORM" || path == "FORM:DATA") {
+        if (command.query) {
+            if (arguments(command, 0)) {
+                response("ASC,0");
+            }
+            return;
+        }
+        if (command.arguments.empty() || command.arguments.size() > 2U) {
+            error(command, -109, "FORM requires ASCii[,0]");
+            return;
+        }
+        if (!matches(upper(command.arguments[0]), "ASC", "ASCII")) {
+            error(command, -224, "Only ASCii data format is implemented");
+            return;
+        }
+        if (command.arguments.size() == 2U) {
+            unsigned precision = 0;
+            if (!integer(command.arguments[1], precision, 0U)) {
+                error(command, -222, "Only ASCii,0 is implemented");
+            }
+        }
+        return;
+    }
+    if ((path == "SENS1:X" || path == "SENS1:X:VAL") && command.query) {
+        if (arguments(command, 0)) {
+            beginEncoding(service.stimulusAxis(), command);
+        }
+        return;
+    }
+    if (path == "CALC1:DATA" && command.query) {
+        if (!arguments(command, 1)) {
+            return;
+        }
+        if (upper(command.arguments.front()) != "RDATA") {
+            error(command, -224, "Only RDATA is implemented");
+            return;
+        }
+        beginEncoding(service.measurementData(), command);
+        return;
+    }
+    error(command, -113, "Undefined header");
 }
 
 void ScpiEngine::Impl::poll()
