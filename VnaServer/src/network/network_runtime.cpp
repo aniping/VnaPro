@@ -1,3 +1,6 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #include "network/network_runtime.h"
 
 #include <stdexcept>
@@ -6,19 +9,19 @@
 
 namespace vna_server {
 namespace network {
-NetworkRuntime::NetworkRuntime(const char *failureMessage)
+NetworkRuntime::NetworkRuntime(const std::string &failureMessage)
 {
 #ifdef _WIN32
-    WSADATA data;
+    WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
         throw std::runtime_error(failureMessage);
     }
 #else
-    (void)failureMessage;
+    static_cast<void>(failureMessage);
 #endif
 }
 
-NetworkRuntime::~NetworkRuntime()
+NetworkRuntime::~NetworkRuntime() noexcept
 {
 #ifdef _WIN32
     WSACleanup();
