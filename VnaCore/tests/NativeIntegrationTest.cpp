@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-#include "vna_core/AcquisitionCore.h"
 #include "../../VnaNativeSimulator/tests/GoldenIqVectors.h"
+#include "vna_core/AcquisitionCore.h"
 
 namespace {
 
@@ -92,8 +92,8 @@ int main(int argc, char** argv)
         require(
             second != first && second->frameSeq == 2U && first->frameSeq == 1U, "published frame was reused mutably");
         for (std::size_t source = 0U; source < expected.size(); ++source) {
-            require(second->ports[source].iq == first->ports[source].iq,
-                "same frozen configuration was not deterministic");
+            require(
+                second->ports[source].iq == first->ports[source].iq, "same frozen configuration was not deterministic");
         }
         await(core.stop(started.runId));
 
@@ -103,8 +103,8 @@ int main(int argc, char** argv)
         plan.sourcePorts = {1U};
         const double* low = vna_test::kGoldenIqBySource[0U][0U];
         std::vector<double> highWordExpected(low, low + 16U);
-        highWordExpected.insert(highWordExpected.end(), vna_test::kGoldenIqHighWordSource0,
-            vna_test::kGoldenIqHighWordSource0 + 16U);
+        highWordExpected.insert(
+            highWordExpected.end(), vna_test::kGoldenIqHighWordSource0, vna_test::kGoldenIqHighWordSource0 + 16U);
         const auto highConfigured = await(core.configure(plan));
         const auto highStarted = await(core.start(vna_core::RunMode::Manual));
         const auto highTriggered = await(core.triggerOnce(highStarted.runId, highConfigured.configRevision));

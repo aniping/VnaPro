@@ -7,7 +7,7 @@ ColumnLimit: 120
 Standard: Latest
 AccessModifierOffset: -4
 
-AllowShortFunctionsOnASingleLine: Inline
+AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
 PointerAlignment: Left

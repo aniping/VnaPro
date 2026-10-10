@@ -21,6 +21,21 @@ cmake -E chdir build ctest --output-on-failure
 
 `npm run build` 包含 Vue/TypeScript 类型检查，产物在 `frontend/dist`。只构建或运行 SCPI 服务可跳过 Node/npm 步骤，并以 `--no-web` 启动；Web HTTP 集成测试需要先生成前端产物。前端开发与目录说明见 [frontend/README.md](frontend/README.md)。
 
+## C++ 文件组织与格式
+
+独立类和公开数据类型分别使用同名文件，头文件声明接口、源文件实现行为。类内部的私有状态记录保留在所属实现中，测试助手位于各模块的 tests，不进入生产接口。`CoreTypes.h` 仅聚合核心类型头；JSON 值、解析器和编码器各自独立，SCPI/Web 共用 `src/network` 的平台适配与 Socket 资源管理。
+
+先正常编写代码，再使用根目录 `.clang-format` 自动格式化。短函数体也展开；120 列由格式器处理，不为满足提交行数压缩代码。按功能拆分提交，不通过省略换行缩小差异。使用 clang-format 18.1.8，在根目录运行：
+
+```powershell
+$cppFiles = Get-ChildItem -Path VnaCore,VnaService,VnaServer -Recurse -File |
+    Where-Object { $_.Extension -in '.h','.cpp' } | Select-Object -ExpandProperty FullName
+clang-format --style=file -i $cppFiles
+clang-format --style=file --dry-run --Werror $cppFiles
+```
+
+日常修改只需将本次变更的文件传给格式器。其他 C++ 模块同样使用根目录配置。
+
 ## 启动与测量
 
 ```powershell
@@ -79,6 +94,7 @@ CALC1:DATA? RDATA
 | `VnaService` | 物理配置、测量目录、控制权、有限操作及仪器错误状态 |
 | `VnaServer/src/scpi` | 标准命令解析、命令映射、同步屏障、ASCII 响应 |
 | `VnaServer/src/ScpiTcpServer.*` | TCP 分包/粘包、连接准入、部分发送和网络预算 |
+| `VnaServer/src/network` | SCPI/Web 共用的平台 Socket 操作、网络初始化与句柄生命周期 |
 | `VnaServer/src/web` | 有界 HTTP、静态资源、类型化 API、租约与操作结果 |
 | `frontend/src/api` | 类型化 HTTP、严格响应解码、服务签发的会话 token |
 | `frontend/src/composables` | 设备读回/有限操作与逐迹线显示状态，各自维护一份真值 |

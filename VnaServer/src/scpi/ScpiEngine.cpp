@@ -86,7 +86,9 @@ public:
         std::vector<vna_service::Operation> operations;
         unsigned generation = 0;
     };
-    explicit Impl(vna_service::InstrumentService& value) : service(value), control(value.tryAcquireControl()) {}
+    explicit Impl(vna_service::InstrumentService& value) : service(value), control(value.tryAcquireControl())
+    {
+    }
     vna_service::InstrumentService& service;
     bool control;
     bool connected = true;
@@ -594,7 +596,9 @@ public:
     }
 };
 
-ScpiEngine::ScpiEngine(vna_service::InstrumentService& service) : impl_(new Impl(service)) {}
+ScpiEngine::ScpiEngine(vna_service::InstrumentService& service) : impl_(new Impl(service))
+{
+}
 ScpiEngine::~ScpiEngine()
 {
     // The owner normally drains first. An idle engine may also be destroyed directly.
