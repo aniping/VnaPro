@@ -14,5 +14,5 @@ void RunNoiseModeTests(TestRunner &runner);
 void RunNormalFrameDecoderTests(TestRunner &runner);
 void RunSignalModelTests(TestRunner &runner);
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 #endif  // VNAPRO_TESTS_NATIVE_UNIT_TESTS_H

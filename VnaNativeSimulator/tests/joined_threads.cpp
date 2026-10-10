@@ -21,7 +21,7 @@ JoinedThreads::~JoinedThreads() noexcept
     try {
         Join();
     } catch (...) {
-        // A failed join cannot safely detach a worker holding test-scope references.
+        // 等待线程结束失败时，不能安全分离仍持有测试作用域引用的工作线程。
         std::fputs("Failed to join a native test worker\n", stderr);
         std::terminate();
     }
@@ -47,4 +47,4 @@ void JoinedThreads::Join()
     }
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

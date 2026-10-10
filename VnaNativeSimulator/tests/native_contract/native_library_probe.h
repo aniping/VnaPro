@@ -35,7 +35,7 @@ struct NativeFunctions final {
 
 class NativeLibraryProbe final {
 public:
-    // Owns no library until Open succeeds; destruction releases an open platform handle.
+    // 仅在 Open 成功后持有动态库；析构时释放已打开的平台句柄。
     NativeLibraryProbe() noexcept = default;
     ~NativeLibraryProbe() noexcept;
     NativeLibraryProbe(const NativeLibraryProbe &) = delete;
@@ -43,15 +43,15 @@ public:
     NativeLibraryProbe(NativeLibraryProbe &&) = delete;
     NativeLibraryProbe &operator=(NativeLibraryProbe &&) = delete;
 
-    // Rejects relative paths, replaces any previous library, and reports loader failures in errorMessage.
+    // 拒绝相对路径，替换此前的动态库，并在 errorMessage 中报告加载器错误。
     bool Open(const std::string &absolutePath, std::string &errorMessage);
-    // Clears callable pointers before unloading. Returns false if the platform rejects unloading.
+    // 卸载前清空可调用指针；平台拒绝卸载时返回 false。
     bool Close() noexcept;
-    // Tests may call this before using any table entry; a failed Open leaves it false.
+    // 测试可在使用函数表项前调用此方法；Open 失败后返回 false。
     bool IsOpen() const noexcept;
-    // Resolves every frozen ABI entry; records all missing names and the first diagnostic.
+    // 解析全部固定 ABI 项，记录所有缺失名称及首条诊断信息。
     bool ResolveAll(std::vector<std::string> &missingSymbols, std::string &errorMessage);
-    // The borrowed table remains valid only until Close/Open or probe destruction.
+    // 借用的函数表仅在下一次 Close、Open 或探针析构之前有效。
     const NativeFunctions &Functions() const noexcept;
 
 private:
@@ -71,5 +71,5 @@ private:
     NativeFunctions functions_;
 };
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 #endif  // VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_LIBRARY_PROBE_H

@@ -170,8 +170,8 @@ void RunPowerCheckTests(TestRunner &runner, NativeLibraryProbe &library)
     });
 }
 
-}  // namespace
-}  // namespace VnaTest
+}  // 匿名命名空间
+}  // 命名空间 VnaTest
 
 int main(int argc, char **argv)
 {

@@ -12,7 +12,7 @@ namespace VnaTest {
 
 class RejectPendingCommit final : public VnaNative::FailureInjector {
 public:
-    // A stateless fixture that leaves frame download commits unaffected.
+    // 无状态的测试夹具，不影响帧下载提交。
     RejectPendingCommit() noexcept = default;
     RejectPendingCommit(const RejectPendingCommit &) = delete;
     RejectPendingCommit &operator=(const RejectPendingCommit &) = delete;
@@ -20,7 +20,7 @@ public:
     RejectPendingCommit &operator=(RejectPendingCommit &&) = delete;
     ~RejectPendingCommit() override = default;
 
-    // Fails only pending publication, allowing tests to check that noise sequence is unchanged.
+    // 仅使待取结果发布失败，供测试检查噪声序列未发生变化。
     void ThrowIfRequested(VnaNative::FailurePoint point) override
     {
         if (point == VnaNative::FailurePoint::BEFORE_PENDING_COMMIT) {
@@ -29,5 +29,5 @@ public:
     }
 };
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 #endif  // VNAPRO_TESTS_NATIVE_UNIT_REJECT_PENDING_COMMIT_H

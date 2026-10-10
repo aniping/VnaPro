@@ -15,7 +15,7 @@
 
 namespace VnaTest {
 
-// Independent status expectations for the runtime-loaded C ABI contract.
+// 运行时加载的 C ABI 契约所使用的独立状态预期值。
 enum SimulatorStatus {
     OK = 0U,
     INVALID_ARGUMENT = 1U,
@@ -34,24 +34,24 @@ struct FrameInput final {
     std::vector<std::uint64_t> frequencies;
 };
 
-// Creates owned input buffers using independently fixed layout values for the runtime ABI test.
+// 为运行时 ABI 测试使用独立给定的布局值，创建独立持有的输入缓冲区。
 FrameInput MakeNormalFrame(std::uint32_t pointCount, std::uint32_t sourcePort, std::uint64_t firstFrequency);
 
-// Calls the frozen non-const ABI with owned frame buffers that outlive the call.
+// 使用在整个调用期间有效的自有帧缓冲区，调用已固定的非 const ABI。
 std::uint32_t DownloadFrame(const NativeFunctions &functions, FrameInput &frame);
 
-// Independent test oracle: mixes the entire raw frequency without calling the production model.
+// 独立测试判定器：混合完整原始频率，不调用生产模型。
 double FrequencyFactor(std::uint64_t frequency) noexcept;
 
-// Computes the independent formula oracle; fixed offline golden vectors additionally detect shared formula errors.
+// 计算独立公式预期值；固定离线基准向量另外检测双方共有的公式错误。
 std::vector<double> ExpectedIq(const std::vector<std::uint64_t> &frequencies, std::uint32_t sourcePort);
 
-// The actual buffer must contain expected.size() values; non-finite or out-of-tolerance values fail.
+// 实际缓冲区必须包含 expected.size() 个值；非有限值或超出容差时判定失败。
 void ExpectIqNear(const std::vector<double> &expected, const double *actual);
 
 void RunNativeNormalSweepTests(TestRunner &runner, NativeLibraryProbe &library);
 void RunNativeNoiseModeTests(TestRunner &runner, NativeLibraryProbe &library);
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 
 #endif  // VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_CONTRACT_TEST_SUPPORT_H

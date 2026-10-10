@@ -19,15 +19,15 @@ struct EncodedFrame final {
     std::vector<double> powerTable;
 };
 
-// Builds an owned normal frame with independent protocol constants and a high-word frequency step.
+// 使用独立的协议常量和频率高字步进，构造独立持有的普通帧。
 EncodedFrame MakeEncodedFrame(std::uint32_t pointCount, std::uint32_t sourcePort, std::uint64_t firstFrequency);
 
-// Copies the supplied raw frequencies into a snapshot; input storage may be discarded after return.
+// 将传入的原始频率复制到快照；返回后可释放输入存储。
 VnaNative::NormalFrameSnapshot MakeSnapshot(std::uint32_t sourcePort, const std::vector<std::uint64_t> &frequencies);
 
-// Requires matching lengths and finite actual values within the fixed IQ tolerance.
+// 要求长度匹配、实际值有限，且误差不超过固定 IQ 容差。
 void ExpectVectorNear(const std::vector<double> &expected, const std::vector<double> &actual);
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 
 #endif  // VNAPRO_TESTS_NATIVE_UNIT_NATIVE_UNIT_TEST_FIXTURES_H

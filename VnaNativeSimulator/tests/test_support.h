@@ -16,14 +16,14 @@ struct TestLocation final {
     int line = 0;
 };
 
-// Fails with the caller's file/line. Explicit locations avoid function-style assertion macros.
+// 失败时报告调用者的文件和行号；显式传入位置，无需使用函数式断言宏。
 void Fail(const std::string &message, TestLocation location);
-// Throws TestFailure when condition is false; callers pass an explicit C++14 source location.
+// condition 为假时抛出 TestFailure；调用者显式传入 C++14 源码位置。
 void Expect(bool condition, TestLocation location);
-// Requires a finite actual value within a nonnegative absolute tolerance.
+// 实际值必须有限，且误差不超过给定的非负绝对容差。
 void ExpectNear(double expected, double actual, double tolerance, TestLocation location);
 std::string ToString(std::size_t value);
 std::string ToString(double value);
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 #endif  // VNAPRO_TESTS_TEST_SUPPORT_H

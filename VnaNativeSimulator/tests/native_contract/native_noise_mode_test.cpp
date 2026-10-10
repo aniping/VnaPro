@@ -99,7 +99,7 @@ void FrozenModeAndPendingConsumption(const NativeFunctions &functions)
     VnaTest::Expect(second == Acquire(functions, 0U), VnaTest::TestLocation{__FILE__, __LINE__});
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 void RunNativeNoiseModeTests(TestRunner &runner, NativeLibraryProbe &library)
 {
@@ -113,4 +113,4 @@ void RunNativeNoiseModeTests(TestRunner &runner, NativeLibraryProbe &library)
     });
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

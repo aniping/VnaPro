@@ -18,7 +18,7 @@ constexpr std::uint32_t POINT_POWER_STRIDE = 10U;
 constexpr double POWER_VALUE_FRACTION = 0.5;
 constexpr double IQ_TOLERANCE = 1.0e-12;
 
-// Independent fixture layout values deliberately do not read production decoder constants.
+// 测试夹具使用独立的布局值，不读取生产解码器常量。
 enum ParameterOffset {
     FREQUENCY_HIGH_WORD,
     FREQUENCY_LOW_WORD,
@@ -28,7 +28,7 @@ enum ParameterOffset {
     DYNAMIC_ENABLED
 };
 
-}  // namespace
+}  // 匿名命名空间
 
 EncodedFrame MakeEncodedFrame(std::uint32_t pointCount, std::uint32_t sourcePort, std::uint64_t firstFrequency)
 {
@@ -79,4 +79,4 @@ void ExpectVectorNear(const std::vector<double> &expected, const std::vector<dou
     }
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

@@ -10,8 +10,8 @@
 
 namespace VnaTest {
 
-// Independent offline integer hash and high-precision arithmetic golden vectors, not production calculations.
-// Each point orders A1.re/A1.im/B1.re/B1.im through A4/B4; the high-word case detects truncated frequencies.
+// 通过独立离线整数哈希和高精度运算获得的基准向量，不使用生产计算结果。
+// 每个点从 A1.re/A1.im/B1.re/B1.im 排列至 A4/B4；高字用例检测频率截断。
 
 constexpr std::uint64_t g_goldenIqFrequencies[2] = {1000000000ULL, 2000000000ULL};
 
@@ -56,7 +56,7 @@ constexpr double g_goldenIqBySource[4][2][16] = {
             0.0007409636222164282, 0.34667069243410276, -0.0070216197035786092, 1.4399999999999999,
             0.0007409636222164282, 0.28906698761599164, 0.00014874175153273373}}};
 
-// Returns two independently fixed IQ points; invalid source indices return an empty vector.
+// 返回两个独立给定的 IQ 点；源端口索引无效时返回空向量。
 inline std::vector<double> GoldenIqForSource(std::uint32_t sourcePort)
 {
     std::vector<double> expected;
@@ -68,6 +68,6 @@ inline std::vector<double> GoldenIqForSource(std::uint32_t sourcePort)
     return expected;
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 
 #endif  // VNAPRO_TESTS_GOLDEN_IQ_VECTORS_H

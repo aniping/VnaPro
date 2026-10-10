@@ -17,7 +17,7 @@ namespace VnaTest {
 namespace {
 
 struct NativeConcurrencyCounters final {
-    // Counters are shared by joined workers and never copied or moved while a thread can observe them.
+    // 计数器由工作线程共享；只要线程仍可能访问，就不复制或移动计数器。
     NativeConcurrencyCounters() noexcept = default;
     NativeConcurrencyCounters(const NativeConcurrencyCounters &) = delete;
     NativeConcurrencyCounters &operator=(const NativeConcurrencyCounters &) = delete;
@@ -257,13 +257,13 @@ void ConcurrentAcquire(
         for (std::uint32_t iteration = 0U; iteration < SWEEP_ITERATIONS; ++iteration) {
             ConcurrentSweepAttempt(functions, expected, counters, true);
         }
-        // Force a successful path after reset stops; accepted state errors alone must not pass the test.
+        // 重置停止后强制执行成功路径；仅出现允许的状态错误不能使测试通过。
         while (!counters.reconfigureDone.load()) {
             std::this_thread::yield();
         }
         ConcurrentSweepAttempt(functions, expected, counters, false);
     } catch (...) {
-        // Record worker allocation failure and let the owning group join it normally.
+        // 记录工作线程的分配失败，并由所属线程组正常等待其结束。
         ++counters.failures;
     }
 }
@@ -275,7 +275,7 @@ void ConcurrentResetAndAcquisition(const NativeFunctions &functions)
     VnaTest::Expect(DownloadFrame(functions, frame) == OK, {__FILE__, __LINE__});
     const std::vector<double> expected = ExpectedIq(frame.frequencies, 0U);
     NativeConcurrencyCounters counters;
-    // The group joins before frame/expected/counters leave scope, including partial launch failures.
+    // 在线程组引用的帧、预期值和计数器离开作用域前，等待全部线程结束；部分启动失败时也如此。
     JoinedThreads workers(CONCURRENT_WORKER_COUNT, [&counters]() {
         counters.startThreads.store(true);
     });
@@ -377,7 +377,7 @@ void ResetClearsFrameAndPending(const NativeFunctions &functions)
     VnaTest::Expect(functions.startSweep(1U, 0U) == INVALID_STATE, VnaTest::TestLocation{__FILE__, __LINE__});
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 void RunNativeNormalSweepTests(TestRunner &runner, NativeLibraryProbe &library)
 {
@@ -428,4 +428,4 @@ void RunNativeNormalSweepTests(TestRunner &runner, NativeLibraryProbe &library)
     });
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

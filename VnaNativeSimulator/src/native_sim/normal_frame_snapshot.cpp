@@ -14,4 +14,4 @@ void NormalFrameSnapshot::Swap(NormalFrameSnapshot &other) noexcept
     tableData.swap(other.tableData);
 }
 
-}  // namespace VnaNative
+}  // 命名空间 VnaNative

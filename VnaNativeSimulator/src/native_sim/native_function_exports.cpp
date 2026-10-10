@@ -31,7 +31,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvHwInit()
     try {
         return VnaNative::NativeSimulatorState::Instance().HwInit();
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -41,7 +41,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetSweepData(std::
     try {
         return VnaNative::NativeSimulatorState::Instance().GetSweepData(pointCount, iqData);
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -52,7 +52,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvStartSweep(
     try {
         return VnaNative::NativeSimulatorState::Instance().StartSweep(pointCount, sourcePort);
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -62,7 +62,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvActivateRxLink(std
     try {
         return VnaNative::NativeSimulatorState::Instance().ActivateRxLink(rxPortBitmap);
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -72,7 +72,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvSetRfPowerOn(std::
     try {
         return VnaNative::NativeSimulatorState::Instance().SetRfPowerOn(enabled);
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -82,7 +82,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvSetFastSweepMode(s
     try {
         return VnaNative::NativeSimulatorState::Instance().SetFastSweepMode(mode);
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -92,7 +92,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetIDN(char *buffe
     try {
         return VnaNative::NativeSimulatorState::Instance().GetIDN(buffer, capacity);
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -104,7 +104,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvCheckSweepPortPowe
         return VnaNative::NativeSimulatorState::Instance().CheckSweepPortPower(
             rfPortBitmap, checkBitmap, overFreqIndex, indexCapacity);
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -116,7 +116,7 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvDataFrameDownload(
         return VnaNative::NativeSimulatorState::Instance().DataFrameDownload(
             pointCount, paramData, paramDataLen, tableData, tableDataLen);
     } catch (...) {
-        // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
+        // 转换单例构造失败；C++ 异常不得越过已固定的 C ABI 边界。
         return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }

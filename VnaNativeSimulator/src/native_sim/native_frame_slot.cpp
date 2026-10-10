@@ -13,4 +13,4 @@ void NativeFrameSlot::Swap(NativeFrameSlot &other) noexcept
     frame.Swap(other.frame);
 }
 
-}  // namespace VnaNative
+}  // 命名空间 VnaNative

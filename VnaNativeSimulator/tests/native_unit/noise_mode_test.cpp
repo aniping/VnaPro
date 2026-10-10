@@ -39,7 +39,7 @@ std::vector<double> AcquireNoiseState(NativeSimulatorState &state)
     return output;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 static void NoiseStateVariesSuccessfulSweepsAndResetReplaysSeed()
 {
@@ -106,4 +106,4 @@ void RunNoiseModeTests(TestRunner &runner)
         NoiseStateInvalidEnvironmentPreservesPendingAndConfiguration);
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

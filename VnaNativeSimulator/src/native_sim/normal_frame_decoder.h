@@ -11,14 +11,14 @@
 namespace VnaNative {
 namespace NormalFrameDecoder {
 
-// Validates pointers and declared element counts without reading either borrowed buffer.
-// Counts must exactly match the frame layout; actual capacity remains the caller's duty.
+// 验证指针和声明的元素数量，不读取任一借用缓冲区。
+// 元素数量必须与帧布局完全一致；实际容量仍由调用者保证。
 VNA_NATIVE_HIDDEN std::uint32_t ValidateInputShape(const NormalFrameInput &input) noexcept;
 
-// On success replaces output with a deep copy. On error output stays unchanged.
-// Checks all source ports before unsupported mode flags; callers provide synchronization.
+// 成功时以深拷贝替换输出；失败时保持输出不变。
+// 先检查全部源端口，再检查不支持的模式标志；同步由调用者保证。
 VNA_NATIVE_HIDDEN std::uint32_t Decode(const NormalFrameInput &input, NormalFrameSnapshot &output) noexcept;
 
-}  // namespace NormalFrameDecoder
-}  // namespace VnaNative
+}  // 命名空间 NormalFrameDecoder
+}  // 命名空间 VnaNative
 #endif  // VNAPRO_NATIVE_SIM_NORMAL_FRAME_DECODER_H

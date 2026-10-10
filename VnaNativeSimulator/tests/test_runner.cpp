@@ -29,4 +29,4 @@ int TestRunner::Finish() const
     return failed_ == 0U ? 0 : 1;
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

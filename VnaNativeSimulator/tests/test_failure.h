@@ -11,7 +11,7 @@ namespace VnaTest {
 
 class TestFailure final : public std::runtime_error {
 public:
-    // Owns the failure message reported by the test runner.
+    // 持有测试执行器报告的失败消息。
     explicit TestFailure(const std::string &message);
     TestFailure(const TestFailure &) = default;
     TestFailure &operator=(const TestFailure &) = default;
@@ -20,5 +20,5 @@ public:
     ~TestFailure() override = default;
 };
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 #endif  // VNAPRO_TESTS_TEST_FAILURE_H

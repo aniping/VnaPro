@@ -11,7 +11,7 @@
 
 namespace VnaNative {
 
-// Borrowed ABI buffers. Lengths count elements; callers guarantee their actual capacity.
+// 借用的 ABI 缓冲区；长度以元素计数，调用者保证实际容量。
 struct VNA_NATIVE_HIDDEN NormalFrameInput final {
     std::uint32_t pointCount = 0U;
     const std::uint32_t *parameters = nullptr;
@@ -20,22 +20,22 @@ struct VNA_NATIVE_HIDDEN NormalFrameInput final {
     std::uint32_t powerValueCount = 0U;
 };
 
-// Raw driver units are preserved; no frequency or IF bandwidth conversion is implied.
+// 保留驱动的原始单位，不隐含频率或中频带宽换算。
 struct VNA_NATIVE_HIDDEN NormalFramePoint final {
     std::uint64_t frequencyRaw = 0U;
     std::uint32_t sourcePort = 0U;
     std::uint32_t ifBandwidthRaw = 0U;
 };
 
-// Owns an independent copy of one source-port frame and its opaque power table.
+// 独立持有一个源端口帧及其功率表副本，不解释功率表内容。
 struct VNA_NATIVE_HIDDEN NormalFrameSnapshot final {
     std::uint32_t sourcePort = 0U;
     std::vector<NormalFramePoint> points;
     std::vector<double> tableData;
 
-    // Exchanges complete frames without allocation; callers provide synchronization.
+    // 交换完整帧而不进行内存分配；同步由调用者保证。
     void Swap(NormalFrameSnapshot &other) noexcept;
 };
 
-}  // namespace VnaNative
+}  // 命名空间 VnaNative
 #endif  // VNAPRO_NATIVE_SIM_NORMAL_FRAME_SNAPSHOT_H

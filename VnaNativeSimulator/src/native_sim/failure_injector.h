@@ -20,15 +20,15 @@ public:
     FailureInjector(FailureInjector &&) = delete;
     FailureInjector &operator=(FailureInjector &&) = delete;
 
-    // Destruction through the interface releases the derived test fixture.
+    // 通过接口析构时，释放派生测试夹具。
     virtual ~FailureInjector() = default;
 
-    // Called under the state mutex before commit. Implementations must not reenter the state.
+    // 提交前在状态互斥锁下调用；实现不得重入状态对象。
     virtual void ThrowIfRequested(FailurePoint point) = 0;
 
 protected:
     FailureInjector() noexcept = default;
 };
 
-}  // namespace VnaNative
+}  // 命名空间 VnaNative
 #endif  // VNAPRO_NATIVE_SIM_FAILURE_INJECTOR_H

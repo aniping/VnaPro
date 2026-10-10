@@ -11,16 +11,16 @@
 
 namespace VnaNative {
 
-// Owns the IQ frozen by one successful Start; later frame downloads cannot change it.
+// 持有一次成功启动时冻结的 IQ；后续帧下载不能改变该数据。
 struct VNA_NATIVE_HIDDEN NativePendingSweep final {
     bool valid = false;
     std::uint32_t pointCount = 0U;
     std::uint32_t sourcePort = 0U;
     std::vector<double> iqData;
 
-    // Replaces or consumes a pending result without allocation under the state mutex.
+    // 在状态互斥锁下替换或取走待取结果，不进行内存分配。
     void Swap(NativePendingSweep &other) noexcept;
 };
 
-}  // namespace VnaNative
+}  // 命名空间 VnaNative
 #endif  // VNAPRO_NATIVE_SIM_NATIVE_PENDING_SWEEP_H

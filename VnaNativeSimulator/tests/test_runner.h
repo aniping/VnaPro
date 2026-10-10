@@ -12,17 +12,17 @@ namespace VnaTest {
 
 class TestRunner final {
 public:
-    // A runner starts with no results and owns the counters for this test process.
+    // 执行器初始没有测试结果，并持有本测试进程的计数器。
     TestRunner() noexcept = default;
     TestRunner(const TestRunner &) = delete;
     TestRunner &operator=(const TestRunner &) = delete;
     TestRunner(TestRunner &&) = delete;
     TestRunner &operator=(TestRunner &&) = delete;
 
-    // Invokes the callable immediately; no capture is retained after this call.
-    // Exceptions become failed cases and are reported to stderr rather than stopping later cases.
+    // 立即执行可调用对象；调用结束后不保留其捕获内容。
+    // 异常记为失败用例并输出到标准错误，后续用例继续执行。
     void Run(const std::string &name, const std::function<void()> &function);
-    // Prints all results and returns a process status: zero iff every executed case passed.
+    // 输出所有结果并返回进程状态；仅当全部已执行用例通过时返回零。
     int Finish() const;
 
 private:
@@ -30,5 +30,5 @@ private:
     std::size_t failed_ = 0U;
 };
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 #endif  // VNAPRO_TESTS_TEST_RUNNER_H

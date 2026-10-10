@@ -74,7 +74,7 @@ bool IndexBytesFit(std::uint32_t indexCapacity) noexcept
     return bytes <= static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)());
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 NativeSimulatorState &NativeSimulatorState::Instance()
 {
@@ -108,7 +108,7 @@ std::uint32_t NativeSimulatorState::HwInit() noexcept
         successfulSweepIndex_ = 0U;
         return DRV_SIM_OK;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -141,7 +141,7 @@ std::uint32_t NativeSimulatorState::GetSweepData(std::uint32_t pointCount, doubl
         pendingSweep_.Swap(consumed);
         return DRV_SIM_OK;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -171,7 +171,7 @@ std::uint32_t NativeSimulatorState::ValidateSweepState(
 std::uint32_t NativeSimulatorState::GeneratePending(
     std::uint32_t pointCount, std::uint32_t sourcePort, std::size_t expectedValueCount)
 {
-    // The caller holds the mutex throughout generation, fault injection and the single commit.
+    // 调用者在生成、故障注入和唯一一次提交期间始终持有互斥锁。
     const NativeFrameSlot &frameSlot = downloadedFrames_[sourcePort];
     NativePendingSweep candidate;
     candidate.pointCount = pointCount;
@@ -209,7 +209,7 @@ std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount, std::ui
         }
         return GeneratePending(pointCount, sourcePort, expectedValueCount);
     } catch (...) {
-        // Generation or injected failure cannot publish half a pending result.
+        // 生成失败或注入的故障不会发布不完整的待取结果。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -229,7 +229,7 @@ std::uint32_t NativeSimulatorState::ActivateRxLink(std::uint32_t rxPortBitmap) n
         rxConfigured_ = true;
         return DRV_SIM_OK;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -252,7 +252,7 @@ std::uint32_t NativeSimulatorState::SetRfPowerOn(std::uint32_t enabled) noexcept
         }
         return DRV_SIM_OK;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -272,7 +272,7 @@ std::uint32_t NativeSimulatorState::SetFastSweepMode(std::uint32_t mode) noexcep
         fastModeConfigured_ = true;
         return DRV_SIM_OK;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -303,7 +303,7 @@ std::uint32_t NativeSimulatorState::GetIDN(char *buffer, int capacity) noexcept
         buffer[copyLength] = '\0';
         return DRV_SIM_BUFFER_TOO_SMALL;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -334,7 +334,7 @@ std::uint32_t NativeSimulatorState::CheckSweepPortPower(std::uint32_t rfPortBitm
         }
         return DRV_SIM_NOT_SUPPORTED;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -368,7 +368,7 @@ std::uint32_t NativeSimulatorState::DataFrameDownload(std::uint32_t pointCount, 
         downloadedFrames_[static_cast<std::size_t>(candidate.frame.sourcePort)].Swap(candidate);
         return DRV_SIM_OK;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -411,7 +411,7 @@ std::uint32_t NativeSimulatorState::CopyFrameForTest(
         output.Swap(candidate);
         return DRV_SIM_OK;
     } catch (...) {
-        // Preserve driver status semantics: C++ exceptions never escape an acquisition operation.
+        // 保持驱动状态码语义：C++ 异常不得传播到采集操作之外。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -429,4 +429,4 @@ void NativeSimulatorState::ThrowIfRequested(FailurePoint point) const
     }
 }
 
-}  // namespace VnaNative
+}  // 命名空间 VnaNative

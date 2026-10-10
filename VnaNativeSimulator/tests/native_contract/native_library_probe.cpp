@@ -38,7 +38,7 @@ std::string LoaderError(const char *operation)
 }
 #endif
 
-}  // namespace
+}  // 匿名命名空间
 
 NativeLibraryProbe::~NativeLibraryProbe() noexcept
 {
@@ -124,8 +124,8 @@ NativeLibraryProbe::SymbolAddress NativeLibraryProbe::ResolveAddress(
 
 void NativeLibraryProbe::ResolveInitialization(std::vector<std::string> &missingSymbols, std::string &errorMessage)
 {
-    // Platform loaders return an address representation; copy it into the exact ABI pointer type.
-    // Each assertion makes this explicitly platform-dependent bridge reject unsupported layouts.
+    // 平台加载器返回地址表示；将其复制到精确匹配 ABI 的指针类型。
+    // 各项断言用于让此依赖平台的转换拒绝不支持的布局。
     const SymbolAddress hwInit = ResolveAddress(VnaNative::g_drvHwInitSymbol, missingSymbols, errorMessage);
     static_assert(sizeof(functions_.hwInit) == sizeof(hwInit), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.hwInit, &hwInit, sizeof(hwInit));
@@ -188,4 +188,4 @@ const NativeFunctions &NativeLibraryProbe::Functions() const noexcept
     return functions_;
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

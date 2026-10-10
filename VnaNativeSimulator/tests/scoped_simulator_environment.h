@@ -11,10 +11,10 @@
 
 namespace VnaTest {
 
-// Tests mutate environment serially; saved values are restored on every scope exit.
+// 测试串行修改环境变量；每次退出作用域时恢复保存的值。
 class ScopedSimulatorEnvironment final {
 public:
-    // Null values unset a variable. Preserve the prior process configuration until this scope ends.
+    // 空值表示取消设置变量；保存原进程配置，并在作用域结束时恢复。
     ScopedSimulatorEnvironment(const char *mode, const char *seed)
         : hadMode_(std::getenv("VNAPRO_SIM_MODE") != nullptr),
           oldMode_(hadMode_ ? std::getenv("VNAPRO_SIM_MODE") : ""),
@@ -29,13 +29,13 @@ public:
     ScopedSimulatorEnvironment(ScopedSimulatorEnvironment &&) = delete;
     ScopedSimulatorEnvironment &operator=(ScopedSimulatorEnvironment &&) = delete;
 
-    // Restoration failures are reported without throwing during stack unwinding.
+    // 报告恢复失败，但不在栈展开期间抛出异常。
     ~ScopedSimulatorEnvironment() noexcept
     {
         Restore();
     }
 
-    // Changes mode and seed for a subsequent Init; errors restore the saved configuration and throw.
+    // 修改模式及种子，供后续初始化使用；失败时恢复保存的配置并抛出异常。
     void Set(const char *mode, const char *seed)
     {
         if (SetValue("VNAPRO_SIM_MODE", mode) != 0 || SetValue("VNAPRO_SIM_SEED", seed) != 0) {
@@ -69,5 +69,5 @@ private:
     const std::string oldSeed_;
 };
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
 #endif  // VNAPRO_TESTS_SCOPED_SIMULATOR_ENVIRONMENT_H

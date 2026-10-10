@@ -36,12 +36,12 @@ constexpr double FREQUENCY_RESPONSE_GAIN = 0.001;
 constexpr double REFLECTION_GAIN = 0.20;
 constexpr double TRANSMISSION_GAIN = 0.02;
 constexpr double PORT_PHASE_GAIN = 0.005;
-// Each axis is bounded by 0.2% / sqrt(2), so the complex perturbation is bounded by 0.2%.
+// 每个轴的扰动不超过 0.2% / sqrt(2)，因此复数扰动幅值不超过 0.2%。
 constexpr double NOISE_AXIS_RATIO = 0.001414213562373095;
 
 double FrequencyFactor(std::uint64_t frequencyRaw) noexcept
 {
-    // Unsigned wraparound is intentional. All 64 frequency bits influence this test factor.
+    // 无符号整数回绕是预期行为；频率的全部 64 位均参与此测试因子的计算。
     std::uint64_t mixed = frequencyRaw;
     mixed = (mixed ^ (mixed >> FREQUENCY_MIX_SHIFT)) * FREQUENCY_MIX_MULTIPLIER_A;
     mixed = (mixed ^ (mixed >> FREQUENCY_MIX_SHIFT)) * FREQUENCY_MIX_MULTIPLIER_B;
@@ -75,7 +75,7 @@ std::uint64_t MixNoiseBits(std::uint64_t value) noexcept
 
 double SignedNoiseUnit(std::uint64_t key) noexcept
 {
-    // Map the exactly representable upper 53 bits from [0,1) into [-1,1).
+    // 将可精确表示的高 53 位对应值从 [0,1) 映射到 [-1,1)。
     return (2.0 * static_cast<double>(MixNoiseBits(key) >> DOUBLE_PRECISION_SHIFT) / DOUBLE_INTEGER_SCALE) - 1.0;
 }
 
@@ -102,7 +102,7 @@ std::array<double, IQ_VALUES_PER_RECEIVER> ReceiverIq(
         ((receiverIndex == sourcePort) ? REFLECTION_GAIN : (TRANSMISSION_GAIN * receiverLabel * sourceLabel)) +
         (FREQUENCY_RESPONSE_GAIN * frequencyFactor);
     const double hImag = PORT_PHASE_GAIN * (receiverLabel - sourceLabel);
-    // Every B is excited by A_source, not by the receiving port's incident wave.
+    // 每个 B 均由源端口的 A_source 激励，而非接收端口的入射波。
     const double bReal = (hReal * sourceAReal) - (hImag * sourceAImag);
     const double bImag = (hReal * sourceAImag) + (hImag * sourceAReal);
     return {{aReal, aImag, bReal, bImag}};
@@ -138,7 +138,7 @@ void AddPointNoise(const NormalFrameSnapshot &frame, std::size_t pointIndex, std
     }
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 namespace SignalModel {
 
@@ -159,7 +159,7 @@ std::uint32_t Generate(const NormalFrameSnapshot &frame, std::vector<double> &ou
         output.swap(candidate);
         return DRV_SIM_OK;
     } catch (...) {
-        // Report generation/allocation failure without publishing a partial vector.
+        // 报告生成或分配失败，不发布不完整的向量。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
@@ -180,5 +180,5 @@ std::uint32_t GenerateNoisy(const NormalFrameSnapshot &frame, std::uint64_t seed
     return DRV_SIM_OK;
 }
 
-}  // namespace SignalModel
-}  // namespace VnaNative
+}  // 命名空间 SignalModel
+}  // 命名空间 VnaNative

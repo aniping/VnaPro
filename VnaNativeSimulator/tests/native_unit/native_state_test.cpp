@@ -49,7 +49,7 @@ void Configure(NativeSimulatorState &state)
     VnaTest::Expect(state.SetFastSweepMode(0U) == DRV_SIM_OK, VnaTest::TestLocation{__FILE__, __LINE__});
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 static void NativeStateRequiresInitializationWithoutWritingOutputs()
 {
@@ -318,4 +318,4 @@ void RunNativeStateTests(TestRunner &runner)
         NativeStateSerializesConcurrentConfigurationAndDownloads);
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

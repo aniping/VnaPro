@@ -56,4 +56,4 @@ void RunNativeApiSignatureTests(TestRunner &runner)
     runner.Run("NativeContractConstantsAreStable", NativeContractConstantsAreStable);
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

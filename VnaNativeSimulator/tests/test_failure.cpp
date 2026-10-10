@@ -9,4 +9,4 @@ TestFailure::TestFailure(const std::string &message) : std::runtime_error(messag
 {
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

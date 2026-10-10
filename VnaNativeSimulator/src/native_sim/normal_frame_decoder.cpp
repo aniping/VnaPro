@@ -34,7 +34,7 @@ std::uint32_t ValidateFields(const NormalFrameInput &input) noexcept
     if (firstSourcePort >= NATIVE_PORT_COUNT) {
         return DRV_SIM_INVALID_ARGUMENT;
     }
-    // Reject invalid or mixed ports before inspecting unsupported flags, preserving error precedence.
+    // 先拒绝无效或混合的源端口，再检查不支持的标志，以保持错误优先级。
     for (std::uint32_t pointIndex = 1U; pointIndex < input.pointCount; ++pointIndex) {
         const std::uint32_t sourcePort = input.parameters[PointParameterBase(pointIndex) + SOURCE_PORT_OFFSET];
         if (sourcePort >= NATIVE_PORT_COUNT || sourcePort != firstSourcePort) {
@@ -67,12 +67,12 @@ NormalFrameSnapshot CopyFrame(const NormalFrameInput &input)
         point.sourcePort = input.parameters[base + SOURCE_PORT_OFFSET];
         point.ifBandwidthRaw = input.parameters[base + IF_BANDWIDTH_OFFSET];
     }
-    // The power table is opaque; non-finite values are preserved rather than interpreted.
+    // 不解释功率表内容；非有限值原样保留。
     candidate.tableData.assign(input.powerTable, input.powerTable + input.powerValueCount);
     return candidate;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 namespace NormalFrameDecoder {
 
@@ -112,10 +112,10 @@ std::uint32_t Decode(const NormalFrameInput &input, NormalFrameSnapshot &output)
         output.Swap(candidate);
         return DRV_SIM_OK;
     } catch (...) {
-        // Convert allocation failures to the driver status; the uncommitted output is retained.
+        // 将分配失败转换为驱动状态码；输出尚未提交，保持原值。
         return DRV_SIM_INTERNAL_ERROR;
     }
 }
 
-}  // namespace NormalFrameDecoder
-}  // namespace VnaNative
+}  // 命名空间 NormalFrameDecoder
+}  // 命名空间 VnaNative

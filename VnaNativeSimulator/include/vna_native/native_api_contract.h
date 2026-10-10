@@ -6,8 +6,8 @@
 
 #include <cstdint>
 
-// The shared loader/simulator ABI declares exactly nine unchanged C-linkage functions.
-// CALL intentionally adds no calling convention; real vendor Windows ABI needs separate verification.
+// 加载器与模拟器共享的 ABI 声明九个签名保持不变的 C 链接函数。
+// CALL 不额外指定调用约定；真实厂商的 Windows ABI 需另行验证。
 #if defined(_WIN32)
 #if defined(VNA_NATIVE_BUILD_SHARED)
 #define VNA_NATIVE_EXPORT __declspec(dllexport)
@@ -28,7 +28,7 @@
 
 namespace VnaNative {
 
-// These status values describe the simulator, not an undocumented vendor driver contract.
+// 这些状态值定义模拟器行为，不代表未公开的厂商驱动契约。
 enum DrvSimErrorCode : std::uint32_t {
     DRV_SIM_OK = 0U,
     DRV_SIM_INVALID_ARGUMENT = 1U,
@@ -41,7 +41,7 @@ enum DrvSimErrorCode : std::uint32_t {
     DRV_SIM_INTERNAL_ERROR = 8U
 };
 
-// Ports are numbered 0..3. All ABI lengths count elements rather than bytes.
+// 端口编号为 0～3；所有 ABI 长度均以元素计数，不以字节计数。
 enum NativeFrameLayout : std::uint32_t {
     NATIVE_PORT_COUNT = 4U,
     PARAM_VALUES_PER_POINT = 6U,
@@ -59,7 +59,7 @@ constexpr const char g_drvGetIdnSymbol[] = "DrvGetIDN";
 constexpr const char g_drvCheckSweepPortPowerSymbol[] = "DrvCheckSweepPortPower";
 constexpr const char g_drvDataFrameDownloadSymbol[] = "DrvDataFrameDownload";
 
-// Strong function-pointer aliases preserve the frozen dynamically loaded ABI signatures.
+// 使用明确的函数指针类型别名，保持已固定的动态加载 ABI 签名。
 using DrvHwInitFn = std::uint32_t(VNA_NATIVE_CALL *)();
 using DrvGetSweepDataFn = std::uint32_t(VNA_NATIVE_CALL *)(std::uint32_t, double *);
 using DrvStartSweepFn = std::uint32_t(VNA_NATIVE_CALL *)(std::uint32_t, std::uint32_t);
@@ -72,37 +72,37 @@ using DrvCheckSweepPortPowerFn = std::uint32_t(VNA_NATIVE_CALL *)(
 using DrvDataFrameDownloadFn = std::uint32_t(VNA_NATIVE_CALL *)(
     std::uint32_t, std::uint32_t *, std::uint32_t, double *, std::uint32_t);
 
-}  // namespace VnaNative
+}  // 命名空间 VnaNative
 
 extern "C" {
 
-// Resets frames/pending/configuration and disables RF; invalid environment preserves the old state.
+// 重置帧、待取结果和配置，并关闭射频；环境配置无效时保留原状态。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvHwInit();
-// Consumes one matching pending result. iqData must hold 16 * pointCount writable doubles.
-// This frozen ABI has no capacity parameter; failures do not consume pending or modify output.
+// 取走一个匹配的待取结果；iqData 必须可写入 16 * pointCount 个 double。
+// 此固定 ABI 没有容量参数；失败时不取走待取结果，也不修改输出。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetSweepData(std::uint32_t pointCount, double *iqData);
-// Generates pending IQ synchronously from the matching source-port frame (0..3).
-// Requires initialized/configured RF, RX and normal mode; unread pending rejects another Start.
+// 根据匹配的源端口帧同步生成待取 IQ，源端口编号为 0～3。
+// 要求已完成初始化，并配置射频、接收链路和普通模式；存在未取结果时拒绝再次启动。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvStartSweep(std::uint32_t pointCount, std::uint32_t sourcePort);
-// Accepts bitmap 1..0x0f. The simulator still produces the complete four-port IQ layout.
+// 接受 1～0x0f 的位图；模拟器仍生成完整的四端口 IQ 布局。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvActivateRxLink(std::uint32_t rxPortBitmap);
-// Accepts 0/1; disabling RF discards pending and retains downloaded frames.
+// 接受 0 或 1；关闭射频时丢弃待取结果，保留已下载的帧。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvSetRfPowerOn(std::uint32_t enabled);
-// Accepts only normal mode 0; must be called explicitly before Start.
+// 仅接受普通模式 0；启动前必须显式调用。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvSetFastSweepMode(std::uint32_t mode);
-// Writes VnaPro,NativeSimulator,4PORT,1.0 after initialization; capacity counts chars including NUL.
-// Positive insufficient capacity produces a NUL-terminated prefix and BUFFER_TOO_SMALL.
+// 初始化后写入 VnaPro,NativeSimulator,4PORT,1.0；容量以字符计数，包含空字符终止符。
+// 容量为正但不足时，写入以空字符终止的前缀，并返回 BUFFER_TOO_SMALL。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetIDN(char *buffer, int capacity);
-// Valid initialized calls clear outputs and return NOT_SUPPORTED: power detection is not modeled.
-// checkBitmap points to one uint32; overFreqIndex holds indexCapacity uint16s (nullable when zero).
+// 未模拟功率检测；初始化后的有效调用清空输出，并返回 NOT_SUPPORTED。
+// checkBitmap 指向一个 uint32；overFreqIndex 容纳 indexCapacity 个 uint16，容量为零时允许空指针。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvCheckSweepPortPower(
     std::uint32_t rfPortBitmap, std::uint32_t *checkBitmap, std::uint16_t *overFreqIndex, std::uint32_t indexCapacity);
-// Copies a normal frame into its source-port slot. Counts must equal 1 + 6N and 9N for N points.
-// Every point uses the same source port in 0..3; quick/dynamicLink/dynamicEnabled must be zero.
-// Frozen ABI pointers remain non-const, but decoding is read-only and keeps independent copies.
-// The caller guarantees actual readable capacity; pending IQ is unaffected by a new download.
+// 将普通帧复制到对应源端口的槽位；N 个点的元素数量必须分别为 1 + 6N 和 9N。
+// 所有点使用同一个 0～3 范围内的源端口；quick、dynamicLink 和 dynamicEnabled 必须为零。
+// 固定 ABI 中的指针保留非 const 类型，但解码只读取输入，并保留独立副本。
+// 调用者保证实际可读容量；新帧下载不影响待取 IQ。
 VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvDataFrameDownload(std::uint32_t pointCount, std::uint32_t *paramData,
     std::uint32_t paramDataLen, double *tableData, std::uint32_t tableDataLen);
 
-}  // extern "C"
+}  // C 链接接口
 #endif  // VNAPRO_VNA_NATIVE_NATIVE_API_CONTRACT_H

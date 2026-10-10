@@ -12,15 +12,15 @@
 namespace VnaNative {
 namespace SignalModel {
 
-// Replaces output only on success; each point contains [A.re,A.im,B.re,B.im] for ports 0..3.
-// The complete port layout is retained regardless of RX masks; raw IFBW/power fields do not affect IQ.
+// 仅在成功时替换输出；每个点包含端口 0～3 各自的 [A.re,A.im,B.re,B.im]。
+// 无论接收位图如何设置，均保留完整端口布局；原始中频带宽和功率字段不影响 IQ。
 VNA_NATIVE_HIDDEN std::uint32_t Generate(const NormalFrameSnapshot &frame, std::vector<double> &output) noexcept;
 
-// Adds deterministic complex noise bounded by 0.2% of each golden wave magnitude.
-// Same seed and successful Start sequence reproduce the result; errors leave output unchanged.
+// 添加可复现的复数噪声，其幅值不超过各基准波幅值的 0.2%。
+// 相同种子和成功启动序列可复现结果；失败时保持输出不变。
 VNA_NATIVE_HIDDEN std::uint32_t GenerateNoisy(const NormalFrameSnapshot &frame, std::uint64_t seed,
     std::uint64_t sweepIndex, std::vector<double> &output) noexcept;
 
-}  // namespace SignalModel
-}  // namespace VnaNative
+}  // 命名空间 SignalModel
+}  // 命名空间 VnaNative
 #endif  // VNAPRO_NATIVE_SIM_SIGNAL_MODEL_H

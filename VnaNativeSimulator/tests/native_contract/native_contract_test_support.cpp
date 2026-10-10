@@ -6,7 +6,7 @@
 namespace VnaTest {
 namespace {
 
-// Independent contract expectations must not use the production decoder/model constants.
+// 独立的契约预期值不得使用生产解码器或模型常量。
 constexpr std::size_t PARAMETER_HEADER_VALUES = 1U;
 constexpr std::size_t PARAMETERS_PER_POINT = 6U;
 constexpr std::size_t POWER_VALUES_PER_POINT = 9U;
@@ -38,7 +38,7 @@ enum ParameterOffset {
     DYNAMIC_ENABLED
 };
 
-}  // namespace
+}  // 匿名命名空间
 
 FrameInput MakeNormalFrame(std::uint32_t pointCount, std::uint32_t sourcePort, std::uint64_t firstFrequency)
 {
@@ -120,4 +120,4 @@ void ExpectIqNear(const std::vector<double> &expected, const double *actual)
     }
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest

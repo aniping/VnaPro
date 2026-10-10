@@ -102,4 +102,4 @@ void RunSignalModelTests(TestRunner &runner)
         "SignalModelRejectsInvalidFramesWithoutChangingOutput", SignalModelRejectsInvalidFramesWithoutChangingOutput);
 }
 
-}  // namespace VnaTest
+}  // 命名空间 VnaTest
