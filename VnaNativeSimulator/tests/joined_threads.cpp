@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace vna_test {
+namespace VnaTest {
 
 JoinedThreads::JoinedThreads(std::size_t workerCapacity, std::function<void()> beforeJoin)
     : workerCapacity_(workerCapacity), beforeJoin_(std::move(beforeJoin))
@@ -47,4 +47,4 @@ void JoinedThreads::Join()
     }
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest

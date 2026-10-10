@@ -9,7 +9,7 @@
 
 #include "test_runner.h"
 
-namespace vna_test {
+namespace VnaTest {
 
 struct TestLocation final {
     const char *file = nullptr;
@@ -25,5 +25,5 @@ void ExpectNear(double expected, double actual, double tolerance, TestLocation l
 std::string ToString(std::size_t value);
 std::string ToString(double value);
 
-}  // namespace vna_test
+}  // namespace VnaTest
 #endif  // VNAPRO_TESTS_TEST_SUPPORT_H

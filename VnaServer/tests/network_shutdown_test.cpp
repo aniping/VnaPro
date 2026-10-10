@@ -62,7 +62,7 @@ void ExerciseNetworkShutdown(vna_service::InstrumentService &service)
 
 void RunNetworkShutdown(const std::string &driver)
 {
-    vna_test::ScopedSimulatorEnvironment environment("golden", nullptr);
+    VnaTest::ScopedSimulatorEnvironment environment("golden", nullptr);
     vna_core::AcquisitionCore core(driver);
     Expect(core.Initialize().get().ok, "Core initialization failed");
     vna_service::InstrumentService service(core);

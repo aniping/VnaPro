@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace vna_test {
+namespace VnaTest {
 
 // Independent offline integer hash and high-precision arithmetic golden vectors, not production calculations.
 // Each point orders A1.re/A1.im/B1.re/B1.im through A4/B4; the high-word case detects truncated frequencies.
@@ -68,6 +68,6 @@ inline std::vector<double> GoldenIqForSource(std::uint32_t sourcePort)
     return expected;
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest
 
 #endif  // VNAPRO_TESTS_GOLDEN_IQ_VECTORS_H

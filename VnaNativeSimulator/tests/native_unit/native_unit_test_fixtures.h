@@ -12,7 +12,7 @@
 #include "../test_support.h"
 #include "normal_frame_decoder.h"
 
-namespace vna_test {
+namespace VnaTest {
 
 struct EncodedFrame final {
     std::vector<std::uint32_t> parameters;
@@ -28,6 +28,6 @@ VnaNative::NormalFrameSnapshot MakeSnapshot(std::uint32_t sourcePort, const std:
 // Requires matching lengths and finite actual values within the fixed IQ tolerance.
 void ExpectVectorNear(const std::vector<double> &expected, const std::vector<double> &actual);
 
-}  // namespace vna_test
+}  // namespace VnaTest
 
 #endif  // VNAPRO_TESTS_NATIVE_UNIT_NATIVE_UNIT_TEST_FIXTURES_H

@@ -9,7 +9,7 @@
 
 #include "failure_injector.h"
 
-namespace vna_test {
+namespace VnaTest {
 
 class ThrowAtPoint final : public VnaNative::FailureInjector {
 public:
@@ -44,5 +44,5 @@ private:
     std::uint32_t throwCount_ = 0U;
 };
 
-}  // namespace vna_test
+}  // namespace VnaTest
 #endif  // VNAPRO_TESTS_NATIVE_UNIT_THROW_AT_POINT_H

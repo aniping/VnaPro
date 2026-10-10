@@ -6,12 +6,12 @@
 
 int main()
 {
-    vna_test::ScopedSimulatorEnvironment environment(nullptr, nullptr);
-    vna_test::TestRunner runner;
-    vna_test::RunNativeApiSignatureTests(runner);
-    vna_test::RunNativeStateTests(runner);
-    vna_test::RunNoiseModeTests(runner);
-    vna_test::RunNormalFrameDecoderTests(runner);
-    vna_test::RunSignalModelTests(runner);
+    VnaTest::ScopedSimulatorEnvironment environment(nullptr, nullptr);
+    VnaTest::TestRunner runner;
+    VnaTest::RunNativeApiSignatureTests(runner);
+    VnaTest::RunNativeStateTests(runner);
+    VnaTest::RunNoiseModeTests(runner);
+    VnaTest::RunNormalFrameDecoderTests(runner);
+    VnaTest::RunSignalModelTests(runner);
     return runner.Finish();
 }

@@ -8,7 +8,7 @@
 
 #include "failure_injector.h"
 
-namespace vna_test {
+namespace VnaTest {
 
 class RejectPendingCommit final : public VnaNative::FailureInjector {
 public:
@@ -29,5 +29,5 @@ public:
     }
 };
 
-}  // namespace vna_test
+}  // namespace VnaTest
 #endif  // VNAPRO_TESTS_NATIVE_UNIT_REJECT_PENDING_COMMIT_H

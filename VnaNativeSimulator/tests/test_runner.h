@@ -8,7 +8,7 @@
 #include <functional>
 #include <string>
 
-namespace vna_test {
+namespace VnaTest {
 
 class TestRunner final {
 public:
@@ -30,5 +30,5 @@ private:
     std::size_t failed_ = 0U;
 };
 
-}  // namespace vna_test
+}  // namespace VnaTest
 #endif  // VNAPRO_TESTS_TEST_RUNNER_H

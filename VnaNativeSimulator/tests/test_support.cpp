@@ -8,7 +8,7 @@
 
 #include "test_failure.h"
 
-namespace vna_test {
+namespace VnaTest {
 
 void Fail(const std::string &message, TestLocation location)
 {
@@ -45,4 +45,4 @@ std::string ToString(double value)
     return stream.str();
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest

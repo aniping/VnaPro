@@ -72,18 +72,18 @@ void VerifyHighWord(
     vna_core::AcquisitionCore &core, vna_core::SweepPlan plan, const vna_core::MeasurementFrame &retained)
 {
     // The low words are equal; both complete RI vectors must match independent literals.
-    plan.frequencyRaw[1] = vna_test::GOLDEN_IQ_HIGH_WORD_FREQUENCY;
-    plan.frequencyHz[1] = static_cast<double>(vna_test::GOLDEN_IQ_HIGH_WORD_FREQUENCY);
+    plan.frequencyRaw[1] = VnaTest::GOLDEN_IQ_HIGH_WORD_FREQUENCY;
+    plan.frequencyHz[1] = static_cast<double>(VnaTest::GOLDEN_IQ_HIGH_WORD_FREQUENCY);
     plan.sourcePorts = {1U};
-    const double *low = vna_test::g_goldenIqBySource[0U][0U];
+    const double *low = VnaTest::g_goldenIqBySource[0U][0U];
     std::vector<double> highWordExpected(low, low + 16U);
     highWordExpected.insert(
-        highWordExpected.end(), vna_test::g_goldenIqHighWordSource0, vna_test::g_goldenIqHighWordSource0 + 16U);
+        highWordExpected.end(), VnaTest::g_goldenIqHighWordSource0, VnaTest::g_goldenIqHighWordSource0 + 16U);
     const auto highConfigured = Await(core.Configure(plan));
     const auto highStarted = Await(core.Start(vna_core::RunMode::MANUAL));
     const auto highTriggered = Await(core.TriggerOnce(highStarted.runId, highConfigured.configRevision));
     VerifyFrame(core.ReadView().frame.get(), plan, {highWordExpected}, highTriggered);
-    Require(retained.ports.size() == 4U && retained.plan.frequencyRaw[1] == vna_test::g_goldenIqFrequencies[1],
+    Require(retained.ports.size() == 4U && retained.plan.frequencyRaw[1] == VnaTest::g_goldenIqFrequencies[1],
         "reconfiguration modified an old published frame");
     Await(core.Stop(highStarted.runId));
     Require(core.Close().ok && core.ReadView().state == vna_core::CoreState::CLOSED, "native close failed");
@@ -113,7 +113,7 @@ int main(int argc, char **argv)
         Await(core.Initialize());
         Require(core.ReadView().deviceIdn.find("VnaPro,NativeSimulator,") == 0U, "unexpected simulator identity");
         vna_core::SweepPlan plan;
-        plan.frequencyRaw = {vna_test::g_goldenIqFrequencies[0], vna_test::g_goldenIqFrequencies[1]};
+        plan.frequencyRaw = {VnaTest::g_goldenIqFrequencies[0], VnaTest::g_goldenIqFrequencies[1]};
         plan.frequencyHz = {1000000000.0, 2000000000.0};
         plan.ifBandwidthRaw = 1000U;
         plan.receiverMask = 0xFU;
@@ -121,7 +121,7 @@ int main(int argc, char **argv)
         plan.tableData.assign(18U, std::numeric_limits<double>::quiet_NaN());
         std::vector<std::vector<double>> expected;
         for (std::uint32_t source = 0U; source < 4U; ++source) {
-            expected.push_back(vna_test::GoldenIqForSource(source));
+            expected.push_back(VnaTest::GoldenIqForSource(source));
         }
         const auto configured = Await(core.Configure(plan));
         const auto started = Await(core.Start(vna_core::RunMode::MANUAL));

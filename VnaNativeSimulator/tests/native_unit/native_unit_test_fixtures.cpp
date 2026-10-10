@@ -3,7 +3,7 @@
  */
 #include "native_unit_test_fixtures.h"
 
-namespace vna_test {
+namespace VnaTest {
 namespace {
 
 constexpr std::size_t PARAMETER_HEADER_VALUES = 1U;
@@ -69,14 +69,14 @@ VnaNative::NormalFrameSnapshot MakeSnapshot(std::uint32_t sourcePort, const std:
 
 void ExpectVectorNear(const std::vector<double> &expected, const std::vector<double> &actual)
 {
-    vna_test::Expect(actual.size() == expected.size(), vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(actual.size() == expected.size(), VnaTest::TestLocation{__FILE__, __LINE__});
     for (std::size_t index = 0U; index < expected.size(); ++index) {
         if (!std::isfinite(actual[index]) || std::fabs(expected[index] - actual[index]) > IQ_TOLERANCE) {
-            vna_test::Fail(std::string("向量偏移 ") + ToString(index) + " 不符合预期，实际为 " +
-                               ToString(actual[index]) + "，期望为 " + ToString(expected[index]),
-                vna_test::TestLocation{__FILE__, __LINE__});
+            VnaTest::Fail(std::string("向量偏移 ") + ToString(index) + " 不符合预期，实际为 " +
+                              ToString(actual[index]) + "，期望为 " + ToString(expected[index]),
+                VnaTest::TestLocation{__FILE__, __LINE__});
         }
     }
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest

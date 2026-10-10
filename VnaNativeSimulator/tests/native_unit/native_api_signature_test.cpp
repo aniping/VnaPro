@@ -25,35 +25,35 @@ static_assert(std::is_same<VnaNative::DrvDataFrameDownloadFn, decltype(&::DrvDat
 
 static void NativeContractConstantsAreStable()
 {
-    vna_test::Expect(VnaNative::NATIVE_PORT_COUNT == 4U, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(VnaNative::PARAM_VALUES_PER_POINT == 6U, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(VnaNative::TABLE_VALUES_PER_POINT == 9U, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(VnaNative::IQ_VALUES_PER_POINT == 16U, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvHwInitSymbol) == std::string("DrvHwInit"),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvGetSweepDataSymbol) == std::string("DrvGetSweepData"),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvStartSweepSymbol) == std::string("DrvStartSweep"),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvActivateRxLinkSymbol) == std::string("DrvActivateRxLink"),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvSetRfPowerOnSymbol) == std::string("DrvSetRfPowerOn"),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvSetFastSweepModeSymbol) == std::string("DrvSetFastSweepMode"),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvGetIdnSymbol) == std::string("DrvGetIDN"),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvCheckSweepPortPowerSymbol) == std::string("DrvCheckSweepPortPower"),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(std::string(VnaNative::g_drvDataFrameDownloadSymbol) == std::string("DrvDataFrameDownload"),
-        vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(VnaNative::NATIVE_PORT_COUNT == 4U, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(VnaNative::PARAM_VALUES_PER_POINT == 6U, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(VnaNative::TABLE_VALUES_PER_POINT == 9U, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(VnaNative::IQ_VALUES_PER_POINT == 16U, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvHwInitSymbol) == std::string("DrvHwInit"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvGetSweepDataSymbol) == std::string("DrvGetSweepData"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvStartSweepSymbol) == std::string("DrvStartSweep"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvActivateRxLinkSymbol) == std::string("DrvActivateRxLink"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvSetRfPowerOnSymbol) == std::string("DrvSetRfPowerOn"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvSetFastSweepModeSymbol) == std::string("DrvSetFastSweepMode"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvGetIdnSymbol) == std::string("DrvGetIDN"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvCheckSweepPortPowerSymbol) == std::string("DrvCheckSweepPortPower"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(std::string(VnaNative::g_drvDataFrameDownloadSymbol) == std::string("DrvDataFrameDownload"),
+        VnaTest::TestLocation{__FILE__, __LINE__});
 }
 
-namespace vna_test {
+namespace VnaTest {
 
 void RunNativeApiSignatureTests(TestRunner &runner)
 {
     runner.Run("NativeContractConstantsAreStable", NativeContractConstantsAreStable);
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest

@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace vna_test {
+namespace VnaTest {
 
 // Tests mutate environment serially; saved values are restored on every scope exit.
 class ScopedSimulatorEnvironment final {
@@ -69,5 +69,5 @@ private:
     const std::string oldSeed_;
 };
 
-}  // namespace vna_test
+}  // namespace VnaTest
 #endif  // VNAPRO_TESTS_SCOPED_SIMULATOR_ENVIRONMENT_H

@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace vna_test {
+namespace VnaTest {
 
 class TestFailure final : public std::runtime_error {
 public:
@@ -20,5 +20,5 @@ public:
     ~TestFailure() override = default;
 };
 
-}  // namespace vna_test
+}  // namespace VnaTest
 #endif  // VNAPRO_TESTS_TEST_FAILURE_H

@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-namespace vna_test {
+namespace VnaTest {
 
 // Owns joined workers so partial thread creation cannot leave joinable threads during unwinding.
 class JoinedThreads final {
@@ -33,5 +33,5 @@ private:
     std::vector<std::thread> threads_;
 };
 
-}  // namespace vna_test
+}  // namespace VnaTest
 #endif  // VNAPRO_TESTS_JOINED_THREADS_H

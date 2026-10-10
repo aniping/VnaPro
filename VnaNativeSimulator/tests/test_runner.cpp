@@ -6,7 +6,7 @@
 #include <exception>
 #include <iostream>
 
-namespace vna_test {
+namespace VnaTest {
 
 void TestRunner::Run(const std::string &name, const std::function<void()> &function)
 {
@@ -29,4 +29,4 @@ int TestRunner::Finish() const
     return failed_ == 0U ? 0 : 1;
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest

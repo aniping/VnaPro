@@ -463,7 +463,7 @@ void InvalidServiceEnumsDoNotMutate(const std::string &)
 
 int main(int argc, char **argv)
 {
-    vna_test::ScopedSimulatorEnvironment environment("golden", nullptr);
+    VnaTest::ScopedSimulatorEnvironment environment("golden", nullptr);
     if (argc != 2) {
         std::cerr << "native simulator library path required\n";
         return 2;
