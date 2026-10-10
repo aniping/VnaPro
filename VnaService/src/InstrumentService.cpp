@@ -77,9 +77,13 @@ public:
         Kind kind = Kind::Configure;
         int stage = 0;
         bool measurement = false;
+        bool forceInternalSource = false;
+        std::string owner = "SCPI";
+        std::uint64_t generation = 0;
         TriggerSource source = TriggerSource::Immediate;
         SweepMode mode = SweepMode::Hold;
         std::uint64_t expectedRevision = 0;
+        bool checkRevision = false;
         std::function<OperationResult(InstrumentSettings&)> mutate;
         InstrumentSettings candidate;
         vna_core::Ticket ticket;
@@ -94,7 +98,9 @@ public:
     std::deque<std::unique_ptr<Task>> tasks;
     std::deque<InstrumentError> errors;
     bool mockReady = false;
-    bool control = false;
+    std::string owner;
+    std::uint64_t controlGeneration = 0;
+    bool releasing = false;
     unsigned ese = 0;
     unsigned sre = 0;
     unsigned esr = 128U;
@@ -122,35 +128,40 @@ public:
             esr |= 8U;
         }
     }
-    Operation rejected(int code, const std::string& message)
+    Operation rejected(int code, const std::string& message, const std::string& requester = "SCPI")
     {
-        error(code, message);
+        if (requester == "SCPI")
+            error(code, message);
         std::promise<OperationResult> promise;
         Operation operation = promise.get_future().share();
         promise.set_value(result(false, code, message));
         return operation;
     }
-    Operation enqueue(std::unique_ptr<Task> task)
+    Operation enqueue(std::unique_ptr<Task> task, const std::string& requester = "SCPI")
     {
-        if (!control)
-            return rejected(-221, "No instrument control");
+        if (owner != requester || requester.empty() || releasing)
+            return rejected(-221, "No active instrument control", requester);
         if (!mockReady)
-            return rejected(-221, "Verified backend profile is not initialized");
+            return rejected(-221, "Verified backend profile is not initialized", requester);
         if (tasks.size() >= 32U)
-            return rejected(-363, "Control input buffer overrun");
+            return rejected(-363, "Control input buffer overrun", requester);
+        task->owner = requester;
+        task->generation = controlGeneration;
         Operation operation = task->operation;
         tasks.push_back(std::move(task));
         return operation;
     }
-    Operation configure(std::function<OperationResult(InstrumentSettings&)> mutate, std::uint64_t expected)
+    Operation configure(std::function<OperationResult(InstrumentSettings&)> mutate, std::uint64_t expected,
+        const std::string& requester = "SCPI")
     {
         if (settings.sweepMode != SweepMode::Hold || hasMeasurement() ||
             core.readView().state != vna_core::CoreState::Ready)
-            return rejected(-221, "Configuration requires HOLD and no pending measurement");
+            return rejected(-221, "Configuration requires HOLD and no pending measurement", requester);
         std::unique_ptr<Task> task(new Task);
         task->mutate = std::move(mutate);
         task->expectedRevision = expected;
-        return enqueue(std::move(task));
+        task->checkRevision = expected != 0U || requester != "SCPI";
+        return enqueue(std::move(task), requester);
     }
     bool hasMeasurement() const
     {
@@ -174,7 +185,8 @@ public:
             if (tasks.front()->measurement &&
                 (view.state == vna_core::CoreState::Faulted || view.state == vna_core::CoreState::Closed))
                 settings.sweepMode = SweepMode::Hold;
-            error(value.errorCode, value.message);
+            if (tasks.front()->owner == "SCPI" || view.state == vna_core::CoreState::Faulted)
+                error(value.errorCode, value.message);
             observedFault = view.error;
         }
         tasks.front()->promise.set_value(value);
@@ -203,6 +215,10 @@ public:
         if (tasks.empty())
             return;
         Task& task = *tasks.front();
+        if (task.stage == 0 && (task.owner != owner || task.generation != controlGeneration)) {
+            finish(result(false, -221, "Instrument control generation changed"));
+            return;
+        }
         if (task.kind == Kind::Configure) {
             if (task.stage == 0) {
                 const auto view = core.readView();
@@ -210,7 +226,7 @@ public:
                     finish(result(false, -221, "Configuration requires HOLD and no pending measurement"));
                     return;
                 }
-                if (task.expectedRevision != 0U && task.expectedRevision != settings.revision) {
+                if (task.checkRevision && task.expectedRevision != settings.revision) {
                     finish(result(false, -221, "Configuration revision changed"));
                     return;
                 }
@@ -273,6 +289,8 @@ public:
                 task.candidate.sweepMode = task.mode;
             else
                 task.candidate.triggerSource = task.source;
+            if (task.forceInternalSource)
+                task.candidate.triggerSource = TriggerSource::Immediate;
             task.measurement = task.candidate.sweepMode == SweepMode::Single &&
                                task.candidate.triggerSource == TriggerSource::Immediate;
             if (view.state == vna_core::CoreState::Running) {
@@ -303,6 +321,10 @@ public:
         if (task.stage == 3) {
             if (!consume(task))
                 return;
+            if (task.candidate.sweepMode == SweepMode::Single) {
+                settings.sweepMode = SweepMode::Single;
+                settings.triggerSource = task.candidate.triggerSource;
+            }
             if (task.candidate.sweepMode != SweepMode::Single ||
                 task.candidate.triggerSource != TriggerSource::Immediate) {
                 commitMode(task);
@@ -335,7 +357,7 @@ InstrumentService::~InstrumentService() = default;
 bool InstrumentService::bootstrapMockProfile(std::string& error)
 {
     const auto view = impl_->core.readView();
-    if (impl_->mockReady || impl_->control || view.state != vna_core::CoreState::Ready ||
+    if (impl_->mockReady || !impl_->owner.empty() || view.state != vna_core::CoreState::Ready ||
         view.deviceIdn.find("VnaPro,NativeSimulator,") != 0U) {
         error = "Mock profile requires an initialized NativeSimulator before connection admission";
         return false;
@@ -373,17 +395,46 @@ std::vector<Operation> InstrumentService::pendingOperations() const
         operations.push_back(task->operation);
     return operations;
 }
-bool InstrumentService::tryAcquireControl()
+bool InstrumentService::tryAcquireControl(const std::string& owner)
 {
-    if (impl_->control)
+    if (!impl_->owner.empty() || owner.empty())
         return false;
-    impl_->control = true;
+    impl_->owner = owner;
+    impl_->releasing = false;
+    ++impl_->controlGeneration;
     return true;
 }
-void InstrumentService::releaseControl()
+void InstrumentService::beginReleaseControl(const std::string& owner)
 {
-    if (impl_->tasks.empty())
-        impl_->control = false;
+    if (impl_->owner == owner)
+        impl_->releasing = true;
+}
+void InstrumentService::releaseControl(const std::string& owner)
+{
+    if (impl_->owner == owner && impl_->tasks.empty()) {
+        impl_->owner.clear();
+        impl_->releasing = false;
+        ++impl_->controlGeneration;
+    }
+}
+std::string InstrumentService::controlOwner() const
+{
+    return impl_->owner;
+}
+bool InstrumentService::controlReleasing() const
+{
+    return impl_->releasing;
+}
+InstrumentSnapshot InstrumentService::snapshot() const
+{
+    InstrumentSnapshot value;
+    value.settings = impl_->settings;
+    value.core = impl_->core.readView();
+    value.controlOwner = impl_->owner;
+    value.releasing = impl_->releasing;
+    value.pending = !impl_->tasks.empty();
+    value.finitePending = impl_->hasMeasurement();
+    return value;
 }
 const InstrumentSettings& InstrumentService::settings() const
 {
@@ -452,7 +503,51 @@ Operation InstrumentService::setIfBandwidthHz(double value, std::uint64_t expect
         },
         expected);
 }
-Operation InstrumentService::defineMeasurement(Measurement measurement, std::uint64_t expected)
+Operation InstrumentService::applyConfiguration(ConfigPatch patch, std::uint64_t expected, const std::string& owner)
+{
+    return impl_->configure(
+        [patch](InstrumentSettings& settings) {
+            if (!patch.hasStartHz && !patch.hasStopHz && !patch.hasPoints && !patch.hasIfBandwidthHz)
+                return result(false, -109, "Configuration patch is empty");
+            const double span = settings.stopHz - settings.startHz;
+            double start = settings.startHz;
+            double stop = settings.stopHz;
+            if (patch.hasStartHz) {
+                if (!validFrequency(patch.startHz))
+                    return result(false, -222, "Start frequency out of mock range");
+                start = std::round(patch.startHz);
+            }
+            if (patch.hasStopHz) {
+                if (!validFrequency(patch.stopHz))
+                    return result(false, -222, "Stop frequency out of mock range");
+                stop = std::round(patch.stopHz);
+            }
+            if (patch.hasStartHz && patch.hasStopHz && start > stop)
+                return result(false, -222, "Start frequency exceeds stop frequency");
+            if (patch.hasStartHz && !patch.hasStopHz && start > stop)
+                stop = start + span;
+            if (patch.hasStopHz && !patch.hasStartHz && stop < start)
+                start = stop - span;
+            if (!validFrequency(start) || !validFrequency(stop))
+                return result(false, -222, "Coupled frequency endpoint out of mock range");
+            if (patch.hasPoints && (patch.points < 2U || patch.points > 10001U))
+                return result(false, -222, "Point count outside 2..10001");
+            if (patch.hasIfBandwidthHz) {
+                if (!std::isfinite(patch.ifBandwidthHz) || patch.ifBandwidthHz <= 0 ||
+                    quantizedBandwidth(patch.ifBandwidthHz) == 0)
+                    return result(false, -222, "IF bandwidth out of mock range");
+                settings.ifBandwidthHz = quantizedBandwidth(patch.ifBandwidthHz);
+            }
+            settings.startHz = start;
+            settings.stopHz = stop;
+            if (patch.hasPoints)
+                settings.points = patch.points;
+            return result(true);
+        },
+        expected, owner);
+}
+Operation InstrumentService::defineMeasurement(
+    Measurement measurement, std::uint64_t expected, const std::string& owner)
 {
     measurement.receiverKind = static_cast<char>(std::tolower(static_cast<unsigned char>(measurement.receiverKind)));
     return impl_->configure(
@@ -471,9 +566,10 @@ Operation InstrumentService::defineMeasurement(Measurement measurement, std::uin
                 settings.selectedMeasurement = measurement.name;
             return result(true);
         },
-        expected);
+        expected, owner);
 }
-Operation InstrumentService::deleteMeasurement(const std::string& name, std::uint64_t expected)
+Operation InstrumentService::deleteMeasurement(
+    const std::string& name, std::uint64_t expected, const std::string& owner)
 {
     return impl_->configure(
         [name](InstrumentSettings& settings) {
@@ -487,42 +583,57 @@ Operation InstrumentService::deleteMeasurement(const std::string& name, std::uin
                     settings.measurements.empty() ? std::string() : settings.measurements.front().name;
             return result(true);
         },
-        expected);
+        expected, owner);
 }
-Operation InstrumentService::setTriggerSource(TriggerSource source)
+Operation InstrumentService::setTriggerSource(TriggerSource source, const std::string& owner)
 {
     std::unique_ptr<Impl::Task> task(new Impl::Task);
     task->kind = Impl::Kind::Source;
     task->source = source;
     task->measurement = source == TriggerSource::Immediate && impl_->settings.sweepMode == SweepMode::Single;
-    return impl_->enqueue(std::move(task));
+    return impl_->enqueue(std::move(task), owner);
 }
-Operation InstrumentService::setSweepMode(SweepMode mode)
+Operation InstrumentService::setSweepMode(SweepMode mode, const std::string& owner)
 {
     if (mode == SweepMode::Single && impl_->hasMeasurement())
-        return impl_->rejected(-221, "Measurement already in progress");
+        return impl_->rejected(-221, "Measurement already in progress", owner);
     std::unique_ptr<Impl::Task> task(new Impl::Task);
     task->kind = Impl::Kind::Mode;
     task->mode = mode;
     task->measurement = mode == SweepMode::Single && impl_->settings.triggerSource == TriggerSource::Immediate;
-    const std::size_t prior = impl_->tasks.size();
-    const Operation operation = impl_->enqueue(std::move(task));
-    if (mode == SweepMode::Single && impl_->tasks.size() > prior)
-        impl_->settings.sweepMode = SweepMode::Single;
-    return operation;
+    return impl_->enqueue(std::move(task), owner);
 }
-Operation InstrumentService::trigger()
+Operation InstrumentService::trigger(const std::string& owner)
 {
     if (impl_->hasMeasurement())
-        return impl_->rejected(-221, "Busy INIT restart is not supported");
+        return impl_->rejected(-221, "Busy INIT restart is not supported", owner);
     std::unique_ptr<Impl::Task> task(new Impl::Task);
     task->kind = Impl::Kind::Trigger;
     task->measurement = true;
-    return impl_->enqueue(std::move(task));
+    return impl_->enqueue(std::move(task), owner);
+}
+Operation InstrumentService::runSingle(const std::string& owner)
+{
+    if (impl_->hasMeasurement())
+        return impl_->rejected(-221, "Measurement already in progress", owner);
+    std::unique_ptr<Impl::Task> task(new Impl::Task);
+    task->kind = Impl::Kind::Mode;
+    task->mode = SweepMode::Single;
+    task->forceInternalSource = true;
+    task->measurement = true;
+    return impl_->enqueue(std::move(task), owner);
+}
+Operation InstrumentService::runContinuous(const std::string& owner)
+{
+    std::unique_ptr<Impl::Task> task(new Impl::Task);
+    task->kind = Impl::Kind::Mode;
+    task->mode = SweepMode::Continuous;
+    task->forceInternalSource = true;
+    return impl_->enqueue(std::move(task), owner);
 }
 bool InstrumentService::selectMeasurement(const std::string& name)
 {
-    if (!impl_->control || impl_->hasConfiguration()) {
+    if (impl_->owner != "SCPI" || impl_->releasing || impl_->hasConfiguration()) {
         impl_->error(-221, "Measurement selection requires control and no pending configuration");
         return false;
     }
@@ -537,7 +648,7 @@ bool InstrumentService::selectMeasurement(const std::string& name)
 }
 bool InstrumentService::setCurrentTriggerScope(bool current)
 {
-    if (!impl_->control || impl_->hasConfiguration()) {
+    if (impl_->owner != "SCPI" || impl_->releasing || impl_->hasConfiguration()) {
         impl_->error(-221, "Trigger scope requires control and no pending configuration");
         return false;
     }

@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "vna_core/CoreTypes.h"
+
 namespace vna_core {
 class AcquisitionCore;
 }
@@ -55,6 +57,26 @@ struct DataResult {
     std::vector<double> values;
 };
 
+struct ConfigPatch {
+    bool hasStartHz = false;
+    bool hasStopHz = false;
+    bool hasPoints = false;
+    bool hasIfBandwidthHz = false;
+    double startHz = 0;
+    double stopHz = 0;
+    unsigned points = 0;
+    double ifBandwidthHz = 0;
+};
+
+struct InstrumentSnapshot {
+    InstrumentSettings settings;
+    vna_core::CoreView core;
+    std::string controlOwner;
+    bool releasing = false;
+    bool pending = false;
+    bool finitePending = false;
+};
+
 // Thread confinement: all calls after startup belong to the service executor.
 // The referenced core must outlive this service. Protocol state survives clients.
 class InstrumentService {
@@ -70,8 +92,12 @@ public:
     void poll();
     bool hasPending() const;
     std::vector<Operation> pendingOperations() const;
-    bool tryAcquireControl();
-    void releaseControl();
+    bool tryAcquireControl(const std::string& owner = "SCPI");
+    void beginReleaseControl(const std::string& owner);
+    void releaseControl(const std::string& owner = "SCPI");
+    std::string controlOwner() const;
+    bool controlReleasing() const;
+    InstrumentSnapshot snapshot() const;
 
     const InstrumentSettings& settings() const;
     std::string identity() const;
@@ -79,11 +105,16 @@ public:
     Operation setStopHz(double value, std::uint64_t expectedRevision = 0U);
     Operation setPoints(unsigned value, std::uint64_t expectedRevision = 0U);
     Operation setIfBandwidthHz(double value, std::uint64_t expectedRevision = 0U);
-    Operation defineMeasurement(Measurement measurement, std::uint64_t expectedRevision = 0U);
-    Operation deleteMeasurement(const std::string& name, std::uint64_t expectedRevision = 0U);
-    Operation setTriggerSource(TriggerSource source);
-    Operation setSweepMode(SweepMode mode);
-    Operation trigger();
+    Operation applyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string& owner);
+    Operation defineMeasurement(
+        Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string& owner = "SCPI");
+    Operation deleteMeasurement(
+        const std::string& name, std::uint64_t expectedRevision = 0U, const std::string& owner = "SCPI");
+    Operation setTriggerSource(TriggerSource source, const std::string& owner = "SCPI");
+    Operation setSweepMode(SweepMode mode, const std::string& owner = "SCPI");
+    Operation runSingle(const std::string& owner);
+    Operation runContinuous(const std::string& owner);
+    Operation trigger(const std::string& owner = "SCPI");
     bool selectMeasurement(const std::string& name);
     bool setCurrentTriggerScope(bool current);
     DataResult stimulusAxis() const;
