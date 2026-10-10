@@ -35,17 +35,21 @@ public:
         std::size_t index = 0;
         bool opened = false;
         std::map<std::string, Json>::const_iterator member;
+
         explicit Frame(const Json* item) : value(item), member(item->object.begin())
         {
         }
     };
+
     explicit Impl(Json root) : value(std::move(root))
     {
         stack.emplace_back(&value);
     }
+
     Json value;
     std::vector<Frame> stack;
     std::string output;
+
     bool advance(unsigned budget)
     {
         for (unsigned count = 0; count < budget && !stack.empty(); ++count) {
@@ -96,18 +100,23 @@ public:
         return stack.empty();
     }
 };
+
 JsonEncoder::JsonEncoder(Json value) : impl_(new Impl(std::move(value)))
 {
 }
+
 JsonEncoder::~JsonEncoder() = default;
+
 bool JsonEncoder::advance(unsigned budget)
 {
     return impl_->advance(budget);
 }
+
 std::string JsonEncoder::take()
 {
     return std::move(impl_->output);
 }
+
 std::string stringifyJson(const Json& value)
 {
     JsonEncoder encoder(value);

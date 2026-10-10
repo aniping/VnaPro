@@ -9,18 +9,21 @@ Json Json::makeObject()
     value.type = Type::Object;
     return value;
 }
+
 Json Json::makeArray()
 {
     Json value;
     value.type = Type::Array;
     return value;
 }
+
 Json& Json::operator[](const std::string& key)
 {
     if (type != Type::Object)
         throw std::runtime_error("JSON value is not an object");
     return object[key];
 }
+
 const Json* Json::find(const std::string& key) const
 {
     if (type != Type::Object)

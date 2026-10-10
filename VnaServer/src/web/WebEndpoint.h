@@ -9,6 +9,7 @@
 namespace vna_service {
 class InstrumentService;
 }
+
 namespace vna_web {
 // All calls belong to the same executor as InstrumentService and SCPI.
 // poll never waits on a device future; accepted writes outlive HTTP connections.

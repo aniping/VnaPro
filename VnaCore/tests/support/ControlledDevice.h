@@ -39,6 +39,7 @@ public:
         recordThread();
         return "TestDevice";
     }
+
     void applyPlan(const vna_core::SweepPlan& plan) override
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -53,12 +54,14 @@ public:
             throw std::runtime_error("controlled partial configuration failure");
         }
     }
+
     void enableRf() override
     {
         std::lock_guard<std::mutex> lock(mutex);
         recordThread();
         acquisitionFrame = 0U;
     }
+
     std::vector<double> acquirePort(const vna_core::SweepPlan& plan, std::uint32_t source) override
     {
         std::unique_lock<std::mutex> lock(mutex);
@@ -92,6 +95,7 @@ public:
         }
         return iq;
     }
+
     void shutdown() override
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -101,23 +105,27 @@ public:
             throw std::runtime_error("controlled RF-off failure");
         }
     }
+
     void arm()
     {
         std::lock_guard<std::mutex> lock(mutex);
         blockNext = true;
         entered = release = false;
     }
+
     void waitEntered()
     {
         std::unique_lock<std::mutex> lock(mutex);
         require(cv.wait_for(lock, std::chrono::seconds(3), [this] { return entered; }), "gate was never entered");
     }
+
     void releaseGate()
     {
         std::lock_guard<std::mutex> lock(mutex);
         release = true;
         cv.notify_all();
     }
+
     void recordThread()
     {
         if (deviceThread == std::thread::id()) {

@@ -16,10 +16,12 @@
 namespace vna_scpi {
 namespace {
 const std::size_t kOutputBudget = 1024U * 1024U;
+
 bool operationReady(const vna_service::Operation& operation)
 {
     return operation.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
+
 bool allReady(const std::vector<vna_service::Operation>& operations)
 {
     for (const auto& operation : operations)
@@ -27,6 +29,7 @@ bool allReady(const std::vector<vna_service::Operation>& operations)
             return false;
     return true;
 }
+
 std::string number(double value)
 {
     std::ostringstream stream;
@@ -34,6 +37,7 @@ std::string number(double value)
     stream << std::setprecision(17) << std::scientific << value;
     return stream.str();
 }
+
 bool stringArgument(const std::string& text, std::string& value)
 {
     if (text.size() < 2U || (text.front() != '"' && text.front() != '\'') || text.back() != text.front())
@@ -49,6 +53,7 @@ bool stringArgument(const std::string& text, std::string& value)
     }
     return true;
 }
+
 bool receiverParameter(const std::string& text, vna_service::Measurement& measurement)
 {
     const auto comma = text.find(',');
@@ -67,6 +72,7 @@ bool receiverParameter(const std::string& text, vna_service::Measurement& measur
     measurement.sourcePort = source;
     return true;
 }
+
 bool matches(const std::string& value, const char* shortName, const char* fullName)
 {
     return value == shortName || value == fullName;
@@ -82,13 +88,16 @@ public:
         std::string response;
         bool queryFailed = false;
     };
+
     struct OpcWatch {
         std::vector<vna_service::Operation> operations;
         unsigned generation = 0;
     };
+
     explicit Impl(vna_service::InstrumentService& value) : service(value), control(value.tryAcquireControl())
     {
     }
+
     vna_service::InstrumentService& service;
     bool control;
     bool connected = true;
@@ -110,12 +119,14 @@ public:
         return !messages.empty() || sequential.valid() || waiting || !encoding.empty() || !watches.empty() ||
                service.hasPending();
     }
+
     void error(const ParsedCommand& command, int code, const std::string& text)
     {
         service.recordError(code, text);
         if (command.query && !messages.empty())
             messages.front().queryFailed = true;
     }
+
     bool arguments(const ParsedCommand& command, std::size_t count)
     {
         if (command.arguments.size() == count)
@@ -123,6 +134,7 @@ public:
         error(command, command.arguments.size() < count ? -109 : -108, "Parameter count mismatch");
         return false;
     }
+
     void response(const std::string& unit)
     {
         if (messages.empty() || !connected)
@@ -137,6 +149,7 @@ public:
             message.response += ';';
         message.response += unit;
     }
+
     void beginEncoding(vna_service::DataResult data, const ParsedCommand& command)
     {
         if (!data.ok) {
@@ -151,6 +164,7 @@ public:
         if (encoding.empty())
             error(command, -230, "Empty data array");
     }
+
     void encodeBatch()
     {
         if (encoding.empty())
@@ -172,11 +186,13 @@ public:
             encodedResponse.clear();
         }
     }
+
     void setOperation(vna_service::Operation operation, bool asynchronous = false)
     {
         if (!asynchronous)
             sequential = std::move(operation);
     }
+
     bool numericArgument(const ParsedCommand& command, double& value, double minimum, double maximum, bool hz)
     {
         if (!arguments(command, 1U))
@@ -192,6 +208,7 @@ public:
         }
         return true;
     }
+
     bool queryNumeric(const ParsedCommand& command, double current, double minimum, double maximum)
     {
         if (command.arguments.empty()) {
@@ -212,6 +229,7 @@ public:
         error(command, -224, "Query accepts only MINimum or MAXimum");
         return false;
     }
+
     void dispatch(const ParsedCommand& command)
     {
         const std::string& path = command.path;
@@ -542,6 +560,7 @@ public:
         }
         error(command, -113, "Undefined header");
     }
+
     void poll()
     {
         service.poll();
@@ -599,12 +618,14 @@ public:
 ScpiEngine::ScpiEngine(vna_service::InstrumentService& service) : impl_(new Impl(service))
 {
 }
+
 ScpiEngine::~ScpiEngine()
 {
     // The owner normally drains first. An idle engine may also be destroyed directly.
     if (impl_->control && !impl_->pending())
         impl_->service.releaseControl();
 }
+
 bool ScpiEngine::submitLine(const std::string& line)
 {
     if (!impl_->connected || !impl_->control || impl_->messages.size() >= 32U || line.size() > 16384U)
@@ -618,10 +639,12 @@ bool ScpiEngine::submitLine(const std::string& line)
     impl_->messages.push_back(std::move(message));
     return true;
 }
+
 void ScpiEngine::poll()
 {
     impl_->poll();
 }
+
 std::string ScpiEngine::takeOutput()
 {
     if (impl_->output.empty())
@@ -631,18 +654,22 @@ std::string ScpiEngine::takeOutput()
     impl_->outputBytes -= output.size();
     return output;
 }
+
 bool ScpiEngine::hasPending() const
 {
     return impl_->pending();
 }
+
 bool ScpiEngine::hasControl() const
 {
     return impl_->control;
 }
+
 void ScpiEngine::setTransportOutputPending(bool pending)
 {
     impl_->transportOutputPending = pending;
 }
+
 void ScpiEngine::disconnect()
 {
     impl_->connected = false;
@@ -653,6 +680,7 @@ void ScpiEngine::disconnect()
     for (auto& message : impl_->messages)
         message.response.clear();
 }
+
 bool ScpiEngine::canReleaseControl() const
 {
     return !impl_->connected && !impl_->control && !impl_->pending();

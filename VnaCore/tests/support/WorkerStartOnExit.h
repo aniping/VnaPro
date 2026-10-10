@@ -10,6 +10,7 @@ struct WorkerStartOnExit {
     std::promise<void>& signal;
     std::atomic<bool>& finished;
     bool pending = true;
+
     ~WorkerStartOnExit()
     {
         if (pending) {

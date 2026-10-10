@@ -11,8 +11,10 @@
 namespace vna_service {
 class InstrumentService;
 }
+
 namespace vna_web {
 HttpResponse httpError(unsigned status, const std::string& code, const std::string& message);
+
 class HttpApi {
 public:
     using Clock = std::chrono::steady_clock;

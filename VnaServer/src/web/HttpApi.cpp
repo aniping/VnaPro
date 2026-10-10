@@ -28,6 +28,7 @@ HttpResponse httpError(unsigned status, const std::string& code, const std::stri
     response.json["error"] = std::move(error);
     return response;
 }
+
 namespace {
 std::string text(const Json& value, const std::string& key, bool optional = false)
 {
@@ -38,6 +39,7 @@ std::string text(const Json& value, const std::string& key, bool optional = fals
         throw std::runtime_error(key + " must be a string");
     return item->string;
 }
+
 double numeric(const Json& value, const std::string& key)
 {
     const Json* item = value.find(key);
@@ -45,6 +47,7 @@ double numeric(const Json& value, const std::string& key)
         throw std::runtime_error(key + " must be finite numeric data");
     return item->number;
 }
+
 unsigned positiveInteger(const Json& value, const std::string& key, unsigned maximum)
 {
     const double number = numeric(value, key);
@@ -52,6 +55,7 @@ unsigned positiveInteger(const Json& value, const std::string& key, unsigned max
         throw std::runtime_error(key + " out of range");
     return static_cast<unsigned>(number);
 }
+
 std::uint64_t revision(const Json& value)
 {
     const std::string string = text(value, "expectedRevision");
@@ -65,6 +69,7 @@ std::uint64_t revision(const Json& value)
     }
     return result;
 }
+
 void allowed(const Json& value, const std::vector<std::string>& keys)
 {
     if (value.type != Json::Type::Object)
@@ -73,10 +78,12 @@ void allowed(const Json& value, const std::vector<std::string>& keys)
         if (std::find(keys.begin(), keys.end(), item.first) == keys.end())
             throw std::runtime_error("Unknown member: " + item.first);
 }
+
 bool ready(const vna_service::Operation& value)
 {
     return value.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
+
 std::string coreState(vna_core::CoreState value)
 {
     switch (value) {
@@ -93,6 +100,7 @@ std::string coreState(vna_core::CoreState value)
     }
     return "Uninitialized";
 }
+
 Json measurementJson(const vna_service::Measurement& measurement)
 {
     Json value = Json::makeObject();
@@ -103,6 +111,7 @@ Json measurementJson(const vna_service::Measurement& measurement)
     value["parameter"] = Json(measurement.parameter());
     return value;
 }
+
 bool safeName(const std::string& value)
 {
     if (value.empty() || value.size() > 128U || value == "." || value == "..")
@@ -113,16 +122,19 @@ bool safeName(const std::string& value)
     return true;
 }
 }  // namespace
+
 class HttpApi::Impl {
 public:
     struct Retry {
         std::string requestId, fingerprint, operationId;
     };
+
     struct Session {
         Clock::time_point expires, touched;
         bool releasing = false;
         std::deque<Retry> retries;
     };
+
     struct Record {
         vna_service::Operation operation;
         std::string owner;
@@ -130,9 +142,11 @@ public:
         bool done = false;
         vna_service::OperationResult result;
     };
+
     Impl(vna_service::InstrumentService& value, Now clock) : service(value), now(std::move(clock))
     {
     }
+
     vna_service::InstrumentService& service;
     Now now;
     std::map<std::string, Session> sessions;
@@ -149,11 +163,13 @@ public:
             value << std::setw(8) << static_cast<std::uint32_t>(random());
         return value.str();
     }
+
     std::string headerToken(const HttpRequest& request) const
     {
         const auto found = request.headers.find("x-vna-session");
         return found == request.headers.end() ? std::string() : found->second;
     }
+
     void poll()
     {
         service.poll();
@@ -189,6 +205,7 @@ public:
                 ++session;
         }
     }
+
     HttpResponse status(const HttpRequest& request)
     {
         const auto snapshot = service.snapshot();
@@ -241,6 +258,7 @@ public:
         value["control"] = std::move(control);
         return response;
     }
+
     HttpResponse frame()
     {
         const auto snapshot = service.snapshot();
@@ -305,6 +323,7 @@ public:
         value["traces"] = std::move(traces);
         return response;
     }
+
     HttpResponse operation(const std::string& id, const std::string& requester)
     {
         const auto found = records.find(id);
@@ -327,6 +346,7 @@ public:
         response.json["result"] = std::move(value);
         return response;
     }
+
     HttpResponse accepted(const std::string& id, const std::string& owner)
     {
         HttpResponse response = operation(id, owner);
@@ -334,6 +354,7 @@ public:
         response.json.object.erase("result");
         return response;
     }
+
     HttpResponse claim(const Json& body)
     {
         allowed(body, {"sessionId"});
@@ -365,6 +386,7 @@ public:
         response.json["leaseSeconds"] = Json(30U);
         return response;
     }
+
     HttpResponse release(const std::string& id)
     {
         const auto found = sessions.find(id);
@@ -382,6 +404,7 @@ public:
         response.json["releasing"] = Json(true);
         return response;
     }
+
     HttpResponse write(const HttpRequest& request, const Json& body)
     {
         const std::string id = headerToken(request);
@@ -486,6 +509,7 @@ public:
         session.touched = now();
         return accepted(operationId, id);
     }
+
     HttpResponse handle(const HttpRequest& request)
     {
         poll();  // Enforce lease expiry even between event-loop ticks.
@@ -522,10 +546,13 @@ public:
         return write(request, body);
     }
 };
+
 HttpApi::HttpApi(vna_service::InstrumentService& service, Now now) : impl_(new Impl(service, std::move(now)))
 {
 }
+
 HttpApi::~HttpApi() = default;
+
 HttpResponse HttpApi::handle(const HttpRequest& request)
 {
     try {
@@ -534,10 +561,12 @@ HttpResponse HttpApi::handle(const HttpRequest& request)
         return httpError(400, "invalid_request", error.what());
     }
 }
+
 void HttpApi::poll()
 {
     impl_->poll();
 }
+
 void HttpApi::beginShutdown()
 {
     impl_->shuttingDown = true;
@@ -547,6 +576,7 @@ void HttpApi::beginShutdown()
     }
     impl_->poll();
 }
+
 bool HttpApi::drained() const
 {
     for (const auto& item : impl_->records)

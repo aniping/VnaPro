@@ -15,21 +15,27 @@ struct Json {
     std::vector<Json> array;
     std::map<std::string, Json> object;
     Json() = default;
+
     explicit Json(bool value) : type(Type::Boolean), boolean(value)
     {
     }
+
     explicit Json(double value) : type(Type::Number), number(value)
     {
     }
+
     explicit Json(unsigned value) : Json(static_cast<double>(value))
     {
     }
+
     explicit Json(const std::string& value) : type(Type::String), string(value)
     {
     }
+
     explicit Json(const char* value) : Json(std::string(value))
     {
     }
+
     static Json makeObject();
     static Json makeArray();
     Json& operator[](const std::string& key);

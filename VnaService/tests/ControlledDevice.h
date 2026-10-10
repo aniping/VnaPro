@@ -23,10 +23,12 @@ public:
     bool blockPlan = false;
     bool planEntered = false;
     bool planReleased = false;
+
     std::string initialize() override
     {
         return "VnaPro,NativeSimulator,TEST,1.0";
     }
+
     void applyPlan(const vna_core::SweepPlan&) override
     {
         std::unique_lock<std::mutex> lock(mutex);
@@ -36,12 +38,15 @@ public:
             cv.wait(lock, [this] { return planReleased; });
         }
     }
+
     void enableRf() override
     {
     }
+
     void shutdown() override
     {
     }
+
     std::vector<double> acquirePort(const vna_core::SweepPlan& plan, std::uint32_t) override
     {
         std::unique_lock<std::mutex> lock(mutex);
@@ -59,27 +64,32 @@ public:
         }
         return iq;
     }
+
     void setInvalidSamples(bool value)
     {
         std::lock_guard<std::mutex> lock(mutex);
         invalidSamples = value;
     }
+
     bool hasEntered()
     {
         std::lock_guard<std::mutex> lock(mutex);
         return entered;
     }
+
     bool hasPlanEntered()
     {
         std::lock_guard<std::mutex> lock(mutex);
         return planEntered;
     }
+
     void armPlan()
     {
         std::lock_guard<std::mutex> lock(mutex);
         blockPlan = true;
         planEntered = planReleased = false;
     }
+
     void arm(bool fail = false)
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -87,6 +97,7 @@ public:
         entered = released = false;
         failAcquire = fail;
     }
+
     void release()
     {
         std::lock_guard<std::mutex> lock(mutex);

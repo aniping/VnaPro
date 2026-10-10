@@ -16,15 +16,18 @@
 namespace {
 using vna_scpi_test::NativeFixture;
 std::string driver;
+
 void expect(bool condition, const std::string& message)
 {
     if (!condition)
         throw std::runtime_error(message);
 }
+
 void near(double value, double expected)
 {
     expect(std::fabs(value - expected) < 1e-10, "numeric mismatch: " + std::to_string(value));
 }
+
 void drain(vna_scpi::ScpiEngine& engine)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -36,12 +39,14 @@ void drain(vna_scpi::ScpiEngine& engine)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while (true);
 }
+
 std::string command(vna_scpi::ScpiEngine& engine, const std::string& text)
 {
     expect(engine.submitLine(text), "submit failed");
     drain(engine);
     return engine.takeOutput();
 }
+
 std::vector<double> numbers(const std::string& text)
 {
     std::vector<double> values;
@@ -51,6 +56,7 @@ std::vector<double> numbers(const std::string& text)
         values.push_back(std::stod(item));
     return values;
 }
+
 void run(const char* name, void (*test)(), unsigned& failed)
 {
     try {
@@ -61,6 +67,7 @@ void run(const char* name, void (*test)(), unsigned& failed)
         std::cerr << "FAIL " << name << ": " << error.what() << '\n';
     }
 }
+
 void parserAndCompoundResponse()
 {
     NativeFixture fixture(driver);
@@ -75,6 +82,7 @@ void parserAndCompoundResponse()
     command(engine, "*CLS;:VNAP:DATA:SNAP");
     expect(command(engine, "SYST:ERR?").find("-113,") == 0U, "custom header must fail");
 }
+
 void configurationAndRevision()
 {
     NativeFixture fixture(driver);
@@ -113,6 +121,7 @@ void configurationAndRevision()
     expect(command(engine, "CALC1:DATA? RDATA").empty(), "RDATA before acquisition must not fabricate data");
     expect(command(engine, "SYST:ERR?").find("-230,") == 0U, "missing data error");
 }
+
 void singleFrameAndReceivers()
 {
     NativeFixture fixture(driver);
@@ -136,6 +145,7 @@ void singleFrameAndReceivers()
     command(engine, "SENS1:FREQ:STAR 2MHz");
     expect(command(engine, "CALC1:DATA? RDATA").empty(), "old revision frame must be rejected");
 }
+
 void pendingBarriersAndErrors()
 {
     NativeFixture fixture(driver);
@@ -165,6 +175,7 @@ void pendingBarriersAndErrors()
         "invalid INIT must not change the actual continuous mode");
     command(engine, "SENS1:SWE:MODE HOLD");
 }
+
 void busyAdmissionAndOldRun()
 {
     NativeFixture fixture(driver);
@@ -179,6 +190,7 @@ void busyAdmissionAndOldRun()
     expect(engine.takeOutput().empty(), "query during new finite run must not use old frame");
     expect(fixture.service.settings().revision == revision, "busy config must not commit after single");
 }
+
 void disconnectAndInstrumentErrors()
 {
     NativeFixture fixture(driver);
@@ -200,6 +212,7 @@ void disconnectAndInstrumentErrors()
     next.setTransportOutputPending(true);
     expect(command(next, "*STB?") == "16\n", "MAV includes transport output");
 }
+
 void softwareBounds()
 {
     NativeFixture fixture(driver);
@@ -215,6 +228,7 @@ void softwareBounds()
     const auto data = command(engine, "CALC1:DATA? RDATA");
     expect(data.size() < 1024U * 1024U && numbers(data).size() == 20002U, "full bounded ASCII array");
 }
+
 void blockedFiniteAndWatchBudget()
 {
     vna_service_test::Fixture fixture;
@@ -248,6 +262,7 @@ void blockedFiniteAndWatchBudget()
     expect(engine.canReleaseControl(), "blocked task completed and released");
     expect(fixture.core->readView().frame != old, "new complete frame must eventually replace old");
 }
+
 void failedSingleCannotReturnOldFrame()
 {
     vna_service_test::Fixture fixture;
@@ -269,6 +284,7 @@ void failedSingleCannotReturnOldFrame()
     expect(command(engine, "CALC1:DATA? RDATA").empty(), "failed single cannot query old curve");
     expect(fixture.service->errorCount() >= 2U, "operation and data failure diagnostics");
 }
+
 void malformedHeaders()
 {
     NativeFixture fixture(driver);
@@ -279,6 +295,7 @@ void malformedHeaders()
     command(engine, "INIT:");
     expect(command(engine, "SYST:ERR?").find("-102,") == 0U, "trailing colon must not execute INIT");
 }
+
 void invalidReceiverCannotProduceCurve()
 {
     vna_service_test::Fixture fixture;
@@ -305,6 +322,7 @@ void invalidReceiverCannotProduceCurve()
         near(sample, 1.11);
     expect(fixture.core->readView().frame != held, "Valid scan publishes a new snapshot");
 }
+
 void configurationPreservesDirectSettings()
 {
     vna_service_test::Fixture fixture;
@@ -343,6 +361,7 @@ void configurationPreservesDirectSettings()
     expect(service.settings().selectedMeasurement == "DefaultA" && !service.settings().currentTriggerScope,
         "unauthorized direct settings must not change state");
 }
+
 void embeddedNulNumeric()
 {
     NativeFixture fixture(driver);

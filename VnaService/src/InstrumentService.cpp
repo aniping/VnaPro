@@ -21,14 +21,17 @@ OperationResult result(bool ok, int code = 0, const std::string& message = std::
     value.message = message;
     return value;
 }
+
 bool ready(const vna_core::Ticket& ticket)
 {
     return ticket.valid() && ticket.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
+
 bool validFrequency(double value)
 {
     return std::isfinite(value) && value >= 1.0 && value <= 1000000000.0;
 }
+
 double quantizedBandwidth(double value)
 {
     const double values[] = {10.0, 100.0, 1000.0, 10000.0, 100000.0};
@@ -38,6 +41,7 @@ double quantizedBandwidth(double value)
     }
     return 0.0;
 }
+
 vna_core::SweepPlan makePlan(const InstrumentSettings& settings)
 {
     vna_core::SweepPlan plan;
@@ -68,6 +72,7 @@ vna_core::SweepPlan makePlan(const InstrumentSettings& settings)
 class InstrumentService::Impl {
 public:
     enum class Kind { Configure, Source, Mode, Trigger };
+
     struct Task {
         Kind kind = Kind::Configure;
         int stage = 0;
@@ -84,6 +89,7 @@ public:
         vna_core::Ticket ticket;
         std::promise<OperationResult> promise;
         Operation operation;
+
         Task() : operation(promise.get_future().share())
         {
         }
@@ -92,6 +98,7 @@ public:
     explicit Impl(vna_core::AcquisitionCore& value) : core(value)
     {
     }
+
     vna_core::AcquisitionCore& core;
     InstrumentSettings settings;
     std::deque<std::unique_ptr<Task>> tasks;
@@ -127,6 +134,7 @@ public:
             esr |= 8U;
         }
     }
+
     Operation rejected(int code, const std::string& message, const std::string& requester = "SCPI")
     {
         if (requester == "SCPI")
@@ -136,6 +144,7 @@ public:
         promise.set_value(result(false, code, message));
         return operation;
     }
+
     Operation enqueue(std::unique_ptr<Task> task, const std::string& requester = "SCPI")
     {
         if (owner != requester || requester.empty() || releasing)
@@ -150,6 +159,7 @@ public:
         tasks.push_back(std::move(task));
         return operation;
     }
+
     Operation configure(std::function<OperationResult(InstrumentSettings&)> mutate, std::uint64_t expected,
         const std::string& requester = "SCPI")
     {
@@ -162,6 +172,7 @@ public:
         task->checkRevision = expected != 0U || requester != "SCPI";
         return enqueue(std::move(task), requester);
     }
+
     bool hasMeasurement() const
     {
         for (const auto& task : tasks)
@@ -169,6 +180,7 @@ public:
                 return true;
         return false;
     }
+
     bool hasConfiguration() const
     {
         for (const auto& task : tasks) {
@@ -177,6 +189,7 @@ public:
         }
         return false;
     }
+
     void finish(OperationResult value)
     {
         if (!value.ok) {
@@ -191,6 +204,7 @@ public:
         tasks.front()->promise.set_value(value);
         tasks.pop_front();
     }
+
     bool consume(Task& task)
     {
         if (!ready(task.ticket))
@@ -203,12 +217,14 @@ public:
         }
         return true;
     }
+
     void commitMode(Task& task)
     {
         settings.triggerSource = task.candidate.triggerSource;
         settings.sweepMode = task.candidate.sweepMode;
         finish(result(true));
     }
+
     void pollTask()
     {
         if (tasks.empty())
@@ -353,6 +369,7 @@ public:
 InstrumentService::InstrumentService(vna_core::AcquisitionCore& core) : impl_(new Impl(core))
 {
 }
+
 InstrumentService::~InstrumentService() = default;
 
 bool InstrumentService::bootstrapMockProfile(std::string& error)
@@ -376,6 +393,7 @@ bool InstrumentService::bootstrapMockProfile(std::string& error)
     impl_->mockReady = true;
     return true;
 }
+
 void InstrumentService::poll()
 {
     impl_->pollTask();
@@ -385,10 +403,12 @@ void InstrumentService::poll()
         impl_->observedFault = view.error;
     }
 }
+
 bool InstrumentService::hasPending() const
 {
     return !impl_->tasks.empty();
 }
+
 std::vector<Operation> InstrumentService::pendingOperations() const
 {
     std::vector<Operation> operations;
@@ -396,6 +416,7 @@ std::vector<Operation> InstrumentService::pendingOperations() const
         operations.push_back(task->operation);
     return operations;
 }
+
 bool InstrumentService::tryAcquireControl(const std::string& owner)
 {
     if (!impl_->owner.empty() || owner.empty())
@@ -405,11 +426,13 @@ bool InstrumentService::tryAcquireControl(const std::string& owner)
     ++impl_->controlGeneration;
     return true;
 }
+
 void InstrumentService::beginReleaseControl(const std::string& owner)
 {
     if (impl_->owner == owner)
         impl_->releasing = true;
 }
+
 void InstrumentService::releaseControl(const std::string& owner)
 {
     if (impl_->owner == owner && impl_->tasks.empty()) {
@@ -418,14 +441,17 @@ void InstrumentService::releaseControl(const std::string& owner)
         ++impl_->controlGeneration;
     }
 }
+
 std::string InstrumentService::controlOwner() const
 {
     return impl_->owner;
 }
+
 bool InstrumentService::controlReleasing() const
 {
     return impl_->releasing;
 }
+
 InstrumentSnapshot InstrumentService::snapshot() const
 {
     InstrumentSnapshot value;
@@ -437,14 +463,17 @@ InstrumentSnapshot InstrumentService::snapshot() const
     value.finitePending = impl_->hasMeasurement();
     return value;
 }
+
 const InstrumentSettings& InstrumentService::settings() const
 {
     return impl_->settings;
 }
+
 std::string InstrumentService::identity() const
 {
     return impl_->mockReady ? "VnaPro,NativeSimulator,4PORT,1.0" : "VnaPro,UnverifiedBackend,0,1.0";
 }
+
 Operation InstrumentService::setStartHz(double value, std::uint64_t expected)
 {
     return impl_->configure(
@@ -462,6 +491,7 @@ Operation InstrumentService::setStartHz(double value, std::uint64_t expected)
         },
         expected);
 }
+
 Operation InstrumentService::setStopHz(double value, std::uint64_t expected)
 {
     return impl_->configure(
@@ -479,6 +509,7 @@ Operation InstrumentService::setStopHz(double value, std::uint64_t expected)
         },
         expected);
 }
+
 Operation InstrumentService::setPoints(unsigned value, std::uint64_t expected)
 {
     return impl_->configure(
@@ -490,6 +521,7 @@ Operation InstrumentService::setPoints(unsigned value, std::uint64_t expected)
         },
         expected);
 }
+
 Operation InstrumentService::setIfBandwidthHz(double value, std::uint64_t expected)
 {
     return impl_->configure(
@@ -504,6 +536,7 @@ Operation InstrumentService::setIfBandwidthHz(double value, std::uint64_t expect
         },
         expected);
 }
+
 Operation InstrumentService::applyConfiguration(ConfigPatch patch, std::uint64_t expected, const std::string& owner)
 {
     return impl_->configure(
@@ -547,6 +580,7 @@ Operation InstrumentService::applyConfiguration(ConfigPatch patch, std::uint64_t
         },
         expected, owner);
 }
+
 Operation InstrumentService::defineMeasurement(
     Measurement measurement, std::uint64_t expected, const std::string& owner)
 {
@@ -569,6 +603,7 @@ Operation InstrumentService::defineMeasurement(
         },
         expected, owner);
 }
+
 Operation InstrumentService::deleteMeasurement(
     const std::string& name, std::uint64_t expected, const std::string& owner)
 {
@@ -586,6 +621,7 @@ Operation InstrumentService::deleteMeasurement(
         },
         expected, owner);
 }
+
 Operation InstrumentService::setTriggerSource(TriggerSource source, const std::string& owner)
 {
     std::unique_ptr<Impl::Task> task(new Impl::Task);
@@ -594,6 +630,7 @@ Operation InstrumentService::setTriggerSource(TriggerSource source, const std::s
     task->measurement = source == TriggerSource::Immediate && impl_->settings.sweepMode == SweepMode::Single;
     return impl_->enqueue(std::move(task), owner);
 }
+
 Operation InstrumentService::setSweepMode(SweepMode mode, const std::string& owner)
 {
     if (mode == SweepMode::Single && impl_->hasMeasurement())
@@ -604,6 +641,7 @@ Operation InstrumentService::setSweepMode(SweepMode mode, const std::string& own
     task->measurement = mode == SweepMode::Single && impl_->settings.triggerSource == TriggerSource::Immediate;
     return impl_->enqueue(std::move(task), owner);
 }
+
 Operation InstrumentService::trigger(const std::string& owner)
 {
     if (impl_->hasMeasurement())
@@ -613,6 +651,7 @@ Operation InstrumentService::trigger(const std::string& owner)
     task->measurement = true;
     return impl_->enqueue(std::move(task), owner);
 }
+
 Operation InstrumentService::runSingle(const std::string& owner)
 {
     if (impl_->hasMeasurement())
@@ -624,6 +663,7 @@ Operation InstrumentService::runSingle(const std::string& owner)
     task->measurement = true;
     return impl_->enqueue(std::move(task), owner);
 }
+
 Operation InstrumentService::runContinuous(const std::string& owner)
 {
     std::unique_ptr<Impl::Task> task(new Impl::Task);
@@ -632,6 +672,7 @@ Operation InstrumentService::runContinuous(const std::string& owner)
     task->forceInternalSource = true;
     return impl_->enqueue(std::move(task), owner);
 }
+
 bool InstrumentService::selectMeasurement(const std::string& name)
 {
     if (impl_->owner != "SCPI" || impl_->releasing || impl_->hasConfiguration()) {
@@ -647,6 +688,7 @@ bool InstrumentService::selectMeasurement(const std::string& name)
     impl_->error(-224, "Measurement name does not exist");
     return false;
 }
+
 bool InstrumentService::setCurrentTriggerScope(bool current)
 {
     if (impl_->owner != "SCPI" || impl_->releasing || impl_->hasConfiguration()) {
@@ -656,6 +698,7 @@ bool InstrumentService::setCurrentTriggerScope(bool current)
     impl_->settings.currentTriggerScope = current;
     return true;
 }
+
 DataResult InstrumentService::stimulusAxis() const
 {
     DataResult value;
@@ -669,6 +712,7 @@ DataResult InstrumentService::stimulusAxis() const
     value.ok = true;
     return value;
 }
+
 DataResult InstrumentService::measurementData() const
 {
     DataResult value;
@@ -719,10 +763,12 @@ DataResult InstrumentService::measurementData() const
     value.ok = true;
     return value;
 }
+
 void InstrumentService::recordError(int code, const std::string& message)
 {
     impl_->error(code, message);
 }
+
 InstrumentError InstrumentService::popError()
 {
     if (impl_->errors.empty())
@@ -731,46 +777,56 @@ InstrumentError InstrumentService::popError()
     impl_->errors.pop_front();
     return value;
 }
+
 unsigned InstrumentService::errorCount() const
 {
     return static_cast<unsigned>(impl_->errors.size());
 }
+
 void InstrumentService::clearStatus()
 {
     impl_->errors.clear();
     impl_->esr = 0;
     ++impl_->generation;
 }
+
 unsigned InstrumentService::statusGeneration() const
 {
     return impl_->generation;
 }
+
 void InstrumentService::setEventEnable(unsigned value)
 {
     impl_->ese = value & 255U;
 }
+
 unsigned InstrumentService::eventEnable() const
 {
     return impl_->ese;
 }
+
 void InstrumentService::setServiceRequestEnable(unsigned value)
 {
     impl_->sre = value & 191U;
 }
+
 unsigned InstrumentService::serviceRequestEnable() const
 {
     return impl_->sre;
 }
+
 unsigned InstrumentService::readEventRegister()
 {
     const unsigned value = impl_->esr;
     impl_->esr = 0;
     return value;
 }
+
 void InstrumentService::markOperationComplete()
 {
     impl_->esr |= 1U;
 }
+
 unsigned InstrumentService::statusByte(bool outputAvailable) const
 {
     unsigned value = impl_->errors.empty() ? 0U : 4U;

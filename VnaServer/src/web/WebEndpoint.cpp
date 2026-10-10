@@ -41,6 +41,7 @@ std::string lower(std::string value)
         character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     return value;
 }
+
 std::string trim(const std::string& value)
 {
     const auto begin = value.find_first_not_of(" \t");
@@ -48,11 +49,13 @@ std::string trim(const std::string& value)
         return std::string();
     return value.substr(begin, value.find_last_not_of(" \t") - begin + 1U);
 }
+
 bool headerCharacter(unsigned char value)
 {
     return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') ||
            std::string("!#$%&'*+-.^_`|~").find(static_cast<char>(value)) != std::string::npos;
 }
+
 unsigned hexDigit(char value)
 {
     if (value >= '0' && value <= '9')
@@ -63,6 +66,7 @@ unsigned hexDigit(char value)
         return static_cast<unsigned>(value - 'A' + 10);
     throw std::runtime_error("Invalid URL escape");
 }
+
 std::string decodePath(const std::string& target)
 {
     if (target.empty() || target.front() != '/' || target.find('#') != std::string::npos)
@@ -126,12 +130,14 @@ std::string reason(unsigned status)
             return "Internal Server Error";
     }
 }
+
 std::string responseHeader(unsigned status, const std::string& contentType, std::size_t length)
 {
     return "HTTP/1.1 " + std::to_string(status) + " " + reason(status) + "\r\nContent-Type: " + contentType +
            "\r\nContent-Length: " + std::to_string(length) +
            "\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n";
 }
+
 std::string mimeType(const std::string& path)
 {
     const auto dot = path.rfind('.');
@@ -159,6 +165,7 @@ public:
         explicit Client(Socket value) : socket(value), started(Clock::now()), progress(started)
         {
         }
+
         SocketOwner socket;
         Clock::time_point started, progress;
         std::string input, output, fileOutput;
@@ -170,6 +177,7 @@ public:
         std::unique_ptr<JsonEncoder> encoder;
         std::unique_ptr<StaticFile> file;
     };
+
     Impl(vna_service::InstrumentService& service, const WebOptions& value)
         : runtime("Web WSAStartup failed"), api(service), options(value)
     {
@@ -196,6 +204,7 @@ public:
         actualPort = ntohs(address.sin_port);
         std::cout << "WEB_LISTENING http://" << options.bindAddress << ':' << actualPort << std::endl;
     }
+
     NetworkRuntime runtime;
     SocketOwner listener;
     HttpApi api;
@@ -215,10 +224,12 @@ public:
         client.fileOutput.clear();
         client.progress = Clock::now();
     }
+
     void error(Client& client, unsigned status, const std::string& message)
     {
         respond(client, httpError(status, "http_error", message));
     }
+
     bool parseHeaders(Client& client)
     {
         const auto end = client.input.find("\r\n\r\n");
@@ -302,6 +313,7 @@ public:
         client.parsed = true;
         return true;
     }
+
     void dispatch(Client& client)
     {
         client.request.body = client.input.substr(client.headerLength, client.bodyLength);
@@ -327,6 +339,7 @@ public:
             error(client, 404, "Static file not found");
         }
     }
+
     bool receive(Client& client)
     {
         char buffer[kReceiveBudget];
@@ -353,6 +366,7 @@ public:
         }
         return true;
     }
+
     bool sendOutput(Client& client)
     {
         try {
@@ -391,6 +405,7 @@ public:
         client.progress = Clock::now();
         return client.sent != client.output.size();
     }
+
     void poll()
     {
         api.poll();
@@ -427,11 +442,14 @@ WebEndpoint::WebEndpoint(vna_service::InstrumentService& service, const WebOptio
     : impl_(new Impl(service, options))
 {
 }
+
 WebEndpoint::~WebEndpoint() = default;
+
 void WebEndpoint::poll()
 {
     impl_->poll();
 }
+
 void WebEndpoint::beginShutdown()
 {
     if (impl_->closing)
@@ -441,10 +459,12 @@ void WebEndpoint::beginShutdown()
     impl_->clients.clear();
     impl_->api.beginShutdown();
 }
+
 bool WebEndpoint::drained() const
 {
     return impl_->clients.empty() && impl_->api.drained();
 }
+
 std::uint16_t WebEndpoint::port() const
 {
     return impl_->actualPort;

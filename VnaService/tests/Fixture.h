@@ -16,6 +16,7 @@ struct Fixture {
     ControlledDevice* device;
     std::unique_ptr<vna_core::AcquisitionCore> core;
     std::unique_ptr<vna_service::InstrumentService> service;
+
     Fixture()
     {
         std::unique_ptr<ControlledDevice> owned(new ControlledDevice);
@@ -28,6 +29,7 @@ struct Fixture {
         if (!service->bootstrapMockProfile(error))
             throw std::runtime_error(error);
     }
+
     ~Fixture()
     {
         device->release();

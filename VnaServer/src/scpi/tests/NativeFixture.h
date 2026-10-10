@@ -12,6 +12,7 @@ namespace vna_scpi_test {
 struct NativeFixture {
     vna_core::AcquisitionCore core;
     vna_service::InstrumentService service;
+
     explicit NativeFixture(const std::string& driver) : core(driver), service(core)
     {
         if (!core.initialize().get().ok) {
@@ -22,6 +23,7 @@ struct NativeFixture {
             throw std::runtime_error(error);
         }
     }
+
     ~NativeFixture()
     {
         core.close();

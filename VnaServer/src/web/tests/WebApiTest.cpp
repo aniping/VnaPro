@@ -25,6 +25,7 @@ void require(bool value, const std::string& message)
     if (!value)
         throw std::runtime_error(message);
 }
+
 const Json& field(const Json& value, const std::string& name)
 {
     const Json* found = value.find(name);
@@ -32,12 +33,14 @@ const Json& field(const Json& value, const std::string& name)
         throw std::runtime_error("Missing field: " + name);
     return *found;
 }
+
 std::string stringField(const Json& value, const std::string& name)
 {
     const Json& found = field(value, name);
     require(found.type == Json::Type::String, "String field " + name);
     return found.string;
 }
+
 HttpResponse request(HttpApi& api, const std::string& method, const std::string& path, const std::string& body = "",
     const std::string& token = "")
 {
@@ -49,12 +52,14 @@ HttpResponse request(HttpApi& api, const std::string& method, const std::string&
         value.headers["x-vna-session"] = token;
     return api.handle(value);
 }
+
 std::string claim(HttpApi& api)
 {
     const auto response = request(api, "POST", "/api/v1/control/claim", "{}");
     require(response.status == 200U, "Claim succeeds");
     return stringField(response.json, "sessionId");
 }
+
 void until(const std::function<bool()>& done, const std::function<void()>& poll)
 {
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -64,12 +69,14 @@ void until(const std::function<bool()>& done, const std::function<void()>& poll)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
+
 vna_service::OperationResult finish(vna_service::InstrumentService& service, const vna_service::Operation& operation)
 {
     until([&] { return operation.wait_for(std::chrono::seconds(0)) == std::future_status::ready; },
         [&] { service.poll(); });
     return operation.get();
 }
+
 HttpResponse finish(HttpApi& api, const std::string& operation, const std::string& token)
 {
     HttpResponse response;
@@ -82,11 +89,13 @@ HttpResponse finish(HttpApi& api, const std::string& operation, const std::strin
         [&] { api.poll(); });
     return response;
 }
+
 std::string accepted(const HttpResponse& response)
 {
     require(response.status == 202U, "Operation accepted, received " + std::to_string(response.status));
     return stringField(response.json, "operationId");
 }
+
 std::string configBody(std::uint64_t revision, const std::string& id, unsigned points)
 {
     return "{\"expectedRevision\":\"" + std::to_string(revision) + "\",\"requestId\":\"" + id +

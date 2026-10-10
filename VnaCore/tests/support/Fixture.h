@@ -12,6 +12,7 @@ namespace vna_core_test {
 struct Fixture {
     ControlledDevice* device;
     std::unique_ptr<vna_core::AcquisitionCore> core;
+
     Fixture()
     {
         auto owned = std::unique_ptr<ControlledDevice>(new ControlledDevice);
@@ -21,6 +22,7 @@ struct Fixture {
         require(core->readView().deviceIdn == "TestDevice", "identity was not published");
         require(await(core->configure(makePlan())).ok, "configure failed");
     }
+
     ~Fixture()
     {
         device->releaseGate();

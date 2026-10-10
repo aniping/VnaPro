@@ -7,6 +7,7 @@
 namespace vna_service {
 class InstrumentService;
 }
+
 namespace vna_scpi {
 
 // One engine per admitted TCP connection. All methods run on the service executor.

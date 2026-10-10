@@ -15,12 +15,14 @@ std::string trim(const std::string& value)
         return std::string();
     return value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1U);
 }
+
 std::string upper(std::string value)
 {
     for (char& character : value)
         character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
     return value;
 }
+
 std::string quote(const std::string& value)
 {
     std::string encoded = "\"";
@@ -31,6 +33,7 @@ std::string quote(const std::string& value)
     }
     return encoded + "\"";
 }
+
 namespace {
 std::vector<std::string> splitQuoted(const std::string& input, char separator, bool* valid)
 {
@@ -61,6 +64,7 @@ std::vector<std::string> splitQuoted(const std::string& input, char separator, b
         *valid = delimiter == 0;
     return parts;
 }
+
 std::string keyword(std::string token)
 {
     token = upper(token);
@@ -83,10 +87,12 @@ std::string keyword(std::string token)
     return token + suffix;
 }
 }  // namespace
+
 std::vector<std::string> splitProgram(const std::string& input)
 {
     return splitQuoted(input, ';', nullptr);
 }
+
 ParsedCommand parseCommand(const std::string& unit, std::vector<std::string>& parent)
 {
     ParsedCommand command;
@@ -159,6 +165,7 @@ ParsedCommand parseCommand(const std::string& unit, std::vector<std::string>& pa
     }
     return command;
 }
+
 bool numeric(const std::string& text, double& value, bool frequencyUnits)
 {
     const std::string input = trim(text);
@@ -188,6 +195,7 @@ bool numeric(const std::string& text, double& value, bool frequencyUnits)
     value *= scale;
     return std::isfinite(value);
 }
+
 bool integer(const std::string& text, unsigned& value, unsigned maximum)
 {
     double parsed = 0;

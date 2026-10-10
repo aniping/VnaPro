@@ -7,6 +7,7 @@ namespace vna_core_test {
 
 struct ReleaseGateOnExit {
     ControlledDevice* device;
+
     ~ReleaseGateOnExit()
     {
         device->releaseGate();

@@ -8,6 +8,7 @@ Standard: Latest
 AccessModifierOffset: -4
 
 AllowShortFunctionsOnASingleLine: None
+SeparateDefinitionBlocks: Always
 AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
 PointerAlignment: Left

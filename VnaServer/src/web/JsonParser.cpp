@@ -45,6 +45,7 @@ void JsonParser::space()
            (text[position] == ' ' || text[position] == '\r' || text[position] == '\n' || text[position] == '\t'))
         ++position;
 }
+
 bool JsonParser::take(char character)
 {
     space();
@@ -54,11 +55,13 @@ bool JsonParser::take(char character)
     }
     return false;
 }
+
 void JsonParser::require(char character)
 {
     if (!take(character))
         throw std::runtime_error("Invalid JSON delimiter");
 }
+
 unsigned JsonParser::hex4()
 {
     unsigned value = 0;
@@ -79,6 +82,7 @@ unsigned JsonParser::hex4()
     }
     return value;
 }
+
 std::string JsonParser::quoted()
 {
     require('"');
@@ -125,6 +129,7 @@ std::string JsonParser::quoted()
     }
     throw std::runtime_error("Unterminated JSON string");
 }
+
 Json JsonParser::value(unsigned depth)
 {
     space();
