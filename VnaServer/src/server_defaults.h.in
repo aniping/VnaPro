@@ -1,0 +1,13 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
+#ifndef VNAPRO_SERVER_SERVER_DEFAULTS_H
+#define VNAPRO_SERVER_SERVER_DEFAULTS_H
+
+namespace vna_server {
+constexpr const char *DEFAULT_DRIVER_PATH = "@DEFAULT_DRIVER_PATH@";
+constexpr const char *DEFAULT_WEB_ROOT_PATH = "@DEFAULT_WEB_ROOT_PATH@";
+}  // namespace vna_server
+
+#endif

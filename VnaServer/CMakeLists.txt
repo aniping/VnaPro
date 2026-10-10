@@ -1,11 +1,14 @@
 add_subdirectory(src/network)
 add_subdirectory(src/scpi)
 add_subdirectory(src/web)
-add_executable(vna_server src/main.cpp src/scpi_tcp_server.cpp)
+add_executable(vna_server src/main.cpp src/scpi_tcp_server.cpp src/scpi_connection.cpp)
 target_link_libraries(vna_server PRIVATE vna_scpi vna_web)
-target_compile_definitions(vna_server PRIVATE
-    VNA_DEFAULT_DRIVER="$<TARGET_FILE:vnb_drv_sim>"
-    VNA_DEFAULT_WEB_ROOT="${CMAKE_SOURCE_DIR}/frontend/dist")
+set(DEFAULT_DRIVER_PATH "$<TARGET_FILE:vnb_drv_sim>")
+set(DEFAULT_WEB_ROOT_PATH "${CMAKE_SOURCE_DIR}/frontend/dist")
+configure_file(src/server_defaults.h.in generated/server_defaults.h.in @ONLY)
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>/server_defaults.h"
+    INPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/server_defaults.h.in")
+target_include_directories(vna_server PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
 if(WIN32)
     target_link_libraries(vna_server PRIVATE ws2_32)
 endif()
@@ -19,7 +22,8 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/ScpiTcpIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>)
     set_tests_properties(scpi_tcp_integration PROPERTIES TIMEOUT 45)
-    add_executable(vna_network_shutdown_tests tests/network_shutdown_test.cpp src/scpi_tcp_server.cpp)
+    add_executable(vna_network_shutdown_tests tests/network_shutdown_test.cpp tests/client.cpp
+        src/scpi_tcp_server.cpp src/scpi_connection.cpp)
     target_include_directories(vna_network_shutdown_tests PRIVATE src)
     target_link_libraries(vna_network_shutdown_tests PRIVATE vna_scpi vna_web)
     if(WIN32)

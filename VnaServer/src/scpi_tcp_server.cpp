@@ -1,242 +1,102 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #include "scpi_tcp_server.h"
 
-#include <chrono>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
-#include <thread>
+#include <utility>
 
 #include "network/network_runtime.h"
 #include "network/socket_owner.h"
-#include "scpi/scpi_engine.h"
+#include "network/socket_poll_set.h"
+#include "scpi_connection.h"
 #include "web/web_endpoint.h"
 
 namespace vna_server {
-using network::CloseSocket;
-using network::kInvalidSocket;
-using network::NetworkRuntime;
-using network::SetNonBlocking;
-using network::Socket;
-using network::SocketError;
-using network::SocketLength;
-using network::SocketOwner;
-using network::WouldBlock;
-
 namespace {
-constexpr std::size_t kInputLimit = 16U * 1024U;
-constexpr std::size_t kOutputLimit = 1024U * 1024U;
-using Clock = std::chrono::steady_clock;
-
-bool FitsSelect(Socket value)
+void AdmitController(
+    vna_service::InstrumentService &service, network::Socket listener, std::unique_ptr<ScpiConnection> &connection)
 {
-#ifdef _WIN32
-    (void)value;
-    return true;
-#else
-    return value >= 0 && value < FD_SETSIZE;
-#endif
+    network::SocketOwner incoming(accept(listener, nullptr, nullptr));
+    if (incoming.Get() == network::INVALID_SOCKET_HANDLE) {
+        return;
+    }
+    if (connection || !network::FitsSelect(incoming.Get()) || !network::SetNonBlocking(incoming.Get())) {
+        return;
+    }
+    // Nullable ownership reflects a connection that only exists after admission.
+    connection = std::make_unique<ScpiConnection>(service, std::move(incoming));
+}
+
+void PollTransports(
+    network::Socket listener, vna_service::InstrumentService &service, std::unique_ptr<ScpiConnection> &connection)
+{
+    network::SocketPollSet events;
+    events.AddReadable(listener);
+    if (connection && connection->WantsRead()) {
+        events.AddReadable(connection->GetSocket());
+    }
+    if (connection && connection->WantsWrite()) {
+        events.AddWritable(connection->GetSocket());
+    }
+    events.Wait();
+    if (events.IsReadable(listener)) {
+        AdmitController(service, listener, connection);
+    }
+    if (connection && events.IsReadable(connection->GetSocket())) {
+        connection->Read();
+    }
+    if (connection && events.IsWritable(connection->GetSocket())) {
+        connection->Write();
+    }
+}
+
+void AnnounceListener(const ListenOptions &options, std::uint16_t port)
+{
+    std::cout << "LISTENING " << options.bindAddress << ':' << port << std::endl;
+    if (options.onListening) {
+        options.onListening(port);
+    }
 }
 }  // namespace
 
 int RunScpiTcpServer(vna_service::InstrumentService &service, const ListenOptions &options,
     const std::function<bool()> &shutdownRequested)
 {
-    NetworkRuntime runtime;
-    (void)runtime;
-    SocketOwner listener(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
-    if (listener.get() == kInvalidSocket) {
+    network::NetworkRuntime runtime;
+    network::SocketOwner listener(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+    if (listener.Get() == network::INVALID_SOCKET_HANDLE) {
         throw std::runtime_error("Cannot create listening socket");
     }
-    if (!FitsSelect(listener.get())) {
+    if (!network::FitsSelect(listener.Get())) {
         throw std::runtime_error("Listening descriptor exceeds select capacity");
     }
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_port = htons(options.port);
-    if (inet_pton(AF_INET, options.bindAddress.c_str(), &address.sin_addr) != 1) {
-        throw std::runtime_error("Bind address must be an IPv4 address");
-    }
-#ifndef _WIN32
-    const int reuse = 1;
-    setsockopt(listener.get(), SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-#endif
-    if (bind(listener.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
-        listen(listener.get(), 8) != 0 || !SetNonBlocking(listener.get())) {
-        throw std::runtime_error("Cannot bind/listen on " + options.bindAddress + ":" + std::to_string(options.port));
-    }
-    SocketLength addressLength = sizeof(address);
-    if (getsockname(listener.get(), reinterpret_cast<sockaddr *>(&address), &addressLength) != 0) {
-        throw std::runtime_error("Cannot inspect listening socket");
-    }
-    std::cout << "LISTENING " << options.bindAddress << ':' << ntohs(address.sin_port) << std::endl;
-    if (options.onListening) {
-        options.onListening(ntohs(address.sin_port));
-    }
+    AnnounceListener(options, network::BindListener(listener.Get(), options.bindAddress, options.port));
     vna_web::WebEndpoint web(service, options.web);
-    SocketOwner controller;
-    std::unique_ptr<vna_scpi::ScpiEngine> engine;
-    std::string input;
-    std::string output;
-    std::size_t sent = 0;
-    auto lastSendProgress = Clock::now();
+    std::unique_ptr<ScpiConnection> connection;
     bool shuttingDown = false;
-    auto disconnect = [&] {
-        controller.reset();
-        input.clear();
-        output.clear();
-        sent = 0;
-        if (engine) {
-            engine->disconnect();
-        }
-    };
     while (true) {
         if (!shuttingDown && shutdownRequested()) {
             shuttingDown = true;
-            listener.reset();
-            disconnect();
-            web.beginShutdown();
-        }
-        web.poll();
-        if (engine) {
-            engine->setTransportOutputPending(output.size() != sent);
-            engine->poll();
-            while (true) {
-                std::string response = engine->takeOutput();
-                if (response.empty()) {
-                    break;
-                }
-                if (controller.get() == kInvalidSocket) {
-                    continue;
-                }
-                if (response.size() > kOutputLimit - (output.size() - sent)) {
-                    disconnect();
-                    break;
-                }
-                if (sent != 0) {
-                    output.erase(0, sent);
-                    sent = 0;
-                }
-                if (output.empty()) {
-                    lastSendProgress = Clock::now();
-                }
-                output += response;
+            listener.Reset();
+            if (connection) {
+                connection->Disconnect();
             }
-            if (controller.get() == kInvalidSocket && engine->canReleaseControl()) {
-                engine.reset();
+            web.BeginShutdown();
+        }
+        web.Poll();
+        if (connection) {
+            connection->Poll();
+            if (connection->Drained()) {
+                connection.reset();
             }
         }
-        if (shuttingDown && !engine && web.drained()) {
+        if (shuttingDown && !connection && web.Drained()) {
             return 0;
         }
-        if (controller.get() != kInvalidSocket && output.size() != sent &&
-            Clock::now() - lastSendProgress > std::chrono::seconds(10)) {
-            disconnect();
-        }
-        fd_set readable;
-        fd_set writable;
-        FD_ZERO(&readable);
-        FD_ZERO(&writable);
-        Socket maximum = 0;
-        bool anySocket = false;
-        auto addReadable = [&](Socket value) {
-            if (value != kInvalidSocket) {
-                FD_SET(value, &readable);
-                if (value > maximum) {
-                    maximum = value;
-                }
-                anySocket = true;
-            }
-        };
-        addReadable(listener.get());
-        if (output.size() - sent < kOutputLimit / 2) {
-            addReadable(controller.get());
-        }
-        if (controller.get() != kInvalidSocket && output.size() > sent) {
-            FD_SET(controller.get(), &writable);
-            maximum = controller.get() > maximum ? controller.get() : maximum;
-            anySocket = true;
-        }
-        if (!anySocket) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            continue;
-        }
-        timeval timeout{};
-        timeout.tv_usec = 5000;
-        const int ready = select(static_cast<int>(maximum + 1), &readable, &writable, nullptr, &timeout);
-        if (ready < 0) {
-            if (WouldBlock(SocketError())) {
-                continue;
-            }
-            throw std::runtime_error("Socket select failed");
-        }
-        if (listener.get() != kInvalidSocket && FD_ISSET(listener.get(), &readable)) {
-            const Socket incoming = accept(listener.get(), nullptr, nullptr);
-            if (incoming != kInvalidSocket) {
-                if (engine || !FitsSelect(incoming) || !SetNonBlocking(incoming)) {
-                    CloseSocket(incoming);
-                } else {
-                    controller.reset(incoming);
-                    const int noDelay = 1;
-                    setsockopt(
-                        incoming, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&noDelay), sizeof(noDelay));
-#if !defined(_WIN32) && defined(SO_NOSIGPIPE)
-                    const int noSigPipe = 1;
-                    setsockopt(incoming, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, sizeof(noSigPipe));
-#endif
-                    engine.reset(new vna_scpi::ScpiEngine(service));
-                    if (!engine->hasControl()) {
-                        disconnect();
-                    }
-                }
-            }
-        }
-        if (controller.get() != kInvalidSocket && FD_ISSET(controller.get(), &readable)) {
-            char buffer[4096];
-            const int received = recv(controller.get(), buffer, sizeof(buffer), 0);
-            if (received > 0) {
-                input.append(buffer, static_cast<std::size_t>(received));
-                std::size_t boundary;
-                while ((boundary = input.find('\n')) != std::string::npos) {
-                    if (boundary > kInputLimit) {
-                        disconnect();
-                        break;
-                    }
-                    std::string line = input.substr(0, boundary);
-                    input.erase(0, boundary + 1);
-                    if (!line.empty() && line.back() == '\r') {
-                        line.pop_back();
-                    }
-                    if (!line.empty() && !engine->submitLine(line)) {
-                        disconnect();
-                        break;
-                    }
-                }
-                if (input.size() > kInputLimit) {
-                    disconnect();
-                }
-            } else if (received == 0 || !WouldBlock(SocketError())) {
-                disconnect();
-            }
-        }
-        if (controller.get() != kInvalidSocket && FD_ISSET(controller.get(), &writable)) {
-            const auto remaining = output.size() - sent;
-#if defined(MSG_NOSIGNAL) && !defined(_WIN32)
-            constexpr int sendFlags = MSG_NOSIGNAL;
-#else
-            constexpr int sendFlags = 0;
-#endif
-            const int written = send(controller.get(), output.data() + sent, static_cast<int>(remaining), sendFlags);
-            if (written > 0) {
-                sent += static_cast<std::size_t>(written);
-                lastSendProgress = Clock::now();
-                if (sent == output.size()) {
-                    output.clear();
-                    sent = 0;
-                }
-            } else if (written == 0 || !WouldBlock(SocketError())) {
-                disconnect();
-            }
-        }
+        PollTransports(listener.Get(), service, connection);
     }
 }
 }  // namespace vna_server

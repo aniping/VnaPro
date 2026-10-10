@@ -1,17 +1,18 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #ifndef VNAPRO_SERVER_SCPI_TCP_SERVER_H
 #define VNAPRO_SERVER_SCPI_TCP_SERVER_H
 
 #include <functional>
 
 #include "listen_options.h"
-
-namespace vna_service {
-class InstrumentService;
-}
+#include "vna_service/instrument_service.h"
 
 namespace vna_server {
 
-// HTTP and SCPI share this executor and the service's exclusive control grant.
+// Runs HTTP and SCPI on one executor. Returns zero after orderly shutdown.
+// The callback is checked every executor turn; the service must outlive this call.
 int RunScpiTcpServer(vna_service::InstrumentService &service, const ListenOptions &options,
     const std::function<bool()> &shutdownRequested);
 
