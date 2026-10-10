@@ -16,7 +16,7 @@ endif()
 
 if(BUILD_TESTING)
     add_executable(vna_web_tests tests/web_api_test.cpp)
-    target_link_libraries(vna_web_tests PRIVATE vna_web)
+    target_link_libraries(vna_web_tests PRIVATE vna_web vna_service_test_support)
     target_include_directories(vna_web_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaService/tests
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaCore/src
