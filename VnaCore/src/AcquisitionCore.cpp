@@ -7,7 +7,7 @@
 
 namespace vna_core {
 
-AcquisitionCore::AcquisitionCore(const std::string& path)
+AcquisitionCore::AcquisitionCore(const std::string &path)
     : AcquisitionCore(std::unique_ptr<detail::DeviceSession>(new detail::NativeDeviceSession(path)))
 {
 }

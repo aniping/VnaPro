@@ -10,9 +10,9 @@ namespace vna_web {
 // Consumes one input document; the input must remain alive until parse() returns.
 class JsonParser {
 public:
-    explicit JsonParser(const std::string& input);
-    JsonParser(std::string&&) = delete;
-    JsonParser(const std::string&&) = delete;
+    explicit JsonParser(const std::string &input);
+    JsonParser(std::string &&) = delete;
+    JsonParser(const std::string &&) = delete;
     Json parse();
 
 private:
@@ -23,12 +23,12 @@ private:
     std::string quoted();
     Json value(unsigned depth = 0);
 
-    const std::string& text;
+    const std::string &text;
     std::size_t position = 0;
     unsigned nodes = 0;
 };
 
-Json parseJson(const std::string& text);
+Json parseJson(const std::string &text);
 }  // namespace vna_web
 
 #endif

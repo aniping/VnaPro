@@ -175,7 +175,7 @@ void testCloseReservedAndTicketsTerminate()
     f.device->releaseGate();
     require(await(inFlight).ok, "in-flight ticket was abandoned by Close");
     std::size_t successfulQueued = 0U;
-    for (const auto& ticket : tickets) {
+    for (const auto &ticket : tickets) {
         successfulQueued += await(ticket).ok ? 1U : 0U;
     }
     require(successfulQueued == 64U, "Close abandoned an accepted queued trigger");
@@ -362,10 +362,10 @@ void testConcurrentSubmittersAndReaders()
                 std::this_thread::yield();
             }
             std::lock_guard<std::mutex> lock(plansMutex);
-            for (const auto& snapshot : snapshots) {
+            for (const auto &snapshot : snapshots) {
                 requireUnchanged(*snapshot.first, snapshot.second);
                 bool matchedRevision = false;
-                for (const auto& committed : committedPlans) {
+                for (const auto &committed : committedPlans) {
                     if (snapshot.first->configRevision == committed.first) {
                         matchedRevision = samePlan(snapshot.first->plan, committed.second);
                         break;
@@ -379,8 +379,8 @@ void testConcurrentSubmittersAndReaders()
     releaseWorkersOnExit.pending = false;
     // async captures exceptions; drain every worker before rethrowing so no joinable thread escapes.
     std::exception_ptr workerError;
-    const auto collect = [&workerError](std::vector<std::future<void>>& workers) {
-        for (auto& worker : workers) {
+    const auto collect = [&workerError](std::vector<std::future<void>> &workers) {
+        for (auto &worker : workers) {
             try {
                 worker.get();
             } catch (...) {
@@ -431,7 +431,7 @@ int main()
         testConcurrentSubmittersAndReaders();
         std::cout << "core concurrency: 11 scenarios passed\n";
         return 0;
-    } catch (const std::exception& error) {
+    } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;
     }

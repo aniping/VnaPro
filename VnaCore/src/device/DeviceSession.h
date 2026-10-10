@@ -15,9 +15,9 @@ class DeviceSession {
 public:
     virtual ~DeviceSession() = default;
     virtual std::string initialize() = 0;
-    virtual void applyPlan(const SweepPlan& plan) = 0;
+    virtual void applyPlan(const SweepPlan &plan) = 0;
     virtual void enableRf() = 0;
-    virtual std::vector<double> acquirePort(const SweepPlan& plan, std::uint32_t sourcePort) = 0;
+    virtual std::vector<double> acquirePort(const SweepPlan &plan, std::uint32_t sourcePort) = 0;
     virtual void shutdown() = 0;
 };
 

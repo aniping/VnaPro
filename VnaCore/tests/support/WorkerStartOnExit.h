@@ -7,8 +7,8 @@
 namespace vna_core_test {
 
 struct WorkerStartOnExit {
-    std::promise<void>& signal;
-    std::atomic<bool>& finished;
+    std::promise<void> &signal;
+    std::atomic<bool> &finished;
     bool pending = true;
 
     ~WorkerStartOnExit()

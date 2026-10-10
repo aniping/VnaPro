@@ -42,12 +42,12 @@ private:
     };
 
     void workerLoop();
-    CommandResult execute(Command& command);
+    CommandResult execute(Command &command);
     void acquireFrame();
-    void fault(const std::string& error);
+    void fault(const std::string &error);
     void publishView();
-    CommandResult result(bool ok, const std::string& message = std::string()) const;
-    Ticket rejected(const std::string& message) const;
+    CommandResult result(bool ok, const std::string &message = std::string()) const;
+    Ticket rejected(const std::string &message) const;
 
     std::unique_ptr<DeviceSession> device_;
     mutable std::mutex queueMutex_;

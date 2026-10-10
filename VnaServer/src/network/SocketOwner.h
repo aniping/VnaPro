@@ -9,8 +9,8 @@ class SocketOwner {
 public:
     explicit SocketOwner(Socket value = kInvalidSocket);
     ~SocketOwner();
-    SocketOwner(const SocketOwner&) = delete;
-    SocketOwner& operator=(const SocketOwner&) = delete;
+    SocketOwner(const SocketOwner &) = delete;
+    SocketOwner &operator=(const SocketOwner &) = delete;
     Socket get() const;
     void reset(Socket value = kInvalidSocket);
 

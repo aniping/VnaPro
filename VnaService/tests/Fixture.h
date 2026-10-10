@@ -13,7 +13,7 @@
 namespace vna_service_test {
 
 struct Fixture {
-    ControlledDevice* device;
+    ControlledDevice *device;
     std::unique_ptr<vna_core::AcquisitionCore> core;
     std::unique_ptr<vna_service::InstrumentService> service;
 
@@ -22,12 +22,14 @@ struct Fixture {
         std::unique_ptr<ControlledDevice> owned(new ControlledDevice);
         device = owned.get();
         core = vna_core::detail::CoreTestAccess::create(std::move(owned));
-        if (!core->initialize().get().ok)
+        if (!core->initialize().get().ok) {
             throw std::runtime_error("controlled initialization");
+        }
         service.reset(new vna_service::InstrumentService(*core));
         std::string error;
-        if (!service->bootstrapMockProfile(error))
+        if (!service->bootstrapMockProfile(error)) {
             throw std::runtime_error(error);
+        }
     }
 
     ~Fixture()

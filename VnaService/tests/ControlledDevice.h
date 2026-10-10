@@ -29,7 +29,7 @@ public:
         return "VnaPro,NativeSimulator,TEST,1.0";
     }
 
-    void applyPlan(const vna_core::SweepPlan&) override
+    void applyPlan(const vna_core::SweepPlan &) override
     {
         std::unique_lock<std::mutex> lock(mutex);
         if (blockPlan) {
@@ -49,7 +49,7 @@ public:
     {
     }
 
-    std::vector<double> acquirePort(const vna_core::SweepPlan& plan, std::uint32_t) override
+    std::vector<double> acquirePort(const vna_core::SweepPlan &plan, std::uint32_t) override
     {
         std::unique_lock<std::mutex> lock(mutex);
         if (blocked) {
@@ -59,8 +59,9 @@ public:
                 return released;
             });
         }
-        if (failAcquire)
+        if (failAcquire) {
             throw std::runtime_error("controlled acquisition failure");
+        }
         std::vector<double> iq(plan.frequencyRaw.size() * 16U, 1.11);
         if (invalidSamples && plan.frequencyRaw.size() >= 3U) {
             iq[16U] = std::numeric_limits<double>::quiet_NaN();

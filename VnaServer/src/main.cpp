@@ -17,7 +17,7 @@ void HandleSignal(int)
 }
 }  // namespace
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     vna_server::ListenOptions options;
     options.web.staticRoot = VNA_DEFAULT_WEB_ROOT;
@@ -50,7 +50,7 @@ int main(int argc, char** argv)
         } else if (argument == "--driver") {
             driver = value;
         } else if (argument == "--port" || argument == "--web-port") {
-            char* end = nullptr;
+            char *end = nullptr;
             const long port = std::strtol(value.c_str(), &end, 10);
             if (value.empty() || *end != '\0' || port < 0 || port > 65535) {
                 std::cerr << "Invalid port\n";
@@ -96,7 +96,7 @@ int main(int argc, char** argv)
             return 1;
         }
         return result;
-    } catch (const std::exception& error) {
+    } catch (const std::exception &error) {
         std::cerr << "Service failed: " << error.what() << '\n';
         return 1;
     }

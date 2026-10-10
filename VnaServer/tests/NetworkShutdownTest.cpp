@@ -14,7 +14,7 @@
 namespace {
 using vna_server_test::Client;
 
-void expect(bool condition, const char* message)
+void expect(bool condition, const char *message)
 {
     if (!condition) {
         throw std::runtime_error(message);
@@ -23,7 +23,7 @@ void expect(bool condition, const char* message)
 
 }  // namespace
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     if (argc != 2) {
         return 2;
@@ -71,7 +71,7 @@ int main(int argc, char** argv)
         expect(core.readView().state == vna_core::CoreState::Closed, "Core was not joined/closed");
         std::cout << "Network orderly shutdown passed\n";
         return 0;
-    } catch (const std::exception& error) {
+    } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;
     }

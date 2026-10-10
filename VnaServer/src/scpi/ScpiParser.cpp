@@ -8,34 +8,37 @@
 #include <sstream>
 
 namespace vna_scpi {
-std::string trim(const std::string& value)
+std::string trim(const std::string &value)
 {
     const auto first = value.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos)
+    if (first == std::string::npos) {
         return std::string();
+    }
     return value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1U);
 }
 
 std::string upper(std::string value)
 {
-    for (char& character : value)
+    for (char &character : value) {
         character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+    }
     return value;
 }
 
-std::string quote(const std::string& value)
+std::string quote(const std::string &value)
 {
     std::string encoded = "\"";
     for (char character : value) {
         encoded += character;
-        if (character == '"')
+        if (character == '"') {
             encoded += character;
+        }
     }
     return encoded + "\"";
 }
 
 namespace {
-std::vector<std::string> splitQuoted(const std::string& input, char separator, bool* valid)
+std::vector<std::string> splitQuoted(const std::string &input, char separator, bool *valid)
 {
     std::vector<std::string> parts;
     std::string part;
@@ -45,10 +48,11 @@ std::vector<std::string> splitQuoted(const std::string& input, char separator, b
         if (delimiter != 0) {
             part += character;
             if (character == delimiter) {
-                if (index + 1U < input.size() && input[index + 1U] == delimiter)
+                if (index + 1U < input.size() && input[index + 1U] == delimiter) {
                     part += input[++index];
-                else
+                } else {
                     delimiter = 0;
+                }
             }
         } else if (character == '\'' || character == '"') {
             delimiter = character;
@@ -56,12 +60,14 @@ std::vector<std::string> splitQuoted(const std::string& input, char separator, b
         } else if (character == separator) {
             parts.push_back(trim(part));
             part.clear();
-        } else
+        } else {
             part += character;
+        }
     }
     parts.push_back(trim(part));
-    if (valid != nullptr)
+    if (valid != nullptr) {
         *valid = delimiter == 0;
+    }
     return parts;
 }
 
@@ -80,20 +86,22 @@ std::string keyword(std::string token)
         {"EXTENDED", "EXT"}, {"SELECT", "SEL"}, {"CATALOG", "CAT"}, {"DELETE", "DEL"}, {"FORMAT", "FORM"},
         {"VALUES", "VAL"}, {"SYSTEM", "SYST"}, {"ERROR", "ERR"}, {"COUNT", "COUN"}};
     const auto found = names.find(token);
-    if (found != names.end())
+    if (found != names.end()) {
         token = found->second;
-    if (suffix.empty() && (token == "SENS" || token == "CALC"))
+    }
+    if (suffix.empty() && (token == "SENS" || token == "CALC")) {
         suffix = "1";
+    }
     return token + suffix;
 }
 }  // namespace
 
-std::vector<std::string> splitProgram(const std::string& input)
+std::vector<std::string> splitProgram(const std::string &input)
 {
     return splitQuoted(input, ';', nullptr);
 }
 
-ParsedCommand parseCommand(const std::string& unit, std::vector<std::string>& parent)
+ParsedCommand parseCommand(const std::string &unit, std::vector<std::string> &parent)
 {
     ParsedCommand command;
     const std::string text = trim(unit);
@@ -119,17 +127,18 @@ ParsedCommand parseCommand(const std::string& unit, std::vector<std::string>& pa
         command.error = "Invalid query header";
         return command;
     }
-    if (header.front() == '*')
+    if (header.front() == '*') {
         command.path = upper(header);
-    else {
+    } else {
         if (header.back() == ':') {
             command.errorCode = -102;
             command.error = "Trailing header separator";
             return command;
         }
         const bool absolute = header.front() == ':';
-        if (absolute)
+        if (absolute) {
             header.erase(header.begin());
+        }
         std::vector<std::string> tokens = absolute ? std::vector<std::string>() : parent;
         std::stringstream path(header);
         std::string token;
@@ -148,9 +157,10 @@ ParsedCommand parseCommand(const std::string& unit, std::vector<std::string>& pa
         }
         parent = tokens;
         parent.pop_back();
-        for (const auto& item : tokens) {
-            if (!command.path.empty())
+        for (const auto &item : tokens) {
+            if (!command.path.empty()) {
                 command.path += ':';
+            }
             command.path += item;
         }
     }
@@ -166,41 +176,46 @@ ParsedCommand parseCommand(const std::string& unit, std::vector<std::string>& pa
     return command;
 }
 
-bool numeric(const std::string& text, double& value, bool frequencyUnits)
+bool numeric(const std::string &text, double &value, bool frequencyUnits)
 {
     const std::string input = trim(text);
-    if (input.empty())
+    if (input.empty()) {
         return false;
-    char* end = nullptr;
+    }
+    char *end = nullptr;
     value = std::strtod(input.c_str(), &end);
-    if (end == input.c_str() || !std::isfinite(value))
+    if (end == input.c_str() || !std::isfinite(value)) {
         return false;
+    }
     const std::size_t parsedLength = static_cast<std::size_t>(end - input.c_str());
     const std::string unit = upper(trim(input.substr(parsedLength)));
     double scale = 1.0;
     if (!unit.empty()) {
-        if (!frequencyUnits)
+        if (!frequencyUnits) {
             return false;
-        if (unit == "HZ")
+        }
+        if (unit == "HZ") {
             scale = 1.0;
-        else if (unit == "KHZ")
+        } else if (unit == "KHZ") {
             scale = 1000.0;
-        else if (unit == "MHZ")
+        } else if (unit == "MHZ") {
             scale = 1000000.0;
-        else if (unit == "GHZ")
+        } else if (unit == "GHZ") {
             scale = 1000000000.0;
-        else
+        } else {
             return false;
+        }
     }
     value *= scale;
     return std::isfinite(value);
 }
 
-bool integer(const std::string& text, unsigned& value, unsigned maximum)
+bool integer(const std::string &text, unsigned &value, unsigned maximum)
 {
     double parsed = 0;
-    if (!numeric(text, parsed) || parsed < 0.0 || parsed > maximum || std::floor(parsed) != parsed)
+    if (!numeric(text, parsed) || parsed < 0.0 || parsed > maximum || std::floor(parsed) != parsed) {
         return false;
+    }
     value = static_cast<unsigned>(parsed);
     return true;
 }

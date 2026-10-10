@@ -11,9 +11,9 @@ class NativeDeviceSession : public DeviceSession {
 public:
     explicit NativeDeviceSession(std::string path);
     std::string initialize() override;
-    void applyPlan(const SweepPlan& plan) override;
+    void applyPlan(const SweepPlan &plan) override;
     void enableRf() override;
-    std::vector<double> acquirePort(const SweepPlan& plan, std::uint32_t sourcePort) override;
+    std::vector<double> acquirePort(const SweepPlan &plan, std::uint32_t sourcePort) override;
     void shutdown() override;
 
 private:

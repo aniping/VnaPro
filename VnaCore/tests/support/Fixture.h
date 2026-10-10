@@ -10,7 +10,7 @@
 namespace vna_core_test {
 
 struct Fixture {
-    ControlledDevice* device;
+    ControlledDevice *device;
     std::unique_ptr<vna_core::AcquisitionCore> core;
 
     Fixture()

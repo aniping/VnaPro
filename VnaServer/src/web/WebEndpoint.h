@@ -15,10 +15,10 @@ namespace vna_web {
 // poll never waits on a device future; accepted writes outlive HTTP connections.
 class WebEndpoint {
 public:
-    WebEndpoint(vna_service::InstrumentService& service, const WebOptions& options);
+    WebEndpoint(vna_service::InstrumentService &service, const WebOptions &options);
     ~WebEndpoint();
-    WebEndpoint(const WebEndpoint&) = delete;
-    WebEndpoint& operator=(const WebEndpoint&) = delete;
+    WebEndpoint(const WebEndpoint &) = delete;
+    WebEndpoint &operator=(const WebEndpoint &) = delete;
     void poll();
     void beginShutdown();
     bool drained() const;

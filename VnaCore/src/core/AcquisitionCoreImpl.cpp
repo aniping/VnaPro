@@ -15,7 +15,7 @@ namespace {
 constexpr std::size_t kQueueCapacity = 64U;
 constexpr std::size_t kFrameBudget = 64U * 1024U * 1024U;
 
-std::string validate(const SweepPlan& plan)
+std::string validate(const SweepPlan &plan)
 {
     const std::size_t count = plan.frequencyRaw.size();
     if (count == 0U || count > (std::numeric_limits<std::uint32_t>::max() - 1U) / 9U) {
@@ -63,7 +63,7 @@ AcquisitionCoreImpl::~AcquisitionCoreImpl()
     close();
 }
 
-Ticket AcquisitionCoreImpl::rejected(const std::string& message) const
+Ticket AcquisitionCoreImpl::rejected(const std::string &message) const
 {
     const CoreView view = readView();
     CommandResult answer;
@@ -131,7 +131,7 @@ CommandResult AcquisitionCoreImpl::close()
     return answer;
 }
 
-CommandResult AcquisitionCoreImpl::result(bool ok, const std::string& message) const
+CommandResult AcquisitionCoreImpl::result(bool ok, const std::string &message) const
 {
     CommandResult answer;
     answer.ok = ok;
@@ -158,7 +158,7 @@ void AcquisitionCoreImpl::publishView()
     // The previous potentially large frame is destroyed after releasing the publication lock.
 }
 
-void AcquisitionCoreImpl::fault(const std::string& error)
+void AcquisitionCoreImpl::fault(const std::string &error)
 {
     state_ = CoreState::Faulted;
     configured_ = false;
@@ -190,7 +190,7 @@ void AcquisitionCoreImpl::acquireFrame()
     publishView();
 }
 
-CommandResult AcquisitionCoreImpl::execute(Command& command)
+CommandResult AcquisitionCoreImpl::execute(Command &command)
 {
     try {
         switch (command.kind) {
@@ -257,7 +257,7 @@ CommandResult AcquisitionCoreImpl::execute(Command& command)
             case Kind::Close:
                 try {
                     device_->shutdown();
-                } catch (const std::exception& error) {
+                } catch (const std::exception &error) {
                     state_ = CoreState::Closed;
                     configured_ = false;
                     error_ = error.what();
@@ -270,12 +270,12 @@ CommandResult AcquisitionCoreImpl::execute(Command& command)
         }
         publishView();
         return result(true);
-    } catch (const PlanPreparationError& error) {
+    } catch (const PlanPreparationError &error) {
         if (command.kind != Kind::Configure) {
             fault(error.what());
         }
         return result(false, error.what());
-    } catch (const std::exception& error) {
+    } catch (const std::exception &error) {
         fault(error.what());
         return result(false, error_);
     } catch (...) {
@@ -319,7 +319,7 @@ void AcquisitionCoreImpl::workerLoop()
             guard.unlock();
             try {
                 acquireFrame();
-            } catch (const std::exception& error) {
+            } catch (const std::exception &error) {
                 fault(error.what());
             } catch (...) {
                 fault("unknown continuous acquisition exception");

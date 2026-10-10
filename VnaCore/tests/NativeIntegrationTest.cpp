@@ -12,14 +12,14 @@
 
 namespace {
 
-void require(bool value, const char* message)
+void require(bool value, const char *message)
 {
     if (!value) {
         throw std::runtime_error(message);
     }
 }
 
-vna_core::CommandResult await(const vna_core::Ticket& ticket)
+vna_core::CommandResult await(const vna_core::Ticket &ticket)
 {
     require(ticket.wait_for(std::chrono::seconds(3)) == std::future_status::ready, "native ticket timed out");
     const auto result = ticket.get();
@@ -29,8 +29,8 @@ vna_core::CommandResult await(const vna_core::Ticket& ticket)
     return result;
 }
 
-void verifyFrame(const vna_core::FramePtr& frame, const vna_core::SweepPlan& plan,
-    const std::vector<std::vector<double>>& expected, const vna_core::CommandResult& triggered)
+void verifyFrame(const vna_core::FramePtr &frame, const vna_core::SweepPlan &plan,
+    const std::vector<std::vector<double>> &expected, const vna_core::CommandResult &triggered)
 {
     require(frame && frame->ports.size() == expected.size(), "multi-source frame was incomplete");
     require(frame->frameSeq == triggered.frameSeq && frame->runId == triggered.runId &&
@@ -40,7 +40,7 @@ void verifyFrame(const vna_core::FramePtr& frame, const vna_core::SweepPlan& pla
                 frame->plan.sourcePorts == plan.sourcePorts && frame->plan.receiverMask == plan.receiverMask,
         "published frame did not retain the complete frozen sweep plan");
     for (std::size_t source = 0U; source < expected.size(); ++source) {
-        const auto& port = frame->ports[source];
+        const auto &port = frame->ports[source];
         require(port.sourcePort == plan.sourcePorts[source] && port.iq.size() == expected[source].size(),
             "source port conversion or IQ shape failed");
         for (std::size_t index = 0U; index < port.iq.size(); ++index) {
@@ -55,7 +55,7 @@ void verifyFrame(const vna_core::FramePtr& frame, const vna_core::SweepPlan& pla
 
 }  // namespace
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     try {
         require(argc == 2, "usage: native test <simulator library>");
@@ -101,7 +101,7 @@ int main(int argc, char** argv)
         plan.frequencyRaw[1] = vna_test::kGoldenIqHighWordFrequency;
         plan.frequencyHz[1] = static_cast<double>(vna_test::kGoldenIqHighWordFrequency);
         plan.sourcePorts = {1U};
-        const double* low = vna_test::kGoldenIqBySource[0U][0U];
+        const double *low = vna_test::kGoldenIqBySource[0U][0U];
         std::vector<double> highWordExpected(low, low + 16U);
         highWordExpected.insert(
             highWordExpected.end(), vna_test::kGoldenIqHighWordSource0, vna_test::kGoldenIqHighWordSource0 + 16U);
@@ -125,7 +125,7 @@ int main(int argc, char** argv)
         require(relative.close().ok, "rejected relative path could not be closed");
         std::cout << "core native integration passed\n";
         return 0;
-    } catch (const std::exception& error) {
+    } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;
     }

@@ -11,16 +11,16 @@ namespace detail {
 class NativeLibrary {
 public:
     ~NativeLibrary();
-    void open(const std::string& path);
+    void open(const std::string &path);
     void close();
 
-    const NativeFunctions& functions() const
+    const NativeFunctions &functions() const
     {
         return functions_;
     }
 
 private:
-    void* handle_ = nullptr;
+    void *handle_ = nullptr;
     NativeFunctions functions_;
 };
 

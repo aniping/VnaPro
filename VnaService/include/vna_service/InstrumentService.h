@@ -25,46 +25,46 @@ namespace vna_service {
 // The referenced core must outlive this service. Protocol state survives clients.
 class InstrumentService {
 public:
-    explicit InstrumentService(vna_core::AcquisitionCore& core);
+    explicit InstrumentService(vna_core::AcquisitionCore &core);
     ~InstrumentService();
-    InstrumentService(const InstrumentService&) = delete;
-    InstrumentService& operator=(const InstrumentService&) = delete;
+    InstrumentService(const InstrumentService &) = delete;
+    InstrumentService &operator=(const InstrumentService &) = delete;
 
     // Startup only, before accepting connections. This deliberately waits for I/O.
     // The profile is valid only for VnaPro NativeSimulator, not arbitrary drivers.
-    bool bootstrapMockProfile(std::string& error);
+    bool bootstrapMockProfile(std::string &error);
     void poll();
     bool hasPending() const;
     std::vector<Operation> pendingOperations() const;
-    bool tryAcquireControl(const std::string& owner = "SCPI");
-    void beginReleaseControl(const std::string& owner);
-    void releaseControl(const std::string& owner = "SCPI");
+    bool tryAcquireControl(const std::string &owner = "SCPI");
+    void beginReleaseControl(const std::string &owner);
+    void releaseControl(const std::string &owner = "SCPI");
     std::string controlOwner() const;
     bool controlReleasing() const;
     InstrumentSnapshot snapshot() const;
 
-    const InstrumentSettings& settings() const;
+    const InstrumentSettings &settings() const;
     std::string identity() const;
     Operation setStartHz(double value, std::uint64_t expectedRevision = 0U);
     Operation setStopHz(double value, std::uint64_t expectedRevision = 0U);
     Operation setPoints(unsigned value, std::uint64_t expectedRevision = 0U);
     Operation setIfBandwidthHz(double value, std::uint64_t expectedRevision = 0U);
-    Operation applyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string& owner);
+    Operation applyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string &owner);
     Operation defineMeasurement(
-        Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string& owner = "SCPI");
+        Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
     Operation deleteMeasurement(
-        const std::string& name, std::uint64_t expectedRevision = 0U, const std::string& owner = "SCPI");
-    Operation setTriggerSource(TriggerSource source, const std::string& owner = "SCPI");
-    Operation setSweepMode(SweepMode mode, const std::string& owner = "SCPI");
-    Operation runSingle(const std::string& owner);
-    Operation runContinuous(const std::string& owner);
-    Operation trigger(const std::string& owner = "SCPI");
-    bool selectMeasurement(const std::string& name);
+        const std::string &name, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
+    Operation setTriggerSource(TriggerSource source, const std::string &owner = "SCPI");
+    Operation setSweepMode(SweepMode mode, const std::string &owner = "SCPI");
+    Operation runSingle(const std::string &owner);
+    Operation runContinuous(const std::string &owner);
+    Operation trigger(const std::string &owner = "SCPI");
+    bool selectMeasurement(const std::string &name);
     bool setCurrentTriggerScope(bool current);
     DataResult stimulusAxis() const;
     DataResult measurementData() const;
 
-    void recordError(int code, const std::string& message);
+    void recordError(int code, const std::string &message);
     InstrumentError popError();
     unsigned errorCount() const;
     void clearStatus();

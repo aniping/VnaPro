@@ -16,13 +16,13 @@ class CoreTestAccess;
 
 class AcquisitionCore {
 public:
-    explicit AcquisitionCore(const std::string& nativeLibraryPath);
+    explicit AcquisitionCore(const std::string &nativeLibraryPath);
     ~AcquisitionCore();
 
-    AcquisitionCore(const AcquisitionCore&) = delete;
-    AcquisitionCore& operator=(const AcquisitionCore&) = delete;
-    AcquisitionCore(AcquisitionCore&&) = delete;
-    AcquisitionCore& operator=(AcquisitionCore&&) = delete;
+    AcquisitionCore(const AcquisitionCore &) = delete;
+    AcquisitionCore &operator=(const AcquisitionCore &) = delete;
+    AcquisitionCore(AcquisitionCore &&) = delete;
+    AcquisitionCore &operator=(AcquisitionCore &&) = delete;
 
     Ticket initialize();
     Ticket configure(SweepPlan plan);

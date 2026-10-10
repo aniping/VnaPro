@@ -38,8 +38,8 @@ bool FitsSelect(Socket value)
 }
 }  // namespace
 
-int RunScpiTcpServer(vna_service::InstrumentService& service, const ListenOptions& options,
-    const std::function<bool()>& shutdownRequested)
+int RunScpiTcpServer(vna_service::InstrumentService &service, const ListenOptions &options,
+    const std::function<bool()> &shutdownRequested)
 {
     NetworkRuntime runtime;
     (void)runtime;
@@ -60,12 +60,12 @@ int RunScpiTcpServer(vna_service::InstrumentService& service, const ListenOption
     const int reuse = 1;
     setsockopt(listener.get(), SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 #endif
-    if (bind(listener.get(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0 ||
+    if (bind(listener.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
         listen(listener.get(), 8) != 0 || !SetNonBlocking(listener.get())) {
         throw std::runtime_error("Cannot bind/listen on " + options.bindAddress + ":" + std::to_string(options.port));
     }
     SocketLength addressLength = sizeof(address);
-    if (getsockname(listener.get(), reinterpret_cast<sockaddr*>(&address), &addressLength) != 0) {
+    if (getsockname(listener.get(), reinterpret_cast<sockaddr *>(&address), &addressLength) != 0) {
         throw std::runtime_error("Cannot inspect listening socket");
     }
     std::cout << "LISTENING " << options.bindAddress << ':' << ntohs(address.sin_port) << std::endl;
@@ -178,7 +178,7 @@ int RunScpiTcpServer(vna_service::InstrumentService& service, const ListenOption
                     controller.reset(incoming);
                     const int noDelay = 1;
                     setsockopt(
-                        incoming, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&noDelay), sizeof(noDelay));
+                        incoming, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&noDelay), sizeof(noDelay));
 #if !defined(_WIN32) && defined(SO_NOSIGPIPE)
                     const int noSigPipe = 1;
                     setsockopt(incoming, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, sizeof(noSigPipe));

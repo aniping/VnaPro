@@ -13,15 +13,15 @@ class InstrumentService;
 }
 
 namespace vna_web {
-HttpResponse httpError(unsigned status, const std::string& code, const std::string& message);
+HttpResponse httpError(unsigned status, const std::string &code, const std::string &message);
 
 class HttpApi {
 public:
     using Clock = std::chrono::steady_clock;
     using Now = std::function<Clock::time_point()>;
-    explicit HttpApi(vna_service::InstrumentService& service, Now now = Clock::now);
+    explicit HttpApi(vna_service::InstrumentService &service, Now now = Clock::now);
     ~HttpApi();
-    HttpResponse handle(const HttpRequest& request);
+    HttpResponse handle(const HttpRequest &request);
     void poll();
     void beginShutdown();
     bool drained() const;

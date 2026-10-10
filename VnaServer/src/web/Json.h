@@ -35,18 +35,18 @@ struct Json {
     {
     }
 
-    explicit Json(const std::string& value) : type(Type::String), string(value)
+    explicit Json(const std::string &value) : type(Type::String), string(value)
     {
     }
 
-    explicit Json(const char* value) : Json(std::string(value))
+    explicit Json(const char *value) : Json(std::string(value))
     {
     }
 
     static Json makeObject();
     static Json makeArray();
-    Json& operator[](const std::string& key);
-    const Json* find(const std::string& key) const;
+    Json &operator[](const std::string &key);
+    const Json *find(const std::string &key) const;
 };
 }  // namespace vna_web
 

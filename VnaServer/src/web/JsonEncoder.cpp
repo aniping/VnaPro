@@ -9,7 +9,7 @@
 
 namespace vna_web {
 namespace {
-std::string escaped(const std::string& text)
+std::string escaped(const std::string &text)
 {
     std::string result = "\"";
     const char hex[] = "0123456789abcdef";
@@ -21,8 +21,9 @@ std::string escaped(const std::string& text)
             result += "\\u00";
             result += hex[character >> 4U];
             result += hex[character & 15U];
-        } else
+        } else {
             result += static_cast<char>(character);
+        }
     }
     return result + '"';
 }
@@ -31,12 +32,12 @@ std::string escaped(const std::string& text)
 class JsonEncoder::Impl {
 public:
     struct Frame {
-        const Json* value;
+        const Json *value;
         std::size_t index = 0;
         bool opened = false;
         std::map<std::string, Json>::const_iterator member;
 
-        explicit Frame(const Json* item) : value(item), member(item->object.begin())
+        explicit Frame(const Json *item) : value(item), member(item->object.begin())
         {
         }
     };
@@ -53,8 +54,8 @@ public:
     bool advance(unsigned budget)
     {
         for (unsigned count = 0; count < budget && !stack.empty(); ++count) {
-            Frame& frame = stack.back();
-            const Json& json = *frame.value;
+            Frame &frame = stack.back();
+            const Json &json = *frame.value;
             if (json.type == Json::Type::Array || json.type == Json::Type::Object) {
                 const bool array = json.type == Json::Type::Array;
                 if (!frame.opened) {
@@ -65,12 +66,13 @@ public:
                     output += array ? ']' : '}';
                     stack.pop_back();
                 } else {
-                    if (frame.index != 0U)
+                    if (frame.index != 0U) {
                         output += ',';
-                    const Json* child;
-                    if (array)
+                    }
+                    const Json *child;
+                    if (array) {
                         child = &json.array[frame.index];
-                    else {
+                    } else {
                         output += escaped(frame.member->first) + ':';
                         child = &frame.member++->second;
                     }
@@ -78,15 +80,15 @@ public:
                     stack.emplace_back(child);
                 }
             } else {
-                if (json.type == Json::Type::Null)
+                if (json.type == Json::Type::Null) {
                     output += "null";
-                else if (json.type == Json::Type::Boolean)
+                } else if (json.type == Json::Type::Boolean) {
                     output += json.boolean ? "true" : "false";
-                else if (json.type == Json::Type::String)
+                } else if (json.type == Json::Type::String) {
                     output += escaped(json.string);
-                else if (!std::isfinite(json.number))
+                } else if (!std::isfinite(json.number)) {
                     output += "null";
-                else {
+                } else {
                     std::ostringstream number;
                     number.imbue(std::locale::classic());
                     number << std::setprecision(17) << json.number;
@@ -94,8 +96,9 @@ public:
                 }
                 stack.pop_back();
             }
-            if (output.size() > 4U * 1024U * 1024U)
+            if (output.size() > 4U * 1024U * 1024U) {
                 throw std::runtime_error("JSON output exceeds 4 MiB");
+            }
         }
         return stack.empty();
     }
@@ -117,7 +120,7 @@ std::string JsonEncoder::take()
     return std::move(impl_->output);
 }
 
-std::string stringifyJson(const Json& value)
+std::string stringifyJson(const Json &value)
 {
     JsonEncoder encoder(value);
     while (!encoder.advance()) {

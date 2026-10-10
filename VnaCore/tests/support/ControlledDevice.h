@@ -40,7 +40,7 @@ public:
         return "TestDevice";
     }
 
-    void applyPlan(const vna_core::SweepPlan& plan) override
+    void applyPlan(const vna_core::SweepPlan &plan) override
     {
         std::lock_guard<std::mutex> lock(mutex);
         recordThread();
@@ -62,7 +62,7 @@ public:
         acquisitionFrame = 0U;
     }
 
-    std::vector<double> acquirePort(const vna_core::SweepPlan& plan, std::uint32_t source) override
+    std::vector<double> acquirePort(const vna_core::SweepPlan &plan, std::uint32_t source) override
     {
         std::unique_lock<std::mutex> lock(mutex);
         recordThread();

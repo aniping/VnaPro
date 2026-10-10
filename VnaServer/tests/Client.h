@@ -35,7 +35,7 @@ public:
         address.sin_family = AF_INET;
         address.sin_port = htons(port);
         inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
-        expect(connect(socket_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0,
+        expect(connect(socket_, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0,
             "Test controller connection failed");
     }
 
@@ -49,7 +49,7 @@ public:
 #endif
     }
 
-    void write(const std::string& text)
+    void write(const std::string &text)
     {
         std::size_t offset = 0;
         while (offset != text.size()) {
@@ -73,7 +73,7 @@ public:
     }
 
 private:
-    static void expect(bool condition, const char* message)
+    static void expect(bool condition, const char *message)
     {
         if (!condition) {
             throw std::runtime_error(message);

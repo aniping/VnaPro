@@ -13,7 +13,7 @@ struct NativeFixture {
     vna_core::AcquisitionCore core;
     vna_service::InstrumentService service;
 
-    explicit NativeFixture(const std::string& driver) : core(driver), service(core)
+    explicit NativeFixture(const std::string &driver) : core(driver), service(core)
     {
         if (!core.initialize().get().ok) {
             throw std::runtime_error("initialize failed");

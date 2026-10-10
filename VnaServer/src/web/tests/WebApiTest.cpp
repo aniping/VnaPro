@@ -20,47 +20,50 @@ using vna_web::HttpApi;
 using vna_web::HttpResponse;
 using vna_web::Json;
 
-void require(bool value, const std::string& message)
+void require(bool value, const std::string &message)
 {
-    if (!value)
+    if (!value) {
         throw std::runtime_error(message);
+    }
 }
 
-const Json& field(const Json& value, const std::string& name)
+const Json &field(const Json &value, const std::string &name)
 {
-    const Json* found = value.find(name);
-    if (!found)
+    const Json *found = value.find(name);
+    if (!found) {
         throw std::runtime_error("Missing field: " + name);
+    }
     return *found;
 }
 
-std::string stringField(const Json& value, const std::string& name)
+std::string stringField(const Json &value, const std::string &name)
 {
-    const Json& found = field(value, name);
+    const Json &found = field(value, name);
     require(found.type == Json::Type::String, "String field " + name);
     return found.string;
 }
 
-HttpResponse request(HttpApi& api, const std::string& method, const std::string& path, const std::string& body = "",
-    const std::string& token = "")
+HttpResponse request(HttpApi &api, const std::string &method, const std::string &path, const std::string &body = "",
+    const std::string &token = "")
 {
     vna_web::HttpRequest value;
     value.method = method;
     value.path = path;
     value.body = body;
-    if (!token.empty())
+    if (!token.empty()) {
         value.headers["x-vna-session"] = token;
+    }
     return api.handle(value);
 }
 
-std::string claim(HttpApi& api)
+std::string claim(HttpApi &api)
 {
     const auto response = request(api, "POST", "/api/v1/control/claim", "{}");
     require(response.status == 200U, "Claim succeeds");
     return stringField(response.json, "sessionId");
 }
 
-void until(const std::function<bool()>& done, const std::function<void()>& poll)
+void until(const std::function<bool()> &done, const std::function<void()> &poll)
 {
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (!done()) {
@@ -70,7 +73,7 @@ void until(const std::function<bool()>& done, const std::function<void()>& poll)
     }
 }
 
-vna_service::OperationResult finish(vna_service::InstrumentService& service, const vna_service::Operation& operation)
+vna_service::OperationResult finish(vna_service::InstrumentService &service, const vna_service::Operation &operation)
 {
     until(
         [&] {
@@ -82,7 +85,7 @@ vna_service::OperationResult finish(vna_service::InstrumentService& service, con
     return operation.get();
 }
 
-HttpResponse finish(HttpApi& api, const std::string& operation, const std::string& token)
+HttpResponse finish(HttpApi &api, const std::string &operation, const std::string &token)
 {
     HttpResponse response;
     until(
@@ -97,13 +100,13 @@ HttpResponse finish(HttpApi& api, const std::string& operation, const std::strin
     return response;
 }
 
-std::string accepted(const HttpResponse& response)
+std::string accepted(const HttpResponse &response)
 {
     require(response.status == 202U, "Operation accepted, received " + std::to_string(response.status));
     return stringField(response.json, "operationId");
 }
 
-std::string configBody(std::uint64_t revision, const std::string& id, unsigned points)
+std::string configBody(std::uint64_t revision, const std::string &id, unsigned points)
 {
     return "{\"expectedRevision\":\"" + std::to_string(revision) + "\",\"requestId\":\"" + id +
            "\",\"points\":" + std::to_string(points) + "}";
@@ -123,7 +126,7 @@ void atomicAndDedupe()
     const auto id = accepted(request(api, "POST", "/api/v1/config", body, token));
     const auto complete = finish(api, id, token);
     require(stringField(complete.json, "state") == "completed", "Atomic config completed");
-    const auto& settings = fixture.service->settings();
+    const auto &settings = fixture.service->settings();
     require(settings.revision == previous + 1U && settings.points == 19U && settings.startHz == 2000000.0 &&
                 settings.stopHz == 3000000.0 && settings.ifBandwidthHz == 1000.0,
         "Exactly one committed configuration");
@@ -211,17 +214,19 @@ void releasingAndLease()
             [&] {
                 api.poll();
             });
-        if (scenario == 0U)
+        if (scenario == 0U) {
             require(request(api, "POST", "/api/v1/control/release", "{}", token).status == 200U,
                 "Explicit release accepted");
+        }
         if (scenario == 1U) {
             time += std::chrono::seconds(31);
             // No poll between clock jump and claim: admission must enforce expiry.
             require(request(api, "POST", "/api/v1/control/claim", "{\"sessionId\":\"" + token + "\"}").status == 409U,
                 "Expired lease cannot renew past accepted operation drain");
         }
-        if (scenario == 2U)
+        if (scenario == 2U) {
             api.beginShutdown();
+        }
         require(fixture.service->controlReleasing() && !fixture.service->tryAcquireControl(),
             "Pending controller retains releasing ownership");
         require(!api.drained(), "Shutdown drain waits accepted operation");
@@ -258,10 +263,10 @@ void snapshotAndSampling()
     require(field(response.json, "originalPointCount").number == 10001.0 &&
                 field(response.json, "displayPointCount").number == 2001.0,
         "Sampling metadata truthful");
-    const auto& axis = field(response.json, "frequencyHz").array;
+    const auto &axis = field(response.json, "frequencyHz").array;
     require(axis.size() == 2001U && axis.front().number == 1000000.0 && axis.back().number == 100000000.0,
         "Sampling includes endpoints");
-    const auto& traces = field(response.json, "traces").array;
+    const auto &traces = field(response.json, "traces").array;
     require(traces.size() == 1U && field(traces.front(), "real").array.size() == axis.size() &&
                 field(traces.front(), "valid").array.front().boolean,
         "Trace arrays share the frequency snapshot");
@@ -293,8 +298,9 @@ void operationRetentionAndBudgets()
         const auto id = accepted(request(api, "POST", "/api/v1/operations",
             "{\"action\":\"hold\",\"requestId\":\"hold-" + std::to_string(index) + "\"}", token));
         require(stringField(finish(api, id, token).json, "state") == "completed", "Bounded record completes");
-        if (index == 0U)
+        if (index == 0U) {
             first = id;
+        }
     }
     require(
         request(api, "POST", "/api/v1/operations", "{\"action\":\"hold\",\"requestId\":\"overflow\"}", token).status ==
@@ -351,10 +357,10 @@ void invalidPointsRemainExplicit()
     // Verify the serialized public response too: NaN/Inf must never enter JSON.
     const auto frame = vna_web::parseJson(vna_web::stringifyJson(request(api, "GET", "/api/v1/frame").json));
     require(field(frame, "available").boolean && field(frame, "current").boolean, "Frame identity remains current");
-    const auto& trace = field(frame, "traces").array.front();
-    const auto& real = field(trace, "real").array;
-    const auto& imaginary = field(trace, "imag").array;
-    const auto& validity = field(trace, "valid").array;
+    const auto &trace = field(frame, "traces").array.front();
+    const auto &real = field(trace, "real").array;
+    const auto &imaginary = field(trace, "imag").array;
+    const auto &validity = field(trace, "valid").array;
     require(real.size() == 201U && imaginary.size() == 201U && validity.size() == 201U,
         "Invalid points retain their axis positions");
     for (std::size_t point = 0U; point < validity.size(); ++point) {
@@ -375,8 +381,9 @@ void invalidPointsRemainExplicit()
         request(api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"valid-again\"}", token));
     require(stringField(finish(api, recovered, token).json, "state") == "completed", "Next valid scan completes");
     const auto next = request(api, "GET", "/api/v1/frame");
-    for (const auto& valid : field(field(next.json, "traces").array.front(), "valid").array)
+    for (const auto &valid : field(field(next.json, "traces").array.front(), "valid").array) {
         require(valid.boolean, "Next valid scan restores every public sample");
+    }
     require(std::isnan(held->ports.front().iq[16U]) && std::isinf(held->ports.front().iq[33U]),
         "Retained invalid-data snapshot is unchanged by the next scan");
 }
@@ -390,7 +397,7 @@ void jsonAndEndpoint()
         bool rejected = false;
         try {
             vna_web::parseJson(bad);
-        } catch (const std::exception&) {
+        } catch (const std::exception &) {
             rejected = true;
         }
         require(rejected, "Malformed JSON rejected");
@@ -414,11 +421,11 @@ int main()
         {"operation-retention-budgets", operationRetentionAndBudgets},
         {"invalid-points-remain-explicit", invalidPointsRemainExplicit}, {"json-and-endpoint", jsonAndEndpoint}};
     unsigned failures = 0;
-    for (const auto& test : tests) {
+    for (const auto &test : tests) {
         try {
             test.second();
             std::cout << "PASS " << test.first << '\n';
-        } catch (const std::exception& error) {
+        } catch (const std::exception &error) {
             ++failures;
             std::cerr << "FAIL " << test.first << ": " << error.what() << '\n';
         }

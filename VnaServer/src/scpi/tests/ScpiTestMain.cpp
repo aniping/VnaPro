@@ -17,10 +17,11 @@ namespace {
 using vna_scpi_test::NativeFixture;
 std::string driver;
 
-void expect(bool condition, const std::string& message)
+void expect(bool condition, const std::string &message)
 {
-    if (!condition)
+    if (!condition) {
         throw std::runtime_error(message);
+    }
 }
 
 void near(double value, double expected)
@@ -28,41 +29,43 @@ void near(double value, double expected)
     expect(std::fabs(value - expected) < 1e-10, "numeric mismatch: " + std::to_string(value));
 }
 
-void drain(vna_scpi::ScpiEngine& engine)
+void drain(vna_scpi::ScpiEngine &engine)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     do {
         engine.poll();
-        if (!engine.hasPending())
+        if (!engine.hasPending()) {
             return;
+        }
         expect(std::chrono::steady_clock::now() < deadline, "engine drain timed out");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while (true);
 }
 
-std::string command(vna_scpi::ScpiEngine& engine, const std::string& text)
+std::string command(vna_scpi::ScpiEngine &engine, const std::string &text)
 {
     expect(engine.submitLine(text), "submit failed");
     drain(engine);
     return engine.takeOutput();
 }
 
-std::vector<double> numbers(const std::string& text)
+std::vector<double> numbers(const std::string &text)
 {
     std::vector<double> values;
     std::stringstream stream(text);
     std::string item;
-    while (std::getline(stream, item, ','))
+    while (std::getline(stream, item, ',')) {
         values.push_back(std::stod(item));
+    }
     return values;
 }
 
-void run(const char* name, void (*test)(), unsigned& failed)
+void run(const char *name, void (*test)(), unsigned &failed)
 {
     try {
         test();
         std::cout << "PASS " << name << '\n';
-    } catch (const std::exception& error) {
+    } catch (const std::exception &error) {
         ++failed;
         std::cerr << "FAIL " << name << ": " << error.what() << '\n';
     }
@@ -101,16 +104,18 @@ void configurationAndRevision()
     near(fixture.service.settings().stopHz, 249000000.0);
     const auto prior = fixture.service.settings().revision;
     auto outOfRange = fixture.service.setStopHz(100.0);
-    while (outOfRange.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+    while (outOfRange.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
         fixture.service.poll();
+    }
     expect(!outOfRange.get().ok, "coupled start out of range");
     expect(fixture.service.settings().revision == prior, "failed candidate must not commit");
     vna_service::Measurement typed;
     typed.name = "UpperCaseTyped";
     typed.receiverKind = 'B';
     const auto defined = fixture.service.defineMeasurement(typed);
-    while (defined.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+    while (defined.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
         fixture.service.poll();
+    }
     expect(defined.get().ok && fixture.service.settings().measurements.back().receiverKind == 'b',
         "typed receiver letters normalize while measurement name is preserved");
     fixture.service.releaseControl();
@@ -218,8 +223,9 @@ void softwareBounds()
     NativeFixture fixture(driver);
     vna_scpi::ScpiEngine engine(fixture.service);
     expect(!engine.submitLine(std::string(16385U, 'A')), "line bound");
-    for (unsigned index = 0; index < 32U; ++index)
+    for (unsigned index = 0; index < 32U; ++index) {
         expect(engine.submitLine("*IDN?"), "bounded input accepted");
+    }
     expect(!engine.submitLine("*IDN?"), "input queue bound");
     drain(engine);
     while (!engine.takeOutput().empty()) {
@@ -254,8 +260,9 @@ void blockedFiniteAndWatchBudget()
     expect(engine.submitLine("*OPC?"), "pending query");
     engine.poll();
     engine.disconnect();
-    for (unsigned tick = 0; tick < 10U; ++tick)
+    for (unsigned tick = 0; tick < 10U; ++tick) {
         engine.poll();
+    }
     expect(!engine.canReleaseControl(), "disconnect must not release blocked device I/O");
     fixture.device->release();
     drain(engine);
@@ -309,8 +316,9 @@ void invalidReceiverCannotProduceCurve()
     command(engine, "CALC1:PAR:SEL 'HealthyB'");
     const auto healthy = numbers(command(engine, "CALC1:DATA? RDATA"));
     expect(healthy.size() == 402U, "Another receiver on the same frame remains readable");
-    for (const double sample : healthy)
+    for (const double sample : healthy) {
         near(sample, 1.11);
+    }
     expect(command(engine, "SYST:ERR?").find("0,") == 0U, "Healthy receiver adds no error");
     expect(fixture.core->readView().frame == held, "Receiver selection cannot rewrite the held frame");
     fixture.device->setInvalidSamples(false);
@@ -318,22 +326,24 @@ void invalidReceiverCannotProduceCurve()
     expect(command(engine, "SENS1:SWE:MODE SING;*OPC?") == "+1\n", "Following valid scan completes");
     const auto restored = numbers(command(engine, "CALC1:DATA? RDATA"));
     expect(restored.size() == 402U, "Valid scan restores a complete receiver curve");
-    for (const double sample : restored)
+    for (const double sample : restored) {
         near(sample, 1.11);
+    }
     expect(fixture.core->readView().frame != held, "Valid scan publishes a new snapshot");
 }
 
 void configurationPreservesDirectSettings()
 {
     vna_service_test::Fixture fixture;
-    auto& service = *fixture.service;
+    auto &service = *fixture.service;
     expect(service.tryAcquireControl(), "typed control");
     vna_service::Measurement alternate;
     alternate.name = "Alternate";
     alternate.receiverKind = 'b';
     const auto defined = service.defineMeasurement(alternate);
-    while (defined.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+    while (defined.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
         service.poll();
+    }
     expect(defined.get().ok, "alternate receiver definition");
     expect(service.selectMeasurement("Alternate") && service.setCurrentTriggerScope(true), "initial direct settings");
     fixture.device->armPlan();
@@ -348,8 +358,9 @@ void configurationPreservesDirectSettings()
     expect(!service.setCurrentTriggerScope(false), "scope must reject an in-flight candidate snapshot");
     expect(service.popError().code == -221 && service.popError().code == -221, "direct setting conflicts");
     fixture.device->release();
-    while (configured.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+    while (configured.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
         service.poll();
+    }
     expect(configured.get().ok, "configuration completion");
     expect(service.settings().selectedMeasurement == "Alternate" && service.settings().currentTriggerScope,
         "successful prior settings cannot be overwritten by candidate commit");
@@ -381,7 +392,7 @@ void embeddedNulNumeric()
 }
 }  // namespace
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     vna_test::ScopedSimulatorEnvironment environment("golden", NULL);
     if (argc != 2) {

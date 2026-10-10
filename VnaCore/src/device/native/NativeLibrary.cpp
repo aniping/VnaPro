@@ -19,7 +19,7 @@ namespace vna_core {
 namespace detail {
 namespace {
 
-bool isAbsolutePath(const std::string& path)
+bool isAbsolutePath(const std::string &path)
 {
 #if defined(_WIN32)
     const bool driveRooted = path.size() >= 3U && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':' &&
@@ -32,12 +32,12 @@ bool isAbsolutePath(const std::string& path)
 }
 
 template <typename Function>
-Function resolve(void* handle, const char* name)
+Function resolve(void *handle, const char *name)
 {
 #if defined(_WIN32)
     const FARPROC symbol = GetProcAddress(static_cast<HMODULE>(handle), name);
 #else
-    void* symbol = dlsym(handle, name);
+    void *symbol = dlsym(handle, name);
 #endif
     if (!symbol) {
         throw std::runtime_error(std::string("native symbol missing: ") + name);
@@ -55,7 +55,7 @@ NativeLibrary::~NativeLibrary()
     close();
 }
 
-void NativeLibrary::open(const std::string& path)
+void NativeLibrary::open(const std::string &path)
 {
     if (!isAbsolutePath(path)) {
         throw std::runtime_error("native library path must be absolute");
@@ -64,14 +64,14 @@ void NativeLibrary::open(const std::string& path)
         return;
     }
 #if defined(_WIN32)
-    handle_ = static_cast<void*>(LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH));
+    handle_ = static_cast<void *>(LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH));
     if (!handle_) {
         throw std::runtime_error("LoadLibraryEx failed, error=" + std::to_string(GetLastError()));
     }
 #else
     handle_ = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!handle_) {
-        const char* error = dlerror();
+        const char *error = dlerror();
         throw std::runtime_error(error ? error : "dlopen failed");
     }
 #endif

@@ -14,11 +14,11 @@ namespace vna_scpi {
 // Keep polling after disconnect until canReleaseControl(), then destroy it.
 class ScpiEngine {
 public:
-    explicit ScpiEngine(vna_service::InstrumentService& service);
+    explicit ScpiEngine(vna_service::InstrumentService &service);
     ~ScpiEngine();
-    ScpiEngine(const ScpiEngine&) = delete;
-    ScpiEngine& operator=(const ScpiEngine&) = delete;
-    bool submitLine(const std::string& line);
+    ScpiEngine(const ScpiEngine &) = delete;
+    ScpiEngine &operator=(const ScpiEngine &) = delete;
+    bool submitLine(const std::string &line);
     void poll();
     std::string takeOutput();  // One complete response message, including LF.
     bool hasPending() const;

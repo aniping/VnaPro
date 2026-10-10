@@ -6,7 +6,7 @@
 
 namespace vna_server {
 namespace network {
-NetworkRuntime::NetworkRuntime(const char* failureMessage)
+NetworkRuntime::NetworkRuntime(const char *failureMessage)
 {
 #ifdef _WIN32
     WSADATA data;

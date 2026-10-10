@@ -21,7 +21,7 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-std::string stringifyJson(const Json& value);
+std::string stringifyJson(const Json &value);
 }  // namespace vna_web
 
 #endif
