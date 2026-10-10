@@ -1,14 +1,16 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #include "web/web_endpoint.h"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <iostream>
-#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
-#include <vector>
 
 #include "network/network_runtime.h"
 #include "network/socket_owner.h"
@@ -17,25 +19,34 @@
 #include "web/static_file.h"
 
 namespace vna_web {
-using vna_server::network::CloseSocket;
-using vna_server::network::kInvalidSocket;
-using vna_server::network::NetworkRuntime;
+using vna_server::network::INVALID_SOCKET_HANDLE;
 using vna_server::network::SetNonBlocking;
 using vna_server::network::Socket;
 using vna_server::network::SocketError;
-using vna_server::network::SocketLength;
 using vna_server::network::SocketOwner;
 using vna_server::network::WouldBlock;
 
 namespace {
 using Clock = std::chrono::steady_clock;
-constexpr std::size_t kHeadersLimit = 8192U;
-constexpr std::size_t kBodyLimit = 16384U;
-constexpr std::size_t kConnectionLimit = 8U;
-constexpr unsigned kReceiveBudget = 4096U;
-constexpr unsigned kSendBudget = 32768U;
+constexpr std::size_t HEADERS_LIMIT = 8192U;
+constexpr std::size_t BODY_LIMIT = 16384U;
+constexpr std::size_t CONNECTION_LIMIT = 8U;
+constexpr std::size_t RECEIVE_BUDGET = 4096U;
+constexpr std::size_t SEND_BUDGET = 32768U;
+constexpr unsigned ACCEPT_BUDGET = 4U;
+constexpr unsigned JSON_ENCODING_BUDGET = 256U;
+constexpr std::size_t CRLF_LENGTH = 2U;
+constexpr std::size_t HEADER_BOUNDARY_LENGTH = 4U;
+constexpr unsigned ASCII_CONTROL_LIMIT = 32U;
+constexpr unsigned ASCII_DELETE = 127U;
+constexpr unsigned HEX_RADIX = 16U;
+constexpr unsigned HEX_ALPHA_OFFSET = 10U;
+constexpr unsigned DECIMAL_RADIX = 10U;
+const std::chrono::seconds g_requestTimeout{10};
+const std::chrono::seconds g_writeProgressTimeout{10};
+const std::string HEADER_PUNCTUATION = "!#$%&'*+-.^_`|~";
 
-std::string lower(std::string value)
+std::string Lower(std::string value)
 {
     for (char &character : value) {
         character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
@@ -43,7 +54,7 @@ std::string lower(std::string value)
     return value;
 }
 
-std::string trim(const std::string &value)
+std::string Trim(const std::string &value)
 {
     const auto begin = value.find_first_not_of(" \t");
     if (begin == std::string::npos) {
@@ -52,27 +63,27 @@ std::string trim(const std::string &value)
     return value.substr(begin, value.find_last_not_of(" \t") - begin + 1U);
 }
 
-bool headerCharacter(unsigned char value)
+bool HeaderCharacter(unsigned char value) noexcept
 {
     return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') ||
-           std::string("!#$%&'*+-.^_`|~").find(static_cast<char>(value)) != std::string::npos;
+           HEADER_PUNCTUATION.find(static_cast<char>(value)) != std::string::npos;
 }
 
-unsigned hexDigit(char value)
+unsigned HexDigit(char value)
 {
     if (value >= '0' && value <= '9') {
         return static_cast<unsigned>(value - '0');
     }
     if (value >= 'a' && value <= 'f') {
-        return static_cast<unsigned>(value - 'a' + 10);
+        return static_cast<unsigned>(value - 'a' + HEX_ALPHA_OFFSET);
     }
     if (value >= 'A' && value <= 'F') {
-        return static_cast<unsigned>(value - 'A' + 10);
+        return static_cast<unsigned>(value - 'A' + HEX_ALPHA_OFFSET);
     }
     throw std::runtime_error("Invalid URL escape");
 }
 
-std::string decodePath(const std::string &target)
+std::string DecodePath(const std::string &target)
 {
     if (target.empty() || target.front() != '/' || target.find('#') != std::string::npos) {
         throw std::runtime_error("Invalid request target");
@@ -85,10 +96,10 @@ std::string decodePath(const std::string &target)
             if (index + 2U >= raw.size()) {
                 throw std::runtime_error("Incomplete URL escape");
             }
-            character = static_cast<unsigned char>(hexDigit(raw[index + 1U]) * 16U + hexDigit(raw[index + 2U]));
+            character = static_cast<unsigned char>((HexDigit(raw[index + 1U]) * HEX_RADIX) + HexDigit(raw[index + 2U]));
             index += 2U;
         }
-        if (character < 32U || character == 127U || character == '\\' || character == ':') {
+        if (character < ASCII_CONTROL_LIMIT || character == ASCII_DELETE || character == '\\' || character == ':') {
             throw std::runtime_error("Unsafe request path");
         }
         result.push_back(static_cast<char>(character));
@@ -103,7 +114,7 @@ std::string decodePath(const std::string &target)
     return result;
 }
 
-std::string reason(unsigned status)
+std::string Reason(unsigned status)
 {
     switch (status) {
         case 200:
@@ -141,17 +152,17 @@ std::string reason(unsigned status)
     }
 }
 
-std::string responseHeader(unsigned status, const std::string &contentType, std::size_t length)
+std::string ResponseHeader(unsigned status, const std::string &contentType, std::size_t length)
 {
-    return "HTTP/1.1 " + std::to_string(status) + " " + reason(status) + "\r\nContent-Type: " + contentType +
+    return "HTTP/1.1 " + std::to_string(status) + " " + Reason(status) + "\r\nContent-Type: " + contentType +
            "\r\nContent-Length: " + std::to_string(length) +
            "\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n";
 }
 
-std::string mimeType(const std::string &path)
+std::string MimeType(const std::string &path)
 {
     const auto dot = path.rfind('.');
-    const std::string extension = dot == std::string::npos ? std::string() : lower(path.substr(dot));
+    const std::string extension = dot == std::string::npos ? std::string() : Lower(path.substr(dot));
     if (extension == ".html") {
         return "text/html; charset=utf-8";
     }
@@ -173,349 +184,338 @@ std::string mimeType(const std::string &path)
     return "application/octet-stream";
 }
 
+std::size_t ParseRequestLine(const std::string &input, HttpRequest &request)
+{
+    const std::size_t firstEnd = input.find("\r\n");
+    std::istringstream first(input.substr(0, firstEnd));
+    std::string target;
+    std::string version;
+    std::string extra;
+    if (!(first >> request.method >> target >> version) || (first >> extra) || version != "HTTP/1.1") {
+        throw std::runtime_error("Expected HTTP/1.1 request line");
+    }
+    for (unsigned char character : request.method) {
+        if (!HeaderCharacter(character)) {
+            throw std::runtime_error("Invalid HTTP method");
+        }
+    }
+    request.path = DecodePath(target);
+    return firstEnd + CRLF_LENGTH;
+}
+
+void ParseHeaderLine(const std::string &line, HttpRequest &request)
+{
+    const std::size_t colon = line.find(':');
+    if (colon == std::string::npos || colon == 0U) {
+        throw std::runtime_error("Invalid header field");
+    }
+    const std::string name = Lower(line.substr(0, colon));
+    for (unsigned char character : name) {
+        if (!HeaderCharacter(character)) {
+            throw std::runtime_error("Invalid header name");
+        }
+    }
+    const std::string value = Trim(line.substr(colon + 1U));
+    for (unsigned char character : value) {
+        if ((character < ASCII_CONTROL_LIMIT && character != '\t') || character == ASCII_DELETE) {
+            throw std::runtime_error("Invalid header value");
+        }
+    }
+    if (!request.headers.emplace(name, value).second) {
+        throw std::runtime_error("Duplicate header field");
+    }
+}
+
+void ParseHeaderFields(const std::string &input, std::size_t end, std::size_t cursor, HttpRequest &request)
+{
+    while (cursor < end) {
+        const std::size_t lineEnd = input.find("\r\n", cursor);
+        if (lineEnd == std::string::npos || lineEnd > end) {
+            throw std::runtime_error("Invalid header line");
+        }
+        ParseHeaderLine(input.substr(cursor, lineEnd - cursor), request);
+        cursor = lineEnd + CRLF_LENGTH;
+    }
+}
+
+void ValidateHeaderFraming(const HttpRequest &request)
+{
+    if (request.headers.count("host") == 0U || request.headers.at("host").empty()) {
+        throw std::runtime_error("HTTP/1.1 Host is required");
+    }
+    if (request.headers.count("transfer-encoding") != 0U) {
+        throw std::runtime_error("Transfer-Encoding is unsupported");
+    }
+}
+
 }  // namespace
 
-class WebEndpoint::Impl {
-public:
-    struct Client {
-        explicit Client(Socket value) : socket(value), started(Clock::now()), progress(started)
-        {
-        }
-
-        SocketOwner socket;
-        Clock::time_point started, progress;
-        std::string input, output, fileOutput;
-        HttpRequest request;
-        std::size_t headerLength = 0, bodyLength = 0, sent = 0;
-        bool parsed = false, dispatched = false;
-        unsigned status = 200;
-        std::string contentType = "application/json; charset=utf-8";
-        std::unique_ptr<JsonEncoder> encoder;
-        std::unique_ptr<StaticFile> file;
-    };
-
-    Impl(vna_service::InstrumentService &service, const WebOptions &value)
-        : runtime("Web WSAStartup failed"), api(service), options(value)
-    {
-        if (!options.enabled) {
-            return;
-        }
-        listener.reset(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
-        if (listener.get() == kInvalidSocket) {
-            throw std::runtime_error("Cannot create Web listener");
-        }
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        address.sin_port = htons(options.port);
-        if (inet_pton(AF_INET, options.bindAddress.c_str(), &address.sin_addr) != 1) {
-            throw std::runtime_error("Web bind address must be an IPv4 literal");
-        }
-#ifndef _WIN32
-        int reuse = 1;
-        setsockopt(listener.get(), SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-#endif
-        if (bind(listener.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
-            listen(listener.get(), static_cast<int>(kConnectionLimit)) != 0 || !SetNonBlocking(listener.get())) {
-            throw std::runtime_error("Cannot bind Web listener");
-        }
-        SocketLength length = sizeof(address);
-        if (getsockname(listener.get(), reinterpret_cast<sockaddr *>(&address), &length) != 0) {
-            throw std::runtime_error("Cannot inspect Web listener");
-        }
-        actualPort = ntohs(address.sin_port);
-        std::cout << "WEB_LISTENING http://" << options.bindAddress << ':' << actualPort << std::endl;
+WebEndpoint::WebEndpoint(vna_service::InstrumentService &service, const WebOptions &options)
+    : runtime_("Web WSAStartup failed"), api_(service), options_(options)
+{
+    if (!options_.enabled) {
+        return;
     }
-
-    NetworkRuntime runtime;
-    SocketOwner listener;
-    HttpApi api;
-    WebOptions options;
-    std::vector<std::unique_ptr<Client>> clients;
-    std::uint16_t actualPort = 0;
-    bool closing = false;
-
-    void respond(Client &client, HttpResponse response)
-    {
-        client.dispatched = true;
-        client.input.clear();
-        client.status = response.status;
-        client.contentType = "application/json; charset=utf-8";
-        client.encoder.reset(new JsonEncoder(std::move(response.json)));
-        client.file.reset();
-        client.fileOutput.clear();
-        client.progress = Clock::now();
+    listener_.Reset(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+    if (listener_.Get() == INVALID_SOCKET_HANDLE) {
+        throw std::runtime_error("Cannot create Web listener");
     }
+    actualPort_ = vna_server::network::BindListener(listener_.Get(), options_.bindAddress, options_.port);
+    std::cout << "WEB_LISTENING http://" << options_.bindAddress << ':' << actualPort_ << std::endl;
+}
 
-    void error(Client &client, unsigned status, const std::string &message)
-    {
-        respond(client, httpError(status, "http_error", message));
+void WebEndpoint::Respond(HttpConnection &client, HttpResponse response)
+{
+    client.dispatched = true;
+    client.input.clear();
+    client.status = response.status;
+    client.contentType = "application/json; charset=utf-8";
+    client.encoder.Reset(std::move(response.json));
+    client.encoderActive = true;
+    client.file.Close();
+    client.fileActive = false;
+    client.fileOutput.clear();
+    client.progress = Clock::now();
+}
+
+void WebEndpoint::Error(HttpConnection &client, unsigned status, const std::string &message)
+{
+    Respond(client, HttpError(status, "http_error", message));
+}
+
+bool WebEndpoint::ParseHeaders(HttpConnection &client)
+{
+    const std::size_t end = client.input.find("\r\n\r\n");
+    if (end == std::string::npos) {
+        if (client.input.size() > HEADERS_LIMIT) {
+            Error(client, 431, "Request headers exceed 8 KiB");
+        }
+        return false;
     }
+    client.headerLength = end + HEADER_BOUNDARY_LENGTH;
+    if (client.headerLength > HEADERS_LIMIT) {
+        Error(client, 431, "Request headers exceed 8 KiB");
+        return false;
+    }
+    const std::size_t cursor = ParseRequestLine(client.input, client.request);
+    ParseHeaderFields(client.input, end, cursor, client.request);
+    ValidateHeaderFraming(client.request);
+    if (client.request.headers.count("expect") != 0U) {
+        Error(client, 417, "Expect is unsupported");
+        return false;
+    }
+    if (!ParseContentLength(client) || !ValidateContentType(client)) {
+        return false;
+    }
+    client.parsed = true;
+    return true;
+}
 
-    bool parseHeaders(Client &client)
-    {
-        const auto end = client.input.find("\r\n\r\n");
-        if (end == std::string::npos) {
-            if (client.input.size() > kHeadersLimit) {
-                error(client, 431, "Request headers exceed 8 KiB");
+bool WebEndpoint::ParseContentLength(HttpConnection &client)
+{
+    const auto length = client.request.headers.find("content-length");
+    if (length != client.request.headers.end()) {
+        if (length->second.empty()) {
+            throw std::runtime_error("Empty Content-Length");
+        }
+        for (char digit : length->second) {
+            if (digit < '0' || digit > '9') {
+                throw std::runtime_error("Invalid Content-Length");
             }
-            return false;
-        }
-        client.headerLength = end + 4U;
-        if (client.headerLength > kHeadersLimit) {
-            error(client, 431, "Request headers exceed 8 KiB");
-            return false;
-        }
-        const auto firstEnd = client.input.find("\r\n");
-        std::istringstream first(client.input.substr(0, firstEnd));
-        std::string target, version, extra;
-        if (!(first >> client.request.method >> target >> version) || first >> extra || version != "HTTP/1.1") {
-            throw std::runtime_error("Expected HTTP/1.1 request line");
-        }
-        for (unsigned char character : client.request.method) {
-            if (!headerCharacter(character)) {
-                throw std::runtime_error("Invalid HTTP method");
+            if (client.bodyLength > (BODY_LIMIT / DECIMAL_RADIX)) {
+                Error(client, 413, "Request body exceeds 16 KiB");
+                return false;
             }
-        }
-        client.request.path = decodePath(target);
-        std::size_t cursor = firstEnd + 2U;
-        while (cursor < end) {
-            const auto lineEnd = client.input.find("\r\n", cursor);
-            if (lineEnd == std::string::npos || lineEnd > end) {
-                throw std::runtime_error("Invalid header line");
-            }
-            const std::string line = client.input.substr(cursor, lineEnd - cursor);
-            const auto colon = line.find(':');
-            if (colon == std::string::npos || colon == 0U) {
-                throw std::runtime_error("Invalid header field");
-            }
-            const std::string name = lower(line.substr(0, colon));
-            for (unsigned char character : name) {
-                if (!headerCharacter(character)) {
-                    throw std::runtime_error("Invalid header name");
-                }
-            }
-            const std::string value = trim(line.substr(colon + 1U));
-            for (unsigned char character : value) {
-                if ((character < 32U && character != '\t') || character == 127U) {
-                    throw std::runtime_error("Invalid header value");
-                }
-            }
-            if (!client.request.headers.emplace(name, value).second) {
-                throw std::runtime_error("Duplicate header field");
-            }
-            cursor = lineEnd + 2U;
-        }
-        if (client.request.headers.count("host") == 0U || client.request.headers.at("host").empty()) {
-            throw std::runtime_error("HTTP/1.1 Host is required");
-        }
-        if (client.request.headers.count("transfer-encoding") != 0U) {
-            throw std::runtime_error("Transfer-Encoding is unsupported");
-        }
-        if (client.request.headers.count("expect") != 0U) {
-            error(client, 417, "Expect is unsupported");
-            return false;
-        }
-        const auto length = client.request.headers.find("content-length");
-        if (length != client.request.headers.end()) {
-            if (length->second.empty()) {
-                throw std::runtime_error("Empty Content-Length");
-            }
-            for (char digit : length->second) {
-                if (digit < '0' || digit > '9') {
-                    throw std::runtime_error("Invalid Content-Length");
-                }
-                if (client.bodyLength > kBodyLimit / 10U) {
-                    error(client, 413, "Request body exceeds 16 KiB");
-                    return false;
-                }
-                client.bodyLength = client.bodyLength * 10U + static_cast<unsigned>(digit - '0');
-                if (client.bodyLength > kBodyLimit) {
-                    error(client, 413, "Request body exceeds 16 KiB");
-                    return false;
-                }
-            }
-        }
-        if ((client.request.method == "POST" || client.request.method == "DELETE") &&
-            length == client.request.headers.end()) {
-            throw std::runtime_error("Content-Length is required for writes");
-        }
-        if (client.bodyLength != 0U && client.request.path.find("/api/") == 0U) {
-            const auto type = client.request.headers.find("content-type");
-            if (type == client.request.headers.end() ||
-                lower(trim(type->second.substr(0, type->second.find(';')))) != "application/json") {
-                error(client, 415, "API body requires application/json");
+            client.bodyLength = (client.bodyLength * DECIMAL_RADIX) + static_cast<unsigned>(digit - '0');
+            if (client.bodyLength > BODY_LIMIT) {
+                Error(client, 413, "Request body exceeds 16 KiB");
                 return false;
             }
         }
-        client.parsed = true;
-        return true;
     }
-
-    void dispatch(Client &client)
-    {
-        client.request.body = client.input.substr(client.headerLength, client.bodyLength);
-        if (client.request.path.find("/api/") == 0U) {
-            respond(client, api.handle(client.request));
-            return;
-        }
-        if (client.request.method != "GET") {
-            error(client, 405, "Static files require GET");
-            return;
-        }
-        if (client.bodyLength != 0U) {
-            error(client, 400, "GET body is unsupported");
-            return;
-        }
-        try {
-            client.file.reset(new StaticFile(options.staticRoot, client.request.path));
-            client.contentType = mimeType(client.request.path == "/" ? "/index.html" : client.request.path);
-            client.dispatched = true;
-            client.input.clear();
-            client.progress = Clock::now();
-        } catch (const std::exception &) {
-            error(client, 404, "Static file not found");
-        }
+    if ((client.request.method == "POST" || client.request.method == "DELETE") &&
+        length == client.request.headers.end()) {
+        throw std::runtime_error("Content-Length is required for writes");
     }
+    return true;
+}
 
-    bool receive(Client &client)
-    {
-        char buffer[kReceiveBudget];
-        const int count = recv(client.socket.get(), buffer, sizeof(buffer), 0);
-        if (count == 0) {
+bool WebEndpoint::ValidateContentType(HttpConnection &client)
+{
+    if (client.bodyLength != 0U && client.request.path.find("/api/") == 0U) {
+        const auto type = client.request.headers.find("content-type");
+        if (type == client.request.headers.end() ||
+            Lower(Trim(type->second.substr(0, type->second.find(';')))) != "application/json") {
+            Error(client, 415, "API body requires application/json");
             return false;
         }
-        if (count < 0) {
-            return WouldBlock(SocketError());
-        }
-        client.input.append(buffer, static_cast<std::size_t>(count));
-        try {
-            if (!client.parsed && !parseHeaders(client)) {
-                return true;
-            }
-            if (client.dispatched) {
-                return true;
-            }
-            const std::size_t complete = client.headerLength + client.bodyLength;
-            if (client.input.size() > complete) {
-                error(client, 400, "One HTTP message per connection is supported");
-                return true;
-            }
-            if (client.input.size() == complete) {
-                dispatch(client);
-            }
-        } catch (const std::exception &failure) {
-            error(client, 400, failure.what());
-        }
-        return true;
     }
-
-    bool sendOutput(Client &client)
-    {
-        try {
-            if (client.encoder && client.encoder->advance(256U)) {
-                std::string body = client.encoder->take();
-                client.encoder.reset();
-                client.output = responseHeader(client.status, client.contentType, body.size()) + body;
-            }
-            if (client.file && client.file->advance(client.fileOutput)) {
-                client.output =
-                    responseHeader(client.status, client.contentType, client.fileOutput.size()) + client.fileOutput;
-                client.file.reset();
-                client.fileOutput.clear();
-            }
-        } catch (const std::exception &) {
-            client.encoder.reset();
-            client.file.reset();
-            client.fileOutput.clear();
-            const std::string body =
-                "{\"error\":{\"code\":\"output_failed\",\"message\":\"Response encoding failed\"}}";
-            client.output = responseHeader(500, "application/json", body.size()) + body;
-        }
-        if (client.output.empty()) {
-            return true;
-        }
-        const auto count =
-            static_cast<int>((std::min)(client.output.size() - client.sent, static_cast<std::size_t>(kSendBudget)));
-#ifdef MSG_NOSIGNAL
-        const int flags = MSG_NOSIGNAL;
-#else
-        const int flags = 0;
-#endif
-        const int sent = send(client.socket.get(), client.output.data() + client.sent, count, flags);
-        if (sent <= 0) {
-            return sent < 0 && WouldBlock(SocketError());
-        }
-        client.sent += static_cast<std::size_t>(sent);
-        client.progress = Clock::now();
-        return client.sent != client.output.size();
-    }
-
-    void poll()
-    {
-        api.poll();
-        if (listener.get() != kInvalidSocket) {
-            for (unsigned index = 0; index < 4U; ++index) {
-                Socket socket = accept(listener.get(), nullptr, nullptr);
-                if (socket == kInvalidSocket) {
-                    break;
-                }
-                if (clients.size() >= kConnectionLimit || !SetNonBlocking(socket)) {
-                    CloseSocket(socket);
-                    continue;
-                }
-                clients.emplace_back(new Client(socket));
-            }
-        }
-        const auto time = Clock::now();
-        for (auto client = clients.begin(); client != clients.end();) {
-            bool alive = true;
-            if (!(*client)->dispatched && time - (*client)->started >= std::chrono::seconds(10)) {
-                error(**client, 408, "Request receive timeout");
-            }
-            if ((*client)->dispatched) {
-                alive = time - (*client)->progress < std::chrono::seconds(10) && sendOutput(**client);
-            } else {
-                alive = receive(**client);
-            }
-            if (!alive) {
-                client = clients.erase(client);
-            } else {
-                ++client;
-            }
-        }
-    }
-};
-
-WebEndpoint::WebEndpoint(vna_service::InstrumentService &service, const WebOptions &options)
-    : impl_(new Impl(service, options))
-{
+    return true;
 }
 
-WebEndpoint::~WebEndpoint() = default;
-
-void WebEndpoint::poll()
+void WebEndpoint::Dispatch(HttpConnection &client)
 {
-    impl_->poll();
-}
-
-void WebEndpoint::beginShutdown()
-{
-    if (impl_->closing) {
+    client.request.body = client.input.substr(client.headerLength, client.bodyLength);
+    if (client.request.path.find("/api/") == 0U) {
+        Respond(client, api_.Handle(client.request));
         return;
     }
-    impl_->closing = true;
-    impl_->listener.reset();
-    impl_->clients.clear();
-    impl_->api.beginShutdown();
+    if (client.request.method != "GET") {
+        Error(client, 405, "Static files require GET");
+        return;
+    }
+    if (client.bodyLength != 0U) {
+        Error(client, 400, "GET body is unsupported");
+        return;
+    }
+    try {
+        client.file.Open(options_.staticRoot, client.request.path);
+        client.fileActive = true;
+        client.contentType = MimeType(client.request.path == "/" ? "/index.html" : client.request.path);
+        client.dispatched = true;
+        client.input.clear();
+        client.progress = Clock::now();
+    } catch (const std::exception &) {
+        Error(client, 404, "Static file not found");
+    }
 }
 
-bool WebEndpoint::drained() const
+bool WebEndpoint::Receive(HttpConnection &client)
 {
-    return impl_->clients.empty() && impl_->api.drained();
+    char buffer[RECEIVE_BUDGET]{};
+    const int count = vna_server::network::ReceiveSocket(client.socket.Get(), buffer, sizeof(buffer));
+    if (count == 0) {
+        return false;
+    }
+    if (count < 0) {
+        return WouldBlock(SocketError());
+    }
+    client.input.append(buffer, static_cast<std::size_t>(count));
+    try {
+        if (!client.parsed && !ParseHeaders(client)) {
+            return true;
+        }
+        if (client.dispatched) {
+            return true;
+        }
+        const std::size_t complete = client.headerLength + client.bodyLength;
+        if (client.input.size() > complete) {
+            Error(client, 400, "One HTTP message per connection is supported");
+            return true;
+        }
+        if (client.input.size() == complete) {
+            Dispatch(client);
+        }
+    } catch (const std::exception &failure) {
+        Error(client, 400, failure.what());
+    }
+    return true;
 }
 
-std::uint16_t WebEndpoint::port() const
+void WebEndpoint::EncodeOutput(HttpConnection &client)
 {
-    return impl_->actualPort;
+    try {
+        if (client.encoderActive && client.encoder.Advance(JSON_ENCODING_BUDGET)) {
+            std::string body = client.encoder.Take();
+            client.encoderActive = false;
+            client.output = ResponseHeader(client.status, client.contentType, body.size()) + body;
+        }
+        if (client.fileActive && client.file.Advance(client.fileOutput)) {
+            client.output =
+                ResponseHeader(client.status, client.contentType, client.fileOutput.size()) + client.fileOutput;
+            client.file.Close();
+            client.fileActive = false;
+            client.fileOutput.clear();
+        }
+    } catch (const std::exception &) {
+        client.encoderActive = false;
+        client.file.Close();
+        client.fileActive = false;
+        client.fileOutput.clear();
+        const std::string body = "{\"error\":{\"code\":\"output_failed\",\"message\":\"Response encoding failed\"}}";
+        client.output = ResponseHeader(500, "application/json", body.size()) + body;
+    }
 }
+
+bool WebEndpoint::SendOutput(HttpConnection &client)
+{
+    EncodeOutput(client);
+    if (client.output.empty()) {
+        return true;
+    }
+    const std::size_t count = (std::min)(client.output.size() - client.sent, SEND_BUDGET);
+    const int sent = vna_server::network::SendSocket(client.socket.Get(), client.output.data() + client.sent, count);
+    if (sent <= 0) {
+        return sent < 0 && WouldBlock(SocketError());
+    }
+    client.sent += static_cast<std::size_t>(sent);
+    client.progress = Clock::now();
+    return client.sent != client.output.size();
+}
+
+void WebEndpoint::AcceptConnections()
+{
+    if (listener_.Get() == INVALID_SOCKET_HANDLE) {
+        return;
+    }
+    for (unsigned index = 0; index < ACCEPT_BUDGET; ++index) {
+        SocketOwner acceptedSocket(accept(listener_.Get(), nullptr, nullptr));
+        const Socket socket = acceptedSocket.Get();
+        if (socket == INVALID_SOCKET_HANDLE) {
+            break;
+        }
+        if (clients_.size() >= CONNECTION_LIMIT || !SetNonBlocking(socket)) {
+            continue;
+        }
+        vna_server::network::ConfigureStreamSocket(socket);
+        clients_.emplace_back(std::move(acceptedSocket));
+    }
+}
+
+void WebEndpoint::PollClients()
+{
+    const auto time = Clock::now();
+    for (auto client = clients_.begin(); client != clients_.end();) {
+        if (!client->dispatched && (time - client->started) >= g_requestTimeout) {
+            Error(*client, 408, "Request receive timeout");
+        }
+        const bool alive = client->dispatched
+                               ? ((time - client->progress) < g_writeProgressTimeout && SendOutput(*client))
+                               : Receive(*client);
+        if (!alive) {
+            client = clients_.erase(client);
+        } else {
+            ++client;
+        }
+    }
+}
+
+void WebEndpoint::Poll()
+{
+    api_.Poll();
+    AcceptConnections();
+    PollClients();
+}
+
+void WebEndpoint::BeginShutdown()
+{
+    if (closing_) {
+        return;
+    }
+    closing_ = true;
+    listener_.Reset();
+    clients_.clear();
+    api_.BeginShutdown();
+}
+
+bool WebEndpoint::Drained() const
+{
+    return clients_.empty() && api_.Drained();
+}
+
+std::uint16_t WebEndpoint::Port() const noexcept
+{
+    return actualPort_;
+}
+
 }  // namespace vna_web
