@@ -5,14 +5,10 @@
 #include <memory>
 #include <vector>
 
+#include "vna_core/PortFrame.h"
 #include "vna_core/SweepPlan.h"
 
 namespace vna_core {
-
-struct PortFrame {
-    std::uint32_t sourcePort = 0U;
-    std::vector<double> iq;  // Point-major: A.real,A.imag,B.real,B.imag for each receiver.
-};
 
 struct MeasurementFrame {
     std::uint32_t channelId = 1U;

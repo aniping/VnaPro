@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "device/PlanPreparationError.h"
+
 namespace vna_core {
 namespace detail {
 namespace {
@@ -38,7 +40,9 @@ DownloadFrame encode(const SweepPlan& plan, std::uint32_t sourcePort)
 
 }  // namespace
 
-NativeDeviceSession::NativeDeviceSession(std::string path) : path_(std::move(path)) {}
+NativeDeviceSession::NativeDeviceSession(std::string path) : path_(std::move(path))
+{
+}
 
 std::string NativeDeviceSession::initialize()
 {

@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "device/PlanPreparationError.h"
+
 namespace vna_core {
 namespace detail {
 namespace {

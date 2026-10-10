@@ -2,7 +2,6 @@
 #define VNAPRO_VNA_CORE_DEVICE_SESSION_H
 
 #include <cstdint>
-#include <exception>
 #include <string>
 #include <vector>
 
@@ -10,12 +9,6 @@
 
 namespace vna_core {
 namespace detail {
-
-// This exception is reserved for failures before any plan-related device mutation.
-class PlanPreparationError : public std::exception {
-public:
-    const char* what() const noexcept override { return "device plan buffer preparation failed"; }
-};
 
 // Called only by the core worker. Failures throw with the failing device step.
 class DeviceSession {
