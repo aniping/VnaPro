@@ -2,6 +2,7 @@
 #define VNAPRO_SERVICE_CONTROLLED_DEVICE_H
 
 #include <condition_variable>
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 #include <utility>
@@ -30,6 +31,7 @@ public:
     bool entered = false;
     bool released = false;
     bool failAcquire = false;
+    bool invalidSamples = false;
     bool blockPlan = false;
     bool planEntered = false;
     bool planReleased = false;
@@ -55,7 +57,17 @@ public:
         }
         if (failAcquire)
             throw std::runtime_error("controlled acquisition failure");
-        return std::vector<double>(plan.frequencyRaw.size() * 16U, 1.11);
+        std::vector<double> iq(plan.frequencyRaw.size() * 16U, 1.11);
+        if (invalidSamples && plan.frequencyRaw.size() >= 3U) {
+            iq[16U] = std::numeric_limits<double>::quiet_NaN();
+            iq[33U] = std::numeric_limits<double>::infinity();
+        }
+        return iq;
+    }
+    void setInvalidSamples(bool value)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        invalidSamples = value;
     }
     bool hasEntered()
     {

@@ -6,6 +6,7 @@
 #include <thread>
 
 #include "ControlledDevice.h"
+#include "../../../../VnaNativeSimulator/tests/SimulatorEnvironment.h"
 #include "scpi/ScpiEngine.h"
 #include "scpi/ScpiParser.h"
 #include "vna_core/AcquisitionCore.h"
@@ -287,6 +288,32 @@ void malformedHeaders()
     command(engine, "INIT:");
     expect(command(engine, "SYST:ERR?").find("-102,") == 0U, "trailing colon must not execute INIT");
 }
+void invalidReceiverCannotProduceCurve()
+{
+    vna_service_test::Fixture fixture;
+    vna_scpi::ScpiEngine engine(*fixture.service);
+    command(engine, "*CLS;CALC1:PAR:DEF:EXT 'HealthyB','b1,1'");
+    fixture.device->setInvalidSamples(true);
+    expect(command(engine, "SENS1:SWE:MODE SING;*OPC?") == "+1\n", "Invalid-data scan still terminates");
+    const auto held = fixture.core->readView().frame;
+    expect(command(engine, "CALC1:DATA? RDATA").empty(), "Invalid receiver must not return a partial or fake curve");
+    expect(command(engine, "SYST:ERR?").find("-230,") == 0U, "Invalid receiver gives standard data error");
+    command(engine, "CALC1:PAR:SEL 'HealthyB'");
+    const auto healthy = numbers(command(engine, "CALC1:DATA? RDATA"));
+    expect(healthy.size() == 402U, "Another receiver on the same frame remains readable");
+    for (const double sample : healthy)
+        near(sample, 1.11);
+    expect(command(engine, "SYST:ERR?").find("0,") == 0U, "Healthy receiver adds no error");
+    expect(fixture.core->readView().frame == held, "Receiver selection cannot rewrite the held frame");
+    fixture.device->setInvalidSamples(false);
+    command(engine, "CALC1:PAR:SEL 'DefaultA'");
+    expect(command(engine, "SENS1:SWE:MODE SING;*OPC?") == "+1\n", "Following valid scan completes");
+    const auto restored = numbers(command(engine, "CALC1:DATA? RDATA"));
+    expect(restored.size() == 402U, "Valid scan restores a complete receiver curve");
+    for (const double sample : restored)
+        near(sample, 1.11);
+    expect(fixture.core->readView().frame != held, "Valid scan publishes a new snapshot");
+}
 void configurationPreservesDirectSettings()
 {
     vna_service_test::Fixture fixture;
@@ -346,6 +373,7 @@ void embeddedNulNumeric()
 
 int main(int argc, char** argv)
 {
+    vna_test::ScopedSimulatorEnvironment environment("golden", NULL);
     if (argc != 2) {
         std::cerr << "native simulator library path required\n";
         return 2;
@@ -362,6 +390,7 @@ int main(int argc, char** argv)
     run("blocked finite operation and OPC budget", blockedFiniteAndWatchBudget, failed);
     run("failed single preserves old frame but rejects data", failedSingleCannotReturnOldFrame, failed);
     run("malformed query headers", malformedHeaders, failed);
+    run("invalid receiver rejects curve, valid receiver and next scan survive", invalidReceiverCannotProduceCurve, failed);
     run("configuration and direct settings cannot overwrite", configurationPreservesDirectSettings, failed);
     run("embedded NUL numeric suffix", embeddedNulNumeric, failed);
     return failed == 0U ? 0 : 1;
