@@ -5,8 +5,8 @@ target_compile_features(vna_scpi PUBLIC cxx_std_14)
 target_compile_options(vna_scpi PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)
-    add_executable(vna_scpi_tests tests/scpi_test_main.cpp)
-    target_link_libraries(vna_scpi_tests PRIVATE vna_scpi)
+    add_executable(vna_scpi_tests tests/scpi_test_main.cpp tests/native_fixture.cpp)
+    target_link_libraries(vna_scpi_tests PRIVATE vna_scpi vna_service_test_support)
     target_include_directories(vna_scpi_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaService/tests
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaCore/src

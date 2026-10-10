@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #ifndef VNAPRO_SERVICE_TEST_FIXTURE_H
 #define VNAPRO_SERVICE_TEST_FIXTURE_H
 
@@ -7,36 +11,28 @@
 #include <utility>
 
 #include "controlled_device.h"
-#include "support/core_test_access.h"
+#include "vna_core/acquisition_core.h"
 #include "vna_service/instrument_service.h"
 
 namespace vna_service_test {
 
-struct Fixture {
-    ControlledDevice *device;
-    std::unique_ptr<vna_core::AcquisitionCore> core;
-    std::unique_ptr<vna_service::InstrumentService> service;
+struct Fixture final {
+    ControlledDevice *device = nullptr;
+    vna_core::AcquisitionCore core;
+    vna_service::InstrumentService service;
 
-    Fixture()
-    {
-        std::unique_ptr<ControlledDevice> owned(new ControlledDevice);
-        device = owned.get();
-        core = vna_core::detail::CoreTestAccess::create(std::move(owned));
-        if (!core->initialize().get().ok) {
-            throw std::runtime_error("controlled initialization");
-        }
-        service.reset(new vna_service::InstrumentService(*core));
-        std::string error;
-        if (!service->bootstrapMockProfile(error)) {
-            throw std::runtime_error(error);
-        }
-    }
+    // Transfers the controlled device into the core before exposing test handles.
+    Fixture();
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
+    Fixture(Fixture &&) = delete;
+    Fixture &operator=(Fixture &&) = delete;
 
-    ~Fixture()
-    {
-        device->release();
-        core->close();
-    }
+    // Releases all gates before draining the worker, including on assertion failure.
+    ~Fixture();
+
+private:
+    explicit Fixture(std::unique_ptr<ControlledDevice> owned);
 };
 
 }  // namespace vna_service_test

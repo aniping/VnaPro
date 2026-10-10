@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #ifndef VNAPRO_SERVICE_CONTROLLED_DEVICE_H
 #define VNAPRO_SERVICE_CONTROLLED_DEVICE_H
 
@@ -8,110 +12,64 @@
 #include <string>
 #include <vector>
 
-#include "device/device_session.h"
+#include "vna_core/device_session.h"
 
 namespace vna_service_test {
-class ControlledDevice : public vna_core::detail::DeviceSession {
+class ControlledDevice final : public vna_core::detail::DeviceSession {
 public:
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool blocked = false;
-    bool entered = false;
-    bool released = false;
-    bool failAcquire = false;
-    bool invalidSamples = false;
-    bool blockPlan = false;
-    bool planEntered = false;
-    bool planReleased = false;
+    // Gate state and the worker identity remain bound to this instance.
+    ControlledDevice() = default;
+    ControlledDevice(const ControlledDevice &) = delete;
+    ControlledDevice &operator=(const ControlledDevice &) = delete;
+    ControlledDevice(ControlledDevice &&) = delete;
+    ControlledDevice &operator=(ControlledDevice &&) = delete;
+    ~ControlledDevice() override = default;
+    // Returns the fixed controlled identity without calling a native driver.
+    std::string Initialize() override;
 
-    std::string initialize() override
-    {
-        return "VnaPro,NativeSimulator,TEST,1.0";
-    }
+    // Applies the frozen plan or blocks/fails at a gate controlled by this test.
+    void ApplyPlan(const vna_core::SweepPlan &) override;
 
-    void applyPlan(const vna_core::SweepPlan &) override
-    {
-        std::unique_lock<std::mutex> lock(mutex);
-        if (blockPlan) {
-            planEntered = true;
-            cv.notify_all();
-            cv.wait(lock, [this] {
-                return planReleased;
-            });
-        }
-    }
+    // A controlled run requires no native RF operation and cannot fail during arming.
+    void EnableRf() noexcept override;
 
-    void enableRf() override
-    {
-    }
+    // This device owns no native RF or loader handle, so shutdown requires no cleanup.
+    void Shutdown() noexcept override;
 
-    void shutdown() override
-    {
-    }
+    // Returns a complete deterministic IQ vector after any armed gate is released.
+    std::vector<double> AcquirePort(const vna_core::SweepPlan &plan, std::uint32_t) override;
 
-    std::vector<double> acquirePort(const vna_core::SweepPlan &plan, std::uint32_t) override
-    {
-        std::unique_lock<std::mutex> lock(mutex);
-        if (blocked) {
-            entered = true;
-            cv.notify_all();
-            cv.wait(lock, [this] {
-                return released;
-            });
-        }
-        if (failAcquire) {
-            throw std::runtime_error("controlled acquisition failure");
-        }
-        std::vector<double> iq(plan.frequencyRaw.size() * 16U, 1.11);
-        if (invalidSamples && plan.frequencyRaw.size() >= 3U) {
-            iq[16U] = std::numeric_limits<double>::quiet_NaN();
-            iq[33U] = std::numeric_limits<double>::infinity();
-        }
-        return iq;
-    }
+    // Toggles deliberate NaN/infinity injection while holding the device mutex.
+    void SetInvalidSamples(bool value);
 
-    void setInvalidSamples(bool value)
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        invalidSamples = value;
-    }
+    // Rejects the next plan before device mutation, leaving a bootstrap attempt retryable.
+    void FailNextPlanPreparation();
 
-    bool hasEntered()
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        return entered;
-    }
+    // Reads acquisition-gate entry under the device mutex.
+    bool HasEntered() const;
 
-    bool hasPlanEntered()
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        return planEntered;
-    }
+    // Reads configuration-gate entry under the device mutex.
+    bool HasPlanEntered() const;
 
-    void armPlan()
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        blockPlan = true;
-        planEntered = planReleased = false;
-    }
+    // Resets and arms the next configuration barrier.
+    void ArmPlan();
 
-    void arm(bool fail = false)
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        blocked = true;
-        entered = released = false;
-        failAcquire = fail;
-    }
+    // Resets and arms the next acquisition barrier; optional failure follows gate release.
+    void Arm(bool fail = false);
 
-    void release()
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        released = true;
-        blocked = false;
-        planReleased = true;
-        blockPlan = false;
-        cv.notify_all();
-    }
+    // Releases configuration and acquisition gates so fixture cleanup cannot hang.
+    void Release();
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    bool blocked_ = false;
+    bool entered_ = false;
+    bool released_ = false;
+    bool failAcquire_ = false;
+    bool invalidSamples_ = false;
+    bool blockPlan_ = false;
+    bool planEntered_ = false;
+    bool planReleased_ = false;
+    bool failPlanPreparation_ = false;
 };
 }  // namespace vna_service_test
 #endif
