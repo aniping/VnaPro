@@ -13,7 +13,7 @@
 
 #include "web/json.h"
 
-namespace vna_web {
+namespace VnaWeb {
 // Traversal records borrow nodes owned by the encoder; reallocation keeps those references stable.
 struct JsonEncodingFrame final {
     explicit JsonEncodingFrame(const Json &item) noexcept : value(std::cref(item)), member(item.object.begin())
@@ -74,5 +74,5 @@ private:
 
 // Encode a complete document synchronously for bounded request fingerprints.
 std::string StringifyJson(const Json &value);
-}  // namespace vna_web
+}  // namespace VnaWeb
 #endif

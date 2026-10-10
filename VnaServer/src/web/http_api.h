@@ -16,7 +16,7 @@
 #include "vna_service/instrument_service.h"
 #include "web/http_types.h"
 
-namespace vna_web {
+namespace VnaWeb {
 // Owns bounded HTTP sessions and operation records on the service executor.
 class HttpApi final {
 public:
@@ -107,5 +107,5 @@ private:
 
 // Build a JSON error response with the supplied status and diagnostic.
 HttpResponse HttpError(unsigned status, const std::string &code, const std::string &message);
-}  // namespace vna_web
+}  // namespace VnaWeb
 #endif

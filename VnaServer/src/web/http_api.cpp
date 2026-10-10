@@ -22,7 +22,7 @@
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
 
-namespace vna_web {
+namespace VnaWeb {
 HttpResponse HttpError(unsigned status, const std::string &code, const std::string &message)
 {
     HttpResponse response;
@@ -730,4 +730,4 @@ void HttpApi::RollbackWrite(HttpSession &session, const std::string &operationId
     }
 }
 
-}  // namespace vna_web
+}  // namespace VnaWeb

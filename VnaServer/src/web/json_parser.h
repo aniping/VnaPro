@@ -10,7 +10,7 @@
 
 #include "web/json.h"
 
-namespace vna_web {
+namespace VnaWeb {
 class JsonParser final {
 public:
     // Borrow one input document, which must outlive this parser and every Parse call.
@@ -46,6 +46,6 @@ private:
 
 // Parse one complete JSON document with bounded nesting and node count.
 Json ParseJson(const std::string &input);
-}  // namespace vna_web
+}  // namespace VnaWeb
 
 #endif

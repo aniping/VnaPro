@@ -15,7 +15,7 @@
 #include "vna_service/instrument_service.h"
 
 namespace {
-using vna_server_test::Client;
+using VnaServerTest::Client;
 
 void Expect(bool condition, const std::string &message)
 {
@@ -29,7 +29,7 @@ void ExerciseNetworkShutdown(VnaService::InstrumentService &service)
     std::promise<std::uint16_t> listening;
     auto boundPort = listening.get_future();
     std::atomic<bool> stop{false};
-    vna_server::ListenOptions options;
+    VnaServer::ListenOptions options;
     options.port = 0;
     options.web.port = 0;
     options.onListening = [listeningPromise = &listening](std::uint16_t port) {
@@ -37,7 +37,7 @@ void ExerciseNetworkShutdown(VnaService::InstrumentService &service)
     };
     // Both the success and exception paths join the future before these objects die.
     auto server = std::async(std::launch::async, [servicePointer = &service, options, stopPointer = &stop] {
-        return vna_server::RunScpiTcpServer(*servicePointer, options, [stopPointer] {
+        return VnaServer::RunScpiTcpServer(*servicePointer, options, [stopPointer] {
             return stopPointer->load();
         });
     });

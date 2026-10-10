@@ -12,7 +12,7 @@
 #include "scpi/parsed_command.h"
 #include "vna_service/instrument_service.h"
 
-namespace vna_scpi {
+namespace VnaScpi {
 
 // One engine per TCP controller; all calls belong to the service executor.
 class ScpiEngine final {
@@ -114,5 +114,5 @@ private:
     std::string encodedResponse_;
 };
 
-}  // namespace vna_scpi
+}  // namespace VnaScpi
 #endif

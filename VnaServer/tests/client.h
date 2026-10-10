@@ -10,7 +10,7 @@
 #include "network/network_runtime.h"
 #include "network/socket_owner.h"
 
-namespace vna_server_test {
+namespace VnaServerTest {
 
 class Client final {
 public:
@@ -28,10 +28,10 @@ public:
     std::string ReadLine();
 
 private:
-    vna_server::network::NetworkRuntime runtime_;
-    vna_server::network::SocketOwner socket_;
+    VnaServer::Network::NetworkRuntime runtime_;
+    VnaServer::Network::SocketOwner socket_;
 };
 
-}  // namespace vna_server_test
+}  // namespace VnaServerTest
 
 #endif

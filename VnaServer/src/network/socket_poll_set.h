@@ -6,8 +6,8 @@
 
 #include "network/socket_platform.h"
 
-namespace vna_server {
-namespace network {
+namespace VnaServer {
+namespace Network {
 class SocketPollSet final {
 public:
     // Starts an empty readiness set for one executor turn.
@@ -34,7 +34,7 @@ private:
     Socket maximum_ = 0;
     bool anySocket_ = false;
 };
-}  // namespace network
-}  // namespace vna_server
+}  // namespace Network
+}  // namespace VnaServer
 
 #endif

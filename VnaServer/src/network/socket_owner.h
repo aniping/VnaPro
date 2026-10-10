@@ -6,8 +6,8 @@
 
 #include "network/socket_platform.h"
 
-namespace vna_server {
-namespace network {
+namespace VnaServer {
+namespace Network {
 class SocketOwner final {
 public:
     // Takes sole ownership of value; an invalid handle represents no socket.
@@ -28,7 +28,7 @@ public:
 private:
     Socket value_;
 };
-}  // namespace network
-}  // namespace vna_server
+}  // namespace Network
+}  // namespace VnaServer
 
 #endif

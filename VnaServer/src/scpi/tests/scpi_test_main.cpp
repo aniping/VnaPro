@@ -19,7 +19,7 @@
 #include "vna_service/instrument_service.h"
 
 namespace {
-using vna_scpi_test::NativeFixture;
+using VnaScpiTest::NativeFixture;
 
 void Expect(bool condition, const std::string &message)
 {
@@ -33,7 +33,7 @@ void Near(double value, double expected)
     Expect(std::fabs(value - expected) < 1e-10, "numeric mismatch: " + std::to_string(value));
 }
 
-void Drain(vna_scpi::ScpiEngine &engine)
+void Drain(VnaScpi::ScpiEngine &engine)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     do {
@@ -46,7 +46,7 @@ void Drain(vna_scpi::ScpiEngine &engine)
     } while (true);
 }
 
-std::string Command(vna_scpi::ScpiEngine &engine, const std::string &text)
+std::string Command(VnaScpi::ScpiEngine &engine, const std::string &text)
 {
     Expect(engine.SubmitLine(text), "submit failed");
     Drain(engine);
@@ -90,7 +90,7 @@ void Run(const std::string &name, void (*test)(const std::string &), const std::
 void ParserAndCompoundResponse(const std::string &driver)
 {
     NativeFixture fixture(driver);
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Expect(Command(engine, "*IDN?;*OPC?") == "VnaPro,NativeSimulator,4PORT,1.0;+1\n", "compound response boundary");
     const auto result = Command(engine, "SENSe1:FREQuency:STARt 2MHz;STOP 3e6;STARt?;STOP?");
     const auto delimiter = result.find(';');
@@ -135,7 +135,7 @@ void ConfigurationAndRevision(const std::string &driver)
     Expect(defined.get().ok && fixture.service.Settings().measurements.back().receiverKind == 'b',
         "typed receiver letters normalize while measurement name is preserved");
     fixture.service.ReleaseControl();
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;SENS1:BAND 101Hz");
     Near(std::stod(Command(engine, "SENS1:BAND?")), 1000.0);
     Expect(Numbers(Command(engine, "SENS1:X?")).size() == 201U, "axis before acquisition");
@@ -146,7 +146,7 @@ void ConfigurationAndRevision(const std::string &driver)
 void SingleFrameAndReceivers(const std::string &driver)
 {
     NativeFixture fixture(driver);
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;SENS1:SWE:POIN 21");
     Command(engine, "CALC1:PAR:DEF:EXT 'wave_a','A1,2';:CALC1:PAR:DEF:EXT 'wave_b','B1,2'");
     Expect(Command(engine, "TRIG:SOUR IMM;:SENS1:SWE:MODE SING;*OPC?;:SENS1:SWE:MODE?") == "+1;HOLD\n",
@@ -170,7 +170,7 @@ void SingleFrameAndReceivers(const std::string &driver)
 void PendingBarriersAndErrors(const std::string &driver)
 {
     NativeFixture fixture(driver);
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;*ESE 1;*SRE 32");
     Expect(engine.SubmitLine("SENS1:SWE:MODE SING;*OPC;*WAI;*STB?;*ESR?;*ESR?"), "single submit");
     engine.Poll();
@@ -200,7 +200,7 @@ void PendingBarriersAndErrors(const std::string &driver)
 void BusyAdmissionAndOldRun(const std::string &driver)
 {
     NativeFixture fixture(driver);
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;SENS1:SWE:MODE SING;*OPC?");
     const auto revision = fixture.service.Settings().revision;
     Expect(engine.SubmitLine("SENS1:SWE:MODE SING;:SENS1:FREQ:STAR 2MHz;:CALC1:DATA? RDATA"), "busy sequence");
@@ -216,8 +216,8 @@ void DisconnectAndInstrumentErrors(const std::string &driver)
 {
     NativeFixture fixture(driver);
     {
-        vna_scpi::ScpiEngine engine(fixture.service);
-        vna_scpi::ScpiEngine refused(fixture.service);
+        VnaScpi::ScpiEngine engine(fixture.service);
+        VnaScpi::ScpiEngine refused(fixture.service);
         Expect(!refused.HasControl() && !refused.SubmitLine("*IDN?"), "second controller must be rejected");
         Expect(engine.SubmitLine("*CLS;SENS1:SWE:MODE SING;*OPC?;:UNSUPPORTED"), "accepted disconnected input");
         engine.Poll();
@@ -227,7 +227,7 @@ void DisconnectAndInstrumentErrors(const std::string &driver)
         Expect(engine.CanReleaseControl(), "drained connection must release control");
         Expect(engine.TakeOutput().empty(), "disconnected output discarded");
     }
-    vna_scpi::ScpiEngine next(fixture.service);
+    VnaScpi::ScpiEngine next(fixture.service);
     Expect(next.HasControl(), "new controller after barrier");
     Expect(Command(next, "SYST:ERR?").find("-113,") == 0U, "global error FIFO survives client replacement");
     next.SetTransportOutputPending(true);
@@ -237,7 +237,7 @@ void DisconnectAndInstrumentErrors(const std::string &driver)
 void SoftwareBounds(const std::string &driver)
 {
     NativeFixture fixture(driver);
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Expect(!engine.SubmitLine(std::string(16385U, 'A')), "line bound");
     for (unsigned index = 0; index < 32U; ++index) {
         Expect(engine.SubmitLine("*IDN?"), "bounded input accepted");
@@ -254,7 +254,7 @@ void SoftwareBounds(const std::string &driver)
 void BlockedFiniteAndWatchBudget(const std::string &)
 {
     VnaServiceTest::Fixture fixture;
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;SENS1:SWE:MODE SING;*OPC?");
     const auto old = fixture.core.ReadView().frame;
     fixture.device->Arm();
@@ -289,7 +289,7 @@ void BlockedFiniteAndWatchBudget(const std::string &)
 void FailedSingleCannotReturnOldFrame(const std::string &)
 {
     VnaServiceTest::Fixture fixture;
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;SENS1:SWE:MODE SING;*OPC?");
     const auto old = fixture.core.ReadView().frame;
     fixture.device->Arm(true);
@@ -311,7 +311,7 @@ void FailedSingleCannotReturnOldFrame(const std::string &)
 void MalformedHeaders(const std::string &driver)
 {
     NativeFixture fixture(driver);
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS");
     Expect(Command(engine, "?").empty(), "bare query has no fake output");
     Expect(Command(engine, "SYST:ERR?").find("-102,") == 0U, "bare query syntax error");
@@ -322,7 +322,7 @@ void MalformedHeaders(const std::string &driver)
 void InvalidReceiverCannotProduceCurve(const std::string &)
 {
     VnaServiceTest::Fixture fixture;
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;CALC1:PAR:DEF:EXT 'HealthyB','b1,1'");
     fixture.device->SetInvalidSamples(true);
     Expect(Command(engine, "SENS1:SWE:MODE SING;*OPC?") == "+1\n", "Invalid-data scan still terminates");
@@ -392,7 +392,7 @@ void ConfigurationPreservesDirectSettings(const std::string &)
 void EmbeddedNulNumeric(const std::string &driver)
 {
     NativeFixture fixture(driver);
-    vna_scpi::ScpiEngine engine(fixture.service);
+    VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS");
     const auto revision = fixture.service.Settings().revision;
     const auto originalStart = fixture.service.Settings().startHz;
@@ -404,7 +404,7 @@ void EmbeddedNulNumeric(const std::string &driver)
         "NUL cannot truncate numeric suffix and mutate configuration");
     Expect(Command(engine, "SYST:ERR?").find("-104,") == 0U, "embedded NUL numeric data error");
     double value = 0;
-    Expect(!vna_scpi::Numeric(std::string("2\0garbage", 9U), value, true), "numeric helper checks entire input bytes");
+    Expect(!VnaScpi::Numeric(std::string("2\0garbage", 9U), value, true), "numeric helper checks entire input bytes");
 }
 
 void BootstrapPreparationFailureCanRetry(const std::string &)

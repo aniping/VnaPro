@@ -10,7 +10,7 @@
 
 #include "web/json.h"
 
-namespace vna_web {
+namespace VnaWeb {
 struct HttpRequest final {
     std::string method;
     std::string path;
@@ -29,5 +29,5 @@ struct WebOptions final {
     std::string staticRoot;
     bool enabled = true;
 };
-}  // namespace vna_web
+}  // namespace VnaWeb
 #endif

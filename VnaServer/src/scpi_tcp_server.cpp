@@ -14,16 +14,16 @@
 #include "scpi_connection.h"
 #include "web/web_endpoint.h"
 
-namespace vna_server {
+namespace VnaServer {
 namespace {
 void AdmitController(
-    VnaService::InstrumentService &service, network::Socket listener, std::unique_ptr<ScpiConnection> &connection)
+    VnaService::InstrumentService &service, Network::Socket listener, std::unique_ptr<ScpiConnection> &connection)
 {
-    network::SocketOwner incoming(accept(listener, nullptr, nullptr));
-    if (incoming.Get() == network::INVALID_SOCKET_HANDLE) {
+    Network::SocketOwner incoming(accept(listener, nullptr, nullptr));
+    if (incoming.Get() == Network::INVALID_SOCKET_HANDLE) {
         return;
     }
-    if (connection || !network::FitsSelect(incoming.Get()) || !network::SetNonBlocking(incoming.Get())) {
+    if (connection || !Network::FitsSelect(incoming.Get()) || !Network::SetNonBlocking(incoming.Get())) {
         return;
     }
     // Nullable ownership reflects a connection that only exists after admission.
@@ -31,9 +31,9 @@ void AdmitController(
 }
 
 void PollTransports(
-    network::Socket listener, VnaService::InstrumentService &service, std::unique_ptr<ScpiConnection> &connection)
+    Network::Socket listener, VnaService::InstrumentService &service, std::unique_ptr<ScpiConnection> &connection)
 {
-    network::SocketPollSet events;
+    Network::SocketPollSet events;
     events.AddReadable(listener);
     if (connection && connection->WantsRead()) {
         events.AddReadable(connection->GetSocket());
@@ -65,16 +65,16 @@ void AnnounceListener(const ListenOptions &options, std::uint16_t port)
 int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions &options,
     const std::function<bool()> &shutdownRequested)
 {
-    network::NetworkRuntime runtime;
-    network::SocketOwner listener(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
-    if (listener.Get() == network::INVALID_SOCKET_HANDLE) {
+    Network::NetworkRuntime runtime;
+    Network::SocketOwner listener(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+    if (listener.Get() == Network::INVALID_SOCKET_HANDLE) {
         throw std::runtime_error("Cannot create listening socket");
     }
-    if (!network::FitsSelect(listener.Get())) {
+    if (!Network::FitsSelect(listener.Get())) {
         throw std::runtime_error("Listening descriptor exceeds select capacity");
     }
-    AnnounceListener(options, network::BindListener(listener.Get(), options.bindAddress, options.port));
-    vna_web::WebEndpoint web(service, options.web);
+    AnnounceListener(options, Network::BindListener(listener.Get(), options.bindAddress, options.port));
+    VnaWeb::WebEndpoint web(service, options.web);
     std::unique_ptr<ScpiConnection> connection;
     bool shuttingDown = false;
     while (true) {
@@ -99,4 +99,4 @@ int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions
         PollTransports(listener.Get(), service, connection);
     }
 }
-}  // namespace vna_server
+}  // namespace VnaServer

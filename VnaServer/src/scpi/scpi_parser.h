@@ -8,7 +8,7 @@
 
 #include "scpi/parsed_command.h"
 
-namespace vna_scpi {
+namespace VnaScpi {
 // Splits semicolon units while retaining delimiters inside SCPI quoted strings.
 std::vector<std::string> SplitProgram(const std::string &input);
 // Updates the relative header parent; syntax failures are returned in the command.
@@ -23,5 +23,5 @@ std::string Quote(const std::string &value);
 bool Numeric(const std::string &text, double &value, bool frequencyUnits = false);
 // Accepts a finite integer in the inclusive range [0, maximum].
 bool Integer(const std::string &text, unsigned &value, unsigned maximum);
-}  // namespace vna_scpi
+}  // namespace VnaScpi
 #endif

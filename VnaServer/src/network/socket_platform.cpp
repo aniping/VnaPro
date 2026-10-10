@@ -12,8 +12,8 @@
 #include <unistd.h>
 #endif
 
-namespace vna_server {
-namespace network {
+namespace VnaServer {
+namespace Network {
 int SocketError() noexcept
 {
 #ifdef _WIN32
@@ -127,5 +127,5 @@ bool FitsSelect(Socket socket) noexcept
     return socket >= 0 && socket < FD_SETSIZE;
 #endif
 }
-}  // namespace network
-}  // namespace vna_server
+}  // namespace Network
+}  // namespace VnaServer

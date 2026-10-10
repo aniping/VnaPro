@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace vna_web {
+namespace VnaWeb {
 struct Json final {
     enum class Type {
         NULL_VALUE,
@@ -69,6 +69,6 @@ struct Json final {
 // Reject malformed UTF-8, overlong encodings, surrogate scalars, and values beyond Unicode.
 // Embedded control characters remain allowed as string values and are escaped during encoding.
 void ValidateJsonString(const std::string &text);
-}  // namespace vna_web
+}  // namespace VnaWeb
 
 #endif

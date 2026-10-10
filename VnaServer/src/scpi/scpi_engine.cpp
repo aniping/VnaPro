@@ -16,7 +16,7 @@
 #include "scpi/scpi_parser.h"
 #include "vna_service/instrument_service.h"
 
-namespace vna_scpi {
+namespace VnaScpi {
 namespace {
 const std::string SCPI_CONTROL_OWNER = "SCPI";
 
@@ -873,4 +873,4 @@ bool ScpiEngine::CanReleaseControl() const noexcept
     return !connected_ && !control_ && !HasPending();
 }
 
-}  // namespace vna_scpi
+}  // namespace VnaScpi

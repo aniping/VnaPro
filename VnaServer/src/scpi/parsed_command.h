@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace vna_scpi {
+namespace VnaScpi {
 struct ParsedCommand final {
     std::string path;
     std::vector<std::string> arguments;
@@ -15,6 +15,6 @@ struct ParsedCommand final {
     int errorCode = 0;
     std::string error;
 };
-}  // namespace vna_scpi
+}  // namespace VnaScpi
 
 #endif

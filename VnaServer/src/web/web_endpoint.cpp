@@ -18,13 +18,13 @@
 #include "web/json_encoder.h"
 #include "web/static_file.h"
 
-namespace vna_web {
-using vna_server::network::INVALID_SOCKET_HANDLE;
-using vna_server::network::SetNonBlocking;
-using vna_server::network::Socket;
-using vna_server::network::SocketError;
-using vna_server::network::SocketOwner;
-using vna_server::network::WouldBlock;
+namespace VnaWeb {
+using VnaServer::Network::INVALID_SOCKET_HANDLE;
+using VnaServer::Network::SetNonBlocking;
+using VnaServer::Network::Socket;
+using VnaServer::Network::SocketError;
+using VnaServer::Network::SocketOwner;
+using VnaServer::Network::WouldBlock;
 
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -260,7 +260,7 @@ WebEndpoint::WebEndpoint(VnaService::InstrumentService &service, const WebOption
     if (listener_.Get() == INVALID_SOCKET_HANDLE) {
         throw std::runtime_error("Cannot create Web listener");
     }
-    actualPort_ = vna_server::network::BindListener(listener_.Get(), options_.bindAddress, options_.port);
+    actualPort_ = VnaServer::Network::BindListener(listener_.Get(), options_.bindAddress, options_.port);
     std::cout << "WEB_LISTENING http://" << options_.bindAddress << ':' << actualPort_ << std::endl;
 }
 
@@ -383,7 +383,7 @@ void WebEndpoint::Dispatch(HttpConnection &client)
 bool WebEndpoint::Receive(HttpConnection &client)
 {
     char buffer[RECEIVE_BUDGET]{};
-    const int count = vna_server::network::ReceiveSocket(client.socket.Get(), buffer, sizeof(buffer));
+    const int count = VnaServer::Network::ReceiveSocket(client.socket.Get(), buffer, sizeof(buffer));
     if (count == 0) {
         return false;
     }
@@ -444,7 +444,7 @@ bool WebEndpoint::SendOutput(HttpConnection &client)
         return true;
     }
     const std::size_t count = (std::min)(client.output.size() - client.sent, SEND_BUDGET);
-    const int sent = vna_server::network::SendSocket(client.socket.Get(), client.output.data() + client.sent, count);
+    const int sent = VnaServer::Network::SendSocket(client.socket.Get(), client.output.data() + client.sent, count);
     if (sent <= 0) {
         return sent < 0 && WouldBlock(SocketError());
     }
@@ -467,7 +467,7 @@ void WebEndpoint::AcceptConnections()
         if (clients_.size() >= CONNECTION_LIMIT || !SetNonBlocking(socket)) {
             continue;
         }
-        vna_server::network::ConfigureStreamSocket(socket);
+        VnaServer::Network::ConfigureStreamSocket(socket);
         clients_.emplace_back(std::move(acceptedSocket));
     }
 }
@@ -518,4 +518,4 @@ std::uint16_t WebEndpoint::Port() const noexcept
     return actualPort_;
 }
 
-}  // namespace vna_web
+}  // namespace VnaWeb

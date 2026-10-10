@@ -7,35 +7,35 @@
 
 #include "scpi/scpi_constants.h"
 
-namespace vna_server {
+namespace VnaServer {
 namespace {
 constexpr std::size_t READ_BUFFER_CAPACITY = 4096U;
 const std::chrono::seconds WRITE_PROGRESS_TIMEOUT{10};
 }  // namespace
 
-ScpiConnection::ScpiConnection(VnaService::InstrumentService &service, network::SocketOwner socket)
+ScpiConnection::ScpiConnection(VnaService::InstrumentService &service, Network::SocketOwner socket)
     : socket_(std::move(socket)), engine_(service)
 {
-    network::ConfigureStreamSocket(socket_.Get());
+    Network::ConfigureStreamSocket(socket_.Get());
     if (!engine_.HasControl()) {
         Disconnect();
     }
 }
 
-network::Socket ScpiConnection::GetSocket() const noexcept
+Network::Socket ScpiConnection::GetSocket() const noexcept
 {
     return socket_.Get();
 }
 
 bool ScpiConnection::WantsRead() const noexcept
 {
-    return socket_.Get() != network::INVALID_SOCKET_HANDLE &&
-           (output_.size() - sent_) < (vna_scpi::TRANSPORT_OUTPUT_BYTE_LIMIT / 2U);
+    return socket_.Get() != Network::INVALID_SOCKET_HANDLE &&
+           (output_.size() - sent_) < (VnaScpi::TRANSPORT_OUTPUT_BYTE_LIMIT / 2U);
 }
 
 bool ScpiConnection::WantsWrite() const noexcept
 {
-    return socket_.Get() != network::INVALID_SOCKET_HANDLE && output_.size() != sent_;
+    return socket_.Get() != Network::INVALID_SOCKET_HANDLE && output_.size() != sent_;
 }
 
 void ScpiConnection::Poll()
@@ -55,10 +55,10 @@ void ScpiConnection::CollectResponses()
         if (response.empty()) {
             return;
         }
-        if (socket_.Get() == network::INVALID_SOCKET_HANDLE) {
+        if (socket_.Get() == Network::INVALID_SOCKET_HANDLE) {
             continue;
         }
-        if (response.size() > (vna_scpi::TRANSPORT_OUTPUT_BYTE_LIMIT - (output_.size() - sent_))) {
+        if (response.size() > (VnaScpi::TRANSPORT_OUTPUT_BYTE_LIMIT - (output_.size() - sent_))) {
             Disconnect();
             return;
         }
@@ -76,14 +76,14 @@ void ScpiConnection::CollectResponses()
 void ScpiConnection::Read()
 {
     char buffer[READ_BUFFER_CAPACITY]{};
-    const int received = network::ReceiveSocket(socket_.Get(), buffer, sizeof(buffer));
+    const int received = Network::ReceiveSocket(socket_.Get(), buffer, sizeof(buffer));
     if (received > 0) {
         input_.append(buffer, static_cast<std::size_t>(received));
         SubmitLines();
-        if (input_.size() > vna_scpi::LINE_BUDGET) {
+        if (input_.size() > VnaScpi::LINE_BUDGET) {
             Disconnect();
         }
-    } else if (received == 0 || !network::WouldBlock(network::SocketError())) {
+    } else if (received == 0 || !Network::WouldBlock(Network::SocketError())) {
         Disconnect();
     }
 }
@@ -95,7 +95,7 @@ void ScpiConnection::SubmitLines()
         if (boundary == std::string::npos) {
             return;
         }
-        if (boundary > vna_scpi::LINE_BUDGET) {
+        if (boundary > VnaScpi::LINE_BUDGET) {
             Disconnect();
             return;
         }
@@ -113,7 +113,7 @@ void ScpiConnection::SubmitLines()
 
 void ScpiConnection::Write()
 {
-    const int written = network::SendSocket(socket_.Get(), output_.data() + sent_, output_.size() - sent_);
+    const int written = Network::SendSocket(socket_.Get(), output_.data() + sent_, output_.size() - sent_);
     if (written > 0) {
         sent_ += static_cast<std::size_t>(written);
         lastSendProgress_ = std::chrono::steady_clock::now();
@@ -121,7 +121,7 @@ void ScpiConnection::Write()
             output_.clear();
             sent_ = 0;
         }
-    } else if (written == 0 || !network::WouldBlock(network::SocketError())) {
+    } else if (written == 0 || !Network::WouldBlock(Network::SocketError())) {
         Disconnect();
     }
 }
@@ -137,6 +137,6 @@ void ScpiConnection::Disconnect() noexcept
 
 bool ScpiConnection::Drained() const noexcept
 {
-    return socket_.Get() == network::INVALID_SOCKET_HANDLE && engine_.CanReleaseControl();
+    return socket_.Get() == Network::INVALID_SOCKET_HANDLE && engine_.CanReleaseControl();
 }
-}  // namespace vna_server
+}  // namespace VnaServer

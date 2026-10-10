@@ -23,8 +23,8 @@
 #include <sys/socket.h>
 #endif
 
-namespace vna_server {
-namespace network {
+namespace VnaServer {
+namespace Network {
 #ifdef _WIN32
 using Socket = SOCKET;
 using SocketLength = int;
@@ -55,7 +55,7 @@ int ReceiveSocket(Socket socket, char *buffer, std::size_t capacity) noexcept;
 int SendSocket(Socket socket, const char *buffer, std::size_t length) noexcept;
 // POSIX descriptors must fit select's bitset; Windows uses a counted socket array.
 bool FitsSelect(Socket socket) noexcept;
-}  // namespace network
-}  // namespace vna_server
+}  // namespace Network
+}  // namespace VnaServer
 
 #endif

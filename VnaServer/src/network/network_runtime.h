@@ -6,8 +6,8 @@
 
 #include <string>
 
-namespace vna_server {
-namespace network {
+namespace VnaServer {
+namespace Network {
 // Each runtime owns one successful startup and its matching cleanup.
 class NetworkRuntime final {
 public:
@@ -20,7 +20,7 @@ public:
     NetworkRuntime(NetworkRuntime &&) = delete;
     NetworkRuntime &operator=(NetworkRuntime &&) = delete;
 };
-}  // namespace network
-}  // namespace vna_server
+}  // namespace Network
+}  // namespace VnaServer
 
 #endif

@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace vna_web {
+namespace VnaWeb {
 namespace {
 constexpr std::size_t OUTPUT_LIMIT = 4U * 1024U * 1024U;
 constexpr unsigned CONTROL_CHARACTER_LIMIT = 32U;
@@ -183,4 +183,4 @@ std::string StringifyJson(const Json &value)
     }
     return encoder.Take();
 }
-}  // namespace vna_web
+}  // namespace VnaWeb

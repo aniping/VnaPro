@@ -7,8 +7,8 @@
 #include <stdexcept>
 #include <thread>
 
-namespace vna_server {
-namespace network {
+namespace VnaServer {
+namespace Network {
 namespace {
 constexpr int EXECUTOR_INTERVAL_MICROSECONDS = 5000;
 }
@@ -76,5 +76,5 @@ bool SocketPollSet::IsWritable(Socket socket) const noexcept
 {
     return socket != INVALID_SOCKET_HANDLE && FitsSelect(socket) && FD_ISSET(socket, &writable_);
 }
-}  // namespace network
-}  // namespace vna_server
+}  // namespace Network
+}  // namespace VnaServer

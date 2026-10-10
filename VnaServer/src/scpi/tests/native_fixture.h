@@ -9,7 +9,7 @@
 #include "vna_core/acquisition_core.h"
 #include "vna_service/instrument_service.h"
 
-namespace vna_scpi_test {
+namespace VnaScpiTest {
 
 struct NativeFixture final {
     VnaCore::AcquisitionCore core;
@@ -25,6 +25,6 @@ struct NativeFixture final {
     NativeFixture &operator=(NativeFixture &&) = delete;
 };
 
-}  // namespace vna_scpi_test
+}  // namespace VnaScpiTest
 
 #endif

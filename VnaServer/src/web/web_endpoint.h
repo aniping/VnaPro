@@ -19,7 +19,7 @@
 #include "web/json_encoder.h"
 #include "web/static_file.h"
 
-namespace vna_web {
+namespace VnaWeb {
 // Owns transport state on the same executor as InstrumentService and SCPI.
 class WebEndpoint final {
 public:
@@ -43,7 +43,7 @@ public:
 private:
     struct HttpConnection final {
         // Take ownership of an accepted socket; all other state begins idle.
-        explicit HttpConnection(vna_server::network::SocketOwner ownedSocket)
+        explicit HttpConnection(VnaServer::Network::SocketOwner ownedSocket)
             : socket(std::move(ownedSocket)), started(std::chrono::steady_clock::now()), progress(started)
         {
         }
@@ -54,7 +54,7 @@ private:
         HttpConnection &operator=(const HttpConnection &) = delete;
         HttpConnection(HttpConnection &&) = delete;
         HttpConnection &operator=(HttpConnection &&) = delete;
-        vna_server::network::SocketOwner socket;
+        VnaServer::Network::SocketOwner socket;
         const std::chrono::steady_clock::time_point started;
         std::chrono::steady_clock::time_point progress{};
         std::string input;
@@ -85,13 +85,13 @@ private:
     void EncodeOutput(HttpConnection &client);
     void AcceptConnections();
     void PollClients();
-    vna_server::network::NetworkRuntime runtime_;
-    vna_server::network::SocketOwner listener_;
+    VnaServer::Network::NetworkRuntime runtime_;
+    VnaServer::Network::SocketOwner listener_;
     HttpApi api_;
     const WebOptions options_;
     std::list<HttpConnection> clients_;
     std::uint16_t actualPort_ = 0;
     bool closing_ = false;
 };
-}  // namespace vna_web
+}  // namespace VnaWeb
 #endif

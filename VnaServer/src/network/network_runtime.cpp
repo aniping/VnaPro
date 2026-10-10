@@ -7,8 +7,8 @@
 
 #include "network/socket_platform.h"
 
-namespace vna_server {
-namespace network {
+namespace VnaServer {
+namespace Network {
 NetworkRuntime::NetworkRuntime(const std::string &failureMessage)
 {
 #ifdef _WIN32
@@ -27,5 +27,5 @@ NetworkRuntime::~NetworkRuntime() noexcept
     WSACleanup();
 #endif
 }
-}  // namespace network
-}  // namespace vna_server
+}  // namespace Network
+}  // namespace VnaServer

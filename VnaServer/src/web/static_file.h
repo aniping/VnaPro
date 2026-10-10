@@ -17,7 +17,7 @@
 #endif
 #include <string>
 
-namespace vna_web {
+namespace VnaWeb {
 // Keep the verified handle open throughout incremental reading to prevent a
 // path replacement between validation and a later reopening of the file.
 class StaticFile final {
@@ -55,6 +55,6 @@ private:
     void OpenVerified(const std::string &root, const std::string &relative);
 #endif
 };
-}  // namespace vna_web
+}  // namespace VnaWeb
 
 #endif

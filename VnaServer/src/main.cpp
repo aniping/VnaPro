@@ -49,7 +49,7 @@ bool ParsePort(const std::string &value, std::uint16_t &port)
 }
 
 bool ParseOption(
-    const std::string &argument, const std::string &value, vna_server::ListenOptions &options, std::string &driver)
+    const std::string &argument, const std::string &value, VnaServer::ListenOptions &options, std::string &driver)
 {
     if (argument == "--bind") {
         options.bindAddress = value;
@@ -71,7 +71,7 @@ bool ParseOption(
 }
 
 ArgumentResult ParseArguments(
-    int argc, const char * const *argv, vna_server::ListenOptions &options, std::string &driver)
+    int argc, const char * const *argv, VnaServer::ListenOptions &options, std::string &driver)
 {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -94,7 +94,7 @@ ArgumentResult ParseArguments(
     return ArgumentResult::READY;
 }
 
-int StartService(const std::string &driver, const vna_server::ListenOptions &options)
+int StartService(const std::string &driver, const VnaServer::ListenOptions &options)
 {
     VnaCore::AcquisitionCore core(driver);
     const auto initialized = core.Initialize().get();
@@ -114,7 +114,7 @@ int StartService(const std::string &driver, const vna_server::ListenOptions &opt
         core.Close();
         return 1;
     }
-    const int result = vna_server::RunScpiTcpServer(service, options, [] {
+    const int result = VnaServer::RunScpiTcpServer(service, options, [] {
         return g_signalReceived != 0;
     });
     const auto closed = core.Close();
@@ -128,9 +128,9 @@ int StartService(const std::string &driver, const vna_server::ListenOptions &opt
 
 int main(int argc, char **argv)
 {
-    vna_server::ListenOptions options;
-    options.web.staticRoot = vna_server::DEFAULT_WEB_ROOT_PATH;
-    std::string driver = vna_server::DEFAULT_DRIVER_PATH;
+    VnaServer::ListenOptions options;
+    options.web.staticRoot = VnaServer::DEFAULT_WEB_ROOT_PATH;
+    std::string driver = VnaServer::DEFAULT_DRIVER_PATH;
     const ArgumentResult parsed = ParseArguments(argc, argv, options, driver);
     if (parsed == ArgumentResult::HELP) {
         PrintHelp();

@@ -9,7 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace vna_web {
+namespace VnaWeb {
 namespace {
 constexpr unsigned UTF8_ASCII_LIMIT = 0x80U;
 constexpr unsigned UTF8_TWO_BYTE_LIMIT = 0x800U;
@@ -314,4 +314,4 @@ Json ParseJson(const std::string &input)
     JsonParser parser(input);
     return parser.Parse();
 }
-}  // namespace vna_web
+}  // namespace VnaWeb

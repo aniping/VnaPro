@@ -26,7 +26,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace vna_web {
+namespace VnaWeb {
 namespace {
 constexpr std::size_t OUTPUT_LIMIT = 4U * 1024U * 1024U;
 constexpr unsigned STATIC_READ_BUDGET = 16384U;
@@ -248,4 +248,4 @@ std::string StaticFile::FinalPath(HANDLE file)
     return result;
 }
 #endif
-}  // namespace vna_web
+}  // namespace VnaWeb

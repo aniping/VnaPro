@@ -11,7 +11,7 @@
 
 #include "scpi/scpi_constants.h"
 
-namespace vna_scpi {
+namespace VnaScpi {
 std::string Trim(const std::string &value)
 {
     const auto first = value.find_first_not_of(" \t\r\n");
@@ -230,4 +230,4 @@ bool Integer(const std::string &text, unsigned &value, unsigned maximum)
     value = static_cast<unsigned>(parsed);
     return true;
 }
-}  // namespace vna_scpi
+}  // namespace VnaScpi

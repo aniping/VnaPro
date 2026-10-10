@@ -10,13 +10,13 @@
 
 #include "web/http_types.h"
 
-namespace vna_server {
+namespace VnaServer {
 struct ListenOptions final {
     std::string bindAddress = "127.0.0.1";
     std::uint16_t port = 5025;
-    vna_web::WebOptions web;
+    VnaWeb::WebOptions web;
     std::function<void(std::uint16_t)> onListening;
 };
-}  // namespace vna_server
+}  // namespace VnaServer
 
 #endif

@@ -3,8 +3,8 @@
  */
 #include "network/socket_owner.h"
 
-namespace vna_server {
-namespace network {
+namespace VnaServer {
+namespace Network {
 SocketOwner::SocketOwner(Socket value) noexcept : value_(value)
 {
 }
@@ -43,5 +43,5 @@ void SocketOwner::Reset(Socket value) noexcept
     }
     value_ = value;
 }
-}  // namespace network
-}  // namespace vna_server
+}  // namespace Network
+}  // namespace VnaServer

@@ -6,7 +6,7 @@
 
 #include <cstddef>
 
-namespace vna_scpi {
+namespace VnaScpi {
 
 // Values are the standard SCPI error queue codes, not transport status codes.
 enum ScpiErrorCode {
@@ -43,6 +43,6 @@ constexpr double IF_BANDWIDTH_MINIMUM_HZ = 10.0;
 constexpr double IF_BANDWIDTH_MAXIMUM_HZ = 100000.0;
 constexpr int ASCII_FRACTIONAL_DIGITS = 17;
 
-}  // namespace vna_scpi
+}  // namespace VnaScpi
 
 #endif

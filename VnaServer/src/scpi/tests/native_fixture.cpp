@@ -5,7 +5,7 @@
 
 #include <stdexcept>
 
-namespace vna_scpi_test {
+namespace VnaScpiTest {
 NativeFixture::NativeFixture(const std::string &driver) : core(driver), service(core)
 {
     if (!core.Initialize().get().ok) {
@@ -21,4 +21,4 @@ NativeFixture::~NativeFixture() noexcept
 {
     core.Close();
 }
-}  // namespace vna_scpi_test
+}  // namespace VnaScpiTest

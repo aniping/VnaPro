@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <stdexcept>
 
-namespace vna_web {
+namespace VnaWeb {
 namespace {
 constexpr unsigned ASCII_LIMIT = 0x80U;
 constexpr unsigned UTF8_CONTINUATION_MASK = 0xc0U;
@@ -122,4 +122,4 @@ const Json *Json::Find(const std::string &key) const noexcept
     const auto found = object.find(key);
     return found == object.end() ? nullptr : &found->second;
 }
-}  // namespace vna_web
+}  // namespace VnaWeb

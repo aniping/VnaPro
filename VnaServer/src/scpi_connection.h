@@ -11,12 +11,12 @@
 #include "network/socket_owner.h"
 #include "scpi/scpi_engine.h"
 
-namespace vna_server {
+namespace VnaServer {
 // Owns one controller transport and its accepted SCPI command lifetime.
 class ScpiConnection final {
 public:
     // Takes ownership of socket. The service must outlive this connection.
-    ScpiConnection(VnaService::InstrumentService &service, network::SocketOwner socket);
+    ScpiConnection(VnaService::InstrumentService &service, Network::SocketOwner socket);
     // The owner must continue Poll until Drained before normal destruction.
     ~ScpiConnection() noexcept = default;
     ScpiConnection(const ScpiConnection &) = delete;
@@ -24,7 +24,7 @@ public:
     ScpiConnection(ScpiConnection &&) = delete;
     ScpiConnection &operator=(ScpiConnection &&) = delete;
     // Returns a borrowed socket handle; invalid after disconnection.
-    network::Socket GetSocket() const noexcept;
+    Network::Socket GetSocket() const noexcept;
     // Applies backpressure when unsent output consumes half the budget.
     bool WantsRead() const noexcept;
     // Reports unsent output for selecting writable sockets.
@@ -44,13 +44,13 @@ private:
     void CollectResponses();
     void SubmitLines();
 
-    network::SocketOwner socket_;
+    Network::SocketOwner socket_;
     std::string input_;
     std::string output_;
     std::size_t sent_ = 0;
     std::chrono::steady_clock::time_point lastSendProgress_ = std::chrono::steady_clock::now();
-    vna_scpi::ScpiEngine engine_;
+    VnaScpi::ScpiEngine engine_;
 };
-}  // namespace vna_server
+}  // namespace VnaServer
 
 #endif

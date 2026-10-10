@@ -21,10 +21,10 @@
 namespace {
 constexpr std::chrono::seconds TEST_WAIT_TIMEOUT(3);
 constexpr std::chrono::milliseconds TEST_POLL_INTERVAL(1);
-using vna_web::HttpApi;
-using vna_web::HttpResponse;
-using vna_web::Json;
 using VnaServiceTest::Fixture;
+using VnaWeb::HttpApi;
+using VnaWeb::HttpResponse;
+using VnaWeb::Json;
 
 void Require(bool value, const std::string &message)
 {
@@ -52,7 +52,7 @@ std::string StringField(const Json &value, const std::string &name)
 HttpResponse Request(HttpApi &api, const std::string &method, const std::string &path, const std::string &body = "",
     const std::string &token = "")
 {
-    vna_web::HttpRequest value;
+    VnaWeb::HttpRequest value;
     value.method = method;
     value.path = path;
     value.body = body;
@@ -397,7 +397,7 @@ void InvalidPointsRemainExplicit()
     Require(held && std::isnan(held->ports.front().iq[16U]) && std::isinf(held->ports.front().iq[33U]),
         "Core preserves received invalid samples for diagnostics");
     // Verify the serialized public response too: NaN/Inf must never enter JSON.
-    const auto frame = vna_web::ParseJson(vna_web::StringifyJson(Request(api, "GET", "/api/v1/frame").json));
+    const auto frame = VnaWeb::ParseJson(VnaWeb::StringifyJson(Request(api, "GET", "/api/v1/frame").json));
     Require(Field(frame, "available").boolean && Field(frame, "current").boolean, "Frame identity remains current");
     const auto &trace = Field(frame, "traces").array.front();
     VerifyInvalidTrace(trace);
@@ -416,22 +416,22 @@ void InvalidPointsRemainExplicit()
 
 void JsonAndEndpoint()
 {
-    const auto value = vna_web::ParseJson("{\"escaped\":\"quote\\\";\\n\\u4e2d\",\"array\":[true,null,1.25]}");
-    Require(StringField(vna_web::ParseJson(vna_web::StringifyJson(value)), "escaped") == StringField(value, "escaped"),
+    const auto value = VnaWeb::ParseJson("{\"escaped\":\"quote\\\";\\n\\u4e2d\",\"array\":[true,null,1.25]}");
+    Require(StringField(VnaWeb::ParseJson(VnaWeb::StringifyJson(value)), "escaped") == StringField(value, "escaped"),
         "JSON round trip");
     for (const std::string bad : {"{\"x\":1,\"x\":2}", "{\"x\":NaN}", "{\"x\":01}", "[true,]"}) {
         bool rejected = false;
         try {
-            vna_web::ParseJson(bad);
+            VnaWeb::ParseJson(bad);
         } catch (const std::exception &) {
             rejected = true;
         }
         Require(rejected, "Malformed JSON rejected");
     }
     Fixture fixture;
-    vna_web::WebOptions options;
+    VnaWeb::WebOptions options;
     options.port = 0U;
-    vna_web::WebEndpoint endpoint(fixture.service, options);
+    VnaWeb::WebEndpoint endpoint(fixture.service, options);
     Require(endpoint.Port() != 0U, "Ephemeral Web listener exposes port");
     endpoint.BeginShutdown();
     endpoint.Poll();
