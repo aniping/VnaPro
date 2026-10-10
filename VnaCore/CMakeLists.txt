@@ -8,7 +8,7 @@ endif()
 find_package(Threads REQUIRED)
 add_library(vna_core STATIC
     src/acquisition_core.cpp
-    src/core/acquisition_core_impl.cpp
+    src/device/plan_preparation_error.cpp
     src/device/native/native_library.cpp
     src/device/native/native_device_session.cpp
 )
@@ -25,9 +25,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+    add_library(vna_core_test_support STATIC
+        tests/support/controlled_device.cpp
+        tests/support/fixture.cpp
+        tests/support/concurrency_assertions.cpp
+        tests/support/concurrent_stress_scenario.cpp
+    )
+    target_include_directories(vna_core_test_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(vna_core_test_support PUBLIC vna_core Threads::Threads)
     add_executable(vna_core_concurrency_tests tests/core_concurrency_test.cpp)
     target_include_directories(vna_core_concurrency_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(vna_core_concurrency_tests PRIVATE vna_core Threads::Threads)
+    target_link_libraries(vna_core_concurrency_tests PRIVATE vna_core_test_support)
     add_test(NAME core_concurrency COMMAND vna_core_concurrency_tests)
     set_tests_properties(core_concurrency PROPERTIES TIMEOUT 20)
 
