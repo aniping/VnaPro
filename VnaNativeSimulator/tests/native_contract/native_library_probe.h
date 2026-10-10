@@ -1,5 +1,18 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #ifndef VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_LIBRARY_PROBE_H
 #define VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_LIBRARY_PROBE_H
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include <string>
 #include <vector>
@@ -8,41 +21,55 @@
 
 namespace vna_test {
 
-struct NativeFunctions {
-    NativeFunctions();
-
-    vna_native::DrvHwInitFn hwInit;
-    vna_native::DrvGetSweepDataFn getSweepData;
-    vna_native::DrvStartSweepFn startSweep;
-    vna_native::DrvActivateRxLinkFn activateRxLink;
-    vna_native::DrvSetRfPowerOnFn setRfPowerOn;
-    vna_native::DrvSetFastSweepModeFn setFastSweepMode;
-    vna_native::DrvGetIDNFn getIDN;
-    vna_native::DrvCheckSweepPortPowerFn checkSweepPortPower;
-    vna_native::DrvDataFrameDownloadFn dataFrameDownload;
+struct NativeFunctions final {
+    vna_native::DrvHwInitFn hwInit = nullptr;
+    vna_native::DrvGetSweepDataFn getSweepData = nullptr;
+    vna_native::DrvStartSweepFn startSweep = nullptr;
+    vna_native::DrvActivateRxLinkFn activateRxLink = nullptr;
+    vna_native::DrvSetRfPowerOnFn setRfPowerOn = nullptr;
+    vna_native::DrvSetFastSweepModeFn setFastSweepMode = nullptr;
+    vna_native::DrvGetIDNFn getIDN = nullptr;
+    vna_native::DrvCheckSweepPortPowerFn checkSweepPortPower = nullptr;
+    vna_native::DrvDataFrameDownloadFn dataFrameDownload = nullptr;
 };
 
-class NativeLibraryProbe {
+class NativeLibraryProbe final {
 public:
-    NativeLibraryProbe();
-    ~NativeLibraryProbe();
+    // Owns no library until Open succeeds; destruction releases an open platform handle.
+    NativeLibraryProbe() noexcept = default;
+    ~NativeLibraryProbe() noexcept;
+    NativeLibraryProbe(const NativeLibraryProbe &) = delete;
+    NativeLibraryProbe &operator=(const NativeLibraryProbe &) = delete;
+    NativeLibraryProbe(NativeLibraryProbe &&) = delete;
+    NativeLibraryProbe &operator=(NativeLibraryProbe &&) = delete;
 
-    NativeLibraryProbe(const NativeLibraryProbe&) = delete;
-    NativeLibraryProbe& operator=(const NativeLibraryProbe&) = delete;
-
-    bool Open(const std::string& absolutePath, std::string* errorMessage);
-    void Close();
-
-    bool IsOpen() const;
-    bool ResolveAll(std::vector<std::string>* missingSymbols, std::string* errorMessage);
-
-    const NativeFunctions& Functions() const;
+    // Rejects relative paths, replaces any previous library, and reports loader failures in errorMessage.
+    bool Open(const std::string &absolutePath, std::string &errorMessage);
+    // Clears callable pointers before unloading. Returns false if the platform rejects unloading.
+    bool Close() noexcept;
+    // Tests may call this before using any table entry; a failed Open leaves it false.
+    bool IsOpen() const noexcept;
+    // Resolves every frozen ABI entry; records all missing names and the first diagnostic.
+    bool ResolveAll(std::vector<std::string> &missingSymbols, std::string &errorMessage);
+    // The borrowed table remains valid only until Close/Open or probe destruction.
+    const NativeFunctions &Functions() const noexcept;
 
 private:
-    void* handle_;
+#if defined(_WIN32)
+    using SymbolAddress = FARPROC;
+    HMODULE handle_ = nullptr;
+#else
+    using SymbolAddress = void *;
+    void *handle_ = nullptr;
+#endif
+    SymbolAddress ResolveAddress(
+        const char *symbolName, std::vector<std::string> &missingSymbols, std::string &errorMessage) const;
+    void ResolveInitialization(std::vector<std::string> &missingSymbols, std::string &errorMessage);
+    void ResolveAcquisition(std::vector<std::string> &missingSymbols, std::string &errorMessage);
+    void ResolveConfiguration(std::vector<std::string> &missingSymbols, std::string &errorMessage);
+
     NativeFunctions functions_;
 };
 
 }  // namespace vna_test
-
 #endif  // VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_LIBRARY_PROBE_H
