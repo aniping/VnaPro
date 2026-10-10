@@ -149,6 +149,7 @@ int RunScpiTcpServer(vna_service::InstrumentService& service, const ListenOption
     if (options.onListening) {
         options.onListening(ntohs(address.sin_port));
     }
+    vna_web::WebEndpoint web(service, options.web);
     SocketOwner controller;
     std::unique_ptr<vna_scpi::ScpiEngine> engine;
     std::string input;
@@ -170,7 +171,9 @@ int RunScpiTcpServer(vna_service::InstrumentService& service, const ListenOption
             shuttingDown = true;
             listener.reset();
             disconnect();
+            web.beginShutdown();
         }
+        web.poll();
         if (engine) {
             engine->setTransportOutputPending(output.size() != sent);
             engine->poll();
@@ -199,7 +202,7 @@ int RunScpiTcpServer(vna_service::InstrumentService& service, const ListenOption
                 engine.reset();
             }
         }
-        if (shuttingDown && !engine) {
+        if (shuttingDown && !engine && web.drained()) {
             return 0;
         }
         if (controller.get() != kInvalidSocket && output.size() != sent &&

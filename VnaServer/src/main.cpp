@@ -20,14 +20,21 @@ void HandleSignal(int)
 int main(int argc, char** argv)
 {
     vna_server::ListenOptions options;
+    options.web.staticRoot = VNA_DEFAULT_WEB_ROOT;
     std::string driver = VNA_DEFAULT_DRIVER;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--help") {
-            std::cout << "VnaPro mock TCP SCPI service\n"
+            std::cout << "VnaPro mock SCPI and Web service\n"
                          "Usage: vna_server [--bind IPv4] [--port 0..65535] [--driver absolute-simulator-path]\n"
+                         "                  [--web-bind IPv4] [--web-port 0..65535] [--web-root directory] [--no-web]\n"
+                         "Defaults: SCPI 127.0.0.1:5025, Web http://127.0.0.1:8080.\n"
                          "Port 0 selects an available port. Only the VnaPro mock profile is implemented.\n";
             return 0;
+        }
+        if (argument == "--no-web") {
+            options.web.enabled = false;
+            continue;
         }
         if (index + 1 >= argc) {
             std::cerr << "Missing option value: " << argument << '\n';
@@ -36,16 +43,24 @@ int main(int argc, char** argv)
         const std::string value = argv[++index];
         if (argument == "--bind") {
             options.bindAddress = value;
+        } else if (argument == "--web-bind") {
+            options.web.bindAddress = value;
+        } else if (argument == "--web-root") {
+            options.web.staticRoot = value;
         } else if (argument == "--driver") {
             driver = value;
-        } else if (argument == "--port") {
+        } else if (argument == "--port" || argument == "--web-port") {
             char* end = nullptr;
             const long port = std::strtol(value.c_str(), &end, 10);
             if (value.empty() || *end != '\0' || port < 0 || port > 65535) {
                 std::cerr << "Invalid port\n";
                 return 2;
             }
-            options.port = static_cast<std::uint16_t>(port);
+            if (argument == "--port") {
+                options.port = static_cast<std::uint16_t>(port);
+            } else {
+                options.web.port = static_cast<std::uint16_t>(port);
+            }
         } else {
             std::cerr << "Unknown option: " << argument << '\n';
             return 2;
