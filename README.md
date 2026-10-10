@@ -25,6 +25,8 @@ cmake -E chdir build ctest --output-on-failure
 
 C++ 开发统一遵守 [C++语言编程规范](docs/C++语言编程规范.md)。Git 仍按功能拆分提交，提交说明使用中文，并遵守已约定的提交行数限制。
 
+代码说明注释统一使用中文，标识符、接口名和协议关键字保留原拼写。版权声明维持既定格式；clang-format 等工具识别的指令保留原形式。格式器关闭 `FixNamespaceComments`，保留中文的命名空间收尾注释。
+
 独立行为类分别使用同名文件；简单结构体和枚举按职责放在所属类或同一数据类型头中，头文件声明接口、源文件实现行为。AcquisitionCore、InstrumentService、ScpiEngine、HttpApi 和 WebEndpoint 直接声明状态，不再通过 PImpl 或转发类隐藏。`core_types.h` 定义 CoreState、RunMode、CommandResult/Ticket 和 CoreView；`core_command.h` 放内部命令及其枚举；`instrument_settings.h` 放 InstrumentSettings、ConfigPatch、TriggerSource 和 SweepMode；`service_task.h` 放服务任务及 Kind/Stage。SCPI 消息和 OPC 记录归 ScpiEngine，HTTP 会话和操作记录归 HttpApi，HTTP 连接状态归 WebEndpoint；共享请求、响应和 Web 配置放在 `http_types.h`。JSON 值、解析器和编码器各自独立，SCPI/Web 共用 `src/network` 的平台适配与 Socket 资源管理。测试助手位于各模块的 tests。文件名使用 snake_case，C++ 函数和命名空间使用大驼峰，类成员以 `_` 结尾；SCPI、JSON 和九个 Drv* ABI 的外部名称保持其合同。
 
 先正常编写代码，再直接运行 clang-format 程序，使用根目录 `.clang-format` 自动格式化，排版依据上述规范第 3 章。单条语句的条件、循环也自动补上 `{}`（InsertBraces: true）；短函数体展开，类、结构体和函数定义之间自动留一空行（SeparateDefinitionBlocks: Always）；120 列由格式器处理，不为满足提交行数压缩代码。按功能拆分提交，不通过省略换行缩小差异。使用 clang-format 18.1.8，在根目录运行：

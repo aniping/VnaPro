@@ -95,22 +95,22 @@ namespace Utils {
 类型命名采用大驼峰命名风格。
 所有类型命名——类、结构体、联合体、类型定义（typedef）、枚举——使用相同约定，例如：
 ```cpp
-// classes, structs and unions
+// 类、结构体和联合体
 class UrlTable { ...
 class UrlTableTester { ...
 struct UrlTableProperties { ...
 union Packet { ...
 
-// typedefs
+// 类型别名
 typedef std::map<std::string, UrlTableProperties*> PropertiesMap;
 
-// enums
+// 枚举
 enum UrlTableErrors { ...
 ```
 
 对于命名空间的命名，建议使用大驼峰：
 ```cpp
-// namespace
+// 命名空间
 namespace OsUtils {
  
 namespace FileUtils {
@@ -137,9 +137,9 @@ namespace FileUtils {
 ## <a name="c2-5"></a> 变量命名
 通用变量命名采用小驼峰，包括全局变量，函数形参，局部变量，成员变量。
 ```cpp
-std::string tableName;  // Good: 推荐此风格
-std::string tablename;  // Bad: 禁止此风格
-std::string path;       // Good: 只有一个单词时，小驼峰为全小写
+std::string tableName;  // 正确示例: 推荐此风格
+std::string tablename;  // 错误示例: 禁止此风格
+std::string path;       // 正确示例: 只有一个单词时，小驼峰为全小写
 ```
 
 ### <a name="r2-5-1"></a>规则2.5.1 全局变量应增加 'g_' 前缀，静态变量命名不需要加特殊前缀
@@ -267,26 +267,26 @@ private:
 
 换行举例：
 ```cpp
-ReturnType FunctionName(ArgType paramName1, ArgType paramName2)   // Good：全在同一行
+ReturnType FunctionName(ArgType paramName1, ArgType paramName2)   // 正确示例：全在同一行
 {
     ...
 }
 
 ReturnType VeryVeryVeryLongFunctionName(ArgType paramName1,     // 行宽不满足所有参数，进行换行
-                                        ArgType paramName2,     // Good：和上一行参数对齐
+                                        ArgType paramName2,     // 正确示例：和上一行参数对齐
                                         ArgType paramName3)
 {
     ...
 }
 
 ReturnType LongFunctionName(ArgType paramName1, ArgType paramName2, // 行宽限制，进行换行
-    ArgType paramName3, ArgType paramName4, ArgType paramName5)     // Good: 换行后 4 空格缩进
+    ArgType paramName3, ArgType paramName4, ArgType paramName5)     // 正确示例: 换行后 4 空格缩进
 {
     ...
 }
 
 ReturnType ReallyReallyReallyReallyLongFunctionName(            // 行宽不满足第1个参数，直接换行
-    ArgType paramName1, ArgType paramName2, ArgType paramName3) // Good: 换行后 4 空格缩进
+    ArgType paramName1, ArgType paramName2, ArgType paramName3) // 正确示例: 换行后 4 空格缩进
 {
     ...
 }
@@ -299,14 +299,14 @@ ReturnType ReallyReallyReallyReallyLongFunctionName(            // 行宽不满�
 
 换行举例：
 ```cpp
-ReturnType result = FunctionName(paramName1, paramName2);   // Good：函数参数放在一行
+ReturnType result = FunctionName(paramName1, paramName2);   // 正确示例：函数参数放在一行
 
 ReturnType result = FunctionName(paramName1,
-                                 paramName2,                // Good：保持与上方参数对齐
+                                 paramName2,                // 正确示例：保持与上方参数对齐
                                  paramName3);
 
 ReturnType result = FunctionName(paramName1, paramName2,
-    paramName3, paramName4, paramName5);                    // Good：参数换行，4 空格缩进
+    paramName3, paramName4, paramName5);                    // 正确示例：参数换行，4 空格缩进
 
 ReturnType result = VeryVeryVeryLongFunctionName(           // 行宽不满足第1个参数，直接换行
     paramName1, paramName2, paramName3);                    // 换行后，4 空格缩进
@@ -314,7 +314,7 @@ ReturnType result = VeryVeryVeryLongFunctionName(           // 行宽不满足�
 
 如果函数调用的参数存在内在关联性，按照可理解性优先于格式排版要求，对参数进行合理分组换行。
 ```cpp
-// Good：每行的参数代表一组相关性较强的数据结构，放在一行便于理解
+// 正确示例：每行的参数代表一组相关性较强的数据结构，放在一行便于理解
 int result = DealWithStructureLikeParams(left.x, left.y,     // 表示一组相关参数
                                          right.x, right.y);  // 表示另外一组相关参数
 ```
@@ -330,7 +330,7 @@ int result = DealWithStructureLikeParams(left.x, left.y,     // 表示一组相�
 - 对于在if语句中使用函数式宏时，有大括号保护不易出错（如果宏定义时遗漏了大括号）。
 
 ```cpp
-if (objectIsNotExist) {         // Good：单行条件语句也加大括号
+if (objectIsNotExist) {         // 正确示例：单行条件语句也加大括号
     return CreateNewObject();
 }
 ```
@@ -343,7 +343,7 @@ if (objectIsNotExist) {         // Good：单行条件语句也加大括号
 if (someConditions) {
     DoSomething();
     ...
-} else {  // Good: else 与 if 在不同行
+} else {  // 正确示例: else 与 if 在不同行
     ...
 }
 ```
@@ -351,33 +351,33 @@ if (someConditions) {
 下面是不符合规范的案例：
 
 ```cpp
-if (someConditions) { ... } else { ... } // Bad: else 与 if 在同一行
+if (someConditions) { ... } else { ... } // 错误示例: else 与 if 在同一行
 ```
 
 ## <a name="c3-7"></a> 循环语句
 ### <a name="r3-7-1"></a>规则3.7.1 循环语句必须使用大括号
 和条件表达式类似，我们要求for/while循环语句必须加上大括号，即便循环体是空的，或循环语句只有一条。
 ```cpp
-for (int i = 0; i < someRange; i++) {   // Good: 使用了大括号
+for (int i = 0; i < someRange; i++) {   // 正确示例: 使用了大括号
     DoSomething();
 }
 ```
 ```cpp
-while (condition) { }   // Good：循环体是空，使用大括号
+while (condition) { }   // 正确示例：循环体是空，使用大括号
 ```
 ```cpp
 while (condition) {
-    continue;           // Good：continue 表示空逻辑，使用大括号
+    continue;           // 正确示例：continue 表示空逻辑，使用大括号
 }
 ```
 
 坏的例子：
 ```cpp
 for (int i = 0; i < someRange; i++)
-    DoSomething();      // Bad: 应该加上括号
+    DoSomething();      // 错误示例: 应该加上括号
 ```
 ```cpp
-while (condition);      // Bad：使用分号容易让人误解是while语句中的一部分
+while (condition);      // 错误示例：使用分号容易让人误解是while语句中的一部分
 ```
 
 ## <a name="c3-8"></a> switch语句
@@ -385,10 +385,10 @@ while (condition);      // Bad：使用分号容易让人误解是while语句中
 switch 语句的缩进风格如下：
 ```cpp
 switch (var) {
-    case 0:             // Good: 缩进
-        DoSomething1(); // Good: 缩进
+    case 0:             // 正确示例: 缩进
+        DoSomething1(); // 正确示例: 缩进
         break;
-    case 1: {           // Good: 带大括号格式
+    case 1: {           // 正确示例: 带大括号格式
         DoSomething2();
         break;
     }
@@ -399,10 +399,10 @@ switch (var) {
 
 ```cpp
 switch (var) {
-case 0:                 // Bad: case 未缩进
+case 0:                 // 错误示例: case 未缩进
     DoSomething();
     break;
-default:                // Bad: default 未缩进
+default:                // 错误示例: default 未缩进
     break;
 }
 ```
@@ -416,23 +416,23 @@ default:                // Bad: default 未缩进
 
 // 假设下面第一行已经不满足行宽要求
 ```cpp
-if ((currentValue > threshold) &&  // Good：换行后，逻辑操作符放在行尾
+if ((currentValue > threshold) &&  // 正确示例：换行后，逻辑操作符放在行尾
     someCondition) {
     DoSomething();
     ...
 }
 
-int result = reallyReallyLongVariableName1 +    // Good
+int result = reallyReallyLongVariableName1 +    // 正确示例
              reallyReallyLongVariableName2;
 ```
 表达式换行后，注意保持合理对齐，或者4空格缩进。参考下面例子
 
 ```cpp
 int sum = longVariableName1 + longVariableName2 + longVariableName3 +
-    longVariableName4 + longVariableName5 + longVariableName6;         // Good: 4空格缩进
+    longVariableName4 + longVariableName5 + longVariableName6;         // 正确示例: 4空格缩进
 
 int sum = longVariableName1 + longVariableName2 + longVariableName3 +
-          longVariableName4 + longVariableName5 + longVariableName6;   // Good: 保持对齐
+          longVariableName4 + longVariableName5 + longVariableName6;   // 正确示例: 保持对齐
 ```
 ## <a name="c3-10"></a> 变量赋值
 
@@ -447,13 +447,13 @@ bool isCompleted = false;
 下面是不符合规范的示例：
 
 ```cpp
-int maxCount = 10; bool isCompleted = false; // Bad：多个变量初始化需要分开放在多行，每行一个变量初始化
-int x, y = 0;  // Bad：多个变量定义需要分行，每行一个
+int maxCount = 10; bool isCompleted = false; // 错误示例：多个变量初始化需要分开放在多行，每行一个变量初始化
+int x, y = 0;  // 错误示例：多个变量定义需要分行，每行一个
 
 int pointX;
 int pointY;
 ...
-pointX = 1; pointY = 2;  // Bad：多个变量赋值语句放同一行
+pointX = 1; pointY = 2;  // 错误示例：多个变量赋值语句放同一行
 ```
 例外：for 循环头、if 初始化语句（C++17）、结构化绑定语句（C++17）中可以声明和初始化多个变量。这些语句中的多个变量声明有较强关联，如果强行分成多行会带来作用域不一致，声明和初始化割裂等问题。
 
@@ -475,11 +475,11 @@ const int rank[] = {
 ### <a name="a3-12-1"></a>建议3.12.1  指针类型"`*`"跟随变量名或者类型，不要两边都留有或者都没有空格
 指针命名: `*`靠左靠右都可以，但是不要两边都有或者都没有空格。
 ```cpp
-int* p = nullptr;  // Good
-int *p = nullptr;  // Good
+int* p = nullptr;  // 正确示例
+int *p = nullptr;  // 正确示例
 
-int*p = nullptr;   // Bad
-int * p = nullptr; // Bad
+int*p = nullptr;   // 错误示例
+int * p = nullptr; // 错误示例
 ```
 
 例外：当变量被 const 修饰时，"`*`" 无法跟随变量，此时也不要跟随类型。
@@ -492,14 +492,14 @@ const char * const VERSION = "V100";
 ```cpp
 int i = 8;
 
-int& p = i;     // Good
-int &p = i;     // Good
-int*& rp = pi;  // Good，指针的引用，*& 一起跟随类型
-int *&rp = pi;  // Good，指针的引用，*& 一起跟随变量名
-int* &rp = pi;  // Good，指针的引用，* 跟随类型，& 跟随变量名
+int& p = i;     // 正确示例
+int &p = i;     // 正确示例
+int*& rp = pi;  // 正确示例，指针的引用，*& 一起跟随类型
+int *&rp = pi;  // 正确示例，指针的引用，*& 一起跟随变量名
+int* &rp = pi;  // 正确示例，指针的引用，* 跟随类型，& 跟随变量名
 
-int & p = i;    // Bad
-int&p = i;      // Bad
+int & p = i;    // 错误示例
+int&p = i;      // 错误示例
 ```
 
 ## <a name="c3-13"></a> 编译预处理
@@ -563,60 +563,60 @@ int&p = i;      // Bad
 
 常规情况：
 ```cpp
-void Foo(int b) {  // Good：大括号前应该留空格
+void Foo(int b) {  // 正确示例：大括号前应该留空格
 
-int i = 0;  // Good：变量初始化时，=前后应该有空格，分号前面不要留空格
+int i = 0;  // 正确示例：变量初始化时，=前后应该有空格，分号前面不要留空格
 
-int buf[BUF_SIZE] = {0};    // Good：大括号内两侧都无空格
+int buf[BUF_SIZE] = {0};    // 正确示例：大括号内两侧都无空格
 ```
 
 函数定义和函数调用：
 ```cpp
 int result = Foo(arg1,arg2);
-                    ^    // Bad: 逗号后面需要增加空格
+                    ^    // 错误示例: 逗号后面需要增加空格
 
 int result = Foo( arg1, arg2 );
-                 ^          ^  // Bad: 函数参数列表的左括号后面不应该有空格，右括号前面不应该有空格
+                 ^          ^  // 错误示例: 函数参数列表的左括号后面不应该有空格，右括号前面不应该有空格
 ```
 
 指针和取地址
 ```cpp
-x = *p;     // Good：*操作符和指针p之间不加空格
-p = &x;     // Good：&操作符和变量x之间不加空格
-x = r.y;    // Good：通过.访问成员变量时不加空格
-x = r->y;   // Good：通过->访问成员变量时不加空格
+x = *p;     // 正确示例：*操作符和指针p之间不加空格
+p = &x;     // 正确示例：&操作符和变量x之间不加空格
+x = r.y;    // 正确示例：通过.访问成员变量时不加空格
+x = r->y;   // 正确示例：通过->访问成员变量时不加空格
 ```
 
 操作符：
 ```cpp
-x = 0;   // Good：赋值操作的=前后都要加空格
-x = -5;  // Good：负数的符号和数值之前不要加空格
-++x;     // Good：前置和后置的++/--和变量之间不要加空格
+x = 0;   // 正确示例：赋值操作的=前后都要加空格
+x = -5;  // 正确示例：负数的符号和数值之前不要加空格
+++x;     // 正确示例：前置和后置的++/--和变量之间不要加空格
 x--;
 
-if (x && !y)  // Good：布尔操作符前后要加上空格，！操作和变量之间不要空格
-v = w * x + y / z;  // Good：二元操作符前后要加空格
-v = w * (x + z);    // Good：括号内的表达式前后不需要加空格
+if (x && !y)  // 正确示例：布尔操作符前后要加上空格，！操作和变量之间不要空格
+v = w * x + y / z;  // 正确示例：二元操作符前后要加空格
+v = w * (x + z);    // 正确示例：括号内的表达式前后不需要加空格
 
-int a = (x < y) ? x : y;  // Good: 三目运算符， ？和：前后需要添加空格
+int a = (x < y) ? x : y;  // 正确示例: 三目运算符， ？和：前后需要添加空格
 ```
 
 循环和条件语句：
 ```cpp
-if (condition) {  // Good：if关键字和括号之间加空格，括号内条件语句前后不加空格
+if (condition) {  // 正确示例：if关键字和括号之间加空格，括号内条件语句前后不加空格
     ...
-} else {           // Good：else关键字和大括号之间加空格
-    ...
-}
-
-while (condition) {}   // Good：while关键字和括号之间加空格，括号内条件语句前后不加空格
-
-for (int i = 0; i < someRange; ++i) {  // Good：for关键字和括号之间加空格，分号之后加空格
+} else {           // 正确示例：else关键字和大括号之间加空格
     ...
 }
 
-switch (condition) {  // Good: switch 关键字后面有1空格
-    case 0:     // Good：case语句条件和冒号之间不加空格
+while (condition) {}   // 正确示例：while关键字和括号之间加空格，括号内条件语句前后不加空格
+
+for (int i = 0; i < someRange; ++i) {  // 正确示例：for关键字和括号之间加空格，分号之后加空格
+    ...
+}
+
+switch (condition) {  // 正确示例: switch 关键字后面有1空格
+    case 0:     // 正确示例：case语句条件和冒号之间不加空格
         ...
         break;
     ...
@@ -628,7 +628,7 @@ switch (condition) {  // Good: switch 关键字后面有1空格
 
 模板和转换
 ```cpp
-// 尖括号(< and >) 不与空格紧邻, < 前没有空格, > 和 ( 之间也没有.
+// 尖括号（< 和 >） 不与空格紧邻, < 前没有空格, > 和 ( 之间也没有.
 vector<string> x;
 y = static_cast<char*>(x);
 
@@ -638,16 +638,16 @@ vector<char *> x;
 
 域操作符
 ```cpp
-std::cout;    // Good: 命名空间访问，不要留空格
+std::cout;    // 正确示例: 命名空间访问，不要留空格
 
-int MyClass::GetValue() const {}  // Good: 对于成员函数定义，不要留空格
+int MyClass::GetValue() const {}  // 正确示例: 对于成员函数定义，不要留空格
 ```
 
 冒号
 ```cpp
 // 添加空格的场景
 
-// Good: 类的派生需要留有空格
+// 正确示例: 类的派生需要留有空格
 class Sub : public Base {
    
 };
@@ -669,7 +669,7 @@ struct XX {
 ```cpp
 // 不添加空格的场景
 
-// Good: 对于public:, private:这种类访问权限的冒号不用添加空格
+// 正确示例: 对于public:, private:这种类访问权限的冒号不用添加空格
 class MyClass {
 public:
     MyClass(int var);
@@ -706,21 +706,21 @@ int Foo()
 
 
 
-int Bar()  // Bad：最多使用连续2个空行。
+int Bar()  // 错误示例：最多使用连续2个空行。
 {
     ...
 }
 
 
 if (...) {
-        // Bad：大括号内的代码块行首不要加入空行
+        // 错误示例：大括号内的代码块行首不要加入空行
     ...
-        // Bad：大括号内的代码块行尾不要加入空行
+        // 错误示例：大括号内的代码块行尾不要加入空行
 }
 
 int Foo(...)
 {
-        // Bad：函数体内行首不要加空行
+        // 错误示例：函数体内行首不要加空行
     ...
 }
 ```
@@ -764,7 +764,7 @@ MyClass::MyClass(int var) : someVar_(var)
 // 如果不能放在同一行,
 // 必须置于冒号后, 并缩进4个空格
 MyClass::MyClass(int var)
-    : someVar_(var), someOtherVar_(var + 1)  // Good: 逗号后面留有空格
+    : someVar_(var), someOtherVar_(var + 1)  // 正确示例: 逗号后面留有空格
 {
     DoSomething();
 }
@@ -788,7 +788,7 @@ MyClass::MyClass(int var)
 写注释时要换位思考，用注释去表达此时读者真正需要的信息。在代码的功能、意图层次上进行注释，即注释解释代码难以表达的意图，不要重复代码信息。
 修改代码时，也要保证其相关注释的一致性。只改代码，不改注释是一种不文明行为，破坏了代码与注释的一致性，让阅读者迷惑、费解，甚至误解。
 
-使用英文进行注释。
+使用中文进行注释。标识符、接口名、协议关键字和单位等保留原拼写；版权声明及工具识别指令遵循既定格式。
 
 ## <a name="c3-1"></a>注释风格
 
@@ -971,7 +971,7 @@ private:
 // Foo.cpp
 #include "Foo.h"
 
-namespace { // Good: 对内函数的声明放在.cpp文件的头部，并声明为匿名namespace或者static限制其作用域
+namespace { // 正确示例: 对内函数的声明放在.cpp文件的头部，并声明为匿名namespace或者static限制其作用域
     void Bar()
     {
     }
@@ -1018,7 +1018,7 @@ void Foo::Fun()
 
 // a.cpp内容
 ```cpp
-extern int Fun();   // Bad: 通过extern的方式使用外部函数
+extern int Fun();   // 错误示例: 通过extern的方式使用外部函数
 
 void Bar()
 {
@@ -1031,14 +1031,14 @@ void Bar()
 ```cpp
 int Fun()
 {
-    // Do something
+    // 执行业务操作
 }
 ```
 应该改为：
 
 // a.cpp内容
 ```cpp
-#include "b.h"   // Good: 通过包含头文件的方式使用其他.cpp提供的接口
+#include "b.h"   // 正确示例: 通过包含头文件的方式使用其他.cpp提供的接口
 
 void Bar()
 {
@@ -1056,7 +1056,7 @@ int Fun();
 ```cpp
 int Fun()
 {
-    // Do something
+    // 执行业务操作
 }
 ```
 例外，有些场景需要引用其内部函数，但并不想侵入代码时，可以 extern 声明方式引用。
@@ -1200,11 +1200,11 @@ void main()
 // foo.h
 
 #include <fancy/string>
-using fancy::string;  // Bad，禁止向全局名字空间导入符号
+using fancy::string;  // 错误示例，禁止向全局名字空间导入符号
 
 namespace Foo {
-    using fancy::string;  // Good，可以在模块自定义名字空间中导入符号
-    using MyVector = fancy::vector<int>;  // Good，C++11可在自定义名字空间中定义别名
+    using fancy::string;  // 正确示例，可以在模块自定义名字空间中导入符号
+    using MyVector = fancy::vector<int>;  // 正确示例，C++11可在自定义名字空间中定义别名
 }
 ```
 
@@ -1363,13 +1363,13 @@ private:
 ```cpp
 class Message {
 public:
-    Message() : msgLength_(0)  // Good，优先使用初始化列表
+    Message() : msgLength_(0)  // 正确示例，优先使用初始化列表
     {
-        msgBuffer_ = nullptr;  // Bad，不推荐在构造函数中赋值
+        msgBuffer_ = nullptr;  // 错误示例，不推荐在构造函数中赋值
     }
    
 private:
-    unsigned int msgID_{0};  // Good，C++11中使用
+    unsigned int msgID_{0};  // 正确示例，C++11中使用
     unsigned int msgLength_;
     unsigned char* msgBuffer_;
 };
@@ -1785,7 +1785,7 @@ struct BarNode {
     int bar;
 }
 
-void FooListAddNode(void *node) // Bad: 这里用 void * 类型传递参数
+void FooListAddNode(void *node) // 错误示例: 这里用 void * 类型传递参数
 {
     FooNode *foo = (FooNode *)node;
     ListAppend(&g_FooList, &foo->link);
@@ -1984,22 +1984,22 @@ string name("zhangsan");  // 调用构造函数
 
 示例：
 ```cpp
-x = b[i] + i++; // Bad: b[i]运算跟 i++，先后顺序并不明确。
+x = b[i] + i++; // 错误示例: b[i]运算跟 i++，先后顺序并不明确。
 ```
 正确的写法是将自增或自减运算单独放一行：
 ```cpp
 x = b[i] + i;
-i++;            // Good: 单独一行
+i++;            // 正确示例: 单独一行
 ```
 
 函数参数
 ```cpp
-Func(i++, i);   // Bad: 传递第2个参数时，不确定自增运算有没有发生
+Func(i++, i);   // 错误示例: 传递第2个参数时，不确定自增运算有没有发生
 ```
 
 正确的写法
 ```cpp
-i++;            // Good: 单独一行
+i++;            // 正确示例: 单独一行
 x = Func(i, i);
 ```
 
@@ -2338,7 +2338,7 @@ extern "C" double sqrt(double) noexcept;  // 永远不会抛出异常
 std::vector<int> MyComputation(const std::vector<int>& v) noexcept
 {
     std::vector<int> res = v;    // 可能会抛出异常
-    // do something
+    // 执行业务操作
     return res;
 }
 ```
@@ -2545,7 +2545,7 @@ if (pmf == NULL) {} // 错误: void* 不能自动转换为指向成员函数的�
 ```cpp
 auto result = Find(id);
 if (result == 0) {  // Find() 返回的是 指针 还是 整数?
-    // do something
+    // 执行业务操作
 }
 ```
 
@@ -2575,7 +2575,7 @@ F(nullptr);   // 调用 F(int*)
 
 auto result = Find(id);
 if (result == nullptr) {  // Find() 返回的是 指针
-    // do something
+    // 执行业务操作
 }
 ```
 

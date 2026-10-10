@@ -67,6 +67,7 @@ SpaceBeforeParens: ControlStatements  # if/for/while 后加空格，普通函数
 SpacesInParens: Never  # 对应 C++ 3.14.1：小括号内侧不额外加空格，例如 Func(value)。
 SpaceBeforeCaseColon: false  # case/default 条件与冒号之间不加空格，例如 case 1:。
 ReflowComments: false  # 保留 C++ 注释的人工分行，不自动重排说明段落。
+FixNamespaceComments: false  # 保留中文命名空间收尾注释，禁止自动补回英文 namespace 注释。
 
 # 包含文件排序沿用当前行为；Winsock 固定顺序继续由局部 clang-format off/on 保护。
 SortIncludes: CaseSensitive  # 按区分大小写的字母顺序排列可排序的 include。
