@@ -65,11 +65,6 @@ vna_core::SweepPlan makePlan(const InstrumentSettings& settings)
 }
 }  // namespace
 
-std::string Measurement::parameter() const
-{
-    return std::string(1, receiverKind) + std::to_string(receiverPort) + "," + std::to_string(sourcePort);
-}
-
 class InstrumentService::Impl {
 public:
     enum class Kind { Configure, Source, Mode, Trigger };
@@ -89,10 +84,14 @@ public:
         vna_core::Ticket ticket;
         std::promise<OperationResult> promise;
         Operation operation;
-        Task() : operation(promise.get_future().share()) {}
+        Task() : operation(promise.get_future().share())
+        {
+        }
     };
 
-    explicit Impl(vna_core::AcquisitionCore& value) : core(value) {}
+    explicit Impl(vna_core::AcquisitionCore& value) : core(value)
+    {
+    }
     vna_core::AcquisitionCore& core;
     InstrumentSettings settings;
     std::deque<std::unique_ptr<Task>> tasks;
@@ -351,7 +350,9 @@ public:
     }
 };
 
-InstrumentService::InstrumentService(vna_core::AcquisitionCore& core) : impl_(new Impl(core)) {}
+InstrumentService::InstrumentService(vna_core::AcquisitionCore& core) : impl_(new Impl(core))
+{
+}
 InstrumentService::~InstrumentService() = default;
 
 bool InstrumentService::bootstrapMockProfile(std::string& error)

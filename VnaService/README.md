@@ -1,6 +1,8 @@
 # 仪器服务与 SCPI 引擎
 
-`vna_service` 只使用 `vna_core` 公开接口；`vna_scpi` 将已登记的 Keysight N52xxB 命令转换为服务操作，不访问驱动。当前实现单通道、单 SCPI 控制连接，没有 Web 实现，也不声称完整 PNA 仿真。
+`vna_service` 只使用 `vna_core` 公开接口；`vna_scpi` 将已登记的 Keysight N52xxB 命令转换为服务操作，不访问驱动。当前实现单通道，SCPI 与 Web 共用服务及独占控制权，兼容范围为已登记的 PNA 命令子集。
+
+公开类型各自放在同名头文件：Measurement、InstrumentSettings、ConfigPatch、OperationResult、InstrumentError、DataResult、InstrumentSnapshot；触发/扫描枚举在 TriggerTypes.h。InstrumentService.h 只声明服务入口并包含所需类型。Measurement::parameter 的行为在 src/Measurement.cpp，配置事务及任务状态仍由 InstrumentService.cpp 的私有实现管理。测试受控设备和 Fixture 各自独立，共用 Core 的测试注入入口。
 
 ## 生命周期和线程
 
@@ -12,7 +14,7 @@
 
 断开调用 `disconnect()` 后继续 `poll()`。已经受理的完整程序消息、扫描和屏障继续推进，响应丢弃；`canReleaseControl()` 为 true 后才能销毁引擎并接纳新控制连接。未成为完整消息的 socket 输入由网络层丢弃。持续扫描本身不阻止连接收尾，也不因断开而自动停止。核心关闭和 join 由进程拥有方在网络循环之外执行。
 
-仪器错误 FIFO 和状态寄存器由服务持有，跨引擎/连接保留。将来增加 Web 写入口时也必须先取得同一写授权，不能直接绕过准入调用修改方法；HTTP 会话授权仍需要届时加入显式身份合同。
+仪器错误 FIFO 和状态寄存器由服务持有，跨引擎/连接保留。Web 写入口使用服务签发的会话 token 和相同写授权；释放时排空已接受有限操作，再交还控制权。HTTP 会话合同见[服务设计](../docs/网分服务与远程控制设计.md)。
 
 ## 当前模拟配置
 

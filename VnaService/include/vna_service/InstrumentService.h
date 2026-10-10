@@ -7,75 +7,19 @@
 #include <string>
 #include <vector>
 
-#include "vna_core/CoreTypes.h"
+#include "vna_service/ConfigPatch.h"
+#include "vna_service/DataResult.h"
+#include "vna_service/InstrumentError.h"
+#include "vna_service/InstrumentSettings.h"
+#include "vna_service/InstrumentSnapshot.h"
+#include "vna_service/Measurement.h"
+#include "vna_service/OperationResult.h"
 
 namespace vna_core {
 class AcquisitionCore;
 }
 
 namespace vna_service {
-
-enum class TriggerSource { Immediate, Manual };
-enum class SweepMode { Hold, Continuous, Single };
-
-struct Measurement {
-    std::string name;
-    char receiverKind = 'a';
-    unsigned receiverPort = 1U;
-    unsigned sourcePort = 1U;
-    std::string parameter() const;
-};
-
-struct InstrumentSettings {
-    double startHz = 1000000.0;
-    double stopHz = 100000000.0;
-    unsigned points = 201U;
-    double ifBandwidthHz = 1000.0;
-    TriggerSource triggerSource = TriggerSource::Immediate;
-    SweepMode sweepMode = SweepMode::Hold;
-    bool currentTriggerScope = false;
-    std::vector<Measurement> measurements;
-    std::string selectedMeasurement;
-    std::uint64_t revision = 0U;
-};
-
-struct OperationResult {
-    bool ok = false;
-    int errorCode = 0;
-    std::string message;
-};
-using Operation = std::shared_future<OperationResult>;
-
-struct InstrumentError {
-    int code = 0;
-    std::string message = "No error";
-};
-
-struct DataResult {
-    bool ok = false;
-    std::string error;
-    std::vector<double> values;
-};
-
-struct ConfigPatch {
-    bool hasStartHz = false;
-    bool hasStopHz = false;
-    bool hasPoints = false;
-    bool hasIfBandwidthHz = false;
-    double startHz = 0;
-    double stopHz = 0;
-    unsigned points = 0;
-    double ifBandwidthHz = 0;
-};
-
-struct InstrumentSnapshot {
-    InstrumentSettings settings;
-    vna_core::CoreView core;
-    std::string controlOwner;
-    bool releasing = false;
-    bool pending = false;
-    bool finitePending = false;
-};
 
 // Thread confinement: all calls after startup belong to the service executor.
 // The referenced core must outlive this service. Protocol state survives clients.
