@@ -25,12 +25,12 @@ cmake -E chdir build ctest --output-on-failure
 
 C++ 开发统一遵守 [C++语言编程规范](docs/C++语言编程规范.md)。Git 仍按功能拆分提交，提交说明使用中文，并遵守已约定的提交行数限制。
 
-独立类和公开数据类型分别使用同名文件，头文件声明接口、源文件实现行为。类内部的私有状态记录保留在所属实现中，测试助手位于各模块的 tests，不进入生产接口。`core_types.h` 仅聚合核心类型头；JSON 值、解析器和编码器各自独立，SCPI/Web 共用 `src/network` 的平台适配与 Socket 资源管理。
+独立行为类分别使用同名文件；简单结构体和枚举按职责放在所属类或同一数据类型头中，头文件声明接口、源文件实现行为。AcquisitionCore、InstrumentService、ScpiEngine、HttpApi 和 WebEndpoint 直接声明状态，不再通过 PImpl 或转发类隐藏。`core_types.h` 定义 CoreState、RunMode、CommandResult/Ticket 和 CoreView；`core_command.h` 放内部命令及其枚举；`instrument_settings.h` 放 InstrumentSettings、ConfigPatch、TriggerSource 和 SweepMode；`service_task.h` 放服务任务及 Kind/Stage。SCPI 消息和 OPC 记录归 ScpiEngine，HTTP 会话和操作记录归 HttpApi，HTTP 连接状态归 WebEndpoint；共享请求、响应和 Web 配置放在 `http_types.h`。JSON 值、解析器和编码器各自独立，SCPI/Web 共用 `src/network` 的平台适配与 Socket 资源管理。测试助手位于各模块的 tests。文件名使用 snake_case，C++ 函数和命名空间使用大驼峰，类成员以 `_` 结尾；SCPI、JSON 和九个 Drv* ABI 的外部名称保持其合同。
 
 先正常编写代码，再直接运行 clang-format 程序，使用根目录 `.clang-format` 自动格式化，排版依据上述规范第 3 章。单条语句的条件、循环也自动补上 `{}`（InsertBraces: true）；短函数体展开，类、结构体和函数定义之间自动留一空行（SeparateDefinitionBlocks: Always）；120 列由格式器处理，不为满足提交行数压缩代码。按功能拆分提交，不通过省略换行缩小差异。使用 clang-format 18.1.8，在根目录运行：
 
 ```powershell
-$cppFiles = Get-ChildItem -Path VnaCore,VnaService,VnaServer -Recurse -File |
+$cppFiles = Get-ChildItem -Path VnaCore,VnaService,VnaServer,VnaNativeSimulator -Recurse -File |
     Where-Object { $_.Extension -in '.h','.cpp' } | Select-Object -ExpandProperty FullName
 clang-format --style=file -i $cppFiles
 clang-format --style=file --dry-run --Werror $cppFiles
@@ -95,7 +95,7 @@ CALC1:DATA? RDATA
 | `VnaCore/src` | 命令 FIFO、单 worker 生命周期、Native 加载与帧转换 |
 | `VnaService` | 物理配置、测量目录、控制权、有限操作及仪器错误状态 |
 | `VnaServer/src/scpi` | 标准命令解析、命令映射、同步屏障、ASCII 响应 |
-| `VnaServer/src/ScpiTcpServer.*` | TCP 分包/粘包、连接准入、部分发送和网络预算 |
+| `VnaServer/src/scpi_tcp_server.*` | TCP 分包/粘包、连接准入、部分发送和网络预算 |
 | `VnaServer/src/network` | SCPI/Web 共用的平台 Socket 操作、网络初始化与句柄生命周期 |
 | `VnaServer/src/web` | 有界 HTTP、静态资源、类型化 API、租约与操作结果 |
 | `frontend/src/api` | 类型化 HTTP、严格响应解码、服务签发的会话 token |
@@ -111,7 +111,9 @@ CALC1:DATA? RDATA
 
 网络预算为每消息 16 KiB、每连接待发数据 1 MiB，慢发送超过 10 秒关闭连接；模拟点数上限 10001。错误 FIFO 和命令队列有界。驱动 ABI 没有取消入口，因此无法对阻塞的真实 I/O 承诺限时退出；核心始终等到 worker 收尾后释放缓冲区和动态库。
 
-Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头、16 KiB 请求体和 4 MiB 单响应；静态文件与 API 同源。原子配置带 expectedRevision，有限写请求使用 requestId 去重并返回 operationId，不把 HTTP 202 当成设备成功。Windows MinGW/GCC 10.3 下 12 项 CTest 全部通过，WSL/GCC 13.3 全目标 ThreadSanitizer 下同样通过且未报告数据竞争。本轮增加完整 IQ golden、11 组核心时序/并发场景、无效样本及噪声贯通验收。18 项前端合同测试、严格类型检查与生产构建通过，其中两项新增测试检查窗口缩放、DPR 和样本投影；Chromium 实际交互验证覆盖配置、四条波形、逐迹线格式/参考位置、扫描控制、M1、三布局菜单、CSV、多会话与断线恢复。
+Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头、16 KiB 请求体和 4 MiB 单响应；静态文件与 API 同源。JSON 输入和字符串输出严格验证 UTF-8；编码失败后必须 Reset，静态文件读写缓冲不一致或读取失败会关闭句柄。原子配置带 expectedRevision，有限写请求使用 requestId 去重并返回 operationId，不把 HTTP 202 当成设备成功。
+
+此前采集验收在 Windows MinGW/GCC 10.3 下通过 12 项 CTest，WSL/GCC 13.3 全目标 ThreadSanitizer 同样通过且未报告数据竞争，覆盖完整 IQ golden、11 组核心时序/并发场景、无效样本及噪声贯通。18 项前端合同测试、严格类型检查与生产构建通过，其中两项检查窗口缩放、DPR 和样本投影；Chromium 实际交互验证覆盖配置、四条波形、逐迹线格式/参考位置、扫描控制、M1、三布局菜单、CSV、多会话与断线恢复。本次按职责整理后的正式代码在 Windows 全量 12 项 CTest 通过（13.87 秒），WSL 全目标 ThreadSanitizer 12 项通过（9.98 秒），70 个正式头单独 C++14 编译通过且无头文件循环依赖。临时实际分配故障验证通过 Claim 15 个、单次写入 37 个、结果 Poll 5 个分配点，并用恢复旧危险顺序的副本确认断言可检出错误；随后命名空间统一后的终检另行补记。分阶段证据见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
 模拟 profile 明确采用整数 Hz → raw frequency、逻辑 aN/bN → Native A/B、9N 零值 opaque 表。真实驱动的单位、接收器及功率表合同尚未确认，服务启动会拒绝非 VnaPro 模拟器身份，避免误用该约定。
 

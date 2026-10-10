@@ -2,17 +2,17 @@
 
 `vna_service` 只使用 `vna_core` 公开接口；`vna_scpi` 将已登记的 Keysight N52xxB 命令转换为服务操作，不访问驱动。当前实现单通道，SCPI 与 Web 共用服务及独占控制权，兼容范围为已登记的 PNA 命令子集。
 
-公开类型各自放在同名头文件：Measurement、InstrumentSettings、ConfigPatch、OperationResult、InstrumentError、DataResult、InstrumentSnapshot；触发/扫描枚举在 trigger_types.h。instrument_service.h 只声明服务入口并包含所需类型。Measurement::parameter 的行为在 src/measurement.cpp，配置事务及任务状态仍由 instrument_service.cpp 的私有实现管理。测试受控设备和 Fixture 各自独立，共用 Core 的测试注入入口。
+按职责组织类型：instrument_settings.h 放置 InstrumentSettings、ConfigPatch 与配置关联的 TriggerSource/SweepMode；service_task.h 将内部 ServiceTask 与 Kind/Stage 放在一起。Measurement、OperationResult、InstrumentError、DataResult、InstrumentSnapshot 各自有独立的测量定义、异步结果、错误队列、查询数据和状态快照职责，保留独立头文件。instrument_service.h 声明服务入口并包含所需类型。Measurement::Parameter 的行为在 src/measurement.cpp，InstrumentService 直接管理控制归属、设置、错误寄存器和任务 FIFO。ServiceTask 按值存储，Stage 标明配置、触发和停止屏障；每个状态推进函数独立可读。测试受控设备和 Fixture 各自独立，通过 Core 的公开所有权注入构造函数接入；长实现位于对应 cpp，由 vna_service_test_support 链接到测试目标。
 
 ## 生命周期和线程
 
-进程拥有 `AcquisitionCore`。初始化成功后构造 `InstrumentService(core)`，在监听前调用 `bootstrapMockProfile(error)`；这是唯一允许阻塞等待的服务方法。它检查缓存身份必须以 `VnaPro,NativeSimulator,` 开头。服务必须先于核心销毁。
+进程拥有 `AcquisitionCore`。初始化成功后构造 `InstrumentService(core)`，在监听前调用 `BootstrapMockProfile(error)`；这是唯一允许阻塞等待的服务方法。它检查缓存身份必须以 `VnaPro,NativeSimulator,` 开头。服务必须先于核心销毁。
 
-运行期间，服务、引擎和状态寄存器都在同一个 executor 调用。`ScpiEngine(service)` 自动尝试取得独占控制权，`hasControl()` 表示是否成功。`submitLine()` 接受不含 LF 的完整程序消息；返回 true 表示整条消息已受理，不能据此认为设备操作已经完成。
+运行期间，服务、引擎和状态寄存器都在同一个 executor 调用。`ScpiEngine(service)` 自动尝试取得独占控制权，`HasControl()` 表示是否成功。`SubmitLine()` 接受不含 LF 的完整程序消息；返回 true 表示整条消息已受理，不能据此认为设备操作已经完成。
 
-网络每约 5 ms 调用 `setTransportOutputPending(...)` 和 `poll()`，通过 `takeOutput()` 取得完整响应消息，再处理 socket 的部分发送。多个查询响应单元用分号分隔，消息以 LF 结束；写命令没有 ACK。数组每轮最多编码 256 个值，每次最多分派 32 个单元，采集 future 从不在网络循环中阻塞等待。
+网络每约 5 ms 调用 `SetTransportOutputPending(...)` 和 `Poll()`，通过 `TakeOutput()` 取得完整响应消息，再处理 socket 的部分发送。多个查询响应单元用分号分隔，消息以 LF 结束；写命令没有 ACK。数组每轮最多编码 256 个值，每次最多分派 32 个单元，采集 future 从不在网络循环中阻塞等待。
 
-断开调用 `disconnect()` 后继续 `poll()`。已经受理的完整程序消息、扫描和屏障继续推进，响应丢弃；`canReleaseControl()` 为 true 后才能销毁引擎并接纳新控制连接。未成为完整消息的 socket 输入由网络层丢弃。持续扫描本身不阻止连接收尾，也不因断开而自动停止。核心关闭和 join 由进程拥有方在网络循环之外执行。
+断开调用 `Disconnect()` 后继续 `Poll()`。已经受理的完整程序消息、扫描和屏障继续推进，响应丢弃；`CanReleaseControl()` 为 true 后才能销毁引擎并接纳新控制连接。未成为完整消息的 socket 输入由网络层丢弃。持续扫描本身不阻止连接收尾，也不因断开而自动停止。核心关闭和 join 由进程拥有方在网络循环之外执行。
 
 仪器错误 FIFO 和状态寄存器由服务持有，跨引擎/连接保留。Web 写入口使用服务签发的会话 token 和相同写授权；释放时排空已接受有限操作，再交还控制权。HTTP 会话合同见[服务设计](../docs/网分服务与远程控制设计.md)。
 

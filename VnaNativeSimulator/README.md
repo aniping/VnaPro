@@ -6,6 +6,17 @@
 
 阅读和修改代码请参考[模拟模块开发文档](../docs/模拟模块开发文档.md)，其中包含源码阅读顺序、最小调用示例、帧和 IQ 布局、状态与内存生命周期、错误定位及修改验证入口。范围与验收要求见[硬件模拟方案](../docs/硬件模拟方案.md)。
 
+源码遵守 [C++语言编程规范](../docs/C++语言编程规范.md)，文件使用小写下划线命名，类型和接口按职责拆分：
+
+- `include/vna_native/native_api_contract.h`：保留九个 `Drv*` 的名称与签名，集中声明 ABI 和强类型函数指针。
+- `src/native_sim/native_simulator_state.h`：直接持有配置、帧槽位和待取结果；一把互斥锁保护完整调用。
+- `normal_frame_snapshot.h`：集中定义同一帧职责的借用 ABI 输入、解码点和自有帧数据。
+- `native_frame_slot.h`、`native_pending_sweep.h`：分别表示可替换的下载帧和成功 Start 冻结的 IQ。
+- `normal_frame_decoder.h`、`signal_model.h`：提供命名空间函数，校验、复制、生成与提交分开实现。
+- `failure_injector.h`：仅供单元测试借用故障注入器；测试对象必须覆盖调用期，完成后显式清除借用。
+
+测试使用普通断言函数与显式文件、行号，测试组直接注册；线程由 `JoinedThreads` 持有并在退出前统一汇合。黄金向量和独立公式保留原值，默认黄金模式及噪声模式的序列语义不变。
+
 ## 构建与测试
 
 构建需要 CMake 3.13 或更高版本、兼容 C++14 的编译器，以及平台提供的线程库和动态加载库。导出符号测试还需要 `nm`（Linux 通常由 binutils 提供，macOS 由 Xcode Command Line Tools 提供）；Windows MinGW 使用 binutils 的 `objdump` 检查实际 PE 导出表。

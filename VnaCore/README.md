@@ -1,12 +1,12 @@
 # VnaCore
 
-C++14 静态核心库。公开头位于 `include/vna_core`，设备、线程和测试注入接口均为私有实现。产品入口通过 InstrumentService 使用核心。
+C++14 静态核心库。公开头位于 `include/vna_core`，AcquisitionCore 直接管理工作线程、命令 FIFO 和发布状态；DeviceSession 是显式包含的设备注入接口。产品入口通过 InstrumentService 使用核心。
 
-公开类型分文件：SweepPlan、PortFrame、MeasurementFrame、CommandResult、CoreView；core_state.h 声明状态/运行枚举，core_types.h 仅作为兼容聚合入口。设备接口、准备失败异常和原生函数表分别位于 device_session.h、plan_preparation_error.h、native/native_functions.h。tests/support 的测试注入入口、受控设备、Fixture 和 RAII 助手各自独立，不暴露给生产调用方。格式化流程见[项目 README](../README.md)。
+按职责组织公开类型：SweepPlan、PortFrame、MeasurementFrame 保留独立头文件；core_types.h 集中声明核心控制接口使用的 CoreState、RunMode、CommandResult/Ticket 和 CoreView。core_command.h 将内部命令与 CoreCommandKind 放在一起。设备接口在 include/vna_core/device_session.h；准备失败异常和原生函数表位于 src/device/plan_preparation_error.h 与 src/device/native/native_functions.h。tests/support 的受控设备、Fixture、并发断言和压力场景各自独立，通过公开的所有权注入构造函数接入。长实现放在对应 cpp，由 vna_core_test_support 仅为测试提供。格式化流程见[项目 README](../README.md)。
 
-普通控制方法返回 `shared_future<CommandResult>`。排队不代表操作生效；检查 ticket 的 `ok` 和运行/配置编号。`triggerOnce(runId, revision)` 成功时，多源完整帧已发布。`stop(runId)` 是扫描边界屏障，拒绝零编号和旧运行编号；不关闭 RF。`close()` 由生命周期拥有线程调用，关闭准入、执行所有已接受命令、尝试关闭 RF，然后 join；不要并发调用 close/析构。
+普通控制方法返回 `shared_future<CommandResult>`。排队不代表操作生效；检查 ticket 的 `ok` 和运行/配置编号。`TriggerOnce(runId, revision)` 成功时，多源完整帧已发布。`Stop(runId)` 是扫描边界屏障，拒绝零编号和旧运行编号；不关闭 RF。`Close()` 由生命周期拥有线程调用，关闭准入、执行所有已接受命令、尝试关闭 RF，然后 join；不要并发调用 close/析构。
 
-`readView()` 一次取得状态、身份和只读帧。Ready 但 revision 为 0 表示尚未配置；Faulted 表示当前硬件配置无效，旧帧仍可供诊断。配置硬件下发失败进入 Faulted；尚未访问硬件的缓冲准备失败保留旧配置。Recover 重新初始化并应用最后成功配置，产生新 revision，不自动恢复运行。
+`ReadView()` 一次取得状态、身份和只读帧。Ready 但 revision 为 0 表示尚未配置；Faulted 表示当前硬件配置无效，旧帧仍可供诊断。配置硬件下发失败进入 Faulted；尚未访问硬件的缓冲准备失败保留旧配置。Recover 重新初始化并应用最后成功配置，产生新 revision，不自动恢复运行。
 
 SweepPlan 自有频点和不透明 9N 表；frequencyHz 可以为空，表示尚未建立物理单位映射。核心不解释功率表，也不把 native A/B 自动称为 S 参数。sourcePorts 使用 1..4，设备适配转换为 native 0..3。每个 PortFrame 的 IQ 为逐点 16 个 double：接收端口 1..4 各占 `A.real,A.imag,B.real,B.imag` 四项。receiverMask 未激活端口的槽位不能作为有效测量。
 
@@ -23,3 +23,5 @@ cmake -E chdir build ctest -R "core_" --output-on-failure
 ```
 
 并发测试包含 11 组场景：门控 Stop FIFO 屏障、后置触发拒绝、配置失败与恢复、队列满时 Close 准入，且 64 个已接受触发必须全部成功；新增采集中成功配置切换、旧帧完整 plan/频轴/IQ 深比较、第二源短 IQ，以及三提交者/两读取者的 144 票据压力验证。集成测试动态加载模拟 DLL，四源、两频点及全部 IQ 分量逐值匹配固定 golden，并覆盖频率高 32 位、身份缓存及加载失败。全目标 ThreadSanitizer 与端到端数值验收见[验收记录](../docs/模拟设备采集验收.md)。
+
+代码组织：生产类直接声明其职责和状态，不使用 Impl 转发层；CoreCommand 为值存储、promise 随命令移动。多态设备使用 unique_ptr 转移所有权，完成帧使用 shared_ptr<const MeasurementFrame> 支持读取者独立保留。枚举值采用全大写，公有方法采用大驼峰。
