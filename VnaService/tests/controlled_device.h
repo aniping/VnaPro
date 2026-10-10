@@ -17,47 +17,47 @@
 namespace VnaServiceTest {
 class ControlledDevice final : public VnaCore::Detail::DeviceSession {
 public:
-    // Gate state and the worker identity remain bound to this instance.
+    // 阻塞关卡状态和工作线程标识始终绑定到本实例。
     ControlledDevice() = default;
     ControlledDevice(const ControlledDevice &) = delete;
     ControlledDevice &operator=(const ControlledDevice &) = delete;
     ControlledDevice(ControlledDevice &&) = delete;
     ControlledDevice &operator=(ControlledDevice &&) = delete;
     ~ControlledDevice() override = default;
-    // Returns the fixed controlled identity without calling a native driver.
+    // 返回固定的受控设备标识，不调用原生驱动。
     std::string Initialize() override;
 
-    // Applies the frozen plan or blocks/fails at a gate controlled by this test.
+    // 应用冻结的扫描计划，或在测试控制的关卡处阻塞、失败。
     void ApplyPlan(const VnaCore::SweepPlan &) override;
 
-    // A controlled run requires no native RF operation and cannot fail during arming.
+    // 受控扫描无需执行原生射频操作，进入准备状态时不会失败。
     void EnableRf() noexcept override;
 
-    // This device owns no native RF or loader handle, so shutdown requires no cleanup.
+    // 本设备不持有原生射频资源或加载器句柄，关闭时无需清理这些资源。
     void Shutdown() noexcept override;
 
-    // Returns a complete deterministic IQ vector after any armed gate is released.
+    // 已启用的阻塞关卡释放后，返回完整且确定的 IQ 数据向量。
     std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t) override;
 
-    // Toggles deliberate NaN/infinity injection while holding the device mutex.
+    // 持有设备互斥锁时，切换用于测试的 NaN 或无穷值注入开关。
     void SetInvalidSamples(bool value);
 
-    // Rejects the next plan before device mutation, leaving a bootstrap attempt retryable.
+    // 在设备状态改变前拒绝下一次计划准备，使初始化尝试可以重试。
     void FailNextPlanPreparation();
 
-    // Reads acquisition-gate entry under the device mutex.
+    // 持有设备互斥锁时，读取是否已进入采集阻塞关卡。
     bool HasEntered() const;
 
-    // Reads configuration-gate entry under the device mutex.
+    // 持有设备互斥锁时，读取是否已进入配置阻塞关卡。
     bool HasPlanEntered() const;
 
-    // Resets and arms the next configuration barrier.
+    // 复位并启用下一次配置阻塞关卡。
     void ArmPlan();
 
-    // Resets and arms the next acquisition barrier; optional failure follows gate release.
+    // 复位并启用下一次采集阻塞关卡；按配置在关卡释放后模拟失败。
     void Arm(bool fail = false);
 
-    // Releases configuration and acquisition gates so fixture cleanup cannot hang.
+    // 释放配置和采集阻塞关卡，避免测试夹具清理时挂起。
     void Release();
     mutable std::mutex mutex_;
     std::condition_variable cv_;
@@ -71,5 +71,5 @@ public:
     bool planReleased_ = false;
     bool failPlanPreparation_ = false;
 };
-}  // namespace VnaServiceTest
+}  // 命名空间 VnaServiceTest
 #endif

@@ -27,4 +27,4 @@ Fixture::~Fixture()
     core.Close();
 }
 
-}  // namespace VnaServiceTest
+}  // 命名空间 VnaServiceTest

@@ -13,6 +13,6 @@ struct InstrumentError final {
     std::string message = "No error";
 };
 
-}  // namespace VnaService
+}  // 命名空间 VnaService
 
 #endif

@@ -47,6 +47,6 @@ struct InstrumentSettings final {
     std::uint64_t revision = 0U;
 };
 
-}  // namespace VnaService
+}  // 命名空间 VnaService
 
 #endif

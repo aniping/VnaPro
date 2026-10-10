@@ -16,6 +16,6 @@ enum ServiceErrorCode : int {
     ERROR_QUEUE_OVERFLOW = -350,
     INPUT_BUFFER_OVERRUN = -363
 };
-}  // namespace Detail
-}  // namespace VnaService
+}  // 命名空间 Detail
+}  // 命名空间 VnaService
 #endif

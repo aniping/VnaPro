@@ -93,7 +93,7 @@ VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings)
     for (unsigned point = 0; point < settings.points; ++point) {
         const double hz = settings.startHz + (settings.stopHz - settings.startHz) * static_cast<double>(point) /
                                                  static_cast<double>(settings.points - 1U);
-        // Explicit mock contract: one raw frequency count = one Hz; table is opaque.
+        // 明确的模拟设备约定：一个原始频率计数对应 1 Hz；此处不解释驱动数据表。
         const std::uint64_t raw = static_cast<std::uint64_t>(std::llround(hz));
         plan.frequencyRaw.push_back(raw);
         plan.frequencyHz.push_back(static_cast<double>(raw));
@@ -196,7 +196,7 @@ DataResult ExtractMeasurement(const VnaCore::MeasurementFrame &frame, const Meas
     return value;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 void InstrumentService::Error(int code, const std::string &text)
 {
@@ -438,7 +438,7 @@ bool InstrumentService::BeginMode(Detail::ServiceTask &task)
 
 void InstrumentService::PollMode(Detail::ServiceTask &task)
 {
-    // A single sweep uses a manual trigger followed by a Stop barrier.
+    // 单次扫描使用手动触发，随后经过 Stop 完成屏障。
     if (task.stage == Detail::ServiceTaskStage::PENDING && !BeginMode(task)) {
         return;
     }
@@ -950,4 +950,4 @@ unsigned InstrumentService::StatusByte(bool outputAvailable) const noexcept
     return value;
 }
 
-}  // namespace VnaService
+}  // 命名空间 VnaService

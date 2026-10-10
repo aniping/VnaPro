@@ -13,10 +13,10 @@ struct Measurement final {
     char receiverKind = 'a';
     unsigned receiverPort = 1U;
     unsigned sourcePort = 1U;
-    // Returns the Keysight-compatible non-ratio receiver parameter, such as a1,1.
+    // 返回兼容 Keysight 的非比值接收机参数，例如 a1,1。
     std::string Parameter() const;
 };
 
-}  // namespace VnaService
+}  // 命名空间 VnaService
 
 #endif

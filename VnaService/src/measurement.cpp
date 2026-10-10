@@ -11,4 +11,4 @@ std::string Measurement::Parameter() const
     return std::string(1, receiverKind) + std::to_string(receiverPort) + "," + std::to_string(sourcePort);
 }
 
-}  // namespace VnaService
+}  // 命名空间 VnaService

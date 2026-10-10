@@ -17,6 +17,6 @@ struct OperationResult final {
 
 using Operation = std::shared_future<OperationResult>;
 
-}  // namespace VnaService
+}  // 命名空间 VnaService
 
 #endif

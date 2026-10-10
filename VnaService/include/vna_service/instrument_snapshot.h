@@ -20,6 +20,6 @@ struct InstrumentSnapshot final {
     bool finitePending = false;
 };
 
-}  // namespace VnaService
+}  // 命名空间 VnaService
 
 #endif

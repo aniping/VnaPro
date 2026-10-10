@@ -23,107 +23,107 @@
 
 namespace VnaService {
 
-// Thread confinement: all calls after startup belong to the service executor.
-// The referenced core must outlive this service. Protocol state survives clients.
+// 线程约束：启动后的所有调用均由服务执行线程完成。
+// 引用的核心必须比服务存活更久；协议状态不随客户端断开而销毁。
 class InstrumentService final {
 public:
-    // Binds to a core that must outlive this service; subsequent calls share one service executor.
+    // 绑定生命周期覆盖本服务的核心；后续调用统一由服务执行线程完成。
     explicit InstrumentService(VnaCore::AcquisitionCore &core);
-    // Destroy only after accepted operations and protocol users have finished.
+    // 已接收的操作及协议使用者全部结束后，才能销毁本服务。
     ~InstrumentService();
-    // Executor confinement and core binding cannot be transferred to another instance.
+    // 不能将执行线程约束及核心绑定关系转移给另一实例。
     InstrumentService(InstrumentService &&) = delete;
     InstrumentService &operator=(InstrumentService &&) = delete;
     InstrumentService(const InstrumentService &) = delete;
     InstrumentService &operator=(const InstrumentService &) = delete;
 
-    // Startup-only blocking call; accepts the verified NativeSimulator identity and reports failures in error.
+    // 仅在启动时调用的阻塞操作；接受已验证的 NativeSimulator 标识，并通过 error 返回失败信息。
     bool BootstrapMockProfile(std::string &error);
-    // Advances one pending transition without blocking for device I/O.
+    // 推进一个待完成的状态迁移，不阻塞等待设备 I/O。
     void Poll();
-    // Reports whether the finite service FIFO still contains accepted operations.
+    // 报告有限服务操作的先进先出队列中是否仍有已接收操作。
     bool HasPending() const noexcept;
-    // Copies futures for currently accepted work; a ready future means the operation has completed.
+    // 复制当前已接收操作的 future；future 就绪表示对应操作已经完成。
     std::vector<Operation> PendingOperations() const;
-    // Acquires an unowned instrument for a nonempty owner token; returns false on contention.
+    // 使用非空所有者令牌获取空闲仪器的控制权；发生竞争时返回假。
     bool TryAcquireControl(const std::string &owner = "SCPI");
-    // Stops accepting writes from the matching owner while already accepted work drains.
+    // 停止接收匹配所有者的写操作，并继续完成此前已接收的操作。
     void BeginReleaseControl(const std::string &owner) noexcept;
-    // Clears the matching owner only when all accepted operations have finished.
+    // 仅在所有已接收操作完成后，清除匹配的所有者。
     void ReleaseControl(const std::string &owner = "SCPI") noexcept;
-    // Returns the active owner token, or an empty string when control is available.
+    // 返回当前所有者令牌；控制权空闲时返回空字符串。
     std::string ControlOwner() const;
-    // Reports whether the active owner is draining its accepted operations.
+    // 报告当前所有者是否正等待已接收操作全部完成。
     bool ControlReleasing() const noexcept;
-    // Returns settings, core publication, and control state from this executor turn.
+    // 返回当前执行轮次的设置、核心发布数据和控制状态。
     InstrumentSnapshot Snapshot() const;
 
-    // Returns committed settings; the reference is valid only while this service remains alive.
+    // 返回已提交的设置；返回的引用仅在本服务存活期间有效。
     const InstrumentSettings &Settings() const noexcept;
-    // Reports the verified simulator identity, or an explicitly unverified backend identity.
+    // 返回已验证的模拟设备标识，或明确标注为未验证的后端标识。
     std::string Identity() const;
-    // Queues a rounded 1 Hz..1 GHz endpoint; an endpoint crossing preserves the old span.
+    // 将取整后位于 1 Hz～1 GHz 的端点加入队列；端点交叉时保持原有频率跨度。
     Operation SetStartHz(double value, std::uint64_t expectedRevision = 0U);
-    // Queues a rounded 1 Hz..1 GHz endpoint; coupled endpoints must both stay in range.
+    // 将取整后位于 1 Hz～1 GHz 的端点加入队列；联动调整后的两个端点都必须在范围内。
     Operation SetStopHz(double value, std::uint64_t expectedRevision = 0U);
-    // Queues 2..10001 sweep points; expectedRevision zero skips the SCPI revision check.
+    // 将 2～10001 个扫描点的配置加入队列；expectedRevision 为零时跳过 SCPI 版本检查。
     Operation SetPoints(unsigned value, std::uint64_t expectedRevision = 0U);
-    // Queues a positive bandwidth, rounded upward to the supported simulator values.
+    // 将正带宽加入队列，并向上取整为模拟设备支持的带宽值。
     Operation SetIfBandwidthHz(double value, std::uint64_t expectedRevision = 0U);
-    // Queues one atomic candidate; the owner and expected revision are rechecked before device mutation.
+    // 将一个原子配置候选加入队列；改变设备状态前重新校验所有者及预期版本。
     Operation ApplyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string &owner);
-    // Queues a unique 1..128 byte receiver name with physical source/receiver ports 1..4.
+    // 将唯一的 1～128 字节接收机名称加入队列；物理源端口和接收端口均为 1～4。
     Operation DefineMeasurement(
         Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
-    // Queues removal of an existing exact-case name and updates the selection if necessary.
+    // 按区分大小写的名称，将已有测量项的删除操作加入队列，并按需更新当前选择。
     Operation DeleteMeasurement(
         const std::string &name, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
-    // Queues a finite source transition; owner must hold active instrument control.
+    // 将有限的触发源迁移操作加入队列；所有者必须持有有效的仪器控制权。
     Operation SetTriggerSource(TriggerSource source, const std::string &owner = "SCPI");
-    // Queues HOLD, SINGLE, or CONTINUOUS and resolves only after its transition barriers.
+    // 将 HOLD、SINGLE 或 CONTINUOUS 模式切换加入队列；迁移屏障完成后才返回操作结果。
     Operation SetSweepMode(SweepMode mode, const std::string &owner = "SCPI");
-    // Queues one internally triggered frame followed by a Stop barrier and a return to HOLD.
+    // 将内部触发的一帧采集加入队列，随后经过 Stop 屏障并返回 HOLD 模式。
     Operation RunSingle(const std::string &owner);
-    // Queues continuous acquisition using the internal trigger source.
+    // 将使用内部触发源的连续采集操作加入队列。
     Operation RunContinuous(const std::string &owner);
-    // Queues a manual INIT for an armed current run; overlapping finite measurements are rejected.
+    // 为当前已准备的扫描轮次排入手动 INIT；拒绝与现有有限测量重叠的请求。
     Operation Trigger(const std::string &owner = "SCPI");
-    // Immediately selects an existing exact-case name; requires SCPI control and no pending configuration.
+    // 立即选择区分大小写的已有测量名称；要求持有 SCPI 控制权且没有待处理配置。
     bool SelectMeasurement(const std::string &name);
-    // Updates the single-channel scope flag; requires SCPI control and no pending configuration.
+    // 更新单通道作用域标志；要求持有 SCPI 控制权且没有待处理配置。
     bool SetCurrentTriggerScope(bool current);
-    // Returns the committed Hz axis; faults and uncommitted revisions produce an error.
+    // 返回已提交的 Hz 频率轴；核心故障或版本尚未提交时返回错误。
     DataResult StimulusAxis() const;
-    // Returns interleaved real/imaginary values only from the complete current run/revision frame.
+    // 仅从当前扫描轮次和版本的完整帧中返回实部、虚部交错排列的数据。
     DataResult MeasurementData() const;
 
-    // Appends an IEEE 488.2/SCPI error and updates the appropriate event-register bit.
+    // 追加 IEEE 488.2/SCPI 错误，并更新对应的事件寄存器位。
     void RecordError(int code, const std::string &message);
-    // Removes the oldest queued error; an empty FIFO returns code zero and No error.
+    // 移出队列中最早的错误；队列为空时返回错误码零及 No error。
     InstrumentError PopError();
-    // Returns the bounded error FIFO size without consuming any entries.
+    // 返回有容量上限的错误队列长度，不移除任何条目。
     unsigned ErrorCount() const noexcept;
-    // Clears error/event state and advances the generation used by pending status watches.
+    // 清除错误和事件状态，并递增待处理状态监视使用的代次。
     void ClearStatus() noexcept;
-    // Returns the generation advanced by ClearStatus.
+    // 返回由 ClearStatus 递增的状态代次。
     unsigned StatusGeneration() const noexcept;
-    // Stores the low eight ESE bits.
+    // 保存 ESE 的低八位。
     void SetEventEnable(unsigned value) noexcept;
-    // Returns the current ESE mask.
+    // 返回当前 ESE 掩码。
     unsigned EventEnable() const noexcept;
-    // Stores supported SRE bits while excluding the request-summary bit.
+    // 保存支持的 SRE 位，并排除请求汇总位。
     void SetServiceRequestEnable(unsigned value) noexcept;
-    // Returns the current SRE mask.
+    // 返回当前 SRE 掩码。
     unsigned ServiceRequestEnable() const noexcept;
-    // Returns and clears ESR atomically within the service executor.
+    // 在服务执行线程内原子地读取并清零 ESR。
     unsigned ReadEventRegister() noexcept;
-    // Sets the operation-complete ESR bit after the relevant barrier has finished.
+    // 相关完成屏障结束后，设置 ESR 的操作完成位。
     void MarkOperationComplete() noexcept;
-    // Combines error FIFO, transport output, ESR/ESE, and SRE into an IEEE 488.2 status byte.
+    // 综合错误队列、传输输出、ESR/ESE 和 SRE，生成 IEEE 488.2 状态字节。
     unsigned StatusByte(bool outputAvailable) const noexcept;
 
 private:
-    // IEEE 488.2 sets this ESR bit when the instrument powers on.
+    // IEEE 488.2 规定仪器上电时设置此 ESR 位。
     static constexpr unsigned POWER_ON_EVENT = 128U;
 
     void Error(int code, const std::string &text);
@@ -158,5 +158,5 @@ private:
     std::string observedFault_;
 };
 
-}  // namespace VnaService
+}  // 命名空间 VnaService
 #endif

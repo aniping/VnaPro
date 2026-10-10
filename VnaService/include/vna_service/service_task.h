@@ -55,12 +55,12 @@ struct ServiceTask final {
     ServiceTask(ServiceTask &&) noexcept = default;
     ServiceTask &operator=(ServiceTask &&) noexcept = default;
 
-    // Creates the future before this task enters the FIFO.
+    // 任务进入先进先出队列前，先创建对应的 future。
     ServiceTask() : operation(promise.get_future().share())
     {
     }
 };
-}  // namespace Detail
-}  // namespace VnaService
+}  // 命名空间 Detail
+}  // 命名空间 VnaService
 
 #endif

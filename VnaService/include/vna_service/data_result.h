@@ -15,6 +15,6 @@ struct DataResult final {
     std::vector<double> values;
 };
 
-}  // namespace VnaService
+}  // 命名空间 VnaService
 
 #endif
