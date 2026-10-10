@@ -7,7 +7,7 @@
 #include <exception>
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 
 // This exception is reserved for failures before any plan-related device mutation.
 class PlanPreparationError final : public std::exception {
@@ -16,7 +16,7 @@ public:
     const char *what() const noexcept override;
 };
 
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core
 
 #endif

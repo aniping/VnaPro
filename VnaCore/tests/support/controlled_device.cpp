@@ -19,7 +19,7 @@ void ControlledDevice::ApplyPlan(const vna_core::SweepPlan &plan)
     RecordThread();
     if (failPrepare_) {
         failPrepare_ = false;
-        throw vna_core::detail::PlanPreparationError();
+        throw vna_core::Detail::PlanPreparationError();
     }
     applied_ = plan;  // Simulate a partial mutation before reporting failure.
     if (failApply_) {

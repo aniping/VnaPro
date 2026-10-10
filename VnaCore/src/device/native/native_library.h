@@ -10,7 +10,7 @@
 #include "device/native/native_functions.h"
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 
 class NativeLibrary final {
 public:
@@ -38,7 +38,7 @@ private:
     NativeFunctions functions_;
 };
 
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core
 
 #endif

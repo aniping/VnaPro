@@ -12,7 +12,7 @@
 #include "vna_core/sweep_plan.h"
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 enum class CoreCommandKind {
     INITIALIZE,
     CONFIGURE,
@@ -32,7 +32,7 @@ struct CoreCommand final {
     std::promise<CommandResult> promise;
 };
 
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core
 
 #endif

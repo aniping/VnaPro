@@ -705,7 +705,7 @@ HttpResponse HttpApi::RecordWrite(
             const auto result = submitted.operation.get();
             if (!result.ok) {
                 RollbackWrite(session, operationId);
-                return HttpError(result.errorCode == vna_service::detail::INPUT_BUFFER_OVERRUN ? 429U : 409U,
+                return HttpError(result.errorCode == vna_service::Detail::INPUT_BUFFER_OVERRUN ? 429U : 409U,
                     "operation_rejected", result.message);
             }
         }

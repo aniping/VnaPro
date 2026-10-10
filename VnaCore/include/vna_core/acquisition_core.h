@@ -24,7 +24,7 @@ public:
     // Loads only an absolute driver path; initialization remains an asynchronous operation.
     explicit AcquisitionCore(const std::string &nativeLibraryPath);
     // Transfers device ownership; device calls are confined to the core worker.
-    explicit AcquisitionCore(std::unique_ptr<detail::DeviceSession> device);
+    explicit AcquisitionCore(std::unique_ptr<Detail::DeviceSession> device);
     // The owner must release all other callers first; destruction drains and joins the worker.
     ~AcquisitionCore();
 
@@ -51,16 +51,16 @@ public:
     CommandResult Close();
 
 private:
-    Ticket Submit(detail::CoreCommandKind kind, SweepPlan plan = SweepPlan(), RunMode mode = RunMode::MANUAL,
+    Ticket Submit(Detail::CoreCommandKind kind, SweepPlan plan = SweepPlan(), RunMode mode = RunMode::MANUAL,
         std::uint64_t runId = 0U, std::uint64_t revision = 0U);
     void WorkerLoop();
-    CommandResult Execute(detail::CoreCommand &command);
-    CommandResult ExecuteCommand(detail::CoreCommand &command);
+    CommandResult Execute(Detail::CoreCommand &command);
+    CommandResult ExecuteCommand(Detail::CoreCommand &command);
     CommandResult ExecuteInitialize();
-    CommandResult ExecuteConfigure(detail::CoreCommand &command);
-    CommandResult ExecuteStart(const detail::CoreCommand &command);
-    CommandResult ExecuteTrigger(const detail::CoreCommand &command);
-    CommandResult ExecuteStop(const detail::CoreCommand &command);
+    CommandResult ExecuteConfigure(Detail::CoreCommand &command);
+    CommandResult ExecuteStart(const Detail::CoreCommand &command);
+    CommandResult ExecuteTrigger(const Detail::CoreCommand &command);
+    CommandResult ExecuteStop(const Detail::CoreCommand &command);
     CommandResult ExecuteRecover();
     CommandResult ExecuteClose();
     void AcquireFrame();
@@ -69,10 +69,10 @@ private:
     CommandResult Result(bool ok, const std::string &message = std::string()) const;
     Ticket Rejected(const std::string &message) const;
 
-    std::unique_ptr<detail::DeviceSession> device_;
+    std::unique_ptr<Detail::DeviceSession> device_;
     mutable std::mutex queueMutex_;
     std::condition_variable wake_;
-    std::deque<detail::CoreCommand> queue_;
+    std::deque<Detail::CoreCommand> queue_;
     bool closing_ = false;
     Ticket closeTicket_;
     mutable std::mutex resultMutex_;

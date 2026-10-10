@@ -8,11 +8,11 @@
 #include <vector>
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 struct DownloadFrame final {
     std::vector<std::uint32_t> parameters;
     std::vector<double> table;
 };
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core
 #endif

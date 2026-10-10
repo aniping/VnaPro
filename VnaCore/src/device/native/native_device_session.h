@@ -9,7 +9,7 @@
 #include "vna_core/device_session.h"
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 
 class NativeDeviceSession final : public DeviceSession {
 public:
@@ -37,7 +37,7 @@ private:
     bool initialized_ = false;
 };
 
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core
 
 #endif

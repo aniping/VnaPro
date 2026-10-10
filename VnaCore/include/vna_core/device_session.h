@@ -12,7 +12,7 @@
 #include "vna_core/sweep_plan.h"
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 
 // Called only by the core worker. Failures throw with the failing device step.
 class DeviceSession {
@@ -36,7 +36,7 @@ public:
     virtual void Shutdown() = 0;
 };
 
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core
 
 #endif

@@ -15,7 +15,7 @@
 #include "vna_core/device_session.h"
 
 namespace vna_service_test {
-class ControlledDevice final : public vna_core::detail::DeviceSession {
+class ControlledDevice final : public vna_core::Detail::DeviceSession {
 public:
     // Gate state and the worker identity remain bound to this instance.
     ControlledDevice() = default;

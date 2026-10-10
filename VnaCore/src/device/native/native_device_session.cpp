@@ -14,7 +14,7 @@
 #include "vna_native/native_api_contract.h"
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 namespace {
 
 constexpr std::size_t PARAM_HEADER_VALUES = 1U;
@@ -130,5 +130,5 @@ void NativeDeviceSession::Shutdown()
     Check(status, "DrvSetRfPowerOn(0)");
 }
 
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core

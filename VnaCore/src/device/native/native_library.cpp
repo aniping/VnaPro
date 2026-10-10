@@ -20,7 +20,7 @@
 #endif
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 namespace {
 
 bool IsAbsolutePath(const std::string &path)
@@ -112,5 +112,5 @@ void NativeLibrary::Close() noexcept
     }
 }
 
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core

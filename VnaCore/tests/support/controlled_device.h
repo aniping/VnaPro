@@ -18,7 +18,7 @@
 
 namespace vna_core_test {
 
-class ControlledDevice final : public vna_core::detail::DeviceSession {
+class ControlledDevice final : public vna_core::Detail::DeviceSession {
 public:
     // Gate state and the worker identity remain bound to this instance.
     ControlledDevice() = default;

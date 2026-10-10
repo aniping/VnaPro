@@ -18,7 +18,7 @@ void ControlledDevice::ApplyPlan(const vna_core::SweepPlan &)
     std::unique_lock<std::mutex> lock(mutex_);
     if (failPlanPreparation_) {
         failPlanPreparation_ = false;
-        throw vna_core::detail::PlanPreparationError();
+        throw vna_core::Detail::PlanPreparationError();
     }
     if (blockPlan_) {
         planEntered_ = true;

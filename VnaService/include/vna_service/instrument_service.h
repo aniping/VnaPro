@@ -128,24 +128,24 @@ private:
 
     void Error(int code, const std::string &text);
     Operation Rejected(int code, const std::string &message, const std::string &requester = "SCPI");
-    Operation Enqueue(detail::ServiceTask task, const std::string &requester = "SCPI");
+    Operation Enqueue(Detail::ServiceTask task, const std::string &requester = "SCPI");
     Operation Configure(std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected,
         const std::string &requester = "SCPI");
     bool HasMeasurement() const noexcept;
     bool HasConfiguration() const noexcept;
     void Finish(OperationResult value);
-    bool Consume(detail::ServiceTask &task);
-    void CommitMode(detail::ServiceTask &task);
+    bool Consume(Detail::ServiceTask &task);
+    void CommitMode(Detail::ServiceTask &task);
     void PollTask();
-    void PollConfiguration(detail::ServiceTask &task);
-    void PollTrigger(detail::ServiceTask &task);
-    bool BeginMode(detail::ServiceTask &task);
-    void PollMode(detail::ServiceTask &task);
-    void PollStartedMode(detail::ServiceTask &task);
+    void PollConfiguration(Detail::ServiceTask &task);
+    void PollTrigger(Detail::ServiceTask &task);
+    bool BeginMode(Detail::ServiceTask &task);
+    void PollMode(Detail::ServiceTask &task);
+    void PollStartedMode(Detail::ServiceTask &task);
 
     vna_core::AcquisitionCore &core_;
     InstrumentSettings settings_;
-    std::deque<detail::ServiceTask> tasks_;
+    std::deque<Detail::ServiceTask> tasks_;
     std::deque<InstrumentError> errors_;
     bool mockReady_ = false;
     std::string owner_;

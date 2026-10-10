@@ -5,12 +5,12 @@
 #include "device/plan_preparation_error.h"
 
 namespace vna_core {
-namespace detail {
+namespace Detail {
 
 const char *PlanPreparationError::what() const noexcept
 {
     return "device plan buffer preparation failed";
 }
 
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_core

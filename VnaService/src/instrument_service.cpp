@@ -109,18 +109,18 @@ OperationResult ApplyFrequencyPatch(const ConfigPatch &patch, InstrumentSettings
     double stop = settings.stopHz;
     if (patch.hasStartHz) {
         if (!ValidFrequency(patch.startHz)) {
-            return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of mock range");
+            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of mock range");
         }
         start = std::round(patch.startHz);
     }
     if (patch.hasStopHz) {
         if (!ValidFrequency(patch.stopHz)) {
-            return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of mock range");
+            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of mock range");
         }
         stop = std::round(patch.stopHz);
     }
     if (patch.hasStartHz && patch.hasStopHz && start > stop) {
-        return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency exceeds stop frequency");
+        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency exceeds stop frequency");
     }
     if (patch.hasStartHz && !patch.hasStopHz && start > stop) {
         stop = start + span;
@@ -129,7 +129,7 @@ OperationResult ApplyFrequencyPatch(const ConfigPatch &patch, InstrumentSettings
         start = stop - span;
     }
     if (!ValidFrequency(start) || !ValidFrequency(stop)) {
-        return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Coupled frequency endpoint out of mock range");
+        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled frequency endpoint out of mock range");
     }
     settings.startHz = start;
     settings.stopHz = stop;
@@ -139,19 +139,19 @@ OperationResult ApplyFrequencyPatch(const ConfigPatch &patch, InstrumentSettings
 OperationResult ApplySettingsPatch(const ConfigPatch &patch, InstrumentSettings &settings)
 {
     if (!patch.hasStartHz && !patch.hasStopHz && !patch.hasPoints && !patch.hasIfBandwidthHz) {
-        return Result(false, detail::MISSING_PARAMETER_ERROR, "Configuration patch is empty");
+        return Result(false, Detail::MISSING_PARAMETER_ERROR, "Configuration patch is empty");
     }
     const OperationResult frequency = ApplyFrequencyPatch(patch, settings);
     if (!frequency.ok) {
         return frequency;
     }
     if (patch.hasPoints && (patch.points < MIN_SWEEP_POINTS || patch.points > MAX_SWEEP_POINTS)) {
-        return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Point count outside 2..10001");
+        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Point count outside 2..10001");
     }
     if (patch.hasIfBandwidthHz) {
         if (!std::isfinite(patch.ifBandwidthHz) || patch.ifBandwidthHz <= 0 ||
             QuantizedBandwidth(patch.ifBandwidthHz) == 0) {
-            return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of mock range");
+            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of mock range");
         }
         settings.ifBandwidthHz = QuantizedBandwidth(patch.ifBandwidthHz);
     }
@@ -215,7 +215,7 @@ void InstrumentService::Error(int code, const std::string &text)
     if (errors_.size() < ERROR_QUEUE_CAPACITY) {
         errors_.push_back(std::move(entry));
     } else {
-        errors_.back().code = detail::ERROR_QUEUE_OVERFLOW;
+        errors_.back().code = Detail::ERROR_QUEUE_OVERFLOW;
         errors_.back().message = "Queue overflow";
         esr_ |= DEVICE_ERROR_EVENT;
     }
@@ -232,16 +232,16 @@ Operation InstrumentService::Rejected(int code, const std::string &message, cons
     return operation;
 }
 
-Operation InstrumentService::Enqueue(detail::ServiceTask task, const std::string &requester)
+Operation InstrumentService::Enqueue(Detail::ServiceTask task, const std::string &requester)
 {
     if (owner_ != requester || requester.empty() || releasing_) {
-        return Rejected(detail::SETTINGS_CONFLICT_ERROR, "No active instrument control", requester);
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "No active instrument control", requester);
     }
     if (!mockReady_) {
-        return Rejected(detail::SETTINGS_CONFLICT_ERROR, "Verified backend profile is not initialized", requester);
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Verified backend profile is not initialized", requester);
     }
     if (tasks_.size() >= TASK_QUEUE_CAPACITY) {
-        return Rejected(detail::INPUT_BUFFER_OVERRUN, "Control input buffer overrun", requester);
+        return Rejected(Detail::INPUT_BUFFER_OVERRUN, "Control input buffer overrun", requester);
     }
     task.owner = requester;
     task.generation = controlGeneration_;
@@ -256,9 +256,9 @@ Operation InstrumentService::Configure(
     if (settings_.sweepMode != SweepMode::HOLD || HasMeasurement() ||
         core_.ReadView().state != vna_core::CoreState::READY) {
         return Rejected(
-            detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement", requester);
+            Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement", requester);
     }
-    detail::ServiceTask task;
+    Detail::ServiceTask task;
     task.mutate = std::move(mutate);
     task.expectedRevision = expected;
     task.checkRevision = expected != 0U || requester != "SCPI";
@@ -278,7 +278,7 @@ bool InstrumentService::HasMeasurement() const noexcept
 bool InstrumentService::HasConfiguration() const noexcept
 {
     for (const auto &task : tasks_) {
-        if (task.kind == detail::ServiceTaskKind::CONFIGURE) {
+        if (task.kind == Detail::ServiceTaskKind::CONFIGURE) {
             return true;
         }
     }
@@ -302,7 +302,7 @@ void InstrumentService::Finish(OperationResult value)
     tasks_.pop_front();
 }
 
-bool InstrumentService::Consume(detail::ServiceTask &task)
+bool InstrumentService::Consume(Detail::ServiceTask &task)
 {
     if (!Ready(task.ticket)) {
         return false;
@@ -310,13 +310,13 @@ bool InstrumentService::Consume(detail::ServiceTask &task)
     const vna_core::CommandResult value = task.ticket.get();
     task.ticket = vna_core::Ticket();
     if (!value.ok) {
-        Finish(Result(false, detail::DEVICE_SPECIFIC_ERROR, value.message));
+        Finish(Result(false, Detail::DEVICE_SPECIFIC_ERROR, value.message));
         return false;
     }
     return true;
 }
 
-void InstrumentService::CommitMode(detail::ServiceTask &task)
+void InstrumentService::CommitMode(Detail::ServiceTask &task)
 {
     settings_.triggerSource = task.candidate.triggerSource;
     settings_.sweepMode = task.candidate.sweepMode;
@@ -328,32 +328,32 @@ void InstrumentService::PollTask()
     if (tasks_.empty()) {
         return;
     }
-    detail::ServiceTask &task = tasks_.front();
-    if (task.stage == detail::ServiceTaskStage::PENDING &&
+    Detail::ServiceTask &task = tasks_.front();
+    if (task.stage == Detail::ServiceTaskStage::PENDING &&
         (task.owner != owner_ || task.generation != controlGeneration_)) {
-        Finish(Result(false, detail::SETTINGS_CONFLICT_ERROR, "Instrument control generation changed"));
+        Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Instrument control generation changed"));
         return;
     }
-    if (task.kind == detail::ServiceTaskKind::CONFIGURE) {
+    if (task.kind == Detail::ServiceTaskKind::CONFIGURE) {
         PollConfiguration(task);
-    } else if (task.kind == detail::ServiceTaskKind::TRIGGER) {
+    } else if (task.kind == Detail::ServiceTaskKind::TRIGGER) {
         PollTrigger(task);
     } else {
         PollMode(task);
     }
 }
 
-void InstrumentService::PollConfiguration(detail::ServiceTask &task)
+void InstrumentService::PollConfiguration(Detail::ServiceTask &task)
 {
-    if (task.stage == detail::ServiceTaskStage::PENDING) {
+    if (task.stage == Detail::ServiceTaskStage::PENDING) {
         const auto view = core_.ReadView();
         if (settings_.sweepMode != SweepMode::HOLD || view.state != vna_core::CoreState::READY) {
             Finish(Result(
-                false, detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement"));
+                false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement"));
             return;
         }
         if (task.checkRevision && task.expectedRevision != settings_.revision) {
-            Finish(Result(false, detail::SETTINGS_CONFLICT_ERROR, "Configuration revision changed"));
+            Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration revision changed"));
             return;
         }
         task.candidate = settings_;
@@ -363,7 +363,7 @@ void InstrumentService::PollConfiguration(detail::ServiceTask &task)
             return;
         }
         task.ticket = core_.Configure(MakePlan(task.candidate));
-        task.stage = detail::ServiceTaskStage::WAITING_CONFIGURATION;
+        task.stage = Detail::ServiceTaskStage::WAITING_CONFIGURATION;
         return;
     }
     if (!Ready(task.ticket)) {
@@ -371,7 +371,7 @@ void InstrumentService::PollConfiguration(detail::ServiceTask &task)
     }
     const auto value = task.ticket.get();
     if (!value.ok) {
-        Finish(Result(false, detail::DEVICE_SPECIFIC_ERROR, value.message));
+        Finish(Result(false, Detail::DEVICE_SPECIFIC_ERROR, value.message));
         return;
     }
     task.candidate.revision = value.configRevision;
@@ -380,43 +380,43 @@ void InstrumentService::PollConfiguration(detail::ServiceTask &task)
     return;
 }
 
-void InstrumentService::PollTrigger(detail::ServiceTask &task)
+void InstrumentService::PollTrigger(Detail::ServiceTask &task)
 {
-    if (task.stage == detail::ServiceTaskStage::PENDING) {
+    if (task.stage == Detail::ServiceTaskStage::PENDING) {
         const auto view = core_.ReadView();
         if (settings_.triggerSource != TriggerSource::MANUAL || settings_.sweepMode == SweepMode::HOLD ||
             view.state != vna_core::CoreState::RUNNING) {
-            Finish(Result(false, detail::SETTINGS_CONFLICT_ERROR, "INIT requires MANual source and an armed channel"));
+            Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "INIT requires MANual source and an armed channel"));
             return;
         }
         task.ticket = core_.TriggerOnce(view.runId, view.configRevision);
-        task.stage = detail::ServiceTaskStage::WAITING_TRIGGER;
+        task.stage = Detail::ServiceTaskStage::WAITING_TRIGGER;
         return;
     }
     if (!Consume(task)) {
         return;
     }
-    if (task.stage == detail::ServiceTaskStage::WAITING_TRIGGER && settings_.sweepMode == SweepMode::SINGLE) {
+    if (task.stage == Detail::ServiceTaskStage::WAITING_TRIGGER && settings_.sweepMode == SweepMode::SINGLE) {
         task.ticket = core_.Stop(core_.ReadView().runId);
-        task.stage = detail::ServiceTaskStage::WAITING_STOP;
+        task.stage = Detail::ServiceTaskStage::WAITING_STOP;
         return;
     }
-    if (task.stage == detail::ServiceTaskStage::WAITING_STOP) {
+    if (task.stage == Detail::ServiceTaskStage::WAITING_STOP) {
         settings_.sweepMode = SweepMode::HOLD;
     }
     Finish(Result(true));
     return;
 }
 
-bool InstrumentService::BeginMode(detail::ServiceTask &task)
+bool InstrumentService::BeginMode(Detail::ServiceTask &task)
 {
     const auto view = core_.ReadView();
     if (view.state != vna_core::CoreState::READY && view.state != vna_core::CoreState::RUNNING) {
-        Finish(Result(false, detail::SETTINGS_CONFLICT_ERROR, "Instrument is not ready"));
+        Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Instrument is not ready"));
         return false;
     }
     task.candidate = settings_;
-    if (task.kind == detail::ServiceTaskKind::MODE) {
+    if (task.kind == Detail::ServiceTaskKind::MODE) {
         task.candidate.sweepMode = task.mode;
     } else {
         task.candidate.triggerSource = task.source;
@@ -428,28 +428,28 @@ bool InstrumentService::BeginMode(detail::ServiceTask &task)
         task.candidate.sweepMode == SweepMode::SINGLE && task.candidate.triggerSource == TriggerSource::IMMEDIATE;
     if (view.state == vna_core::CoreState::RUNNING) {
         task.ticket = core_.Stop(view.runId);
-        task.stage = detail::ServiceTaskStage::WAITING_STOP;
+        task.stage = Detail::ServiceTaskStage::WAITING_STOP;
         return false;
     }
-    task.stage = detail::ServiceTaskStage::READY_TO_START;
+    task.stage = Detail::ServiceTaskStage::READY_TO_START;
 
     return true;
 }
 
-void InstrumentService::PollMode(detail::ServiceTask &task)
+void InstrumentService::PollMode(Detail::ServiceTask &task)
 {
     // A single sweep uses a manual trigger followed by a Stop barrier.
-    if (task.stage == detail::ServiceTaskStage::PENDING && !BeginMode(task)) {
+    if (task.stage == Detail::ServiceTaskStage::PENDING && !BeginMode(task)) {
         return;
     }
 
-    if (task.stage == detail::ServiceTaskStage::WAITING_STOP) {
+    if (task.stage == Detail::ServiceTaskStage::WAITING_STOP) {
         if (!Consume(task)) {
             return;
         }
-        task.stage = detail::ServiceTaskStage::READY_TO_START;
+        task.stage = Detail::ServiceTaskStage::READY_TO_START;
     }
-    if (task.stage == detail::ServiceTaskStage::READY_TO_START) {
+    if (task.stage == Detail::ServiceTaskStage::READY_TO_START) {
         if (task.candidate.sweepMode == SweepMode::HOLD) {
             CommitMode(task);
             return;
@@ -459,15 +459,15 @@ void InstrumentService::PollMode(detail::ServiceTask &task)
                               ? vna_core::RunMode::CONTINUOUS
                               : vna_core::RunMode::MANUAL;
         task.ticket = core_.Start(mode);
-        task.stage = detail::ServiceTaskStage::WAITING_START;
+        task.stage = Detail::ServiceTaskStage::WAITING_START;
         return;
     }
     PollStartedMode(task);
 }
 
-void InstrumentService::PollStartedMode(detail::ServiceTask &task)
+void InstrumentService::PollStartedMode(Detail::ServiceTask &task)
 {
-    if (task.stage == detail::ServiceTaskStage::WAITING_START) {
+    if (task.stage == Detail::ServiceTaskStage::WAITING_START) {
         if (!Consume(task)) {
             return;
         }
@@ -481,18 +481,18 @@ void InstrumentService::PollStartedMode(detail::ServiceTask &task)
         }
         const auto view = core_.ReadView();
         task.ticket = core_.TriggerOnce(view.runId, view.configRevision);
-        task.stage = detail::ServiceTaskStage::WAITING_SINGLE_FRAME;
+        task.stage = Detail::ServiceTaskStage::WAITING_SINGLE_FRAME;
         return;
     }
-    if (task.stage == detail::ServiceTaskStage::WAITING_SINGLE_FRAME) {
+    if (task.stage == Detail::ServiceTaskStage::WAITING_SINGLE_FRAME) {
         if (!Consume(task)) {
             return;
         }
         task.ticket = core_.Stop(core_.ReadView().runId);
-        task.stage = detail::ServiceTaskStage::WAITING_FINAL_STOP;
+        task.stage = Detail::ServiceTaskStage::WAITING_FINAL_STOP;
         return;
     }
-    if (task.stage == detail::ServiceTaskStage::WAITING_FINAL_STOP) {
+    if (task.stage == Detail::ServiceTaskStage::WAITING_FINAL_STOP) {
         if (!Consume(task)) {
             return;
         }
@@ -536,7 +536,7 @@ void InstrumentService::Poll()
     PollTask();
     const auto view = core_.ReadView();
     if (tasks_.empty() && view.state == vna_core::CoreState::FAULTED && view.error != observedFault_) {
-        Error(detail::DEVICE_SPECIFIC_ERROR, view.error);
+        Error(Detail::DEVICE_SPECIFIC_ERROR, view.error);
         observedFault_ = view.error;
     }
 }
@@ -619,13 +619,13 @@ Operation InstrumentService::SetStartHz(double value, std::uint64_t expected)
     return Configure(
         [value](InstrumentSettings &settings) {
             if (!ValidFrequency(value)) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of mock range");
             }
             const double span = settings.stopHz - settings.startHz;
             const double start = std::round(value);
             const double stop = start > settings.stopHz ? start + span : settings.stopHz;
             if (!ValidFrequency(stop)) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Coupled stop frequency out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled stop frequency out of mock range");
             }
             settings.startHz = start;
             settings.stopHz = stop;
@@ -639,13 +639,13 @@ Operation InstrumentService::SetStopHz(double value, std::uint64_t expected)
     return Configure(
         [value](InstrumentSettings &settings) {
             if (!ValidFrequency(value)) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of mock range");
             }
             const double span = settings.stopHz - settings.startHz;
             const double stop = std::round(value);
             const double start = stop < settings.startHz ? stop - span : settings.startHz;
             if (!ValidFrequency(start)) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Coupled start frequency out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled start frequency out of mock range");
             }
             settings.startHz = start;
             settings.stopHz = stop;
@@ -659,7 +659,7 @@ Operation InstrumentService::SetPoints(unsigned value, std::uint64_t expected)
     return Configure(
         [value](InstrumentSettings &settings) {
             if (value < MIN_SWEEP_POINTS || value > MAX_SWEEP_POINTS) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Point count outside 2..10001 mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Point count outside 2..10001 mock range");
             }
             settings.points = value;
             return Result(true);
@@ -672,11 +672,11 @@ Operation InstrumentService::SetIfBandwidthHz(double value, std::uint64_t expect
     return Configure(
         [value](InstrumentSettings &settings) {
             if (!std::isfinite(value) || value <= 0.0) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of range");
             }
             const double quantized = QuantizedBandwidth(value);
             if (quantized == 0.0) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of mock range");
             }
             settings.ifBandwidthHz = quantized;
             return Result(true);
@@ -703,14 +703,14 @@ Operation InstrumentService::DefineMeasurement(
                 (measurement.receiverKind != 'a' && measurement.receiverKind != 'b') || measurement.receiverPort < 1U ||
                 measurement.receiverPort > vna_core::PHYSICAL_PORT_COUNT || measurement.sourcePort < 1U ||
                 measurement.sourcePort > vna_core::PHYSICAL_PORT_COUNT) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Invalid non-ratio receiver measurement");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Invalid non-ratio receiver measurement");
             }
             if (settings.measurements.size() >= MEASUREMENT_CAPACITY) {
-                return Result(false, detail::DATA_OUT_OF_RANGE_ERROR, "Measurement catalog is full");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Measurement catalog is full");
             }
             for (const auto &existing : settings.measurements) {
                 if (existing.name == measurement.name) {
-                    return Result(false, detail::SETTINGS_CONFLICT_ERROR, "Measurement name already exists");
+                    return Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Measurement name already exists");
                 }
             }
             settings.measurements.push_back(measurement);
@@ -732,7 +732,7 @@ Operation InstrumentService::DeleteMeasurement(
                     return measurement.name == name;
                 });
             if (found == settings.measurements.end()) {
-                return Result(false, detail::INVALID_PARAMETER_ERROR, "Measurement name does not exist");
+                return Result(false, Detail::INVALID_PARAMETER_ERROR, "Measurement name does not exist");
             }
             settings.measurements.erase(found);
             if (settings.selectedMeasurement == name) {
@@ -747,10 +747,10 @@ Operation InstrumentService::DeleteMeasurement(
 Operation InstrumentService::SetTriggerSource(TriggerSource source, const std::string &owner)
 {
     if (source != TriggerSource::IMMEDIATE && source != TriggerSource::MANUAL) {
-        return Rejected(detail::INVALID_PARAMETER_ERROR, "Invalid trigger source", owner);
+        return Rejected(Detail::INVALID_PARAMETER_ERROR, "Invalid trigger source", owner);
     }
-    detail::ServiceTask task;
-    task.kind = detail::ServiceTaskKind::SOURCE;
+    Detail::ServiceTask task;
+    task.kind = Detail::ServiceTaskKind::SOURCE;
     task.source = source;
     task.measurement = source == TriggerSource::IMMEDIATE && settings_.sweepMode == SweepMode::SINGLE;
     return Enqueue(std::move(task), owner);
@@ -759,13 +759,13 @@ Operation InstrumentService::SetTriggerSource(TriggerSource source, const std::s
 Operation InstrumentService::SetSweepMode(SweepMode mode, const std::string &owner)
 {
     if (mode != SweepMode::HOLD && mode != SweepMode::SINGLE && mode != SweepMode::CONTINUOUS) {
-        return Rejected(detail::INVALID_PARAMETER_ERROR, "Invalid sweep mode", owner);
+        return Rejected(Detail::INVALID_PARAMETER_ERROR, "Invalid sweep mode", owner);
     }
     if (mode == SweepMode::SINGLE && HasMeasurement()) {
-        return Rejected(detail::SETTINGS_CONFLICT_ERROR, "Measurement already in progress", owner);
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Measurement already in progress", owner);
     }
-    detail::ServiceTask task;
-    task.kind = detail::ServiceTaskKind::MODE;
+    Detail::ServiceTask task;
+    task.kind = Detail::ServiceTaskKind::MODE;
     task.mode = mode;
     task.measurement = mode == SweepMode::SINGLE && settings_.triggerSource == TriggerSource::IMMEDIATE;
     return Enqueue(std::move(task), owner);
@@ -774,10 +774,10 @@ Operation InstrumentService::SetSweepMode(SweepMode mode, const std::string &own
 Operation InstrumentService::Trigger(const std::string &owner)
 {
     if (HasMeasurement()) {
-        return Rejected(detail::SETTINGS_CONFLICT_ERROR, "Busy INIT restart is not supported", owner);
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Busy INIT restart is not supported", owner);
     }
-    detail::ServiceTask task;
-    task.kind = detail::ServiceTaskKind::TRIGGER;
+    Detail::ServiceTask task;
+    task.kind = Detail::ServiceTaskKind::TRIGGER;
     task.measurement = true;
     return Enqueue(std::move(task), owner);
 }
@@ -785,10 +785,10 @@ Operation InstrumentService::Trigger(const std::string &owner)
 Operation InstrumentService::RunSingle(const std::string &owner)
 {
     if (HasMeasurement()) {
-        return Rejected(detail::SETTINGS_CONFLICT_ERROR, "Measurement already in progress", owner);
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Measurement already in progress", owner);
     }
-    detail::ServiceTask task;
-    task.kind = detail::ServiceTaskKind::MODE;
+    Detail::ServiceTask task;
+    task.kind = Detail::ServiceTaskKind::MODE;
     task.mode = SweepMode::SINGLE;
     task.forceInternalSource = true;
     task.measurement = true;
@@ -797,8 +797,8 @@ Operation InstrumentService::RunSingle(const std::string &owner)
 
 Operation InstrumentService::RunContinuous(const std::string &owner)
 {
-    detail::ServiceTask task;
-    task.kind = detail::ServiceTaskKind::MODE;
+    Detail::ServiceTask task;
+    task.kind = Detail::ServiceTaskKind::MODE;
     task.mode = SweepMode::CONTINUOUS;
     task.forceInternalSource = true;
     return Enqueue(std::move(task), owner);
@@ -807,7 +807,7 @@ Operation InstrumentService::RunContinuous(const std::string &owner)
 bool InstrumentService::SelectMeasurement(const std::string &name)
 {
     if (owner_ != "SCPI" || releasing_ || HasConfiguration()) {
-        Error(detail::SETTINGS_CONFLICT_ERROR, "Measurement selection requires control and no pending configuration");
+        Error(Detail::SETTINGS_CONFLICT_ERROR, "Measurement selection requires control and no pending configuration");
         return false;
     }
     for (const auto &measurement : settings_.measurements) {
@@ -816,14 +816,14 @@ bool InstrumentService::SelectMeasurement(const std::string &name)
             return true;
         }
     }
-    Error(detail::INVALID_PARAMETER_ERROR, "Measurement name does not exist");
+    Error(Detail::INVALID_PARAMETER_ERROR, "Measurement name does not exist");
     return false;
 }
 
 bool InstrumentService::SetCurrentTriggerScope(bool current)
 {
     if (owner_ != "SCPI" || releasing_ || HasConfiguration()) {
-        Error(detail::SETTINGS_CONFLICT_ERROR, "Trigger scope requires control and no pending configuration");
+        Error(Detail::SETTINGS_CONFLICT_ERROR, "Trigger scope requires control and no pending configuration");
         return false;
     }
     settings_.currentTriggerScope = current;

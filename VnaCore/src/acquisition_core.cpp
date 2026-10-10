@@ -57,7 +57,7 @@ std::string Validate(const SweepPlan &plan)
     return std::string();
 }
 
-std::unique_ptr<detail::DeviceSession> ValidateDevice(std::unique_ptr<detail::DeviceSession> device)
+std::unique_ptr<Detail::DeviceSession> ValidateDevice(std::unique_ptr<Detail::DeviceSession> device)
 {
     if (!device) {
         throw std::invalid_argument("core requires an owned device session");
@@ -68,41 +68,41 @@ std::unique_ptr<detail::DeviceSession> ValidateDevice(std::unique_ptr<detail::De
 }  // namespace
 
 AcquisitionCore::AcquisitionCore(const std::string &path)
-    : AcquisitionCore(std::make_unique<detail::NativeDeviceSession>(path))
+    : AcquisitionCore(std::make_unique<Detail::NativeDeviceSession>(path))
 {
 }
 
 Ticket AcquisitionCore::Initialize()
 {
-    return Submit(detail::CoreCommandKind::INITIALIZE);
+    return Submit(Detail::CoreCommandKind::INITIALIZE);
 }
 
 Ticket AcquisitionCore::Configure(SweepPlan plan)
 {
-    return Submit(detail::CoreCommandKind::CONFIGURE, std::move(plan));
+    return Submit(Detail::CoreCommandKind::CONFIGURE, std::move(plan));
 }
 
 Ticket AcquisitionCore::Start(RunMode mode)
 {
-    return Submit(detail::CoreCommandKind::START, SweepPlan(), mode);
+    return Submit(Detail::CoreCommandKind::START, SweepPlan(), mode);
 }
 
 Ticket AcquisitionCore::TriggerOnce(std::uint64_t runId, std::uint64_t revision)
 {
-    return Submit(detail::CoreCommandKind::TRIGGER, SweepPlan(), RunMode::MANUAL, runId, revision);
+    return Submit(Detail::CoreCommandKind::TRIGGER, SweepPlan(), RunMode::MANUAL, runId, revision);
 }
 
 Ticket AcquisitionCore::Stop(std::uint64_t runId)
 {
-    return Submit(detail::CoreCommandKind::STOP, SweepPlan(), RunMode::MANUAL, runId);
+    return Submit(Detail::CoreCommandKind::STOP, SweepPlan(), RunMode::MANUAL, runId);
 }
 
 Ticket AcquisitionCore::Recover()
 {
-    return Submit(detail::CoreCommandKind::RECOVER);
+    return Submit(Detail::CoreCommandKind::RECOVER);
 }
 
-AcquisitionCore::AcquisitionCore(std::unique_ptr<detail::DeviceSession> device)
+AcquisitionCore::AcquisitionCore(std::unique_ptr<Detail::DeviceSession> device)
     : device_(ValidateDevice(std::move(device))), worker_(&AcquisitionCore::WorkerLoop, this)
 {
 }
@@ -127,9 +127,9 @@ Ticket AcquisitionCore::Rejected(const std::string &message) const
 }
 
 Ticket AcquisitionCore::Submit(
-    detail::CoreCommandKind kind, SweepPlan plan, RunMode mode, std::uint64_t runId, std::uint64_t revision)
+    Detail::CoreCommandKind kind, SweepPlan plan, RunMode mode, std::uint64_t runId, std::uint64_t revision)
 {
-    if (kind == detail::CoreCommandKind::CONFIGURE) {
+    if (kind == Detail::CoreCommandKind::CONFIGURE) {
         const auto error = Validate(plan);
         if (!error.empty()) {
             return Rejected(error);
@@ -145,7 +145,7 @@ Ticket AcquisitionCore::Submit(
         } else if (queue_.size() >= QUEUE_CAPACITY) {
             rejection = "core command queue is full";
         } else {
-            queue_.push_back(detail::CoreCommand{kind, std::move(plan), mode, runId, revision, std::move(promise)});
+            queue_.push_back(Detail::CoreCommand{kind, std::move(plan), mode, runId, revision, std::move(promise)});
         }
     }
     if (!rejection.empty()) {
@@ -169,8 +169,8 @@ CommandResult AcquisitionCore::Close()
         if (!closing_) {
             std::promise<CommandResult> promise;
             closeTicket_ = promise.get_future().share();
-            queue_.push_back(detail::CoreCommand{
-                detail::CoreCommandKind::CLOSE, SweepPlan(), RunMode::MANUAL, 0U, 0U, std::move(promise)});
+            queue_.push_back(Detail::CoreCommand{
+                Detail::CoreCommandKind::CLOSE, SweepPlan(), RunMode::MANUAL, 0U, 0U, std::move(promise)});
             closing_ = true;  // Reserved close entry is admitted even when the normal queue is full.
         }
     }
@@ -241,7 +241,7 @@ void AcquisitionCore::AcquireFrame()
     PublishView();
 }
 
-CommandResult AcquisitionCore::Execute(detail::CoreCommand &command)
+CommandResult AcquisitionCore::Execute(Detail::CoreCommand &command)
 {
     try {
         const CommandResult answer = ExecuteCommand(command);
@@ -249,8 +249,8 @@ CommandResult AcquisitionCore::Execute(detail::CoreCommand &command)
             PublishView();
         }
         return answer;
-    } catch (const detail::PlanPreparationError &error) {
-        if (command.kind != detail::CoreCommandKind::CONFIGURE) {
+    } catch (const Detail::PlanPreparationError &error) {
+        if (command.kind != Detail::CoreCommandKind::CONFIGURE) {
             Fault(error.what());
         }
         return Result(false, error.what());
@@ -259,7 +259,7 @@ CommandResult AcquisitionCore::Execute(detail::CoreCommand &command)
         return Result(false, error_);
     } catch (...) {
         Fault("unknown device or frame processing exception");
-        if (command.kind == detail::CoreCommandKind::CLOSE) {
+        if (command.kind == Detail::CoreCommandKind::CLOSE) {
             state_ = CoreState::CLOSED;
             PublishView();
         }
@@ -267,22 +267,22 @@ CommandResult AcquisitionCore::Execute(detail::CoreCommand &command)
     }
 }
 
-CommandResult AcquisitionCore::ExecuteCommand(detail::CoreCommand &command)
+CommandResult AcquisitionCore::ExecuteCommand(Detail::CoreCommand &command)
 {
     switch (command.kind) {
-        case detail::CoreCommandKind::INITIALIZE:
+        case Detail::CoreCommandKind::INITIALIZE:
             return ExecuteInitialize();
-        case detail::CoreCommandKind::CONFIGURE:
+        case Detail::CoreCommandKind::CONFIGURE:
             return ExecuteConfigure(command);
-        case detail::CoreCommandKind::START:
+        case Detail::CoreCommandKind::START:
             return ExecuteStart(command);
-        case detail::CoreCommandKind::TRIGGER:
+        case Detail::CoreCommandKind::TRIGGER:
             return ExecuteTrigger(command);
-        case detail::CoreCommandKind::STOP:
+        case Detail::CoreCommandKind::STOP:
             return ExecuteStop(command);
-        case detail::CoreCommandKind::RECOVER:
+        case Detail::CoreCommandKind::RECOVER:
             return ExecuteRecover();
-        case detail::CoreCommandKind::CLOSE:
+        case Detail::CoreCommandKind::CLOSE:
             return ExecuteClose();
         default:
             return Result(false, "unsupported core command");
@@ -300,7 +300,7 @@ CommandResult AcquisitionCore::ExecuteInitialize()
     return Result(true);
 }
 
-CommandResult AcquisitionCore::ExecuteConfigure(detail::CoreCommand &command)
+CommandResult AcquisitionCore::ExecuteConfigure(Detail::CoreCommand &command)
 {
     if (state_ != CoreState::READY && state_ != CoreState::RUNNING) {
         return Result(false, "configure requires Ready or Running");
@@ -313,7 +313,7 @@ CommandResult AcquisitionCore::ExecuteConfigure(detail::CoreCommand &command)
     return Result(true);
 }
 
-CommandResult AcquisitionCore::ExecuteStart(const detail::CoreCommand &command)
+CommandResult AcquisitionCore::ExecuteStart(const Detail::CoreCommand &command)
 {
     if (state_ != CoreState::READY || !configured_) {
         return Result(false, "start requires Ready with a valid configuration");
@@ -329,7 +329,7 @@ CommandResult AcquisitionCore::ExecuteStart(const detail::CoreCommand &command)
     return Result(true);
 }
 
-CommandResult AcquisitionCore::ExecuteTrigger(const detail::CoreCommand &command)
+CommandResult AcquisitionCore::ExecuteTrigger(const Detail::CoreCommand &command)
 {
     if (state_ != CoreState::RUNNING || mode_ != RunMode::MANUAL || command.runId != runId_ ||
         command.revision != revision_) {
@@ -339,7 +339,7 @@ CommandResult AcquisitionCore::ExecuteTrigger(const detail::CoreCommand &command
     return Result(true);
 }
 
-CommandResult AcquisitionCore::ExecuteStop(const detail::CoreCommand &command)
+CommandResult AcquisitionCore::ExecuteStop(const Detail::CoreCommand &command)
 {
     if (command.runId == 0U || command.runId != runId_ || state_ == CoreState::UNINITIALIZED ||
         state_ == CoreState::CLOSED) {
@@ -403,12 +403,12 @@ void AcquisitionCore::WorkerLoop()
             }
         }
         if (!queue_.empty()) {
-            detail::CoreCommand command = std::move(queue_.front());
+            Detail::CoreCommand command = std::move(queue_.front());
             queue_.pop_front();
             guard.unlock();
             auto answer = Execute(command);
             command.promise.set_value(std::move(answer));
-            if (command.kind == detail::CoreCommandKind::CLOSE) {
+            if (command.kind == Detail::CoreCommandKind::CLOSE) {
                 return;
             }
         } else {

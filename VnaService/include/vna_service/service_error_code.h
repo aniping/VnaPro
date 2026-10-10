@@ -6,7 +6,7 @@
 #define VNAPRO_SERVICE_ERROR_CODE_H
 
 namespace vna_service {
-namespace detail {
+namespace Detail {
 enum ServiceErrorCode : int {
     MISSING_PARAMETER_ERROR = -109,
     SETTINGS_CONFLICT_ERROR = -221,
@@ -16,6 +16,6 @@ enum ServiceErrorCode : int {
     ERROR_QUEUE_OVERFLOW = -350,
     INPUT_BUFFER_OVERRUN = -363
 };
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_service
 #endif

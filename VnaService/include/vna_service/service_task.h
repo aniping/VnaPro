@@ -14,7 +14,7 @@
 #include "vna_service/operation_result.h"
 
 namespace vna_service {
-namespace detail {
+namespace Detail {
 enum class ServiceTaskKind {
     CONFIGURE,
     SOURCE,
@@ -60,7 +60,7 @@ struct ServiceTask final {
     {
     }
 };
-}  // namespace detail
+}  // namespace Detail
 }  // namespace vna_service
 
 #endif
