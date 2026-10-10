@@ -2,26 +2,16 @@
 #define VNAPRO_WEB_HTTP_API_H
 #include <chrono>
 #include <functional>
-#include <map>
 #include <memory>
 #include <string>
 
-#include "web/Json.h"
+#include "web/HttpRequest.h"
+#include "web/HttpResponse.h"
 
 namespace vna_service {
 class InstrumentService;
 }
 namespace vna_web {
-struct HttpRequest {
-    std::string method;
-    std::string path;
-    std::map<std::string, std::string> headers;  // Lowercase names.
-    std::string body;
-};
-struct HttpResponse {
-    unsigned status = 200;
-    Json json;
-};
 HttpResponse httpError(unsigned status, const std::string& code, const std::string& message);
 class HttpApi {
 public:

@@ -3,6 +3,8 @@ add_library(vna_web STATIC
     StaticFile.cpp
     HttpApi.cpp
     Json.cpp
+    JsonParser.cpp
+    JsonEncoder.cpp
 )
 target_include_directories(vna_web PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(vna_web PUBLIC vna_service vna_network)

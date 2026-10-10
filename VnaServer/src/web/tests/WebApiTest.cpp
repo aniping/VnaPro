@@ -10,6 +10,8 @@
 #include "Fixture.h"
 #include "web/HttpApi.h"
 #include "web/Json.h"
+#include "web/JsonEncoder.h"
+#include "web/JsonParser.h"
 #include "web/WebEndpoint.h"
 
 namespace {

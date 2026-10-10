@@ -13,6 +13,8 @@
 #include <utility>
 
 #include "vna_service/InstrumentService.h"
+#include "web/JsonEncoder.h"
+#include "web/JsonParser.h"
 
 namespace vna_web {
 HttpResponse httpError(unsigned status, const std::string& code, const std::string& message)
@@ -128,7 +130,9 @@ public:
         bool done = false;
         vna_service::OperationResult result;
     };
-    Impl(vna_service::InstrumentService& value, Now clock) : service(value), now(std::move(clock)) {}
+    Impl(vna_service::InstrumentService& value, Now clock) : service(value), now(std::move(clock))
+    {
+    }
     vna_service::InstrumentService& service;
     Now now;
     std::map<std::string, Session> sessions;
@@ -518,7 +522,9 @@ public:
         return write(request, body);
     }
 };
-HttpApi::HttpApi(vna_service::InstrumentService& service, Now now) : impl_(new Impl(service, std::move(now))) {}
+HttpApi::HttpApi(vna_service::InstrumentService& service, Now now) : impl_(new Impl(service, std::move(now)))
+{
+}
 HttpApi::~HttpApi() = default;
 HttpResponse HttpApi::handle(const HttpRequest& request)
 {

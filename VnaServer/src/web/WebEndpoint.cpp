@@ -13,6 +13,7 @@
 #include "network/NetworkRuntime.h"
 #include "network/SocketOwner.h"
 #include "web/HttpApi.h"
+#include "web/JsonEncoder.h"
 #include "web/StaticFile.h"
 
 namespace vna_web {
