@@ -1,3 +1,6 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -7,51 +10,72 @@
 #include <vector>
 
 #include "golden_iq_vectors.h"
+#include "joined_threads.h"
 #include "native_contract_test_support.h"
 
 namespace vna_test {
 namespace {
 
-void ConfigureNormalSweep(const NativeFunctions& functions)
+struct NativeConcurrencyCounters final {
+    // Counters are shared by joined workers and never copied or moved while a thread can observe them.
+    NativeConcurrencyCounters() noexcept = default;
+    NativeConcurrencyCounters(const NativeConcurrencyCounters &) = delete;
+    NativeConcurrencyCounters &operator=(const NativeConcurrencyCounters &) = delete;
+    NativeConcurrencyCounters(NativeConcurrencyCounters &&) = delete;
+    NativeConcurrencyCounters &operator=(NativeConcurrencyCounters &&) = delete;
+
+    std::atomic<std::uint32_t> failures{0U};
+    std::atomic<std::uint32_t> successfulStarts{0U};
+    std::atomic<std::uint32_t> successfulGets{0U};
+    std::atomic<std::uint32_t> readyThreads{0U};
+    std::atomic<bool> startThreads{false};
+    std::atomic<bool> reconfigureDone{false};
+};
+
+void ConfigureNormalSweep(const NativeFunctions &functions)
 {
-    VNA_EXPECT_EQ(kOk, functions.hwInit());
-    VNA_EXPECT_EQ(kOk, functions.setRfPowerOn(1U));
-    VNA_EXPECT_EQ(kOk, functions.activateRxLink(0xFU));
-    VNA_EXPECT_EQ(kOk, functions.setFastSweepMode(0U));
+    vna_test::Expect(functions.hwInit() == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setRfPowerOn(1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.activateRxLink(0xFU) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setFastSweepMode(0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
 }
 
-void RunFourPortSweep(const NativeFunctions& functions)
+void RunFourPortSweep(const NativeFunctions &functions)
 {
     const std::uint32_t pointCount = 3U;
     std::vector<FrameInput> frames;
     for (std::uint32_t sourcePort = 0U; sourcePort < 4U; ++sourcePort) {
-        frames.push_back(MakeNormalFrame(pointCount, sourcePort,
-            UINT64_C(1000000000) + static_cast<std::uint64_t>(sourcePort) * UINT64_C(1000000000)));
-        VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frames.back()));
+        frames.push_back(MakeNormalFrame(
+            pointCount, sourcePort, 1000000000ULL + static_cast<std::uint64_t>(sourcePort) * 1000000000ULL));
+        vna_test::Expect(DownloadFrame(functions, frames.back()) == OK, vna_test::TestLocation{__FILE__, __LINE__});
     }
 
     for (std::uint32_t sourcePort = 0U; sourcePort < 4U; ++sourcePort) {
         const std::vector<double> expected = ExpectedIq(frames[sourcePort].frequencies, sourcePort);
-        VNA_EXPECT_EQ(kOk, functions.startSweep(pointCount, sourcePort));
+        vna_test::Expect(
+            functions.startSweep(pointCount, sourcePort) == OK, vna_test::TestLocation{__FILE__, __LINE__});
 
         const double canary = -987654321.125;
         std::vector<double> storage(expected.size() + 2U, canary);
-        VNA_EXPECT_EQ(kOk, functions.getSweepData(pointCount, storage.data() + 1U));
-        VNA_EXPECT_EQ(canary, storage.front());
-        VNA_EXPECT_EQ(canary, storage.back());
+        vna_test::Expect(
+            functions.getSweepData(pointCount, storage.data() + 1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+        vna_test::Expect(storage.front() == canary, vna_test::TestLocation{__FILE__, __LINE__});
+        vna_test::Expect(storage.back() == canary, vna_test::TestLocation{__FILE__, __LINE__});
         ExpectIqNear(expected, storage.data() + 1U);
 
-        VNA_EXPECT_EQ(kOk, functions.startSweep(pointCount, sourcePort));
+        vna_test::Expect(
+            functions.startSweep(pointCount, sourcePort) == OK, vna_test::TestLocation{__FILE__, __LINE__});
         std::vector<double> repeated(expected.size(), 0.0);
-        VNA_EXPECT_EQ(kOk, functions.getSweepData(pointCount, repeated.data()));
+        vna_test::Expect(
+            functions.getSweepData(pointCount, repeated.data()) == OK, vna_test::TestLocation{__FILE__, __LINE__});
         ExpectIqNear(expected, repeated.data());
         for (std::size_t index = 0U; index < expected.size(); ++index) {
-            VNA_EXPECT_EQ(storage[index + 1U], repeated[index]);
+            vna_test::Expect(repeated[index] == storage[index + 1U], vna_test::TestLocation{__FILE__, __LINE__});
         }
     }
 }
 
-bool IqMatches(const std::vector<double>& expected, const double* actual)
+bool IqMatches(const std::vector<double> &expected, const double *actual)
 {
     for (std::size_t index = 0U; index < expected.size(); ++index) {
         if (!std::isfinite(actual[index]) || std::fabs(expected[index] - actual[index]) > 1.0e-12) {
@@ -61,272 +85,349 @@ bool IqMatches(const std::vector<double>& expected, const double* actual)
     return true;
 }
 
-}  // namespace
-
-void RunNativeNormalSweepTests(TestRunner* runner, NativeLibraryProbe* library)
+void FourPortCanarySweep(const NativeFunctions &functions)
 {
-    const NativeFunctions& functions = library->Functions();
+    ConfigureNormalSweep(functions);
+    RunFourPortSweep(functions);
+}
 
-    runner->Run("四个激励端口完成确定性正常扫频并守住 canary", [&functions]() {
-        ConfigureNormalSweep(functions);
-        RunFourPortSweep(functions);
-    });
+void GoldenFourPortVector(const NativeFunctions &functions)
+{
+    ConfigureNormalSweep(functions);
+    for (std::uint32_t sourcePort = 0U; sourcePort < 4U; ++sourcePort) {
+        FrameInput frame = MakeNormalFrame(2U, sourcePort, g_goldenIqFrequencies[0]);
+        frame.frequencies[1] = g_goldenIqFrequencies[1];
+        frame.parameters[7U] = static_cast<std::uint32_t>(g_goldenIqFrequencies[1] >> 32U);
+        frame.parameters[8U] = static_cast<std::uint32_t>(g_goldenIqFrequencies[1]);
+        vna_test::Expect(DownloadFrame(functions, frame) == OK, vna_test::TestLocation{__FILE__, __LINE__});
 
-    runner->Run("动态加载的四端口扫频匹配固定 IQ 黄金向量", [&functions]() {
-        ConfigureNormalSweep(functions);
-        for (std::uint32_t sourcePort = 0U; sourcePort < 4U; ++sourcePort) {
-            FrameInput frame = MakeNormalFrame(2U, sourcePort, kGoldenIqFrequencies[0]);
-            frame.frequencies[1] = kGoldenIqFrequencies[1];
-            frame.parameters[7U] = static_cast<std::uint32_t>(kGoldenIqFrequencies[1] >> 32U);
-            frame.parameters[8U] = static_cast<std::uint32_t>(kGoldenIqFrequencies[1]);
-            VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frame));
-
-            VNA_EXPECT_EQ(kOk, functions.startSweep(2U, sourcePort));
-            const std::vector<double> expected = GoldenIqForSource(sourcePort);
-            std::vector<double> actual(expected.size(), 0.0);
-            VNA_EXPECT_EQ(kOk, functions.getSweepData(2U, actual.data()));
-            ExpectIqNear(expected, actual.data());
-        }
-    });
-
-    runner->Run("动态加载扫频匹配频率高 32 位黄金向量", [&functions]() {
-        ConfigureNormalSweep(functions);
-        FrameInput frame = MakeNormalFrame(2U, 0U, kGoldenIqFrequencies[0]);
-        frame.frequencies[1U] = kGoldenIqHighWordFrequency;
-        frame.parameters[7U] = static_cast<std::uint32_t>(kGoldenIqHighWordFrequency >> 32U);
-        frame.parameters[8U] = static_cast<std::uint32_t>(kGoldenIqHighWordFrequency);
-        VNA_EXPECT_EQ(1U, frame.parameters[7U]);
-        VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frame));
-        VNA_EXPECT_EQ(kOk, functions.startSweep(2U, 0U));
-
-        std::vector<double> actual(32U, 0.0);
-        VNA_EXPECT_EQ(kOk, functions.getSweepData(2U, actual.data()));
-        for (std::size_t index = 0U; index < 16U; ++index) {
-            VNA_EXPECT_NEAR(kGoldenIqBySource[0U][0U][index], actual[index], 1.0e-12);
-            VNA_EXPECT_NEAR(kGoldenIqHighWordSource0[index], actual[16U + index], 1.0e-12);
-        }
-        VNA_EXPECT_NE(actual[1U], actual[17U]);
-    });
-
-    runner->Run("下载成功后不引用调用方参数数组", [&functions]() {
-        ConfigureNormalSweep(functions);
-        FrameInput frame = MakeNormalFrame(2U, 2U, UINT64_C(0x123456789abcdef0));
-        const std::vector<std::uint64_t> originalFrequencies = frame.frequencies;
-        VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frame));
-
-        std::fill(frame.parameters.begin(), frame.parameters.end(), 0xFFFFFFFFU);
-        std::fill(frame.powerTable.begin(), frame.powerTable.end(), std::numeric_limits<double>::quiet_NaN());
-        frame.parameters.clear();
-        frame.powerTable.clear();
-
-        VNA_EXPECT_EQ(kOk, functions.startSweep(2U, 2U));
-        std::vector<double> actual(32U, 0.0);
-        VNA_EXPECT_EQ(kOk, functions.getSweepData(2U, actual.data()));
-        const std::vector<double> expected = ExpectedIq(originalFrequencies, 2U);
+        vna_test::Expect(functions.startSweep(2U, sourcePort) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+        const std::vector<double> expected = GoldenIqForSource(sourcePort);
+        std::vector<double> actual(expected.size(), 0.0);
+        vna_test::Expect(functions.getSweepData(2U, actual.data()) == OK, vna_test::TestLocation{__FILE__, __LINE__});
         ExpectIqNear(expected, actual.data());
-    });
+    }
+}
 
-    runner->Run("Start 和 Get 严格执行状态及消费语义", [&functions]() {
-        VNA_EXPECT_EQ(kOk, functions.hwInit());
-        VNA_EXPECT_EQ(kRfDisabled, functions.startSweep(2U, 0U));
-        VNA_EXPECT_EQ(kOk, functions.setRfPowerOn(1U));
-        VNA_EXPECT_EQ(kInvalidState, functions.startSweep(2U, 0U));
-        VNA_EXPECT_EQ(kOk, functions.activateRxLink(1U));
-        VNA_EXPECT_EQ(kInvalidState, functions.startSweep(2U, 0U));
-        VNA_EXPECT_EQ(kOk, functions.setFastSweepMode(0U));
-        VNA_EXPECT_EQ(kInvalidState, functions.startSweep(2U, 0U));
+void HighWordGoldenVector(const NativeFunctions &functions)
+{
+    ConfigureNormalSweep(functions);
+    FrameInput frame = MakeNormalFrame(2U, 0U, g_goldenIqFrequencies[0]);
+    frame.frequencies[1U] = GOLDEN_IQ_HIGH_WORD_FREQUENCY;
+    frame.parameters[7U] = static_cast<std::uint32_t>(GOLDEN_IQ_HIGH_WORD_FREQUENCY >> 32U);
+    frame.parameters[8U] = static_cast<std::uint32_t>(GOLDEN_IQ_HIGH_WORD_FREQUENCY);
+    vna_test::Expect(frame.parameters[7U] == 1U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(DownloadFrame(functions, frame) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
 
-        FrameInput frame = MakeNormalFrame(2U, 0U, UINT64_C(1000000000));
-        VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frame));
-        VNA_EXPECT_EQ(kInvalidState, functions.startSweep(1U, 0U));
-        VNA_EXPECT_EQ(kInvalidArgument, functions.startSweep(2U, 4U));
-        VNA_EXPECT_EQ(kOk, functions.startSweep(2U, 0U));
-        VNA_EXPECT_EQ(kInvalidState, functions.startSweep(2U, 0U));
+    std::vector<double> actual(32U, 0.0);
+    vna_test::Expect(functions.getSweepData(2U, actual.data()) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    for (std::size_t index = 0U; index < 16U; ++index) {
+        vna_test::ExpectNear(
+            g_goldenIqBySource[0U][0U][index], actual[index], 1.0e-12, vna_test::TestLocation{__FILE__, __LINE__});
+        vna_test::ExpectNear(
+            g_goldenIqHighWordSource0[index], actual[16U + index], 1.0e-12, vna_test::TestLocation{__FILE__, __LINE__});
+    }
+    vna_test::Expect(actual[17U] != actual[1U], vna_test::TestLocation{__FILE__, __LINE__});
+}
 
-        VNA_EXPECT_EQ(kInvalidArgument, functions.getSweepData(2U, NULL));
+void OwnedInputBuffers(const NativeFunctions &functions)
+{
+    ConfigureNormalSweep(functions);
+    FrameInput frame = MakeNormalFrame(2U, 2U, 0x123456789abcdef0ULL);
+    const std::vector<std::uint64_t> originalFrequencies = frame.frequencies;
+    vna_test::Expect(DownloadFrame(functions, frame) == OK, vna_test::TestLocation{__FILE__, __LINE__});
 
-        std::vector<double> guarded(34U, 71.25);
-        VNA_EXPECT_EQ(kInvalidState, functions.getSweepData(1U, guarded.data() + 1U));
-        for (std::size_t index = 0U; index < guarded.size(); ++index) {
-            VNA_EXPECT_EQ(71.25, guarded[index]);
+    std::fill(frame.parameters.begin(), frame.parameters.end(), 0xFFFFFFFFU);
+    std::fill(frame.powerTable.begin(), frame.powerTable.end(), std::numeric_limits<double>::quiet_NaN());
+    frame.parameters.clear();
+    frame.powerTable.clear();
+
+    vna_test::Expect(functions.startSweep(2U, 2U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    std::vector<double> actual(32U, 0.0);
+    vna_test::Expect(functions.getSweepData(2U, actual.data()) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    const std::vector<double> expected = ExpectedIq(originalFrequencies, 2U);
+    ExpectIqNear(expected, actual.data());
+}
+
+void PendingConsumptionAndRfCancellation(const NativeFunctions &functions)
+{
+    vna_test::Expect(functions.hwInit() == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 0U) == RF_DISABLED, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setRfPowerOn(1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 0U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.activateRxLink(1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 0U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setFastSweepMode(0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 0U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+
+    FrameInput frame = MakeNormalFrame(2U, 0U, 1000000000ULL);
+    vna_test::Expect(DownloadFrame(functions, frame) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(1U, 0U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 4U) == INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 0U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+
+    vna_test::Expect(
+        functions.getSweepData(2U, nullptr) == INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+
+    std::vector<double> guarded(34U, 71.25);
+    vna_test::Expect(
+        functions.getSweepData(1U, guarded.data() + 1U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+    for (std::size_t index = 0U; index < guarded.size(); ++index) {
+        vna_test::Expect(guarded[index] == 71.25, vna_test::TestLocation{__FILE__, __LINE__});
+    }
+
+    vna_test::Expect(functions.getSweepData(2U, guarded.data() + 1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(guarded.front() == 71.25, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(guarded.back() == 71.25, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(
+        functions.getSweepData(2U, guarded.data() + 1U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+
+    vna_test::Expect(functions.startSweep(2U, 0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setRfPowerOn(0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(
+        functions.getSweepData(2U, guarded.data() + 1U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(2U, 0U) == RF_DISABLED, vna_test::TestLocation{__FILE__, __LINE__});
+}
+
+constexpr std::uint32_t RECONFIGURE_ITERATIONS = 200U;
+constexpr std::uint32_t SWEEP_ITERATIONS = 800U;
+constexpr std::uint32_t CONCURRENT_POINT_COUNT = 2U;
+constexpr std::size_t CONCURRENT_WORKER_COUNT = 2U;
+constexpr double CONCURRENT_CANARY = -314159.25;
+
+void WaitForConcurrentStart(NativeConcurrencyCounters &counters) noexcept
+{
+    ++counters.readyThreads;
+    while (!counters.startThreads.load()) {
+        std::this_thread::yield();
+    }
+}
+
+void ConcurrentReconfigure(
+    const NativeFunctions &functions, FrameInput &frame, NativeConcurrencyCounters &counters) noexcept
+{
+    WaitForConcurrentStart(counters);
+    for (std::uint32_t iteration = 0U; iteration < RECONFIGURE_ITERATIONS; ++iteration) {
+        if (functions.hwInit() != OK || functions.setRfPowerOn(1U) != OK || functions.activateRxLink(0xFU) != OK ||
+            functions.setFastSweepMode(0U) != OK || DownloadFrame(functions, frame) != OK) {
+            ++counters.failures;
         }
+    }
+    counters.reconfigureDone.store(true);
+}
 
-        VNA_EXPECT_EQ(kOk, functions.getSweepData(2U, guarded.data() + 1U));
-        VNA_EXPECT_EQ(71.25, guarded.front());
-        VNA_EXPECT_EQ(71.25, guarded.back());
-        VNA_EXPECT_EQ(kInvalidState, functions.getSweepData(2U, guarded.data() + 1U));
+void ValidateConcurrentRead(const NativeFunctions &functions, const std::vector<double> &expected,
+    NativeConcurrencyCounters &counters, bool allowReset)
+{
+    std::vector<double> guarded(expected.size() + 2U, CONCURRENT_CANARY);
+    const std::uint32_t status = functions.getSweepData(CONCURRENT_POINT_COUNT, guarded.data() + 1U);
+    if (status == OK) {
+        ++counters.successfulGets;
+        if (guarded.front() != CONCURRENT_CANARY || guarded.back() != CONCURRENT_CANARY ||
+            !IqMatches(expected, guarded.data() + 1U)) {
+            ++counters.failures;
+        }
+    } else if (status == INVALID_STATE && allowReset) {
+        if (!std::all_of(guarded.begin(), guarded.end(), [](double value) {
+                return value == CONCURRENT_CANARY;
+            })) {
+            ++counters.failures;
+        }
+    } else {
+        ++counters.failures;
+    }
+}
 
-        VNA_EXPECT_EQ(kOk, functions.startSweep(2U, 0U));
-        VNA_EXPECT_EQ(kOk, functions.setRfPowerOn(0U));
-        VNA_EXPECT_EQ(kInvalidState, functions.getSweepData(2U, guarded.data() + 1U));
-        VNA_EXPECT_EQ(kRfDisabled, functions.startSweep(2U, 0U));
-    });
+void ConcurrentSweepAttempt(const NativeFunctions &functions, const std::vector<double> &expected,
+    NativeConcurrencyCounters &counters, bool allowReset)
+{
+    const std::uint32_t status = functions.startSweep(CONCURRENT_POINT_COUNT, 0U);
+    if (status == OK) {
+        ++counters.successfulStarts;
+        ValidateConcurrentRead(functions, expected, counters, allowReset);
+    } else if (!allowReset || (status != RF_DISABLED && status != INVALID_STATE)) {
+        ++counters.failures;
+    }
+}
 
-    runner->Run("C ABI 并发复位与 Start/Get 后仍可恢复", [&functions]() {
-        ConfigureNormalSweep(functions);
-        FrameInput frame = MakeNormalFrame(2U, 0U, UINT64_C(1000000000));
-        VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frame));
-        const std::vector<double> expected = ExpectedIq(frame.frequencies, 0U);
-
-        std::atomic<std::uint32_t> failures(0U);
-        std::atomic<std::uint32_t> successfulStarts(0U);
-        std::atomic<std::uint32_t> successfulGets(0U);
-        std::atomic<std::uint32_t> readyThreads(0U);
-        std::atomic<bool> startThreads(false);
-        std::atomic<bool> reconfigureDone(false);
-        std::thread reconfigure([&functions, &frame, &failures, &readyThreads, &startThreads, &reconfigureDone]() {
-            ++readyThreads;
-            while (!startThreads.load()) {
-                std::this_thread::yield();
-            }
-            for (std::uint32_t iteration = 0U; iteration < 200U; ++iteration) {
-                if (functions.hwInit() != kOk || functions.setRfPowerOn(1U) != kOk ||
-                    functions.activateRxLink(0xFU) != kOk || functions.setFastSweepMode(0U) != kOk ||
-                    DownloadFrame(functions, &frame) != kOk) {
-                    ++failures;
-                }
-            }
-            reconfigureDone.store(true);
-        });
-        std::thread sweep([&functions, &expected, &failures, &successfulStarts, &successfulGets, &readyThreads,
-                              &startThreads, &reconfigureDone]() {
-            ++readyThreads;
-            while (!startThreads.load()) {
-                std::this_thread::yield();
-            }
-            const double canary = -314159.25;
-            for (std::uint32_t iteration = 0U; iteration < 800U; ++iteration) {
-                const std::uint32_t startStatus = functions.startSweep(2U, 0U);
-                if (startStatus == kOk) {
-                    ++successfulStarts;
-                    std::vector<double> guarded(34U, canary);
-                    const std::uint32_t getStatus = functions.getSweepData(2U, guarded.data() + 1U);
-                    if (getStatus == kOk) {
-                        ++successfulGets;
-                        if (guarded.front() != canary || guarded.back() != canary ||
-                            !IqMatches(expected, guarded.data() + 1U)) {
-                            ++failures;
-                        }
-                    } else if (getStatus == kInvalidState) {
-                        for (std::size_t index = 0U; index < guarded.size(); ++index) {
-                            if (guarded[index] != canary) {
-                                ++failures;
-                                break;
-                            }
-                        }
-                    } else {
-                        ++failures;
-                    }
-                } else if (startStatus != kRfDisabled && startStatus != kInvalidState) {
-                    ++failures;
-                }
-            }
-
-            // 等复位线程停下后强制完成一次成功路径，避免压力循环因调度
-            // 恰好只命中允许的状态错误而空转通过。
-            while (!reconfigureDone.load()) {
-                std::this_thread::yield();
-            }
-            if (functions.startSweep(2U, 0U) != kOk) {
-                ++failures;
-                return;
-            }
-            ++successfulStarts;
-            std::vector<double> guarded(34U, canary);
-            if (functions.getSweepData(2U, guarded.data() + 1U) != kOk) {
-                ++failures;
-                return;
-            }
-            ++successfulGets;
-            if (guarded.front() != canary || guarded.back() != canary || !IqMatches(expected, guarded.data() + 1U)) {
-                ++failures;
-            }
-        });
-        while (readyThreads.load() != 2U) {
+void ConcurrentAcquire(
+    const NativeFunctions &functions, const std::vector<double> &expected, NativeConcurrencyCounters &counters) noexcept
+{
+    WaitForConcurrentStart(counters);
+    try {
+        for (std::uint32_t iteration = 0U; iteration < SWEEP_ITERATIONS; ++iteration) {
+            ConcurrentSweepAttempt(functions, expected, counters, true);
+        }
+        // Force a successful path after reset stops; accepted state errors alone must not pass the test.
+        while (!counters.reconfigureDone.load()) {
             std::this_thread::yield();
         }
-        startThreads.store(true);
-        reconfigure.join();
-        sweep.join();
-        VNA_EXPECT_EQ(0U, failures.load());
-        VNA_EXPECT_TRUE(successfulStarts.load() > 0U);
-        VNA_EXPECT_TRUE(successfulGets.load() > 0U);
+        ConcurrentSweepAttempt(functions, expected, counters, false);
+    } catch (...) {
+        // Record worker allocation failure and let the owning group join it normally.
+        ++counters.failures;
+    }
+}
 
-        ConfigureNormalSweep(functions);
-        VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frame));
-        VNA_EXPECT_EQ(kOk, functions.startSweep(2U, 0U));
-        std::vector<double> recovered(32U, 0.0);
-        VNA_EXPECT_EQ(kOk, functions.getSweepData(2U, recovered.data()));
-        ExpectIqNear(ExpectedIq(frame.frequencies, 0U), recovered.data());
+void ConcurrentResetAndAcquisition(const NativeFunctions &functions)
+{
+    ConfigureNormalSweep(functions);
+    FrameInput frame = MakeNormalFrame(CONCURRENT_POINT_COUNT, 0U, 1000000000ULL);
+    vna_test::Expect(DownloadFrame(functions, frame) == OK, {__FILE__, __LINE__});
+    const std::vector<double> expected = ExpectedIq(frame.frequencies, 0U);
+    NativeConcurrencyCounters counters;
+    // The group joins before frame/expected/counters leave scope, including partial launch failures.
+    JoinedThreads workers(CONCURRENT_WORKER_COUNT, [&counters]() {
+        counters.startThreads.store(true);
+    });
+    workers.Launch([&functions, &frame, &counters]() {
+        ConcurrentReconfigure(functions, frame, counters);
+    });
+    workers.Launch([&functions, &expected, &counters]() {
+        ConcurrentAcquire(functions, expected, counters);
+    });
+    while (counters.readyThreads.load() != CONCURRENT_WORKER_COUNT) {
+        std::this_thread::yield();
+    }
+    workers.Join();
+    vna_test::Expect(counters.failures.load() == 0U, {__FILE__, __LINE__});
+    vna_test::Expect(counters.successfulStarts.load() > 0U, {__FILE__, __LINE__});
+    vna_test::Expect(counters.successfulGets.load() > 0U, {__FILE__, __LINE__});
+    ConfigureNormalSweep(functions);
+    vna_test::Expect(DownloadFrame(functions, frame) == OK, {__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(CONCURRENT_POINT_COUNT, 0U) == OK, {__FILE__, __LINE__});
+    std::vector<double> recovered(expected.size(), 0.0);
+    vna_test::Expect(functions.getSweepData(CONCURRENT_POINT_COUNT, recovered.data()) == OK, {__FILE__, __LINE__});
+    ExpectIqNear(expected, recovered.data());
+}
+
+void ConfigurationArgumentValidation(const NativeFunctions &functions)
+{
+    vna_test::Expect(functions.hwInit() == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setRfPowerOn(2U) == INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.activateRxLink(0U) == INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.activateRxLink(0x10U) == INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.activateRxLink(0x5U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setFastSweepMode(0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setFastSweepMode(1U) == NOT_SUPPORTED, vna_test::TestLocation{__FILE__, __LINE__});
+}
+
+void FrameFieldValidation(const NativeFunctions &functions)
+{
+    vna_test::Expect(functions.hwInit() == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    FrameInput frame = MakeNormalFrame(2U, 1U, 2000000000ULL);
+
+    vna_test::Expect(
+        functions.dataFrameDownload(2U, frame.parameters.data(), 12U, frame.powerTable.data(), 18U) == INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(
+        functions.dataFrameDownload(2U, frame.parameters.data(), 13U, frame.powerTable.data(), 17U) == INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
+
+    frame.parameters[0] = 1U;
+    vna_test::Expect(DownloadFrame(functions, frame) == NOT_SUPPORTED, vna_test::TestLocation{__FILE__, __LINE__});
+    frame.parameters[0] = 0U;
+    frame.parameters[4U] = 1U;
+    vna_test::Expect(DownloadFrame(functions, frame) == NOT_SUPPORTED, vna_test::TestLocation{__FILE__, __LINE__});
+    frame.parameters[4U] = 0U;
+    frame.parameters[6U] = 1U;
+    vna_test::Expect(DownloadFrame(functions, frame) == NOT_SUPPORTED, vna_test::TestLocation{__FILE__, __LINE__});
+    frame.parameters[6U] = 0U;
+    frame.parameters[3U] = 4U;
+    vna_test::Expect(DownloadFrame(functions, frame) == INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+    frame.parameters[3U] = 1U;
+    frame.parameters[9U] = 2U;
+    vna_test::Expect(DownloadFrame(functions, frame) == INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+}
+
+void OpaquePowerTable(const NativeFunctions &functions)
+{
+    vna_test::Expect(functions.hwInit() == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    FrameInput frame = MakeNormalFrame(1U, 0U, 1000000000ULL);
+    frame.powerTable[0] = std::numeric_limits<double>::quiet_NaN();
+    frame.powerTable[1] = std::numeric_limits<double>::infinity();
+    frame.powerTable[2] = -std::numeric_limits<double>::infinity();
+    vna_test::Expect(DownloadFrame(functions, frame) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+}
+
+void ShapeOverflowBeforeRead(const NativeFunctions &functions)
+{
+    vna_test::Expect(functions.hwInit() == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    std::uint32_t parameter = 0U;
+    double table = 0.0;
+    vna_test::Expect(functions.dataFrameDownload(std::numeric_limits<std::uint32_t>::max(), &parameter,
+                         std::numeric_limits<std::uint32_t>::max(), &table,
+                         std::numeric_limits<std::uint32_t>::max()) == SIZE_OVERFLOW,
+        vna_test::TestLocation{__FILE__, __LINE__});
+}
+
+void ResetClearsFrameAndPending(const NativeFunctions &functions)
+{
+    ConfigureNormalSweep(functions);
+    FrameInput frame = MakeNormalFrame(1U, 0U, 1000000000ULL);
+    vna_test::Expect(DownloadFrame(functions, frame) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(1U, 0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.hwInit() == OK, vna_test::TestLocation{__FILE__, __LINE__});
+
+    double output[16] = {0.0};
+    vna_test::Expect(functions.getSweepData(1U, output) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(1U, 0U) == RF_DISABLED, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setRfPowerOn(1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.activateRxLink(1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.setFastSweepMode(0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(functions.startSweep(1U, 0U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+}
+
+}  // namespace
+
+void RunNativeNormalSweepTests(TestRunner &runner, NativeLibraryProbe &library)
+{
+    const NativeFunctions &functions = library.Functions();
+
+    runner.Run("四个激励端口完成确定性正常扫频并守住 canary", [&functions]() {
+        FourPortCanarySweep(functions);
     });
 
-    runner->Run("模式、RF 和接收位图参数严格校验", [&functions]() {
-        VNA_EXPECT_EQ(kOk, functions.hwInit());
-        VNA_EXPECT_EQ(kInvalidArgument, functions.setRfPowerOn(2U));
-        VNA_EXPECT_EQ(kInvalidArgument, functions.activateRxLink(0U));
-        VNA_EXPECT_EQ(kInvalidArgument, functions.activateRxLink(0x10U));
-        VNA_EXPECT_EQ(kOk, functions.activateRxLink(0x5U));
-        VNA_EXPECT_EQ(kOk, functions.setFastSweepMode(0U));
-        VNA_EXPECT_EQ(kNotSupported, functions.setFastSweepMode(1U));
+    runner.Run("动态加载的四端口扫频匹配固定 IQ 黄金向量", [&functions]() {
+        GoldenFourPortVector(functions);
     });
 
-    runner->Run("正常帧拒绝非法长度、字段和混合端口", [&functions]() {
-        VNA_EXPECT_EQ(kOk, functions.hwInit());
-        FrameInput frame = MakeNormalFrame(2U, 1U, UINT64_C(2000000000));
-
-        VNA_EXPECT_EQ(kInvalidArgument,
-            functions.dataFrameDownload(2U, frame.parameters.data(), 12U, frame.powerTable.data(), 18U));
-        VNA_EXPECT_EQ(kInvalidArgument,
-            functions.dataFrameDownload(2U, frame.parameters.data(), 13U, frame.powerTable.data(), 17U));
-
-        frame.parameters[0] = 1U;
-        VNA_EXPECT_EQ(kNotSupported, DownloadFrame(functions, &frame));
-        frame.parameters[0] = 0U;
-        frame.parameters[4U] = 1U;
-        VNA_EXPECT_EQ(kNotSupported, DownloadFrame(functions, &frame));
-        frame.parameters[4U] = 0U;
-        frame.parameters[6U] = 1U;
-        VNA_EXPECT_EQ(kNotSupported, DownloadFrame(functions, &frame));
-        frame.parameters[6U] = 0U;
-        frame.parameters[3U] = 4U;
-        VNA_EXPECT_EQ(kInvalidArgument, DownloadFrame(functions, &frame));
-        frame.parameters[3U] = 1U;
-        frame.parameters[9U] = 2U;
-        VNA_EXPECT_EQ(kInvalidArgument, DownloadFrame(functions, &frame));
+    runner.Run("动态加载扫频匹配频率高 32 位黄金向量", [&functions]() {
+        HighWordGoldenVector(functions);
     });
 
-    runner->Run("功率表保持不透明并接受非有限值", [&functions]() {
-        VNA_EXPECT_EQ(kOk, functions.hwInit());
-        FrameInput frame = MakeNormalFrame(1U, 0U, UINT64_C(1000000000));
-        frame.powerTable[0] = std::numeric_limits<double>::quiet_NaN();
-        frame.powerTable[1] = std::numeric_limits<double>::infinity();
-        frame.powerTable[2] = -std::numeric_limits<double>::infinity();
-        VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frame));
+    runner.Run("下载成功后不引用调用方参数数组", [&functions]() {
+        OwnedInputBuffers(functions);
     });
 
-    runner->Run("巨大点数在读取输入前报告尺寸溢出", [&functions]() {
-        VNA_EXPECT_EQ(kOk, functions.hwInit());
-        std::uint32_t parameter = 0U;
-        double table = 0.0;
-        VNA_EXPECT_EQ(kSizeOverflow,
-            functions.dataFrameDownload(std::numeric_limits<std::uint32_t>::max(), &parameter,
-                std::numeric_limits<std::uint32_t>::max(), &table, std::numeric_limits<std::uint32_t>::max()));
+    runner.Run("Start 和 Get 严格执行状态及消费语义", [&functions]() {
+        PendingConsumptionAndRfCancellation(functions);
     });
 
-    runner->Run("重新初始化清空下载帧和 pending", [&functions]() {
-        ConfigureNormalSweep(functions);
-        FrameInput frame = MakeNormalFrame(1U, 0U, UINT64_C(1000000000));
-        VNA_EXPECT_EQ(kOk, DownloadFrame(functions, &frame));
-        VNA_EXPECT_EQ(kOk, functions.startSweep(1U, 0U));
-        VNA_EXPECT_EQ(kOk, functions.hwInit());
+    runner.Run("C ABI 并发复位与 Start/Get 后仍可恢复", [&functions]() {
+        ConcurrentResetAndAcquisition(functions);
+    });
 
-        double output[16] = {0.0};
-        VNA_EXPECT_EQ(kInvalidState, functions.getSweepData(1U, output));
-        VNA_EXPECT_EQ(kRfDisabled, functions.startSweep(1U, 0U));
-        VNA_EXPECT_EQ(kOk, functions.setRfPowerOn(1U));
-        VNA_EXPECT_EQ(kOk, functions.activateRxLink(1U));
-        VNA_EXPECT_EQ(kOk, functions.setFastSweepMode(0U));
-        VNA_EXPECT_EQ(kInvalidState, functions.startSweep(1U, 0U));
+    runner.Run("模式、RF 和接收位图参数严格校验", [&functions]() {
+        ConfigurationArgumentValidation(functions);
+    });
+
+    runner.Run("正常帧拒绝非法长度、字段和混合端口", [&functions]() {
+        FrameFieldValidation(functions);
+    });
+
+    runner.Run("功率表保持不透明并接受非有限值", [&functions]() {
+        OpaquePowerTable(functions);
+    });
+
+    runner.Run("巨大点数在读取输入前报告尺寸溢出", [&functions]() {
+        ShapeOverflowBeforeRead(functions);
+    });
+
+    runner.Run("重新初始化清空下载帧和 pending", [&functions]() {
+        ResetClearsFrameAndPending(functions);
     });
 }
 

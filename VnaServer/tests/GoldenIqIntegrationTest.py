@@ -1,6 +1,6 @@
 """Verify DLL -> Core -> HTTP/ASCII SCPI against fixed, independently computed IQ literals.
 
-The oracle is GoldenIqVectors.h, whose provenance is documented next to its constants.
+The oracle is golden_iq_vectors.h, whose provenance is documented next to its constants.
 Only literals are parsed: no production signal formula is imported or recomputed.
 """
 
@@ -21,15 +21,15 @@ from WebHttpIntegrationTest import HttpClient, connect_scpi, identity_number
 
 def golden_vectors(path):
     text = Path(path).read_text(encoding="utf-8")
-    match = re.search(r"kGoldenIqBySource\[4\]\[2\]\[16\]\s*=\s*(\{.*?\});", text, re.S)
+    match = re.search(r"g_goldenIqBySource\[4\]\[2\]\[16\]\s*=\s*(\{.*?\});", text, re.S)
     assert match, "Missing fixed 4x2x16 golden literal array"
     literal = re.sub(r"//[^\n]*", "", match.group(1)).replace("{", "[").replace("}", "]")
     vectors = json.loads(literal)
     assert len(vectors) == 4 and all(len(source) == 2 for source in vectors)
     assert all(len(point) == 16 and all(math.isfinite(value) for value in point)
                for source in vectors for point in source)
-    frequencies = re.search(r"kGoldenIqFrequencies\[2\]\s*=\s*\{([^}]+)\}", text)
-    assert frequencies and re.findall(r"UINT64_C\((\d+)\)", frequencies.group(1)) == ["1000000000", "2000000000"]
+    frequencies = re.search(r"g_goldenIqFrequencies\[2\]\s*=\s*\{([^}]+)\}", text)
+    assert frequencies and re.findall(r"\b(\d+)ULL\b", frequencies.group(1)) == ["1000000000", "2000000000"]
     return vectors
 
 
@@ -137,7 +137,7 @@ def running_server(server, driver, environment):
 
 
 def main():
-    assert len(sys.argv) == 4, "usage: GoldenIqIntegrationTest.py <server> <driver> <GoldenIqVectors.h>"
+    assert len(sys.argv) == 4, "usage: GoldenIqIntegrationTest.py <server> <driver> <golden_iq_vectors.h>"
     vectors = golden_vectors(sys.argv[3])
     environment = os.environ.copy()
     environment["VNAPRO_SIM_MODE"] = "golden"
