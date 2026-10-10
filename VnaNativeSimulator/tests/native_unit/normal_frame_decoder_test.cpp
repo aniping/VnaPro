@@ -1,3 +1,6 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -5,97 +8,137 @@
 #include <vector>
 
 #include "native_unit_test_fixtures.h"
+#include "native_unit_tests.h"
 
 using vna_native::DRV_SIM_INTERNAL_ERROR;
 using vna_native::DRV_SIM_INVALID_ARGUMENT;
 using vna_native::DRV_SIM_NOT_SUPPORTED;
 using vna_native::DRV_SIM_OK;
 using vna_native::DRV_SIM_SIZE_OVERFLOW;
-using vna_native::NormalFrameDecoder;
+namespace NormalFrameDecoder = vna_native::NormalFrameDecoder;
 using vna_native::NormalFrameSnapshot;
 
-VNA_TEST(NormalFrameDecoderCreatesOwnedSnapshot)
+static void NormalFrameDecoderCreatesOwnedSnapshot()
 {
-    vna_test::EncodedFrame input = vna_test::MakeEncodedFrame(2U, 3U, UINT64_C(0x123456789abcdef0));
+    vna_test::EncodedFrame input = vna_test::MakeEncodedFrame(2U, 3U, 0x123456789abcdef0ULL);
     input.powerTable[0] = std::numeric_limits<double>::quiet_NaN();
     input.powerTable[1] = std::numeric_limits<double>::infinity();
     input.powerTable[2] = -std::numeric_limits<double>::infinity();
     const std::vector<double> expectedTable = input.powerTable;
 
     NormalFrameSnapshot output;
-    VNA_EXPECT_EQ(DRV_SIM_OK,
-        NormalFrameDecoder::Decode(2U, input.parameters.data(), static_cast<std::uint32_t>(input.parameters.size()),
-            input.powerTable.data(), static_cast<std::uint32_t>(input.powerTable.size()), &output));
+    vna_test::Expect(
+        NormalFrameDecoder::Decode(vna_native::NormalFrameInput{2U, input.parameters.data(),
+                                       static_cast<std::uint32_t>(input.parameters.size()), input.powerTable.data(),
+                                       static_cast<std::uint32_t>(input.powerTable.size())},
+            output) == DRV_SIM_OK,
+        vna_test::TestLocation{__FILE__, __LINE__});
 
     std::fill(input.parameters.begin(), input.parameters.end(), 0U);
     std::fill(input.powerTable.begin(), input.powerTable.end(), -1.0);
     std::vector<std::uint32_t>().swap(input.parameters);
     std::vector<double>().swap(input.powerTable);
 
-    VNA_EXPECT_EQ(3U, output.sourcePort);
-    VNA_EXPECT_EQ(2U, output.points.size());
+    vna_test::Expect(output.sourcePort == 3U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(output.points.size() == 2U, vna_test::TestLocation{__FILE__, __LINE__});
     for (std::size_t point = 0U; point < output.points.size(); ++point) {
-        VNA_EXPECT_EQ(UINT64_C(0x123456789abcdef0) + static_cast<std::uint64_t>(point) * UINT64_C(0x100000003),
-            output.points[point].frequencyRaw);
-        VNA_EXPECT_EQ(3U, output.points[point].sourcePort);
-        VNA_EXPECT_EQ(static_cast<std::uint32_t>(100U + point), output.points[point].ifBandwidthRaw);
+        vna_test::Expect(output.points[point].frequencyRaw ==
+                             0x123456789abcdef0ULL + static_cast<std::uint64_t>(point) * 0x100000003ULL,
+            vna_test::TestLocation{__FILE__, __LINE__});
+        vna_test::Expect(output.points[point].sourcePort == 3U, vna_test::TestLocation{__FILE__, __LINE__});
+        vna_test::Expect(output.points[point].ifBandwidthRaw == static_cast<std::uint32_t>(100U + point),
+            vna_test::TestLocation{__FILE__, __LINE__});
     }
-    VNA_EXPECT_EQ(expectedTable.size(), output.tableData.size());
+    vna_test::Expect(output.tableData.size() == expectedTable.size(), vna_test::TestLocation{__FILE__, __LINE__});
     for (std::size_t index = 0U; index < expectedTable.size(); ++index) {
         if (std::isnan(expectedTable[index])) {
-            VNA_EXPECT_TRUE(std::isnan(output.tableData[index]));
+            vna_test::Expect(std::isnan(output.tableData[index]), vna_test::TestLocation{__FILE__, __LINE__});
         } else {
-            VNA_EXPECT_EQ(expectedTable[index], output.tableData[index]);
+            vna_test::Expect(
+                output.tableData[index] == expectedTable[index], vna_test::TestLocation{__FILE__, __LINE__});
         }
     }
 }
 
-VNA_TEST(NormalFrameDecoderRejectsShapeErrorsBeforeReading)
+static void NormalFrameDecoderRejectsShapeErrorsBeforeReading()
 {
     std::uint32_t parameter = 0U;
     double table = 0.0;
     NormalFrameSnapshot output;
 
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, NormalFrameDecoder::ValidateInputShape(1U, NULL, 7U, &table, 9U));
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, NormalFrameDecoder::ValidateInputShape(1U, &parameter, 7U, NULL, 9U));
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, NormalFrameDecoder::ValidateInputShape(0U, &parameter, 1U, &table, 0U));
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, NormalFrameDecoder::ValidateInputShape(1U, &parameter, 6U, &table, 9U));
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, NormalFrameDecoder::ValidateInputShape(1U, &parameter, 7U, &table, 8U));
-    VNA_EXPECT_EQ(DRV_SIM_SIZE_OVERFLOW,
-        NormalFrameDecoder::ValidateInputShape((std::numeric_limits<std::uint32_t>::max)(), &parameter,
-            (std::numeric_limits<std::uint32_t>::max)(), &table, (std::numeric_limits<std::uint32_t>::max)()));
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, NormalFrameDecoder::Decode(1U, &parameter, 7U, &table, 9U, NULL));
+    vna_test::Expect(NormalFrameDecoder::ValidateInputShape(
+                         vna_native::NormalFrameInput{1U, nullptr, 7U, &table, 9U}) == DRV_SIM_INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(NormalFrameDecoder::ValidateInputShape(
+                         vna_native::NormalFrameInput{1U, &parameter, 7U, nullptr, 9U}) == DRV_SIM_INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(NormalFrameDecoder::ValidateInputShape(
+                         vna_native::NormalFrameInput{0U, &parameter, 1U, &table, 0U}) == DRV_SIM_INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(NormalFrameDecoder::ValidateInputShape(
+                         vna_native::NormalFrameInput{1U, &parameter, 6U, &table, 9U}) == DRV_SIM_INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(NormalFrameDecoder::ValidateInputShape(
+                         vna_native::NormalFrameInput{1U, &parameter, 7U, &table, 8U}) == DRV_SIM_INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(
+        NormalFrameDecoder::ValidateInputShape(vna_native::NormalFrameInput{(std::numeric_limits<std::uint32_t>::max)(),
+            &parameter, (std::numeric_limits<std::uint32_t>::max)(), &table,
+            (std::numeric_limits<std::uint32_t>::max)()}) == DRV_SIM_SIZE_OVERFLOW,
+        vna_test::TestLocation{__FILE__, __LINE__});
 }
 
-VNA_TEST(NormalFrameDecoderRejectsUnsupportedAndInvalidFieldsAtomically)
+static void NormalFrameDecoderRejectsUnsupportedAndInvalidFieldsAtomically()
 {
-    vna_test::EncodedFrame input = vna_test::MakeEncodedFrame(2U, 1U, UINT64_C(1000000000));
+    vna_test::EncodedFrame input = vna_test::MakeEncodedFrame(2U, 1U, 1000000000ULL);
     NormalFrameSnapshot output = vna_test::MakeSnapshot(0U, std::vector<std::uint64_t>(1U, 77U));
 
     input.parameters[0] = 1U;
-    VNA_EXPECT_EQ(DRV_SIM_NOT_SUPPORTED,
-        NormalFrameDecoder::Decode(2U, input.parameters.data(), 13U, input.powerTable.data(), 18U, &output));
-    VNA_EXPECT_EQ(77U, output.points[0].frequencyRaw);
+    vna_test::Expect(NormalFrameDecoder::Decode(
+                         vna_native::NormalFrameInput{2U, input.parameters.data(), 13U, input.powerTable.data(), 18U},
+                         output) == DRV_SIM_NOT_SUPPORTED,
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(output.points[0].frequencyRaw == 77U, vna_test::TestLocation{__FILE__, __LINE__});
 
     input.parameters[0] = 0U;
     input.parameters[4U] = 1U;
-    VNA_EXPECT_EQ(DRV_SIM_NOT_SUPPORTED,
-        NormalFrameDecoder::Decode(2U, input.parameters.data(), 13U, input.powerTable.data(), 18U, &output));
+    vna_test::Expect(NormalFrameDecoder::Decode(
+                         vna_native::NormalFrameInput{2U, input.parameters.data(), 13U, input.powerTable.data(), 18U},
+                         output) == DRV_SIM_NOT_SUPPORTED,
+        vna_test::TestLocation{__FILE__, __LINE__});
     input.parameters[4U] = 0U;
     input.parameters[6U] = 1U;
-    VNA_EXPECT_EQ(DRV_SIM_NOT_SUPPORTED,
-        NormalFrameDecoder::Decode(2U, input.parameters.data(), 13U, input.powerTable.data(), 18U, &output));
+    vna_test::Expect(NormalFrameDecoder::Decode(
+                         vna_native::NormalFrameInput{2U, input.parameters.data(), 13U, input.powerTable.data(), 18U},
+                         output) == DRV_SIM_NOT_SUPPORTED,
+        vna_test::TestLocation{__FILE__, __LINE__});
 
     input.parameters[6U] = 0U;
     input.parameters[3U] = 4U;
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT,
-        NormalFrameDecoder::Decode(2U, input.parameters.data(), 13U, input.powerTable.data(), 18U, &output));
+    vna_test::Expect(NormalFrameDecoder::Decode(
+                         vna_native::NormalFrameInput{2U, input.parameters.data(), 13U, input.powerTable.data(), 18U},
+                         output) == DRV_SIM_INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
     input.parameters[3U] = 1U;
     input.parameters[9U] = 2U;
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT,
-        NormalFrameDecoder::Decode(2U, input.parameters.data(), 13U, input.powerTable.data(), 18U, &output));
+    vna_test::Expect(NormalFrameDecoder::Decode(
+                         vna_native::NormalFrameInput{2U, input.parameters.data(), 13U, input.powerTable.data(), 18U},
+                         output) == DRV_SIM_INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
 
-    VNA_EXPECT_EQ(0U, output.sourcePort);
-    VNA_EXPECT_EQ(1U, output.points.size());
-    VNA_EXPECT_EQ(77U, output.points[0].frequencyRaw);
+    vna_test::Expect(output.sourcePort == 0U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(output.points.size() == 1U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(output.points[0].frequencyRaw == 77U, vna_test::TestLocation{__FILE__, __LINE__});
 }
+
+namespace vna_test {
+
+void RunNormalFrameDecoderTests(TestRunner &runner)
+{
+    runner.Run("NormalFrameDecoderCreatesOwnedSnapshot", NormalFrameDecoderCreatesOwnedSnapshot);
+    runner.Run("NormalFrameDecoderRejectsShapeErrorsBeforeReading", NormalFrameDecoderRejectsShapeErrorsBeforeReading);
+    runner.Run("NormalFrameDecoderRejectsUnsupportedAndInvalidFieldsAtomically",
+        NormalFrameDecoderRejectsUnsupportedAndInvalidFieldsAtomically);
+}
+
+}  // namespace vna_test

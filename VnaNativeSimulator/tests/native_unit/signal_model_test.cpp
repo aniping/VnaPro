@@ -1,80 +1,106 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+#include "signal_model.h"
+
 #include <cstdint>
 #include <vector>
 
 #include "golden_iq_vectors.h"
 #include "native_unit_test_fixtures.h"
-#include "signal_model.h"
+#include "native_unit_tests.h"
 
 using vna_native::DRV_SIM_INVALID_ARGUMENT;
 using vna_native::DRV_SIM_OK;
 using vna_native::NormalFrameSnapshot;
-using vna_native::SignalModel;
+namespace SignalModel = vna_native::SignalModel;
 
-VNA_TEST(SignalModelMatchesGoldenLayoutForAllPorts)
+static void SignalModelMatchesGoldenLayoutForAllPorts()
 {
     for (std::uint32_t sourcePort = 0U; sourcePort < 4U; ++sourcePort) {
         std::vector<std::uint64_t> frequencies;
-        frequencies.push_back(vna_test::kGoldenIqFrequencies[0]);
-        frequencies.push_back(vna_test::kGoldenIqFrequencies[1]);
+        frequencies.push_back(vna_test::g_goldenIqFrequencies[0]);
+        frequencies.push_back(vna_test::g_goldenIqFrequencies[1]);
         const NormalFrameSnapshot frame = vna_test::MakeSnapshot(sourcePort, frequencies);
         std::vector<double> actual;
-        VNA_EXPECT_EQ(DRV_SIM_OK, SignalModel::Generate(frame, &actual));
+        vna_test::Expect(
+            SignalModel::Generate(frame, actual) == DRV_SIM_OK, vna_test::TestLocation{__FILE__, __LINE__});
         vna_test::ExpectVectorNear(vna_test::GoldenIqForSource(sourcePort), actual);
-        VNA_EXPECT_EQ(32U, actual.size());
+        vna_test::Expect(actual.size() == 32U, vna_test::TestLocation{__FILE__, __LINE__});
     }
 }
 
-VNA_TEST(SignalModelUsesFrequencyHighWordGoldenVector)
+static void SignalModelUsesFrequencyHighWordGoldenVector()
 {
-    VNA_EXPECT_EQ(vna_test::kGoldenIqFrequencies[0], vna_test::kGoldenIqHighWordFrequency & UINT64_C(0xffffffff));
+    vna_test::Expect((vna_test::GOLDEN_IQ_HIGH_WORD_FREQUENCY & 0xffffffffULL) == vna_test::g_goldenIqFrequencies[0],
+        vna_test::TestLocation{__FILE__, __LINE__});
 
     std::vector<std::uint64_t> frequencies;
-    frequencies.push_back(vna_test::kGoldenIqFrequencies[0]);
-    frequencies.push_back(vna_test::kGoldenIqHighWordFrequency);
+    frequencies.push_back(vna_test::g_goldenIqFrequencies[0]);
+    frequencies.push_back(vna_test::GOLDEN_IQ_HIGH_WORD_FREQUENCY);
     const NormalFrameSnapshot frame = vna_test::MakeSnapshot(0U, frequencies);
     std::vector<double> actual;
-    VNA_EXPECT_EQ(DRV_SIM_OK, SignalModel::Generate(frame, &actual));
-    VNA_EXPECT_EQ(32U, actual.size());
+    vna_test::Expect(SignalModel::Generate(frame, actual) == DRV_SIM_OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(actual.size() == 32U, vna_test::TestLocation{__FILE__, __LINE__});
     for (std::size_t index = 0U; index < 16U; ++index) {
-        VNA_EXPECT_NEAR(vna_test::kGoldenIqBySource[0U][0U][index], actual[index], 1.0e-12);
-        VNA_EXPECT_NEAR(vna_test::kGoldenIqHighWordSource0[index], actual[16U + index], 1.0e-12);
+        vna_test::ExpectNear(vna_test::g_goldenIqBySource[0U][0U][index], actual[index], 1.0e-12,
+            vna_test::TestLocation{__FILE__, __LINE__});
+        vna_test::ExpectNear(vna_test::g_goldenIqHighWordSource0[index], actual[16U + index], 1.0e-12,
+            vna_test::TestLocation{__FILE__, __LINE__});
     }
-    VNA_EXPECT_NE(actual[1U], actual[17U]);
+    vna_test::Expect(actual[17U] != actual[1U], vna_test::TestLocation{__FILE__, __LINE__});
 }
 
-VNA_TEST(SignalModelUsesCompleteFrequencyValueAndIsDeterministic)
+static void SignalModelUsesCompleteFrequencyValueAndIsDeterministic()
 {
     std::vector<std::uint64_t> frequencies;
-    frequencies.push_back(UINT64_C(1000000000));
-    frequencies.push_back(UINT64_C(2000000000));
+    frequencies.push_back(1000000000ULL);
+    frequencies.push_back(2000000000ULL);
     const NormalFrameSnapshot frame = vna_test::MakeSnapshot(0U, frequencies);
     std::vector<double> first;
     std::vector<double> second;
-    VNA_EXPECT_EQ(DRV_SIM_OK, SignalModel::Generate(frame, &first));
-    VNA_EXPECT_EQ(DRV_SIM_OK, SignalModel::Generate(frame, &second));
-    VNA_EXPECT_EQ(first.size(), second.size());
+    vna_test::Expect(SignalModel::Generate(frame, first) == DRV_SIM_OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(SignalModel::Generate(frame, second) == DRV_SIM_OK, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(second.size() == first.size(), vna_test::TestLocation{__FILE__, __LINE__});
     for (std::size_t index = 0U; index < first.size(); ++index) {
-        VNA_EXPECT_EQ(first[index], second[index]);
+        vna_test::Expect(second[index] == first[index], vna_test::TestLocation{__FILE__, __LINE__});
     }
-    VNA_EXPECT_NE(first[1U], first[17U]);
-    VNA_EXPECT_NE(first[2U], first[18U]);
+    vna_test::Expect(first[17U] != first[1U], vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(first[18U] != first[2U], vna_test::TestLocation{__FILE__, __LINE__});
 }
 
-VNA_TEST(SignalModelRejectsInvalidFramesWithoutChangingOutput)
+static void SignalModelRejectsInvalidFramesWithoutChangingOutput()
 {
     std::vector<double> output(3U, 42.0);
     NormalFrameSnapshot empty;
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, SignalModel::Generate(empty, &output));
-    VNA_EXPECT_EQ(3U, output.size());
-    VNA_EXPECT_EQ(42.0, output[0]);
+    vna_test::Expect(
+        SignalModel::Generate(empty, output) == DRV_SIM_INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(output.size() == 3U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(output[0] == 42.0, vna_test::TestLocation{__FILE__, __LINE__});
 
     NormalFrameSnapshot badPort = vna_test::MakeSnapshot(4U, std::vector<std::uint64_t>(1U, 1U));
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, SignalModel::Generate(badPort, &output));
+    vna_test::Expect(
+        SignalModel::Generate(badPort, output) == DRV_SIM_INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
 
     NormalFrameSnapshot inconsistent = vna_test::MakeSnapshot(1U, std::vector<std::uint64_t>(1U, 1U));
     inconsistent.points[0].sourcePort = 2U;
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, SignalModel::Generate(inconsistent, &output));
-    VNA_EXPECT_EQ(DRV_SIM_INVALID_ARGUMENT, SignalModel::Generate(inconsistent, NULL));
-    VNA_EXPECT_EQ(3U, output.size());
-    VNA_EXPECT_EQ(42.0, output[0]);
+    vna_test::Expect(SignalModel::Generate(inconsistent, output) == DRV_SIM_INVALID_ARGUMENT,
+        vna_test::TestLocation{__FILE__, __LINE__});
+
+    vna_test::Expect(output.size() == 3U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(output[0] == 42.0, vna_test::TestLocation{__FILE__, __LINE__});
 }
+
+namespace vna_test {
+
+void RunSignalModelTests(TestRunner &runner)
+{
+    runner.Run("SignalModelMatchesGoldenLayoutForAllPorts", SignalModelMatchesGoldenLayoutForAllPorts);
+    runner.Run("SignalModelUsesFrequencyHighWordGoldenVector", SignalModelUsesFrequencyHighWordGoldenVector);
+    runner.Run("SignalModelUsesCompleteFrequencyValueAndIsDeterministic",
+        SignalModelUsesCompleteFrequencyValueAndIsDeterministic);
+    runner.Run(
+        "SignalModelRejectsInvalidFramesWithoutChangingOutput", SignalModelRejectsInvalidFramesWithoutChangingOutput);
+}
+
+}  // namespace vna_test

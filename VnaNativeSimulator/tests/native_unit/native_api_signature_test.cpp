@@ -1,6 +1,10 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #include <type_traits>
 
 #include "../test_support.h"
+#include "native_unit_tests.h"
 #include "vna_native/native_api_contract.h"
 
 static_assert(std::is_same<vna_native::DrvHwInitFn, decltype(&::DrvHwInit)>::value, "DrvHwInit 签名不匹配");
@@ -19,19 +23,37 @@ static_assert(std::is_same<vna_native::DrvCheckSweepPortPowerFn, decltype(&::Drv
 static_assert(std::is_same<vna_native::DrvDataFrameDownloadFn, decltype(&::DrvDataFrameDownload)>::value,
     "DrvDataFrameDownload 签名不匹配");
 
-VNA_TEST(NativeContractConstantsAreStable)
+static void NativeContractConstantsAreStable()
 {
-    VNA_EXPECT_EQ(4U, vna_native::kNativePortCount);
-    VNA_EXPECT_EQ(6U, vna_native::kParamValuesPerPoint);
-    VNA_EXPECT_EQ(9U, vna_native::kTableValuesPerPoint);
-    VNA_EXPECT_EQ(16U, vna_native::kIqValuesPerPoint);
-    VNA_EXPECT_EQ(std::string("DrvHwInit"), std::string(vna_native::kDrvHwInitSymbol));
-    VNA_EXPECT_EQ(std::string("DrvGetSweepData"), std::string(vna_native::kDrvGetSweepDataSymbol));
-    VNA_EXPECT_EQ(std::string("DrvStartSweep"), std::string(vna_native::kDrvStartSweepSymbol));
-    VNA_EXPECT_EQ(std::string("DrvActivateRxLink"), std::string(vna_native::kDrvActivateRxLinkSymbol));
-    VNA_EXPECT_EQ(std::string("DrvSetRfPowerOn"), std::string(vna_native::kDrvSetRfPowerOnSymbol));
-    VNA_EXPECT_EQ(std::string("DrvSetFastSweepMode"), std::string(vna_native::kDrvSetFastSweepModeSymbol));
-    VNA_EXPECT_EQ(std::string("DrvGetIDN"), std::string(vna_native::kDrvGetIDNSymbol));
-    VNA_EXPECT_EQ(std::string("DrvCheckSweepPortPower"), std::string(vna_native::kDrvCheckSweepPortPowerSymbol));
-    VNA_EXPECT_EQ(std::string("DrvDataFrameDownload"), std::string(vna_native::kDrvDataFrameDownloadSymbol));
+    vna_test::Expect(vna_native::NATIVE_PORT_COUNT == 4U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(vna_native::PARAM_VALUES_PER_POINT == 6U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(vna_native::TABLE_VALUES_PER_POINT == 9U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(vna_native::IQ_VALUES_PER_POINT == 16U, vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvHwInitSymbol) == std::string("DrvHwInit"),
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvGetSweepDataSymbol) == std::string("DrvGetSweepData"),
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvStartSweepSymbol) == std::string("DrvStartSweep"),
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvActivateRxLinkSymbol) == std::string("DrvActivateRxLink"),
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvSetRfPowerOnSymbol) == std::string("DrvSetRfPowerOn"),
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvSetFastSweepModeSymbol) == std::string("DrvSetFastSweepMode"),
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvGetIdnSymbol) == std::string("DrvGetIDN"),
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvCheckSweepPortPowerSymbol) == std::string("DrvCheckSweepPortPower"),
+        vna_test::TestLocation{__FILE__, __LINE__});
+    vna_test::Expect(std::string(vna_native::g_drvDataFrameDownloadSymbol) == std::string("DrvDataFrameDownload"),
+        vna_test::TestLocation{__FILE__, __LINE__});
 }
+
+namespace vna_test {
+
+void RunNativeApiSignatureTests(TestRunner &runner)
+{
+    runner.Run("NativeContractConstantsAreStable", NativeContractConstantsAreStable);
+}
+
+}  // namespace vna_test
