@@ -4,7 +4,7 @@ export type LayoutMode = 'single' | 'grid' | 'maximized'
 export interface DisplayScale {
   min: number
   max: number
-  /** Divisions above the bottom edge, matching the instrument's 0..10 reference position. */
+  /** 从绘图区底边向上计数的格数，对应仪器 0..10 的参考位置。 */
   referencePosition?: number
 }
 
@@ -24,7 +24,7 @@ export function traceColor(index: number): string {
   return TRACE_COLORS[((index % TRACE_COLORS.length) + TRACE_COLORS.length) % TRACE_COLORS.length]!
 }
 
-/** ZNB factory presentation restarts the color sequence in each diagram. */
+/** ZNB 默认显示设置在每个绘图区内重新开始轨迹颜色序列。 */
 export function diagramTraceColor(index: number, layout: LayoutMode): string {
   return traceColor(layout === 'single' ? index : 0)
 }

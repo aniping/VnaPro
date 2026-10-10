@@ -7,7 +7,7 @@ function csvCell(value: unknown): string {
   return `"${String(value ?? '').replaceAll('"', '""')}"`
 }
 
-/** Export only the actual displayed snapshot. Full sweep points are never synthesized. */
+/** 只导出实际显示的快照，不补造完整扫描中的其他采样点。 */
 export function exportVisibleFrameCsv(frame: AcquiredFrame, presentations: Record<string, TracePresentation>): string {
   const lines = [
     '# VnaPro raw receiver display snapshot',

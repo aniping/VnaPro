@@ -227,7 +227,7 @@ function clickPlot(event: MouseEvent): void {
 }
 
 function plotKey(event: KeyboardEvent): void {
-  // Child marker handles own their keys; the focused plot uses the active trace's M1.
+  // 子级标记控件自行处理按键；绘图区获得焦点时操作当前轨迹的 M1。
   if (event.target !== event.currentTarget) return
   const trace = activeTrace.value
   if (!trace?.presentation.marker.enabled || !props.frame) return

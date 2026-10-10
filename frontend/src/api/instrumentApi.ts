@@ -61,7 +61,7 @@ export interface InstrumentGateway {
   abortRequests(): void
 }
 
-/** JSON transport only. Device completion and control ownership belong to the service. */
+/** 仅负责 JSON 传输；设备操作的完成状态和控制权由服务端管理。 */
 export class InstrumentApi implements InstrumentGateway {
   private readonly root: string
   private readonly fetcher: typeof fetch
@@ -75,7 +75,7 @@ export class InstrumentApi implements InstrumentGateway {
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis)
     this.storage = options.storage === undefined ? browserStorage() : options.storage
     this.timeoutMs = options.timeoutMs ?? 5000
-    try { this.token = this.storage?.getItem(SESSION_KEY) || '' } catch { /* Storage can be unavailable. */ }
+    try { this.token = this.storage?.getItem(SESSION_KEY) || '' } catch { /* 浏览器存储可能不可用。 */ }
   }
 
   get sessionId(): string { return this.token }
@@ -90,7 +90,7 @@ export class InstrumentApi implements InstrumentGateway {
     try {
       if (token) this.storage?.setItem(SESSION_KEY, token)
       else this.storage?.removeItem(SESSION_KEY)
-    } catch { /* The lease remains usable in this tab's memory. */ }
+    } catch { /* 控制租约仍可保存在当前标签页内存中使用。 */ }
   }
 
   private async request<T>(
@@ -151,7 +151,7 @@ export class InstrumentApi implements InstrumentGateway {
       result = await this.request('/control/claim', decodeClaim, 'POST', this.token ? { sessionId: this.token } : {})
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 403 || !this.token) throw error
-      // Only the server issues lease tokens. An expired token cannot be revived locally.
+      // 控制租约令牌只由服务端签发；过期令牌不能在本地恢复。
       this.rememberSession('')
       result = await this.request('/control/claim', decodeClaim, 'POST', {})
     }

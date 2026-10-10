@@ -23,7 +23,7 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : '服务请求失败'
 }
 
-/** The single poll loop owns server readback; components own only local drafts and presentation. */
+/** 统一轮询循环负责读取服务端状态；组件只管理本地编辑草稿和显示设置。 */
 export function useInstrument(options: InstrumentOptions = {}) {
   const api = options.api ?? new InstrumentApi()
   const now = options.now ?? Date.now
@@ -131,7 +131,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   async function release(): Promise<boolean> {
     if (controlBusy.value) return false
     controlBusy.value = true
-    // Stop renewal before awaiting release: an older status response must never reclaim the lease.
+    // 等待释放结果前先停止续期，防止较早发出的状态请求返回后重新占用控制租约。
     renewing.value = false
     const epoch = generation
     try {
@@ -152,7 +152,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
     const pending = pendingOperation.value
     if (!pending) return
     try {
-      // Accepted tickets remain private to their original token, including after release/reclaim.
+      // 已受理操作的凭据始终属于原令牌，释放或重新获取控制租约后也不转移。
       const result = await api.operation(pending.id, pending.ownerSessionId)
       if (epoch !== generation || pendingOperation.value?.id !== pending.id || result.state === 'pending') return
       if (result.operationId !== pending.id) throw new ApiError('服务返回了不匹配的操作编号', 0, '', 'protocol')
@@ -178,7 +178,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
         notify('操作结果已过期；请根据设备读回状态判断结果，未自动重发。', 'warning')
         settleOperation(null)
       }
-      // A transient observation failure retains the ticket; HTTP 202 never implies completion.
+      // 暂时无法查询状态时保留操作凭据；HTTP 202 只表示已受理，不表示操作完成。
     }
   }
 
@@ -305,7 +305,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
     controlBusy.value = false
     writeInFlight.value = false
     connected.value = false
-    // Aborting HTTP observation never claims to cancel accepted device work.
+    // 终止 HTTP 状态查询不会取消设备已受理的操作。
     settleOperation(null)
   }
 

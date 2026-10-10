@@ -4,7 +4,7 @@ import { defaultTracePresentation } from '../domain/presentation'
 import type { DisplayFormat, DisplayScale, LayoutMode, TracePresentation } from '../domain/presentation'
 import { FORMAT_INFO } from '../plot/formatting'
 
-/** Presentation belongs to individual traces; it never writes acquisition configuration. */
+/** 显示设置归各条轨迹独立管理，不写入采集配置。 */
 export function useWorkspace(measurements: () => Measurement[]) {
   const presentations = reactive<Record<string, TracePresentation>>({})
   const activeTraceName = ref('')

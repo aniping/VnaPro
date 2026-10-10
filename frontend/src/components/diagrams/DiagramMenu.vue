@@ -35,7 +35,7 @@ async function choose(mode: LayoutMode) {
   const targetNumber = mode === 'single' ? 1 : props.number
   close()
   emit('layout', mode)
-  // Layout changes remount keyed panes; restore focus to the new trigger, not the removed one.
+  // 布局变化会重新挂载带键值的绘图区；应将焦点恢复到新触发按钮。
   await nextTick()
   const nextTrigger = document.querySelector<HTMLButtonElement>(`[data-testid="diagram-menu-${targetNumber}"]`)
     ?? document.querySelector<HTMLButtonElement>('.diagram-menu-trigger')

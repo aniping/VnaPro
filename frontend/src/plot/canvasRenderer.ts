@@ -16,7 +16,7 @@ export interface MarkerPlacement {
   labelTop: number
 }
 
-/** Keep the touch target inside the viewport while the arrow tip stays on its true sample. */
+/** 将触控区域限制在视口内，同时保持箭头尖端指向真实采样点。 */
 export function markerPlacement(point: { x: number; y: number }, rect: PlotRect): MarkerPlacement {
   const width = Math.min(32, rect.width)
   const height = Math.min(32, rect.height)
@@ -82,7 +82,7 @@ export interface RasterGeometry {
 
 export interface ScreenBounds { width: number; height: number; left: number; top: number }
 
-/** Cover the original plot bounds with whole device pixels without changing its sample projection. */
+/** 用完整的物理像素覆盖原绘图区边界，保持采样点投影不变。 */
 export function rasterGeometry(
   logical: { width: number; height: number },
   bounds: ScreenBounds,
@@ -112,20 +112,20 @@ export function rasterGeometry(
     canvasOffsetX: -offsetX / physicalScaleX, canvasOffsetY: -offsetY / physicalScaleY }
 }
 
-/** Align axis-aligned stroke edges in global physical pixels, including fractional canvas origins. */
+/** 按全局物理像素对齐水平和垂直线条的边缘，同时处理画布原点的小数偏移。 */
 export function snapPhysicalStroke(position: number, physicalScale: number, origin: number, strokeWidth = 1): number {
   const halfWidth = strokeWidth / 2
   return (Math.round(origin + position * physicalScale - halfWidth) + halfWidth - origin) / physicalScale
 }
 
-/** Bounds belong to the plot parent, never the canvas after applying its compensation transform. */
+/** 绘图区边界取自父元素，不能取自已应用补偿变换的画布。 */
 export function paintDiagram(canvas: HTMLCanvasElement, diagram: CanvasDiagram, bounds: ScreenBounds): void {
   const raster = rasterGeometry(diagram, bounds, window.devicePixelRatio)
-  // A transform avoids fractional CSS layout rounding and gives each bitmap texel one device pixel.
-  // The parent clips the subpixel overhang; drawing offsets keep samples aligned with DOM markers.
+  // 通过变换避开 CSS 布局的小数取整，使每个位图像素对应一个物理像素。
+  // 父元素裁剪不足一个像素的越界部分，绘图偏移保证采样点与 DOM 标记对齐。
   const transform = `matrix(${raster.canvasScaleX},0,0,${raster.canvasScaleY},${raster.canvasOffsetX},${raster.canvasOffsetY})`
   if (canvas.style.transform !== transform) canvas.style.transform = transform
-  // Assigning either dimension resets the entire context, even if its value did not change.
+  // 设置画布任一尺寸都会重置整个绘图上下文，即使尺寸值没有变化。
   if (canvas.width !== raster.bitmapWidth) canvas.width = raster.bitmapWidth
   if (canvas.height !== raster.bitmapHeight) canvas.height = raster.bitmapHeight
   const context = canvas.getContext('2d')
@@ -147,7 +147,7 @@ export function paintDiagram(canvas: HTMLCanvasElement, diagram: CanvasDiagram, 
   const xEnd = alignX(left + width)
   const yStart = alignY(top)
   const yEnd = alignY(top + height)
-  // Grid and reference lines occupy one physical pixel. Horizontal/vertical widths differ under scaling.
+  // 网格线和参考线占一个物理像素；缩放时需分别计算水平线和垂直线的线宽。
   context.lineWidth = 1 / raster.physicalScaleX
   context.strokeStyle = '#4b5f6c'
   context.beginPath()
@@ -181,7 +181,7 @@ export function paintDiagram(canvas: HTMLCanvasElement, diagram: CanvasDiagram, 
   }
   context.stroke()
 
-  // Every visible trace keeps its own reference position and color. Paint active last.
+  // 每条可见轨迹保留自己的参考位置和颜色，最后绘制当前选中的轨迹。
   const references = [...diagram.references].sort((first, second) => Number(first.active) - Number(second.active))
   for (const reference of references) {
     const referenceY = top + height * normalizedY(referenceLevel(reference.scale), reference.scale)
@@ -203,8 +203,8 @@ export function paintDiagram(canvas: HTMLCanvasElement, diagram: CanvasDiagram, 
   }
 
   context.save()
-  // Paint curves in final screen CSS coordinates so a 1px stroke stays 1px at any instrument scale.
-  // True sample projection is not snapped or filtered; the bitmap is composited at 1:1 device pixels.
+  // 在最终屏幕 CSS 坐标中绘制曲线，使仪器界面任意缩放下的线宽始终为 1px。
+  // 真实采样点投影不做像素吸附或过滤；位图按物理像素 1:1 合成。
   const screenX = (x: number) => x * raster.cssScaleX
   const screenY = (y: number) => y * raster.cssScaleY
   context.setTransform(raster.density, 0, 0, raster.density, raster.offsetX, raster.offsetY)

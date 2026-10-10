@@ -1,4 +1,4 @@
-/** Instrument identities stay decimal strings: the server uses uint64 counters. */
+/** 仪器标识保持为十进制字符串，以完整保留服务端 uint64 计数器的值。 */
 export type CoreState = 'Uninitialized' | 'Ready' | 'Running' | 'Faulted' | 'Closed'
 export type RunAction = 'single' | 'continuous' | 'hold' | 'trigger'
 

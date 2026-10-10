@@ -21,7 +21,7 @@ test('device-pixel canvas bounds composite 1:1 without moving samples at nine DP
           cssScale: raster.cssScaleY, physicalScale: raster.physicalScaleY, offset: raster.offsetY,
           canvasScale: raster.canvasScaleY, canvasOffset: raster.canvasOffsetY },
       ]) {
-        // Apply the element's own CSS matrix, then the instrument's outer scale.
+        // 先应用元素自身的 CSS 矩阵，再应用仪器界面的外层缩放。
         const canvasOrigin = axis.origin + axis.canvasOffset * axis.cssScale
         const canvasSize = axis.screenSize * axis.canvasScale
         near(canvasOrigin * dpr, Math.floor(axis.origin * dpr))
@@ -33,13 +33,13 @@ test('device-pixel canvas bounds composite 1:1 without moving samples at nine DP
         const texelScreenSize = canvasSize / axis.bitmapSize
         near(texelScreenSize * dpr, 1)
         for (const coordinate of [0, axis.length * 0.27125, axis.length]) {
-          // Context translation cancels the expanded canvas origin, preserving the DOM marker projection.
+          // 通过平移绘图上下文抵消画布扩展后的原点偏移，保持与 DOM 标记的投影一致。
           const bitmapPosition = axis.offset + coordinate * axis.physicalScale
           const screenPosition = canvasOrigin + bitmapPosition * texelScreenSize
           near(screenPosition, axis.origin + coordinate * axis.cssScale)
           near((screenPosition - axis.origin) / axis.cssScale, coordinate)
         }
-        // Curves use a DPR-wide stroke in the bitmap, which becomes one screen CSS pixel.
+        // 曲线在位图中的线宽为 DPR，显示后对应一个屏幕 CSS 像素。
         near(raster.density * texelScreenSize, 1)
       }
     }

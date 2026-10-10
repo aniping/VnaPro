@@ -40,7 +40,7 @@ function niceCeiling(value: number): number {
   return step * power
 }
 
-/** Explicit Autoscale fits real samples; the initial presentation uses normal instrument scale. */
+/** 主动执行自动缩放时按真实采样值适配范围；初始显示采用常规仪器刻度。 */
 export function traceScale(trace: FrameTrace | undefined, format: DisplayFormat, requested: DisplayScale | null): DisplayScale {
   if (requested && Number.isFinite(requested.min) && Number.isFinite(requested.max) && requested.max > requested.min) {
     return { ...requested }
@@ -73,7 +73,7 @@ export function referenceLevel(scale: DisplayScale): number {
   return scale.min + (scale.max - scale.min) * position / 10
 }
 
-/** Snap against supplied samples rather than reconstructing omitted or nonuniform source points. */
+/** 依据已提供的采样点进行吸附，不重建缺失或非均匀分布的原始采样点。 */
 export function nearestIndex(axis: readonly number[], requested: number | null): number {
   if (axis.length === 0) return -1
   if (requested === null || !Number.isFinite(requested)) return Math.floor((axis.length - 1) / 2)
