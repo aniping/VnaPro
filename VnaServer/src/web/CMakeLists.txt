@@ -1,6 +1,11 @@
-add_library(vna_web STATIC WebEndpoint.cpp HttpApi.cpp Json.cpp)
+add_library(vna_web STATIC
+    WebEndpoint.cpp
+    StaticFile.cpp
+    HttpApi.cpp
+    Json.cpp
+)
 target_include_directories(vna_web PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(vna_web PUBLIC vna_service)
+target_link_libraries(vna_web PUBLIC vna_service vna_network)
 target_compile_features(vna_web PUBLIC cxx_std_14)
 target_compile_options(vna_web PRIVATE -Wall -Wextra -Wpedantic)
 if(WIN32)

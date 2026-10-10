@@ -3,19 +3,13 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
+
+#include "web/WebOptions.h"
 
 namespace vna_service {
 class InstrumentService;
 }
 namespace vna_web {
-struct WebOptions {
-    std::string bindAddress = "127.0.0.1";
-    std::uint16_t port = 8080;
-    std::string staticRoot;
-    bool enabled = true;
-};
-
 // All calls belong to the same executor as InstrumentService and SCPI.
 // poll never waits on a device future; accepted writes outlive HTTP connections.
 class WebEndpoint {

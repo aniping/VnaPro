@@ -1,3 +1,4 @@
+add_subdirectory(src/network)
 add_subdirectory(src/scpi)
 add_subdirectory(src/web)
 add_executable(vna_server src/main.cpp src/ScpiTcpServer.cpp)

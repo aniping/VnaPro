@@ -1,105 +1,28 @@
 #include "ScpiTcpServer.h"
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/tcp.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
-
-#include <cerrno>
 #include <chrono>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <thread>
 
+#include "network/NetworkRuntime.h"
+#include "network/SocketOwner.h"
 #include "scpi/ScpiEngine.h"
+#include "web/WebEndpoint.h"
 
 namespace vna_server {
+using network::CloseSocket;
+using network::kInvalidSocket;
+using network::NetworkRuntime;
+using network::SetNonBlocking;
+using network::Socket;
+using network::SocketError;
+using network::SocketLength;
+using network::SocketOwner;
+using network::WouldBlock;
+
 namespace {
-#ifdef _WIN32
-using Socket = SOCKET;
-constexpr Socket kInvalidSocket = INVALID_SOCKET;
-int SocketError()
-{
-    return WSAGetLastError();
-}
-bool WouldBlock(int error)
-{
-    return error == WSAEWOULDBLOCK || error == WSAEINTR;
-}
-void CloseSocket(Socket socket)
-{
-    closesocket(socket);
-}
-bool SetNonBlocking(Socket socket)
-{
-    u_long enabled = 1;
-    return ioctlsocket(socket, FIONBIO, &enabled) == 0;
-}
-using SocketLength = int;
-struct NetworkRuntime {
-    NetworkRuntime()
-    {
-        WSADATA data;
-        if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
-            throw std::runtime_error("WSAStartup failed");
-        }
-    }
-    ~NetworkRuntime() { WSACleanup(); }
-};
-#else
-using Socket = int;
-constexpr Socket kInvalidSocket = -1;
-int SocketError()
-{
-    return errno;
-}
-bool WouldBlock(int error)
-{
-    return error == EAGAIN || error == EWOULDBLOCK || error == EINTR;
-}
-void CloseSocket(Socket socket)
-{
-    close(socket);
-}
-bool SetNonBlocking(Socket socket)
-{
-    const int flags = fcntl(socket, F_GETFL, 0);
-    return flags != -1 && fcntl(socket, F_SETFL, flags | O_NONBLOCK) == 0;
-}
-using SocketLength = socklen_t;
-struct NetworkRuntime {};
-#endif
-
-class SocketOwner {
-public:
-    explicit SocketOwner(Socket value = kInvalidSocket) : value_(value) {}
-    ~SocketOwner() { reset(); }
-    SocketOwner(const SocketOwner&) = delete;
-    SocketOwner& operator=(const SocketOwner&) = delete;
-    Socket get() const { return value_; }
-    void reset(Socket value = kInvalidSocket)
-    {
-        if (value_ != kInvalidSocket) {
-            CloseSocket(value_);
-        }
-        value_ = value;
-    }
-
-private:
-    Socket value_;
-};
-
 constexpr std::size_t kInputLimit = 16U * 1024U;
 constexpr std::size_t kOutputLimit = 1024U * 1024U;
 using Clock = std::chrono::steady_clock;
