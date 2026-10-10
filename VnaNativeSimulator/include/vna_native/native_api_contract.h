@@ -26,7 +26,7 @@
 #define VNA_NATIVE_CALL
 #endif
 
-namespace vna_native {
+namespace VnaNative {
 
 // These status values describe the simulator, not an undocumented vendor driver contract.
 enum DrvSimErrorCode : std::uint32_t {
@@ -72,7 +72,7 @@ using DrvCheckSweepPortPowerFn = std::uint32_t(VNA_NATIVE_CALL *)(
 using DrvDataFrameDownloadFn = std::uint32_t(VNA_NATIVE_CALL *)(
     std::uint32_t, std::uint32_t *, std::uint32_t, double *, std::uint32_t);
 
-}  // namespace vna_native
+}  // namespace VnaNative
 
 extern "C" {
 

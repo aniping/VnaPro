@@ -5,7 +5,7 @@
 
 #include <utility>
 
-namespace vna_native {
+namespace VnaNative {
 
 void NormalFrameSnapshot::Swap(NormalFrameSnapshot &other) noexcept
 {
@@ -14,4 +14,4 @@ void NormalFrameSnapshot::Swap(NormalFrameSnapshot &other) noexcept
     tableData.swap(other.tableData);
 }
 
-}  // namespace vna_native
+}  // namespace VnaNative

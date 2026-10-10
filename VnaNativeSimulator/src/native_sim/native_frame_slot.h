@@ -6,7 +6,7 @@
 
 #include "normal_frame_snapshot.h"
 
-namespace vna_native {
+namespace VnaNative {
 
 struct VNA_NATIVE_HIDDEN NativeFrameSlot final {
     bool valid = false;
@@ -16,5 +16,5 @@ struct VNA_NATIVE_HIDDEN NativeFrameSlot final {
     void Swap(NativeFrameSlot &other) noexcept;
 };
 
-}  // namespace vna_native
+}  // namespace VnaNative
 #endif  // VNAPRO_NATIVE_SIM_NATIVE_FRAME_SLOT_H

@@ -126,14 +126,14 @@ void NativeLibraryProbe::ResolveInitialization(std::vector<std::string> &missing
 {
     // Platform loaders return an address representation; copy it into the exact ABI pointer type.
     // Each assertion makes this explicitly platform-dependent bridge reject unsupported layouts.
-    const SymbolAddress hwInit = ResolveAddress(vna_native::g_drvHwInitSymbol, missingSymbols, errorMessage);
+    const SymbolAddress hwInit = ResolveAddress(VnaNative::g_drvHwInitSymbol, missingSymbols, errorMessage);
     static_assert(sizeof(functions_.hwInit) == sizeof(hwInit), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.hwInit, &hwInit, sizeof(hwInit));
-    const SymbolAddress getIdn = ResolveAddress(vna_native::g_drvGetIdnSymbol, missingSymbols, errorMessage);
+    const SymbolAddress getIdn = ResolveAddress(VnaNative::g_drvGetIdnSymbol, missingSymbols, errorMessage);
     static_assert(sizeof(functions_.getIDN) == sizeof(getIdn), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.getIDN, &getIdn, sizeof(getIdn));
     const SymbolAddress checkPower =
-        ResolveAddress(vna_native::g_drvCheckSweepPortPowerSymbol, missingSymbols, errorMessage);
+        ResolveAddress(VnaNative::g_drvCheckSweepPortPowerSymbol, missingSymbols, errorMessage);
     static_assert(
         sizeof(functions_.checkSweepPortPower) == sizeof(checkPower), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.checkSweepPortPower, &checkPower, sizeof(checkPower));
@@ -141,14 +141,14 @@ void NativeLibraryProbe::ResolveInitialization(std::vector<std::string> &missing
 
 void NativeLibraryProbe::ResolveAcquisition(std::vector<std::string> &missingSymbols, std::string &errorMessage)
 {
-    const SymbolAddress getSweep = ResolveAddress(vna_native::g_drvGetSweepDataSymbol, missingSymbols, errorMessage);
+    const SymbolAddress getSweep = ResolveAddress(VnaNative::g_drvGetSweepDataSymbol, missingSymbols, errorMessage);
     static_assert(sizeof(functions_.getSweepData) == sizeof(getSweep), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.getSweepData, &getSweep, sizeof(getSweep));
-    const SymbolAddress startSweep = ResolveAddress(vna_native::g_drvStartSweepSymbol, missingSymbols, errorMessage);
+    const SymbolAddress startSweep = ResolveAddress(VnaNative::g_drvStartSweepSymbol, missingSymbols, errorMessage);
     static_assert(sizeof(functions_.startSweep) == sizeof(startSweep), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.startSweep, &startSweep, sizeof(startSweep));
     const SymbolAddress download =
-        ResolveAddress(vna_native::g_drvDataFrameDownloadSymbol, missingSymbols, errorMessage);
+        ResolveAddress(VnaNative::g_drvDataFrameDownloadSymbol, missingSymbols, errorMessage);
     static_assert(
         sizeof(functions_.dataFrameDownload) == sizeof(download), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.dataFrameDownload, &download, sizeof(download));
@@ -156,16 +156,14 @@ void NativeLibraryProbe::ResolveAcquisition(std::vector<std::string> &missingSym
 
 void NativeLibraryProbe::ResolveConfiguration(std::vector<std::string> &missingSymbols, std::string &errorMessage)
 {
-    const SymbolAddress activateRx =
-        ResolveAddress(vna_native::g_drvActivateRxLinkSymbol, missingSymbols, errorMessage);
+    const SymbolAddress activateRx = ResolveAddress(VnaNative::g_drvActivateRxLinkSymbol, missingSymbols, errorMessage);
     static_assert(
         sizeof(functions_.activateRxLink) == sizeof(activateRx), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.activateRxLink, &activateRx, sizeof(activateRx));
-    const SymbolAddress rfPower = ResolveAddress(vna_native::g_drvSetRfPowerOnSymbol, missingSymbols, errorMessage);
+    const SymbolAddress rfPower = ResolveAddress(VnaNative::g_drvSetRfPowerOnSymbol, missingSymbols, errorMessage);
     static_assert(sizeof(functions_.setRfPowerOn) == sizeof(rfPower), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.setRfPowerOn, &rfPower, sizeof(rfPower));
-    const SymbolAddress fastMode =
-        ResolveAddress(vna_native::g_drvSetFastSweepModeSymbol, missingSymbols, errorMessage);
+    const SymbolAddress fastMode = ResolveAddress(VnaNative::g_drvSetFastSweepModeSymbol, missingSymbols, errorMessage);
     static_assert(
         sizeof(functions_.setFastSweepMode) == sizeof(fastMode), "Unsupported platform function pointer layout");
     std::memcpy(&functions_.setFastSweepMode, &fastMode, sizeof(fastMode));

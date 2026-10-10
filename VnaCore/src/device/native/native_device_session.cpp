@@ -49,10 +49,10 @@ DownloadFrame Encode(const SweepPlan &plan, std::uint32_t sourcePort)
 {
     DownloadFrame frame;
     // Zeroed header and reserved dynamic-link fields select the normal-sweep format.
-    frame.parameters.resize(PARAM_HEADER_VALUES + vna_native::PARAM_VALUES_PER_POINT * plan.frequencyRaw.size(), 0U);
+    frame.parameters.resize(PARAM_HEADER_VALUES + VnaNative::PARAM_VALUES_PER_POINT * plan.frequencyRaw.size(), 0U);
     frame.table = plan.tableData;
     for (std::size_t point = 0U; point < plan.frequencyRaw.size(); ++point) {
-        const std::size_t base = PARAM_HEADER_VALUES + vna_native::PARAM_VALUES_PER_POINT * point;
+        const std::size_t base = PARAM_HEADER_VALUES + VnaNative::PARAM_VALUES_PER_POINT * point;
         frame.parameters[base + FREQUENCY_HIGH_OFFSET] =
             static_cast<std::uint32_t>(plan.frequencyRaw[point] >> FREQUENCY_WORD_BITS);
         frame.parameters[base + FREQUENCY_LOW_OFFSET] = static_cast<std::uint32_t>(plan.frequencyRaw[point]);

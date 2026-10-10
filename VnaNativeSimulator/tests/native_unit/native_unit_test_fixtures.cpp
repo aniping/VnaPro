@@ -53,9 +53,9 @@ EncodedFrame MakeEncodedFrame(std::uint32_t pointCount, std::uint32_t sourcePort
     return frame;
 }
 
-vna_native::NormalFrameSnapshot MakeSnapshot(std::uint32_t sourcePort, const std::vector<std::uint64_t> &frequencies)
+VnaNative::NormalFrameSnapshot MakeSnapshot(std::uint32_t sourcePort, const std::vector<std::uint64_t> &frequencies)
 {
-    vna_native::NormalFrameSnapshot frame;
+    VnaNative::NormalFrameSnapshot frame;
     frame.sourcePort = sourcePort;
     frame.points.resize(frequencies.size());
     frame.tableData.resize(frequencies.size() * POWER_VALUES_PER_POINT, 0.0);

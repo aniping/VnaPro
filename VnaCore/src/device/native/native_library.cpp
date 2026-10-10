@@ -80,19 +80,19 @@ void NativeLibrary::Open(const std::string &path)
     }
 #endif
     try {
-        functions_.hwInit = Resolve<vna_native::DrvHwInitFn>(handle_, vna_native::g_drvHwInitSymbol);
-        functions_.getSweepData = Resolve<vna_native::DrvGetSweepDataFn>(handle_, vna_native::g_drvGetSweepDataSymbol);
-        functions_.startSweep = Resolve<vna_native::DrvStartSweepFn>(handle_, vna_native::g_drvStartSweepSymbol);
+        functions_.hwInit = Resolve<VnaNative::DrvHwInitFn>(handle_, VnaNative::g_drvHwInitSymbol);
+        functions_.getSweepData = Resolve<VnaNative::DrvGetSweepDataFn>(handle_, VnaNative::g_drvGetSweepDataSymbol);
+        functions_.startSweep = Resolve<VnaNative::DrvStartSweepFn>(handle_, VnaNative::g_drvStartSweepSymbol);
         functions_.activateRxLink =
-            Resolve<vna_native::DrvActivateRxLinkFn>(handle_, vna_native::g_drvActivateRxLinkSymbol);
-        functions_.setRfPowerOn = Resolve<vna_native::DrvSetRfPowerOnFn>(handle_, vna_native::g_drvSetRfPowerOnSymbol);
+            Resolve<VnaNative::DrvActivateRxLinkFn>(handle_, VnaNative::g_drvActivateRxLinkSymbol);
+        functions_.setRfPowerOn = Resolve<VnaNative::DrvSetRfPowerOnFn>(handle_, VnaNative::g_drvSetRfPowerOnSymbol);
         functions_.setFastSweepMode =
-            Resolve<vna_native::DrvSetFastSweepModeFn>(handle_, vna_native::g_drvSetFastSweepModeSymbol);
-        functions_.getIdn = Resolve<vna_native::DrvGetIDNFn>(handle_, vna_native::g_drvGetIdnSymbol);
+            Resolve<VnaNative::DrvSetFastSweepModeFn>(handle_, VnaNative::g_drvSetFastSweepModeSymbol);
+        functions_.getIdn = Resolve<VnaNative::DrvGetIDNFn>(handle_, VnaNative::g_drvGetIdnSymbol);
         functions_.checkSweepPortPower =
-            Resolve<vna_native::DrvCheckSweepPortPowerFn>(handle_, vna_native::g_drvCheckSweepPortPowerSymbol);
+            Resolve<VnaNative::DrvCheckSweepPortPowerFn>(handle_, VnaNative::g_drvCheckSweepPortPowerSymbol);
         functions_.dataFrameDownload =
-            Resolve<vna_native::DrvDataFrameDownloadFn>(handle_, vna_native::g_drvDataFrameDownloadSymbol);
+            Resolve<VnaNative::DrvDataFrameDownloadFn>(handle_, VnaNative::g_drvDataFrameDownloadSymbol);
     } catch (...) {
         Close();
         throw;

@@ -10,7 +10,7 @@
 
 namespace vna_test {
 
-class RejectPendingCommit final : public vna_native::FailureInjector {
+class RejectPendingCommit final : public VnaNative::FailureInjector {
 public:
     // A stateless fixture that leaves frame download commits unaffected.
     RejectPendingCommit() noexcept = default;
@@ -21,9 +21,9 @@ public:
     ~RejectPendingCommit() override = default;
 
     // Fails only pending publication, allowing tests to check that noise sequence is unchanged.
-    void ThrowIfRequested(vna_native::FailurePoint point) override
+    void ThrowIfRequested(VnaNative::FailurePoint point) override
     {
-        if (point == vna_native::FailurePoint::BEFORE_PENDING_COMMIT) {
+        if (point == VnaNative::FailurePoint::BEFORE_PENDING_COMMIT) {
             throw std::runtime_error("Injected noisy sweep publication failure");
         }
     }

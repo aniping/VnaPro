@@ -12,10 +12,10 @@
 using vna_test::RejectPendingCommit;
 #include "scoped_simulator_environment.h"
 
-using vna_native::DRV_SIM_INTERNAL_ERROR;
-using vna_native::DRV_SIM_INVALID_ARGUMENT;
-using vna_native::DRV_SIM_OK;
-using vna_native::NativeSimulatorState;
+using VnaNative::DRV_SIM_INTERNAL_ERROR;
+using VnaNative::DRV_SIM_INVALID_ARGUMENT;
+using VnaNative::DRV_SIM_OK;
+using VnaNative::NativeSimulatorState;
 
 namespace {
 

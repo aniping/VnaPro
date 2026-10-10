@@ -10,15 +10,15 @@ namespace vna_core {
 namespace detail {
 
 struct NativeFunctions final {
-    vna_native::DrvHwInitFn hwInit = nullptr;
-    vna_native::DrvGetSweepDataFn getSweepData = nullptr;
-    vna_native::DrvStartSweepFn startSweep = nullptr;
-    vna_native::DrvActivateRxLinkFn activateRxLink = nullptr;
-    vna_native::DrvSetRfPowerOnFn setRfPowerOn = nullptr;
-    vna_native::DrvSetFastSweepModeFn setFastSweepMode = nullptr;
-    vna_native::DrvGetIDNFn getIdn = nullptr;
-    vna_native::DrvCheckSweepPortPowerFn checkSweepPortPower = nullptr;
-    vna_native::DrvDataFrameDownloadFn dataFrameDownload = nullptr;
+    VnaNative::DrvHwInitFn hwInit = nullptr;
+    VnaNative::DrvGetSweepDataFn getSweepData = nullptr;
+    VnaNative::DrvStartSweepFn startSweep = nullptr;
+    VnaNative::DrvActivateRxLinkFn activateRxLink = nullptr;
+    VnaNative::DrvSetRfPowerOnFn setRfPowerOn = nullptr;
+    VnaNative::DrvSetFastSweepModeFn setFastSweepMode = nullptr;
+    VnaNative::DrvGetIDNFn getIdn = nullptr;
+    VnaNative::DrvCheckSweepPortPowerFn checkSweepPortPower = nullptr;
+    VnaNative::DrvDataFrameDownloadFn dataFrameDownload = nullptr;
 };
 
 }  // namespace detail

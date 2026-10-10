@@ -9,7 +9,7 @@
 
 #include "normal_frame_snapshot.h"
 
-namespace vna_native {
+namespace VnaNative {
 namespace SignalModel {
 
 // Replaces output only on success; each point contains [A.re,A.im,B.re,B.im] for ports 0..3.
@@ -22,5 +22,5 @@ VNA_NATIVE_HIDDEN std::uint32_t GenerateNoisy(const NormalFrameSnapshot &frame, 
     std::uint64_t sweepIndex, std::vector<double> &output) noexcept;
 
 }  // namespace SignalModel
-}  // namespace vna_native
+}  // namespace VnaNative
 #endif  // VNAPRO_NATIVE_SIM_SIGNAL_MODEL_H

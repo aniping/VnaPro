@@ -10,10 +10,10 @@
 #include "native_unit_test_fixtures.h"
 #include "native_unit_tests.h"
 
-using vna_native::DRV_SIM_INVALID_ARGUMENT;
-using vna_native::DRV_SIM_OK;
-using vna_native::NormalFrameSnapshot;
-namespace SignalModel = vna_native::SignalModel;
+using VnaNative::DRV_SIM_INVALID_ARGUMENT;
+using VnaNative::DRV_SIM_OK;
+using VnaNative::NormalFrameSnapshot;
+namespace SignalModel = VnaNative::SignalModel;
 
 static void SignalModelMatchesGoldenLayoutForAllPorts()
 {

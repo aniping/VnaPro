@@ -5,7 +5,7 @@
 
 #include <utility>
 
-namespace vna_native {
+namespace VnaNative {
 
 void NativeFrameSlot::Swap(NativeFrameSlot &other) noexcept
 {
@@ -13,4 +13,4 @@ void NativeFrameSlot::Swap(NativeFrameSlot &other) noexcept
     frame.Swap(other.frame);
 }
 
-}  // namespace vna_native
+}  // namespace VnaNative

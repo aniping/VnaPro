@@ -6,7 +6,7 @@
 
 #include "vna_native/native_api_contract.h"
 
-namespace vna_native {
+namespace VnaNative {
 
 enum class FailurePoint {
     BEFORE_FRAME_COMMIT,
@@ -30,5 +30,5 @@ protected:
     FailureInjector() noexcept = default;
 };
 
-}  // namespace vna_native
+}  // namespace VnaNative
 #endif  // VNAPRO_NATIVE_SIM_FAILURE_INJECTOR_H

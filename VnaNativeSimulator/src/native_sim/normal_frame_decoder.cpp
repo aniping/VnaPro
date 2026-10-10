@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <limits>
 
-namespace vna_native {
+namespace VnaNative {
 namespace {
 
 constexpr std::size_t PARAM_HEADER_VALUES = 1U;
@@ -118,4 +118,4 @@ std::uint32_t Decode(const NormalFrameInput &input, NormalFrameSnapshot &output)
 }
 
 }  // namespace NormalFrameDecoder
-}  // namespace vna_native
+}  // namespace VnaNative

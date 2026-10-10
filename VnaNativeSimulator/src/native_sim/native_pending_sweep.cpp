@@ -5,7 +5,7 @@
 
 #include <utility>
 
-namespace vna_native {
+namespace VnaNative {
 
 void NativePendingSweep::Swap(NativePendingSweep &other) noexcept
 {
@@ -15,4 +15,4 @@ void NativePendingSweep::Swap(NativePendingSweep &other) noexcept
     iqData.swap(other.iqData);
 }
 
-}  // namespace vna_native
+}  // namespace VnaNative

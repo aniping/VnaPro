@@ -23,7 +23,7 @@ struct EncodedFrame final {
 EncodedFrame MakeEncodedFrame(std::uint32_t pointCount, std::uint32_t sourcePort, std::uint64_t firstFrequency);
 
 // Copies the supplied raw frequencies into a snapshot; input storage may be discarded after return.
-vna_native::NormalFrameSnapshot MakeSnapshot(std::uint32_t sourcePort, const std::vector<std::uint64_t> &frequencies);
+VnaNative::NormalFrameSnapshot MakeSnapshot(std::uint32_t sourcePort, const std::vector<std::uint64_t> &frequencies);
 
 // Requires matching lengths and finite actual values within the fixed IQ tolerance.
 void ExpectVectorNear(const std::vector<double> &expected, const std::vector<double> &actual);

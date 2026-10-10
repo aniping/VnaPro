@@ -19,18 +19,18 @@
 
 using vna_test::ThrowAtPoint;
 
-using vna_native::DRV_SIM_INTERNAL_ERROR;
-using vna_native::DRV_SIM_INVALID_ARGUMENT;
-using vna_native::DRV_SIM_INVALID_STATE;
-using vna_native::DRV_SIM_NOT_INITIALIZED;
-using vna_native::DRV_SIM_NOT_SUPPORTED;
-using vna_native::DRV_SIM_OK;
-using vna_native::DRV_SIM_RF_DISABLED;
-using vna_native::FailureInjector;
-using vna_native::FailurePoint;
-using vna_native::NativeSimulatorSnapshot;
-using vna_native::NativeSimulatorState;
-using vna_native::NormalFrameSnapshot;
+using VnaNative::DRV_SIM_INTERNAL_ERROR;
+using VnaNative::DRV_SIM_INVALID_ARGUMENT;
+using VnaNative::DRV_SIM_INVALID_STATE;
+using VnaNative::DRV_SIM_NOT_INITIALIZED;
+using VnaNative::DRV_SIM_NOT_SUPPORTED;
+using VnaNative::DRV_SIM_OK;
+using VnaNative::DRV_SIM_RF_DISABLED;
+using VnaNative::FailureInjector;
+using VnaNative::FailurePoint;
+using VnaNative::NativeSimulatorSnapshot;
+using VnaNative::NativeSimulatorState;
+using VnaNative::NormalFrameSnapshot;
 
 namespace {
 

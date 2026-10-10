@@ -14,7 +14,7 @@
 #include "native_pending_sweep.h"
 #include "normal_frame_decoder.h"
 
-namespace vna_native {
+namespace VnaNative {
 
 // A coherent state summary, copied under the same mutex used by all driver operations.
 struct VNA_NATIVE_HIDDEN NativeSimulatorSnapshot final {
@@ -99,5 +99,5 @@ private:
     FailureInjector *failureInjector_ = nullptr;
 };
 
-}  // namespace vna_native
+}  // namespace VnaNative
 #endif  // VNAPRO_NATIVE_SIM_NATIVE_SIMULATOR_STATE_H

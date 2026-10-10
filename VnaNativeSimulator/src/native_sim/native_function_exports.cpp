@@ -7,42 +7,42 @@
 #include "native_simulator_state.h"
 #include "vna_native/native_api_contract.h"
 
-static_assert(std::is_same<decltype(&DrvHwInit), vna_native::DrvHwInitFn>::value,
+static_assert(std::is_same<decltype(&DrvHwInit), VnaNative::DrvHwInitFn>::value,
     "DrvHwInit signature does not match NativeApiContract");
-static_assert(std::is_same<decltype(&DrvGetSweepData), vna_native::DrvGetSweepDataFn>::value,
+static_assert(std::is_same<decltype(&DrvGetSweepData), VnaNative::DrvGetSweepDataFn>::value,
     "DrvGetSweepData signature does not match NativeApiContract");
-static_assert(std::is_same<decltype(&DrvStartSweep), vna_native::DrvStartSweepFn>::value,
+static_assert(std::is_same<decltype(&DrvStartSweep), VnaNative::DrvStartSweepFn>::value,
     "DrvStartSweep signature does not match NativeApiContract");
-static_assert(std::is_same<decltype(&DrvActivateRxLink), vna_native::DrvActivateRxLinkFn>::value,
+static_assert(std::is_same<decltype(&DrvActivateRxLink), VnaNative::DrvActivateRxLinkFn>::value,
     "DrvActivateRxLink signature does not match NativeApiContract");
-static_assert(std::is_same<decltype(&DrvSetRfPowerOn), vna_native::DrvSetRfPowerOnFn>::value,
+static_assert(std::is_same<decltype(&DrvSetRfPowerOn), VnaNative::DrvSetRfPowerOnFn>::value,
     "DrvSetRfPowerOn signature does not match NativeApiContract");
-static_assert(std::is_same<decltype(&DrvSetFastSweepMode), vna_native::DrvSetFastSweepModeFn>::value,
+static_assert(std::is_same<decltype(&DrvSetFastSweepMode), VnaNative::DrvSetFastSweepModeFn>::value,
     "DrvSetFastSweepMode signature does not match NativeApiContract");
-static_assert(std::is_same<decltype(&DrvGetIDN), vna_native::DrvGetIDNFn>::value,
+static_assert(std::is_same<decltype(&DrvGetIDN), VnaNative::DrvGetIDNFn>::value,
     "DrvGetIDN signature does not match NativeApiContract");
-static_assert(std::is_same<decltype(&DrvCheckSweepPortPower), vna_native::DrvCheckSweepPortPowerFn>::value,
+static_assert(std::is_same<decltype(&DrvCheckSweepPortPower), VnaNative::DrvCheckSweepPortPowerFn>::value,
     "DrvCheckSweepPortPower signature does not match NativeApiContract");
-static_assert(std::is_same<decltype(&DrvDataFrameDownload), vna_native::DrvDataFrameDownloadFn>::value,
+static_assert(std::is_same<decltype(&DrvDataFrameDownload), VnaNative::DrvDataFrameDownloadFn>::value,
     "DrvDataFrameDownload signature does not match NativeApiContract");
 
 extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvHwInit()
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().HwInit();
+        return VnaNative::NativeSimulatorState::Instance().HwInit();
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
 
 extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetSweepData(std::uint32_t pointCount, double *iqData)
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().GetSweepData(pointCount, iqData);
+        return VnaNative::NativeSimulatorState::Instance().GetSweepData(pointCount, iqData);
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
 
@@ -50,50 +50,50 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvStartSweep(
     std::uint32_t pointCount, std::uint32_t sourcePort)
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().StartSweep(pointCount, sourcePort);
+        return VnaNative::NativeSimulatorState::Instance().StartSweep(pointCount, sourcePort);
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
 
 extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvActivateRxLink(std::uint32_t rxPortBitmap)
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().ActivateRxLink(rxPortBitmap);
+        return VnaNative::NativeSimulatorState::Instance().ActivateRxLink(rxPortBitmap);
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
 
 extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvSetRfPowerOn(std::uint32_t enabled)
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().SetRfPowerOn(enabled);
+        return VnaNative::NativeSimulatorState::Instance().SetRfPowerOn(enabled);
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
 
 extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvSetFastSweepMode(std::uint32_t mode)
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().SetFastSweepMode(mode);
+        return VnaNative::NativeSimulatorState::Instance().SetFastSweepMode(mode);
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
 
 extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvGetIDN(char *buffer, int capacity)
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().GetIDN(buffer, capacity);
+        return VnaNative::NativeSimulatorState::Instance().GetIDN(buffer, capacity);
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
 
@@ -101,11 +101,11 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvCheckSweepPortPowe
     std::uint32_t rfPortBitmap, std::uint32_t *checkBitmap, std::uint16_t *overFreqIndex, std::uint32_t indexCapacity)
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().CheckSweepPortPower(
+        return VnaNative::NativeSimulatorState::Instance().CheckSweepPortPower(
             rfPortBitmap, checkBitmap, overFreqIndex, indexCapacity);
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }
 
@@ -113,10 +113,10 @@ extern "C" VNA_NATIVE_EXPORT std::uint32_t VNA_NATIVE_CALL DrvDataFrameDownload(
     std::uint32_t *paramData, std::uint32_t paramDataLen, double *tableData, std::uint32_t tableDataLen)
 {
     try {
-        return vna_native::NativeSimulatorState::Instance().DataFrameDownload(
+        return VnaNative::NativeSimulatorState::Instance().DataFrameDownload(
             pointCount, paramData, paramDataLen, tableData, tableDataLen);
     } catch (...) {
         // Convert singleton construction failure; no C++ exception may cross the frozen C ABI.
-        return vna_native::DRV_SIM_INTERNAL_ERROR;
+        return VnaNative::DRV_SIM_INTERNAL_ERROR;
     }
 }

@@ -8,7 +8,7 @@
 
 #include "normal_frame_snapshot.h"
 
-namespace vna_native {
+namespace VnaNative {
 namespace NormalFrameDecoder {
 
 // Validates pointers and declared element counts without reading either borrowed buffer.
@@ -20,5 +20,5 @@ VNA_NATIVE_HIDDEN std::uint32_t ValidateInputShape(const NormalFrameInput &input
 VNA_NATIVE_HIDDEN std::uint32_t Decode(const NormalFrameInput &input, NormalFrameSnapshot &output) noexcept;
 
 }  // namespace NormalFrameDecoder
-}  // namespace vna_native
+}  // namespace VnaNative
 #endif  // VNAPRO_NATIVE_SIM_NORMAL_FRAME_DECODER_H

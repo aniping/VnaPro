@@ -11,10 +11,10 @@
 
 namespace vna_test {
 
-class ThrowAtPoint final : public vna_native::FailureInjector {
+class ThrowAtPoint final : public VnaNative::FailureInjector {
 public:
     // Selects one commit stage; counting includes every matching invocation.
-    explicit ThrowAtPoint(vna_native::FailurePoint point) noexcept : point_(point)
+    explicit ThrowAtPoint(VnaNative::FailurePoint point) noexcept : point_(point)
     {
     }
 
@@ -25,7 +25,7 @@ public:
     ~ThrowAtPoint() override = default;
 
     // Throws before the selected commit without calling back into the locked simulator state.
-    void ThrowIfRequested(vna_native::FailurePoint point) override
+    void ThrowIfRequested(VnaNative::FailurePoint point) override
     {
         if (point == point_) {
             ++throwCount_;
@@ -40,7 +40,7 @@ public:
     }
 
 private:
-    const vna_native::FailurePoint point_;
+    const VnaNative::FailurePoint point_;
     std::uint32_t throwCount_ = 0U;
 };
 

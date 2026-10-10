@@ -9,7 +9,7 @@
 
 #include "vna_native/native_api_contract.h"
 
-namespace vna_native {
+namespace VnaNative {
 
 // Borrowed ABI buffers. Lengths count elements; callers guarantee their actual capacity.
 struct VNA_NATIVE_HIDDEN NormalFrameInput final {
@@ -37,5 +37,5 @@ struct VNA_NATIVE_HIDDEN NormalFrameSnapshot final {
     void Swap(NormalFrameSnapshot &other) noexcept;
 };
 
-}  // namespace vna_native
+}  // namespace VnaNative
 #endif  // VNAPRO_NATIVE_SIM_NORMAL_FRAME_SNAPSHOT_H

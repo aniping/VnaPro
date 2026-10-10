@@ -12,7 +12,7 @@
 
 #include "signal_model.h"
 
-namespace vna_native {
+namespace VnaNative {
 namespace {
 
 constexpr std::uint32_t ALL_PORTS_BITMAP = (1U << NATIVE_PORT_COUNT) - 1U;
@@ -429,4 +429,4 @@ void NativeSimulatorState::ThrowIfRequested(FailurePoint point) const
     }
 }
 
-}  // namespace vna_native
+}  // namespace VnaNative

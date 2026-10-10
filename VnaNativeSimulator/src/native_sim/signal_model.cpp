@@ -10,7 +10,7 @@
 #include <cstddef>
 #include <limits>
 
-namespace vna_native {
+namespace VnaNative {
 namespace {
 
 constexpr unsigned FREQUENCY_MIX_SHIFT = 33U;
@@ -181,4 +181,4 @@ std::uint32_t GenerateNoisy(const NormalFrameSnapshot &frame, std::uint64_t seed
 }
 
 }  // namespace SignalModel
-}  // namespace vna_native
+}  // namespace VnaNative

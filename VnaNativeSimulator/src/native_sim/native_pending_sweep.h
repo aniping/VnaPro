@@ -9,7 +9,7 @@
 
 #include "vna_native/native_api_contract.h"
 
-namespace vna_native {
+namespace VnaNative {
 
 // Owns the IQ frozen by one successful Start; later frame downloads cannot change it.
 struct VNA_NATIVE_HIDDEN NativePendingSweep final {
@@ -22,5 +22,5 @@ struct VNA_NATIVE_HIDDEN NativePendingSweep final {
     void Swap(NativePendingSweep &other) noexcept;
 };
 
-}  // namespace vna_native
+}  // namespace VnaNative
 #endif  // VNAPRO_NATIVE_SIM_NATIVE_PENDING_SWEEP_H
