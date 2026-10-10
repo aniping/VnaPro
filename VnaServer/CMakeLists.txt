@@ -31,4 +31,13 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/WebHttpIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim> ${CMAKE_SOURCE_DIR}/frontend/dist)
     set_tests_properties(web_http_integration PROPERTIES TIMEOUT 60)
+    add_test(NAME golden_iq_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/GoldenIqIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>
+            ${CMAKE_SOURCE_DIR}/VnaNativeSimulator/tests/GoldenIqVectors.h)
+    set_tests_properties(golden_iq_integration PROPERTIES TIMEOUT 60)
+    add_test(NAME noise_iq_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/SimulatorNoiseIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>)
+    set_tests_properties(noise_iq_integration PROPERTIES TIMEOUT 60)
 endif()
