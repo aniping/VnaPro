@@ -1,6 +1,11 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #include "web/json_encoder.h"
 
 #include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -9,122 +14,173 @@
 
 namespace vna_web {
 namespace {
-std::string escaped(const std::string &text)
+constexpr std::size_t OUTPUT_LIMIT = 4U * 1024U * 1024U;
+constexpr unsigned CONTROL_CHARACTER_LIMIT = 32U;
+constexpr unsigned HEX_NIBBLE_BITS = 4U;
+constexpr unsigned HEX_NIBBLE_MASK = 15U;
+constexpr unsigned JSON_NUMBER_PRECISION = 17U;
+constexpr std::size_t CONTROL_ESCAPE_LENGTH = 6U;
+
+void AppendBounded(std::string &output, const char *text, std::size_t length)
 {
-    std::string result = "\"";
+    if (output.size() > OUTPUT_LIMIT || length > OUTPUT_LIMIT - output.size()) {
+        throw std::runtime_error("JSON output exceeds 4 MiB");
+    }
+    output.append(text, length);
+}
+
+void AppendLiteral(std::string &output, const char *text)
+{
+    AppendBounded(output, text, std::strlen(text));
+}
+
+void AppendCharacter(std::string &output, char character)
+{
+    AppendBounded(output, &character, 1U);
+}
+
+void AppendEscapedJsonString(std::string &output, const std::string &text)
+{
+    ValidateJsonString(text);
+    AppendCharacter(output, '"');
     const char hex[] = "0123456789abcdef";
     for (unsigned char character : text) {
         if (character == '"' || character == '\\') {
-            result += '\\';
-            result += static_cast<char>(character);
-        } else if (character < 32U) {
-            result += "\\u00";
-            result += hex[character >> 4U];
-            result += hex[character & 15U];
+            AppendCharacter(output, '\\');
+            AppendCharacter(output, static_cast<char>(character));
+        } else if (character < CONTROL_CHARACTER_LIMIT) {
+            const char escaped[CONTROL_ESCAPE_LENGTH] = {
+                '\\', 'u', '0', '0', hex[character >> HEX_NIBBLE_BITS], hex[character & HEX_NIBBLE_MASK]};
+            AppendBounded(output, escaped, sizeof(escaped));
         } else {
-            result += static_cast<char>(character);
+            AppendCharacter(output, static_cast<char>(character));
         }
     }
-    return result + '"';
+    AppendCharacter(output, '"');
 }
 }  // namespace
 
-class JsonEncoder::Impl {
-public:
-    struct Frame {
-        const Json *value;
-        std::size_t index = 0;
-        bool opened = false;
-        std::map<std::string, Json>::const_iterator member;
+JsonEncoder::JsonEncoder(Json value)
+{
+    Reset(std::move(value));
+}
 
-        explicit Frame(const Json *item) : value(item), member(item->object.begin())
-        {
-        }
-    };
+void JsonEncoder::Reset(Json value)
+{
+    state_ = State::FAILED;
+    stack_.clear();
+    output_.clear();
+    value_ = std::move(value);
+    stack_.emplace_back(value_);
+    state_ = State::ACTIVE;
+}
 
-    explicit Impl(Json root) : value(std::move(root))
-    {
-        stack.emplace_back(&value);
+bool JsonEncoder::Advance(unsigned budget)
+{
+    if (state_ == State::COMPLETE) {
+        return true;
     }
-
-    Json value;
-    std::vector<Frame> stack;
-    std::string output;
-
-    bool advance(unsigned budget)
-    {
-        for (unsigned count = 0; count < budget && !stack.empty(); ++count) {
-            Frame &frame = stack.back();
-            const Json &json = *frame.value;
-            if (json.type == Json::Type::Array || json.type == Json::Type::Object) {
-                const bool array = json.type == Json::Type::Array;
-                if (!frame.opened) {
-                    output += array ? '[' : '{';
-                    frame.opened = true;
-                } else if ((array && frame.index == json.array.size()) ||
-                           (!array && frame.member == json.object.end())) {
-                    output += array ? ']' : '}';
-                    stack.pop_back();
-                } else {
-                    if (frame.index != 0U) {
-                        output += ',';
-                    }
-                    const Json *child;
-                    if (array) {
-                        child = &json.array[frame.index];
-                    } else {
-                        output += escaped(frame.member->first) + ':';
-                        child = &frame.member++->second;
-                    }
-                    ++frame.index;
-                    stack.emplace_back(child);
-                }
-            } else {
-                if (json.type == Json::Type::Null) {
-                    output += "null";
-                } else if (json.type == Json::Type::Boolean) {
-                    output += json.boolean ? "true" : "false";
-                } else if (json.type == Json::Type::String) {
-                    output += escaped(json.string);
-                } else if (!std::isfinite(json.number)) {
-                    output += "null";
-                } else {
-                    std::ostringstream number;
-                    number.imbue(std::locale::classic());
-                    number << std::setprecision(17) << json.number;
-                    output += number.str();
-                }
-                stack.pop_back();
-            }
-            if (output.size() > 4U * 1024U * 1024U) {
-                throw std::runtime_error("JSON output exceeds 4 MiB");
-            }
-        }
-        return stack.empty();
+    if (state_ != State::ACTIVE) {
+        throw std::logic_error("JSON encoder requires Reset before encoding");
     }
-};
-
-JsonEncoder::JsonEncoder(Json value) : impl_(new Impl(std::move(value)))
-{
+    try {
+        for (unsigned count = 0U; count < budget && !stack_.empty(); ++count) {
+            ProcessTop();
+        }
+    } catch (...) {
+        stack_.clear();
+        output_.clear();
+        state_ = State::FAILED;
+        throw;
+    }
+    if (stack_.empty()) {
+        state_ = State::COMPLETE;
+    }
+    return state_ == State::COMPLETE;
 }
 
-JsonEncoder::~JsonEncoder() = default;
-
-bool JsonEncoder::advance(unsigned budget)
+void JsonEncoder::ProcessTop()
 {
-    return impl_->advance(budget);
+    JsonEncodingFrame &frame = stack_.back();
+    const Json &value = frame.value.get();
+    if (value.type == Json::Type::ARRAY || value.type == Json::Type::OBJECT) {
+        ProcessContainer(frame);
+    } else {
+        AppendScalar(value);
+        stack_.pop_back();
+    }
 }
 
-std::string JsonEncoder::take()
+void JsonEncoder::ProcessContainer(JsonEncodingFrame &frame)
 {
-    return std::move(impl_->output);
+    const Json &value = frame.value.get();
+    const bool array = value.type == Json::Type::ARRAY;
+    if (!frame.opened) {
+        AppendCharacter(output_, array ? '[' : '{');
+        frame.opened = true;
+    } else if ((array && frame.index == value.array.size()) || (!array && frame.member == value.object.end())) {
+        AppendCharacter(output_, array ? ']' : '}');
+        stack_.pop_back();
+    } else {
+        AppendChild(frame);
+    }
 }
 
-std::string stringifyJson(const Json &value)
+void JsonEncoder::AppendChild(JsonEncodingFrame &frame)
+{
+    const Json &value = frame.value.get();
+    if (frame.index != 0U) {
+        AppendCharacter(output_, ',');
+    }
+    const Json *child = nullptr;
+    if (value.type == Json::Type::ARRAY) {
+        child = &value.array[frame.index];
+    } else {
+        AppendEscapedJsonString(output_, frame.member->first);
+        AppendCharacter(output_, ':');
+        child = &frame.member->second;
+        ++frame.member;
+    }
+    ++frame.index;
+    stack_.emplace_back(*child);
+}
+
+void JsonEncoder::AppendScalar(const Json &value)
+{
+    if (value.type == Json::Type::NULL_VALUE) {
+        AppendLiteral(output_, "null");
+    } else if (value.type == Json::Type::BOOLEAN) {
+        AppendLiteral(output_, value.boolean ? "true" : "false");
+    } else if (value.type == Json::Type::STRING) {
+        AppendEscapedJsonString(output_, value.string);
+    } else if (value.type != Json::Type::NUMBER) {
+        throw std::runtime_error("Invalid JSON value type");
+    } else if (!std::isfinite(value.number)) {
+        AppendLiteral(output_, "null");
+    } else {
+        std::ostringstream number;
+        number.exceptions(std::ios::badbit | std::ios::failbit);
+        number.imbue(std::locale::classic());
+        number << std::setprecision(JSON_NUMBER_PRECISION) << value.number;
+        const std::string text = number.str();
+        AppendBounded(output_, text.data(), text.size());
+    }
+}
+
+std::string JsonEncoder::Take()
+{
+    if (state_ != State::COMPLETE) {
+        throw std::logic_error("JSON output is not complete or was already taken");
+    }
+    state_ = State::TAKEN;
+    return std::move(output_);
+}
+
+std::string StringifyJson(const Json &value)
 {
     JsonEncoder encoder(value);
-    while (!encoder.advance()) {
+    while (!encoder.Advance()) {
     }
-    return encoder.take();
+    return encoder.Take();
 }
 }  // namespace vna_web
