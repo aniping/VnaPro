@@ -2,7 +2,7 @@
 
 `vna_service` 只使用 `vna_core` 公开接口；`vna_scpi` 将已登记的 Keysight N52xxB 命令转换为服务操作，不访问驱动。当前实现单通道，SCPI 与 Web 共用服务及独占控制权，兼容范围为已登记的 PNA 命令子集。
 
-公开类型各自放在同名头文件：Measurement、InstrumentSettings、ConfigPatch、OperationResult、InstrumentError、DataResult、InstrumentSnapshot；触发/扫描枚举在 TriggerTypes.h。InstrumentService.h 只声明服务入口并包含所需类型。Measurement::parameter 的行为在 src/Measurement.cpp，配置事务及任务状态仍由 InstrumentService.cpp 的私有实现管理。测试受控设备和 Fixture 各自独立，共用 Core 的测试注入入口。
+公开类型各自放在同名头文件：Measurement、InstrumentSettings、ConfigPatch、OperationResult、InstrumentError、DataResult、InstrumentSnapshot；触发/扫描枚举在 trigger_types.h。instrument_service.h 只声明服务入口并包含所需类型。Measurement::parameter 的行为在 src/measurement.cpp，配置事务及任务状态仍由 instrument_service.cpp 的私有实现管理。测试受控设备和 Fixture 各自独立，共用 Core 的测试注入入口。
 
 ## 生命周期和线程
 

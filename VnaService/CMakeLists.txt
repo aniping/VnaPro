@@ -1,6 +1,6 @@
 add_library(vna_service STATIC
-    src/InstrumentService.cpp
-    src/Measurement.cpp
+    src/instrument_service.cpp
+    src/measurement.cpp
 )
 target_include_directories(vna_service PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(vna_service PUBLIC vna_core)

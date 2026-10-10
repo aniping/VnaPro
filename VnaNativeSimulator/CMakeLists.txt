@@ -53,9 +53,9 @@ function(vna_apply_link_settings target_name)
 endfunction()
 
 set(VNA_SIM_CORE_SOURCES
-    src/native_sim/NativeSimulatorState.cpp
-    src/native_sim/NormalFrameDecoder.cpp
-    src/native_sim/SignalModel.cpp
+    src/native_sim/native_simulator_state.cpp
+    src/native_sim/normal_frame_decoder.cpp
+    src/native_sim/signal_model.cpp
 )
 
 add_library(vnb_drv_sim_core OBJECT ${VNA_SIM_CORE_SOURCES})
@@ -74,7 +74,7 @@ vna_apply_compile_settings(vnb_drv_sim_core)
 
 add_library(vnb_drv_sim SHARED
     $<TARGET_OBJECTS:vnb_drv_sim_core>
-    src/native_sim/NativeFunctionExports.cpp
+    src/native_sim/native_function_exports.cpp
 )
 set_target_properties(vnb_drv_sim PROPERTIES
     CXX_VISIBILITY_PRESET hidden
@@ -103,12 +103,12 @@ endif()
 if(BUILD_TESTING)
     add_executable(vnb_drv_sim_unit_tests
         $<TARGET_OBJECTS:vnb_drv_sim_core>
-        tests/native_unit/UnitTestMain.cpp
-        tests/native_unit/NativeApiSignatureTest.cpp
-        tests/native_unit/NativeStateTest.cpp
-        tests/native_unit/NoiseModeTest.cpp
-        tests/native_unit/NormalFrameDecoderTest.cpp
-        tests/native_unit/SignalModelTest.cpp
+        tests/native_unit/unit_test_main.cpp
+        tests/native_unit/native_api_signature_test.cpp
+        tests/native_unit/native_state_test.cpp
+        tests/native_unit/noise_mode_test.cpp
+        tests/native_unit/normal_frame_decoder_test.cpp
+        tests/native_unit/signal_model_test.cpp
     )
     target_include_directories(vnb_drv_sim_unit_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -120,10 +120,10 @@ if(BUILD_TESTING)
     vna_apply_link_settings(vnb_drv_sim_unit_tests)
 
     add_executable(vnb_drv_sim_contract_tests
-        tests/native_contract/NativeLibraryProbe.cpp
-        tests/native_contract/NativeAbiContractTest.cpp
-        tests/native_contract/NativeNormalSweepTest.cpp
-        tests/native_contract/NativeNoiseModeTest.cpp
+        tests/native_contract/native_library_probe.cpp
+        tests/native_contract/native_abi_contract_test.cpp
+        tests/native_contract/native_normal_sweep_test.cpp
+        tests/native_contract/native_noise_mode_test.cpp
     )
     target_include_directories(vnb_drv_sim_contract_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include

@@ -25,7 +25,7 @@ cmake -E chdir build ctest --output-on-failure
 
 C++ 开发统一遵守 [C++语言编程规范](docs/C++语言编程规范.md)。Git 仍按功能拆分提交，提交说明使用中文，并遵守已约定的提交行数限制。
 
-独立类和公开数据类型分别使用同名文件，头文件声明接口、源文件实现行为。类内部的私有状态记录保留在所属实现中，测试助手位于各模块的 tests，不进入生产接口。`CoreTypes.h` 仅聚合核心类型头；JSON 值、解析器和编码器各自独立，SCPI/Web 共用 `src/network` 的平台适配与 Socket 资源管理。
+独立类和公开数据类型分别使用同名文件，头文件声明接口、源文件实现行为。类内部的私有状态记录保留在所属实现中，测试助手位于各模块的 tests，不进入生产接口。`core_types.h` 仅聚合核心类型头；JSON 值、解析器和编码器各自独立，SCPI/Web 共用 `src/network` 的平台适配与 Socket 资源管理。
 
 先正常编写代码，再直接运行 clang-format 程序，使用根目录 `.clang-format` 自动格式化，排版依据上述规范第 3 章。单条语句的条件、循环也自动补上 `{}`（InsertBraces: true）；短函数体展开，类、结构体和函数定义之间自动留一空行（SeparateDefinitionBlocks: Always）；120 列由格式器处理，不为满足提交行数压缩代码。按功能拆分提交，不通过省略换行缩小差异。使用 clang-format 18.1.8，在根目录运行：
 

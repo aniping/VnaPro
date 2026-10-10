@@ -1,10 +1,10 @@
 add_library(vna_web STATIC
-    WebEndpoint.cpp
-    StaticFile.cpp
-    HttpApi.cpp
-    Json.cpp
-    JsonParser.cpp
-    JsonEncoder.cpp
+    web_endpoint.cpp
+    static_file.cpp
+    http_api.cpp
+    json.cpp
+    json_parser.cpp
+    json_encoder.cpp
 )
 target_include_directories(vna_web PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(vna_web PUBLIC vna_service vna_network)
@@ -15,7 +15,7 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(vna_web_tests tests/WebApiTest.cpp)
+    add_executable(vna_web_tests tests/web_api_test.cpp)
     target_link_libraries(vna_web_tests PRIVATE vna_web)
     target_include_directories(vna_web_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../VnaService/tests

@@ -1,7 +1,7 @@
 add_subdirectory(src/network)
 add_subdirectory(src/scpi)
 add_subdirectory(src/web)
-add_executable(vna_server src/main.cpp src/ScpiTcpServer.cpp)
+add_executable(vna_server src/main.cpp src/scpi_tcp_server.cpp)
 target_link_libraries(vna_server PRIVATE vna_scpi vna_web)
 target_compile_definitions(vna_server PRIVATE
     VNA_DEFAULT_DRIVER="$<TARGET_FILE:vnb_drv_sim>"
@@ -19,7 +19,7 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/ScpiTcpIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>)
     set_tests_properties(scpi_tcp_integration PROPERTIES TIMEOUT 45)
-    add_executable(vna_network_shutdown_tests tests/NetworkShutdownTest.cpp src/ScpiTcpServer.cpp)
+    add_executable(vna_network_shutdown_tests tests/network_shutdown_test.cpp src/scpi_tcp_server.cpp)
     target_include_directories(vna_network_shutdown_tests PRIVATE src)
     target_link_libraries(vna_network_shutdown_tests PRIVATE vna_scpi vna_web)
     if(WIN32)
@@ -35,7 +35,7 @@ if(BUILD_TESTING)
     add_test(NAME golden_iq_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/GoldenIqIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>
-            ${CMAKE_SOURCE_DIR}/VnaNativeSimulator/tests/GoldenIqVectors.h)
+            ${CMAKE_SOURCE_DIR}/VnaNativeSimulator/tests/golden_iq_vectors.h)
     set_tests_properties(golden_iq_integration PROPERTIES TIMEOUT 60)
     add_test(NAME noise_iq_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/SimulatorNoiseIntegrationTest.py

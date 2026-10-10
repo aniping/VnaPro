@@ -4,9 +4,9 @@
 #include <iostream>
 #include <string>
 
-#include "ScpiTcpServer.h"
-#include "vna_core/AcquisitionCore.h"
-#include "vna_service/InstrumentService.h"
+#include "scpi_tcp_server.h"
+#include "vna_core/acquisition_core.h"
+#include "vna_service/instrument_service.h"
 
 namespace {
 volatile std::sig_atomic_t signalReceived = 0;

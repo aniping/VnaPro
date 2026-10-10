@@ -2,7 +2,7 @@
 
 C++14 静态核心库。公开头位于 `include/vna_core`，设备、线程和测试注入接口均为私有实现。产品入口通过 InstrumentService 使用核心。
 
-公开类型分文件：SweepPlan、PortFrame、MeasurementFrame、CommandResult、CoreView；CoreState.h 声明状态/运行枚举，CoreTypes.h 仅作为兼容聚合入口。设备接口、准备失败异常和原生函数表分别位于 DeviceSession.h、PlanPreparationError.h、native/NativeFunctions.h。tests/support 的测试注入入口、受控设备、Fixture 和 RAII 助手各自独立，不暴露给生产调用方。格式化流程见[项目 README](../README.md)。
+公开类型分文件：SweepPlan、PortFrame、MeasurementFrame、CommandResult、CoreView；core_state.h 声明状态/运行枚举，core_types.h 仅作为兼容聚合入口。设备接口、准备失败异常和原生函数表分别位于 device_session.h、plan_preparation_error.h、native/native_functions.h。tests/support 的测试注入入口、受控设备、Fixture 和 RAII 助手各自独立，不暴露给生产调用方。格式化流程见[项目 README](../README.md)。
 
 普通控制方法返回 `shared_future<CommandResult>`。排队不代表操作生效；检查 ticket 的 `ok` 和运行/配置编号。`triggerOnce(runId, revision)` 成功时，多源完整帧已发布。`stop(runId)` 是扫描边界屏障，拒绝零编号和旧运行编号；不关闭 RF。`close()` 由生命周期拥有线程调用，关闭准入、执行所有已接受命令、尝试关闭 RF，然后 join；不要并发调用 close/析构。
 
