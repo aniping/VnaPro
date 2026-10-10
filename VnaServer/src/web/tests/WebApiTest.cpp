@@ -72,8 +72,13 @@ void until(const std::function<bool()>& done, const std::function<void()>& poll)
 
 vna_service::OperationResult finish(vna_service::InstrumentService& service, const vna_service::Operation& operation)
 {
-    until([&] { return operation.wait_for(std::chrono::seconds(0)) == std::future_status::ready; },
-        [&] { service.poll(); });
+    until(
+        [&] {
+            return operation.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+        },
+        [&] {
+            service.poll();
+        });
     return operation.get();
 }
 
@@ -86,7 +91,9 @@ HttpResponse finish(HttpApi& api, const std::string& operation, const std::strin
             require(response.status == 200U, "Read owned operation");
             return stringField(response.json, "state") != "pending";
         },
-        [&] { api.poll(); });
+        [&] {
+            api.poll();
+        });
     return response;
 }
 
@@ -190,12 +197,20 @@ void releasingAndLease()
     for (unsigned scenario = 0; scenario < 3U; ++scenario) {
         Fixture fixture;
         auto time = HttpApi::Clock::time_point();
-        HttpApi api(*fixture.service, [&] { return time; });
+        HttpApi api(*fixture.service, [&] {
+            return time;
+        });
         const auto token = claim(api);
         fixture.device->arm();
         const auto id = accepted(
             request(api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"gated\"}", token));
-        until([&] { return fixture.device->hasEntered(); }, [&] { api.poll(); });
+        until(
+            [&] {
+                return fixture.device->hasEntered();
+            },
+            [&] {
+                api.poll();
+            });
         if (scenario == 0U)
             require(request(api, "POST", "/api/v1/control/release", "{}", token).status == 200U,
                 "Explicit release accepted");
@@ -256,14 +271,22 @@ void snapshotAndSampling()
     require(field(response.json, "available").boolean && !field(response.json, "current").boolean,
         "Pending finite operation invalidates prior frame immediately");
     fixture.device->release();
-    until([&] { return !fixture.service->hasPending(); }, [&] { api.poll(); });
+    until(
+        [&] {
+            return !fixture.service->hasPending();
+        },
+        [&] {
+            api.poll();
+        });
 }
 
 void operationRetentionAndBudgets()
 {
     Fixture fixture;
     auto time = HttpApi::Clock::time_point();
-    HttpApi api(*fixture.service, [&] { return time; });
+    HttpApi api(*fixture.service, [&] {
+        return time;
+    });
     const auto token = claim(api);
     std::string first;
     for (unsigned index = 0; index < 128U; ++index) {
@@ -290,7 +313,13 @@ void operationRetentionAndBudgets()
     fixture.device->arm();
     const auto gated = accepted(request(
         api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"long-native\"}", secondToken));
-    until([&] { return fixture.device->hasEntered(); }, [&] { api.poll(); });
+    until(
+        [&] {
+            return fixture.device->hasEntered();
+        },
+        [&] {
+            api.poll();
+        });
     time += std::chrono::seconds(100);
     const auto pending = request(api, "GET", "/api/v1/operations/" + gated, "", secondToken);
     require(pending.status == 200U && stringField(pending.json, "state") == "pending",

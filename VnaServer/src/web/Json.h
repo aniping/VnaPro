@@ -7,7 +7,14 @@
 
 namespace vna_web {
 struct Json {
-    enum class Type { Null, Boolean, Number, String, Array, Object };
+    enum class Type {
+        Null,
+        Boolean,
+        Number,
+        String,
+        Array,
+        Object
+    };
     Type type = Type::Null;
     bool boolean = false;
     double number = 0;

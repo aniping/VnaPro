@@ -15,7 +15,15 @@ namespace detail {
 
 class AcquisitionCoreImpl {
 public:
-    enum class Kind { Initialize, Configure, Start, Trigger, Stop, Recover, Close };
+    enum class Kind {
+        Initialize,
+        Configure,
+        Start,
+        Trigger,
+        Stop,
+        Recover,
+        Close
+    };
     explicit AcquisitionCoreImpl(std::unique_ptr<DeviceSession> device);
     ~AcquisitionCoreImpl();
     Ticket submit(Kind kind, SweepPlan plan = SweepPlan(), RunMode mode = RunMode::Manual, std::uint64_t runId = 0U,

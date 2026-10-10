@@ -295,11 +295,15 @@ void AcquisitionCoreImpl::workerLoop()
         std::unique_lock<std::mutex> guard(queueMutex_);
         while (queue_.empty()) {
             if (state_ == CoreState::Running && mode_ == RunMode::Continuous) {
-                if (!wake_.wait_until(guard, nextFrame, [this] { return !queue_.empty(); })) {
+                if (!wake_.wait_until(guard, nextFrame, [this] {
+                        return !queue_.empty();
+                    })) {
                     break;
                 }
             } else {
-                wake_.wait(guard, [this] { return !queue_.empty(); });
+                wake_.wait(guard, [this] {
+                    return !queue_.empty();
+                });
             }
         }
         if (!queue_.empty()) {

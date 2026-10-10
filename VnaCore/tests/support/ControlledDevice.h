@@ -76,7 +76,9 @@ public:
             blockNext = false;
             entered = true;
             cv.notify_all();
-            cv.wait(lock, [this] { return release; });
+            cv.wait(lock, [this] {
+                return release;
+            });
         }
         if (acquisitions == failAcquireAt) {
             throw std::runtime_error("controlled second-port acquisition failure");
@@ -116,7 +118,11 @@ public:
     void waitEntered()
     {
         std::unique_lock<std::mutex> lock(mutex);
-        require(cv.wait_for(lock, std::chrono::seconds(3), [this] { return entered; }), "gate was never entered");
+        require(cv.wait_for(lock, std::chrono::seconds(3),
+                    [this] {
+                        return entered;
+                    }),
+            "gate was never entered");
     }
 
     void releaseGate()

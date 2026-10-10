@@ -35,7 +35,9 @@ public:
         if (blockPlan) {
             planEntered = true;
             cv.notify_all();
-            cv.wait(lock, [this] { return planReleased; });
+            cv.wait(lock, [this] {
+                return planReleased;
+            });
         }
     }
 
@@ -53,7 +55,9 @@ public:
         if (blocked) {
             entered = true;
             cv.notify_all();
-            cv.wait(lock, [this] { return released; });
+            cv.wait(lock, [this] {
+                return released;
+            });
         }
         if (failAcquire)
             throw std::runtime_error("controlled acquisition failure");

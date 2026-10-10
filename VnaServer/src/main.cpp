@@ -87,7 +87,9 @@ int main(int argc, char** argv)
             core.close();
             return 1;
         }
-        const int result = vna_server::RunScpiTcpServer(service, options, [] { return signalReceived != 0; });
+        const int result = vna_server::RunScpiTcpServer(service, options, [] {
+            return signalReceived != 0;
+        });
         const auto closed = core.close();
         if (!closed.ok) {
             std::cerr << "Driver shutdown failed: " << closed.message << '\n';

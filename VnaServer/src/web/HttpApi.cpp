@@ -300,8 +300,10 @@ public:
                 break;
             Json trace = measurementJson(measurement);
             Json real = Json::makeArray(), imaginary = Json::makeArray(), validity = Json::makeArray();
-            const auto port = std::find_if(frame.ports.begin(), frame.ports.end(),
-                [&measurement](const vna_core::PortFrame& item) { return item.sourcePort == measurement.sourcePort; });
+            const auto port =
+                std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const vna_core::PortFrame& item) {
+                    return item.sourcePort == measurement.sourcePort;
+                });
             const bool available = port != frame.ports.end() && port->iq.size() == count * 16U &&
                                    (frame.plan.receiverMask & (1U << (measurement.receiverPort - 1U))) != 0U;
             const unsigned component =

@@ -66,8 +66,10 @@ void testContinuousStop()
         "continuous frame was not fully committed before Stop");
     std::unique_lock<std::mutex> lock(f.device->mutex);
     const auto acquisitions = f.device->acquisitions;
-    require(!f.device->cv.wait_for(
-                lock, milliseconds(80), [&f, acquisitions] { return f.device->acquisitions != acquisitions; }),
+    require(!f.device->cv.wait_for(lock, milliseconds(80),
+                [&f, acquisitions] {
+                    return f.device->acquisitions != acquisitions;
+                }),
         "old run acquired another port after Stop confirmation");
 }
 
@@ -156,7 +158,9 @@ void testCloseReservedAndTicketsTerminate()
         tickets.push_back(ticket);
     }
     require(rejected == 16U, "normal queue capacity was not enforced");
-    auto closing = std::async(std::launch::async, [&f] { return f.core->close(); });
+    auto closing = std::async(std::launch::async, [&f] {
+        return f.core->close();
+    });
     ReleaseGateOnExit releaseOnExit{f.device};
     bool admissionClosed = false;
     const auto deadline = steady_clock::now() + seconds(3);

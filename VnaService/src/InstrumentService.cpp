@@ -71,7 +71,12 @@ vna_core::SweepPlan makePlan(const InstrumentSettings& settings)
 
 class InstrumentService::Impl {
 public:
-    enum class Kind { Configure, Source, Mode, Trigger };
+    enum class Kind {
+        Configure,
+        Source,
+        Mode,
+        Trigger
+    };
 
     struct Task {
         Kind kind = Kind::Configure;
@@ -609,8 +614,10 @@ Operation InstrumentService::deleteMeasurement(
 {
     return impl_->configure(
         [name](InstrumentSettings& settings) {
-            const auto found = std::find_if(settings.measurements.begin(), settings.measurements.end(),
-                [&name](const Measurement& measurement) { return measurement.name == name; });
+            const auto found = std::find_if(
+                settings.measurements.begin(), settings.measurements.end(), [&name](const Measurement& measurement) {
+                    return measurement.name == name;
+                });
             if (found == settings.measurements.end())
                 return result(false, -224, "Measurement name does not exist");
             settings.measurements.erase(found);
@@ -722,7 +729,9 @@ DataResult InstrumentService::measurementData() const
     }
     const std::string selected = impl_->settings.selectedMeasurement;
     const auto found = std::find_if(impl_->settings.measurements.begin(), impl_->settings.measurements.end(),
-        [&selected](const Measurement& measurement) { return measurement.name == selected; });
+        [&selected](const Measurement& measurement) {
+            return measurement.name == selected;
+        });
     if (found == impl_->settings.measurements.end()) {
         value.error = "No measurement selected";
         return value;
@@ -740,8 +749,10 @@ DataResult InstrumentService::measurementData() const
         value.error = "Receiver was not active";
         return value;
     }
-    const auto port = std::find_if(frame.ports.begin(), frame.ports.end(),
-        [&measurement](const vna_core::PortFrame& source) { return source.sourcePort == measurement.sourcePort; });
+    const auto port =
+        std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const vna_core::PortFrame& source) {
+            return source.sourcePort == measurement.sourcePort;
+        });
     const std::size_t points = frame.plan.frequencyHz.size();
     if (port == frame.ports.end() || port->iq.size() != points * 16U) {
         value.error = "Receiver source frame is unavailable";

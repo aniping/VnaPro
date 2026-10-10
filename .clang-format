@@ -1,33 +1,59 @@
----
-BasedOnStyle: Google
-Language: Cpp
+# 使用 clang-format 18.1.8；未列出的选项继承 Google，源代码由程序直接格式化。
+# 选项依据：https://releases.llvm.org/18.1.8/tools/clang/docs/ClangFormatStyleOptions.html
+---  # YAML 配置文档开始。
+BasedOnStyle: Google  # 以 Google 为基础，下面仅覆盖本项目需要明确的规则。
+Language: Cpp  # 本段配置用于 C++ 源文件和头文件。
+Standard: c++14  # 按 C++14 解析和格式化；实际编译标准仍由 CMake 设置。
 
-IndentWidth: 4
-ColumnLimit: 120
-Standard: Latest
-AccessModifierOffset: -4
+# 缩进和行宽。
+IndentWidth: 4  # 每一级代码缩进使用 4 个空格。
+ContinuationIndentWidth: 4  # 表达式、参数等换行后额外缩进 4 个空格。
+UseTab: Never  # 缩进和对齐都使用空格，不输出 Tab。
+TabWidth: 4  # 读取已有 Tab 时，按 4 列制表位计算对齐位置。
+ColumnLimit: 120  # 由格式器尝试在 120 列内折行，不要求手工拆分代码。
+AccessModifierOffset: -4  # public/protected/private 相对成员回退 4 个空格。
+AlignAfterOpenBracket: DontAlign  # 参数换行采用续行缩进，不对齐到左括号后的参数列。
 
-AllowShortFunctionsOnASingleLine: None
-SeparateDefinitionBlocks: Always
-AllowShortIfStatementsOnASingleLine: false
-AllowShortLoopsOnASingleLine: false
-PointerAlignment: Left
+# 定义块与空行：明确分隔类型、函数和成员区，避免挤在一起。
+SeparateDefinitionBlocks: Always  # 类、结构体、枚举、函数等定义块之间留一空行。
+MaxEmptyLinesToKeep: 1  # 连续空行最多保留一行，不代替定义块分隔规则。
+KeepEmptyLinesAtTheStartOfBlocks: false  # 删除大括号块开头的空行。
+EmptyLineBeforeAccessModifier: LogicalBlock  # 访问修饰符开始新的成员逻辑组时，前面留空行。
+EmptyLineAfterAccessModifier: Never  # public/private 等标签后直接写成员，不额外空一行。
 
-BreakBeforeBraces: Custom
-BraceWrapping:
-  AfterFunction: true
-  AfterControlStatement: Never
-  AfterClass: false
-  AfterStruct: false
-  AfterEnum: false
-  AfterNamespace: false
-  BeforeElse: false
-  BeforeCatch: false
+# 短定义和控制语句也正常展开。
+AllowShortFunctionsOnASingleLine: None  # 有函数体的函数不压成一行，包括空构造函数。
+AllowShortLambdasOnASingleLine: None  # Lambda 的函数体不压成一行。
+AllowShortEnumsOnASingleLine: false  # 枚举定义展开，枚举项分别占行。
+AllowShortIfStatementsOnASingleLine: Never  # if 的语句体不与条件挤在同一行。
+AllowShortLoopsOnASingleLine: false  # for/while 等循环不压成单行语句。
+AllowShortBlocksOnASingleLine: Never  # 普通短代码块不把整块内容放在一行。
 
-SpaceAfterCStyleCast: false
-SpaceBeforeAssignmentOperators: true
-SpaceBeforeParens: ControlStatements
+# 指针和引用的位置固定，不根据已有文件写法猜测。
+DerivePointerAlignment: false  # 禁止推导覆盖下面指定的指针/引用对齐方式。
+PointerAlignment: Left  # 星号靠类型书写，例如 int* value。
+ReferenceAlignment: Pointer  # 引用跟随指针对齐方式，例如 const Json& value。
 
-AlignAfterOpenBracket: DontAlign
-AllowShortBlocksOnASingleLine: Never
-...
+# 大括号保持现有风格：函数另起行，控制语句和类型不另起行。
+BreakBeforeBraces: Custom  # 使用下方 BraceWrapping 的逐项大括号规则。
+BraceWrapping:  # 大括号换行子配置；由 Custom 风格启用。
+  AfterFunction: true  # 普通函数定义的左大括号另起一行。
+  AfterControlStatement: Never  # if/for/while 等控制语句的左大括号跟在条件后。
+  AfterClass: false  # class 定义的左大括号跟在类名后。
+  AfterStruct: false  # struct 定义的左大括号跟在结构体名后。
+  AfterEnum: false  # enum 定义的左大括号跟在枚举头后。
+  AfterNamespace: false  # namespace 的左大括号跟在名称后。
+  BeforeElse: false  # else 跟在前一个块的右大括号后。
+  BeforeCatch: false  # catch 跟在前一个块的右大括号后。
+  SplitEmptyFunction: true  # 空函数的左右大括号分别占行。
+
+# 运算符、括号和注释。
+SpaceAfterCStyleCast: false  # C 风格强转与表达式之间不加空格，例如 (int)value。
+SpaceBeforeAssignmentOperators: true  # 赋值运算符前保留空格，例如 value = 1。
+SpaceBeforeParens: ControlStatements  # if/for/while 后加空格，普通函数名与左括号之间不加。
+ReflowComments: false  # 保留 C++ 注释的人工分行，不自动重排说明段落。
+
+# 包含文件排序沿用当前行为；Winsock 固定顺序继续由局部 clang-format off/on 保护。
+SortIncludes: CaseSensitive  # 按区分大小写的字母顺序排列可排序的 include。
+IncludeBlocks: Regroup  # 合并并按继承的 include 分类重新分组，组间保留空行。
+...  # YAML 配置文档结束。

@@ -3,8 +3,15 @@
 
 namespace vna_service {
 
-enum class TriggerSource { Immediate, Manual };
-enum class SweepMode { Hold, Continuous, Single };
+enum class TriggerSource {
+    Immediate,
+    Manual
+};
+enum class SweepMode {
+    Hold,
+    Continuous,
+    Single
+};
 
 }  // namespace vna_service
 

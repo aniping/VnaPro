@@ -41,9 +41,14 @@ int main(int argc, char** argv)
         vna_server::ListenOptions options;
         options.port = 0;
         options.web.port = 0;
-        options.onListening = [&](std::uint16_t port) { listening.set_value(port); };
-        auto server = std::async(std::launch::async,
-            [&] { return vna_server::RunScpiTcpServer(service, options, [&] { return stop.load(); }); });
+        options.onListening = [&](std::uint16_t port) {
+            listening.set_value(port);
+        };
+        auto server = std::async(std::launch::async, [&] {
+            return vna_server::RunScpiTcpServer(service, options, [&] {
+                return stop.load();
+            });
+        });
         try {
             expect(boundPort.wait_for(std::chrono::seconds(3)) == std::future_status::ready, "Listener did not start");
             Client client(boundPort.get());

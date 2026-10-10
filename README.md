@@ -34,7 +34,7 @@ clang-format --style=file -i $cppFiles
 clang-format --style=file --dry-run --Werror $cppFiles
 ```
 
-日常修改只需将本次变更的文件传给格式器。其他 C++ 模块同样使用根目录配置。
+日常修改只需将本次变更的文件传给格式器。其他 C++ 模块同样使用根目录配置。配置各项有中文注释：按 C++14 解析、固定四空格缩进和指针位置，展开短 Lambda/枚举，保留一行定义间空白及 C++ 注释的人工分行。Standard 只影响格式解析，不替代 CMake 的编译设置。选项含义参照 [clang-format 18.1.8 官方文档](https://releases.llvm.org/18.1.8/tools/clang/docs/ClangFormatStyleOptions.html)。
 
 ## 启动与测量
 
