@@ -21,4 +21,4 @@ NativeFixture::~NativeFixture() noexcept
 {
     core.Close();
 }
-}  // namespace VnaScpiTest
+}  // 命名空间 VnaScpiTest

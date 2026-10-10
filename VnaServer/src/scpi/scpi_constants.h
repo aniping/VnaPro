@@ -8,7 +8,7 @@
 
 namespace VnaScpi {
 
-// Values are the standard SCPI error queue codes, not transport status codes.
+// 这些值是标准 SCPI 错误队列的错误码，不是传输状态码。
 enum ScpiErrorCode {
     SYNTAX_ERROR = -102,
     DATA_TYPE_ERROR = -104,
@@ -22,7 +22,7 @@ enum ScpiErrorCode {
     INPUT_BUFFER_OVERRUN = -363
 };
 
-// Each bound protects a separate protocol or transport resource.
+// 各项上限分别约束不同的协议或传输资源。
 constexpr std::size_t RESPONSE_MESSAGE_BYTE_LIMIT = 1024U * 1024U;
 constexpr std::size_t NUMERIC_ARRAY_BYTE_LIMIT = 1024U * 1024U;
 constexpr std::size_t RESPONSE_QUEUE_BYTE_LIMIT = 1024U * 1024U;
@@ -43,6 +43,6 @@ constexpr double IF_BANDWIDTH_MINIMUM_HZ = 10.0;
 constexpr double IF_BANDWIDTH_MAXIMUM_HZ = 100000.0;
 constexpr int ASCII_FRACTIONAL_DIGITS = 17;
 
-}  // namespace VnaScpi
+}  // 命名空间 VnaScpi
 
 #endif

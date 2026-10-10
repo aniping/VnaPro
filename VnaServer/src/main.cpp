@@ -13,7 +13,7 @@
 #include "vna_service/instrument_service.h"
 
 namespace {
-// Signal handlers may only assign a volatile sig_atomic_t, not access service state.
+// 信号处理函数只能为 volatile sig_atomic_t 赋值，不能访问服务状态。
 volatile std::sig_atomic_t g_signalReceived = 0;
 constexpr long TCP_PORT_MAXIMUM = 65535;
 enum class ArgumentResult {
@@ -124,7 +124,7 @@ int StartService(const std::string &driver, const VnaServer::ListenOptions &opti
     }
     return result;
 }
-}  // namespace
+}  // 匿名命名空间
 
 int main(int argc, char **argv)
 {

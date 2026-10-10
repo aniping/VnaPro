@@ -17,26 +17,26 @@
 #include "web/http_types.h"
 
 namespace VnaWeb {
-// Owns bounded HTTP sessions and operation records on the service executor.
+// 在服务执行器上管理有界的 HTTP 会话和操作记录。
 class HttpApi final {
 public:
     using Clock = std::chrono::steady_clock;
     using Now = std::function<Clock::time_point()>;
-    // The service must outlive this API; the owned callback must keep its captures alive.
+    // 服务的生命周期必须覆盖本 API；持有的回调须确保其捕获对象持续有效。
     explicit HttpApi(VnaService::InstrumentService &service, Now clock = Clock::now);
-    // Releases owned session/operation records; the executor must drain accepted work first.
+    // 释放持有的会话和操作记录；执行器须先等待已接受的操作完成。
     ~HttpApi() noexcept = default;
     HttpApi(const HttpApi &) = delete;
     HttpApi &operator=(const HttpApi &) = delete;
     HttpApi(HttpApi &&) = delete;
     HttpApi &operator=(HttpApi &&) = delete;
-    // Dispatch one request; input errors become a typed HTTP error response.
+    // 分派一个请求；输入错误转换为结构化的 HTTP 错误响应。
     HttpResponse Handle(const HttpRequest &request);
-    // Observe device completion and enforce session expiry without blocking I/O.
+    // 检查设备操作是否完成，并处理会话过期，不阻塞 I/O。
     void Poll();
-    // Release admission and drain already accepted finite operations.
+    // 停止接受新操作，并等待已接受的有限操作完成。
     void BeginShutdown();
-    // Return true once this API owns neither pending operations nor control.
+    // 本 API 不再持有待完成操作或控制权时，返回 true。
     bool Drained() const;
 
 private:
@@ -105,7 +105,7 @@ private:
     std::random_device random_;
 };
 
-// Build a JSON error response with the supplied status and diagnostic.
+// 根据给定状态码和诊断信息构造 JSON 错误响应。
 HttpResponse HttpError(unsigned status, const std::string &code, const std::string &message);
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb
 #endif

@@ -58,7 +58,7 @@ void AppendEscapedJsonString(std::string &output, const std::string &text)
     }
     AppendCharacter(output, '"');
 }
-}  // namespace
+}  // 匿名命名空间
 
 JsonEncoder::JsonEncoder(Json value)
 {
@@ -183,4 +183,4 @@ std::string StringifyJson(const Json &value)
     }
     return encoder.Take();
 }
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb

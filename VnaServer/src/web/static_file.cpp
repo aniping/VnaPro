@@ -48,7 +48,7 @@ std::string Lower(std::string value)
     return value;
 }
 #endif
-}  // namespace
+}  // 匿名命名空间
 
 StaticFile::StaticFile(const std::string &root, const std::string &path)
 {
@@ -248,4 +248,4 @@ std::string StaticFile::FinalPath(HANDLE file)
     return result;
 }
 #endif
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb

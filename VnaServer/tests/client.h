@@ -14,17 +14,17 @@ namespace VnaServerTest {
 
 class Client final {
 public:
-    // Connects to a loopback SCPI listener; construction failure releases resources.
+    // 连接本机回环地址的 SCPI 监听端口；构造失败时释放资源。
     explicit Client(std::uint16_t port);
-    // The socket closes before its matching network runtime cleanup.
+    // 先关闭套接字，再清理对应的网络运行环境。
     ~Client() noexcept = default;
     Client(const Client &) = delete;
     Client &operator=(const Client &) = delete;
     Client(Client &&) = delete;
     Client &operator=(Client &&) = delete;
-    // Sends all bytes or throws if the connection fails.
+    // 发送全部字节；连接失败时抛出异常。
     void Write(const std::string &text);
-    // Returns one response line without LF; throws on premature EOF.
+    // 返回一行不含 LF 的响应；连接提前结束时抛出异常。
     std::string ReadLine();
 
 private:
@@ -32,6 +32,6 @@ private:
     VnaServer::Network::SocketOwner socket_;
 };
 
-}  // namespace VnaServerTest
+}  // 命名空间 VnaServerTest
 
 #endif

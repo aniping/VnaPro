@@ -57,7 +57,7 @@ unsigned Utf8ContinuationCount(unsigned lead, unsigned &scalar, unsigned &minimu
     }
     throw std::runtime_error("Invalid UTF-8 leading byte in JSON string");
 }
-}  // namespace
+}  // 匿名命名空间
 
 Json::Json(const char *value) : type(Type::STRING), string(RequireString(value))
 {
@@ -122,4 +122,4 @@ const Json *Json::Find(const std::string &key) const noexcept
     const auto found = object.find(key);
     return found == object.end() ? nullptr : &found->second;
 }
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb

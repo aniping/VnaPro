@@ -8,19 +8,19 @@
 
 namespace VnaServer {
 namespace Network {
-// Each runtime owns one successful startup and its matching cleanup.
+// 每个运行时对象负责一次成功初始化及其对应的清理。
 class NetworkRuntime final {
 public:
-    // Starts the process network subsystem; throws if startup fails.
+    // 初始化进程的网络子系统；失败时抛出异常。
     explicit NetworkRuntime(const std::string &failureMessage = "WSAStartup failed");
-    // Pairs each successful startup with cleanup on Windows.
+    // 在 Windows 上，为每次成功初始化执行对应的清理。
     ~NetworkRuntime() noexcept;
     NetworkRuntime(const NetworkRuntime &) = delete;
     NetworkRuntime &operator=(const NetworkRuntime &) = delete;
     NetworkRuntime(NetworkRuntime &&) = delete;
     NetworkRuntime &operator=(NetworkRuntime &&) = delete;
 };
-}  // namespace Network
-}  // namespace VnaServer
+}  // 命名空间 Network
+}  // 命名空间 VnaServer
 
 #endif

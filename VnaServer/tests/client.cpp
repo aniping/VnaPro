@@ -14,7 +14,7 @@ void Expect(bool condition, const std::string &message)
         throw std::runtime_error(message);
     }
 }
-}  // namespace
+}  // 匿名命名空间
 
 Client::Client(std::uint16_t port)
     : runtime_("Test network initialization failed"), socket_(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP))
@@ -45,4 +45,4 @@ std::string Client::ReadLine()
     }
     throw std::runtime_error("Test response ended early");
 }
-}  // namespace VnaServerTest
+}  // 命名空间 VnaServerTest

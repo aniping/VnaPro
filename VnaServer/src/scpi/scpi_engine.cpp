@@ -88,7 +88,7 @@ bool Matches(const std::string &value, const char *shortName, const char *fullNa
 {
     return value == shortName || value == fullName;
 }
-}  // namespace
+}  // 匿名命名空间
 
 bool ScpiEngine::HasPending() const noexcept
 {
@@ -780,7 +780,7 @@ bool ScpiEngine::PollBarrier()
 
 void ScpiEngine::PollMessages()
 {
-    // Parsing/dispatching is bounded independently of numeric encoding.
+    // 解析与命令分派使用独立于数值编码的处理预算。
     for (unsigned count = 0; count < DISPATCH_BATCH_SIZE && !messages_.empty(); ++count) {
         ScpiMessage &message = messages_.front();
         if (message.position == message.units.size()) {
@@ -806,13 +806,13 @@ void ScpiEngine::PollMessages()
 
 ScpiEngine::ScpiEngine(VnaService::InstrumentService &service) : service_(service)
 {
-    // Acquire only after all allocating members have constructed successfully.
+    // 所有可能分配内存的成员构造成功后，才获取控制权。
     control_ = service.TryAcquireControl(SCPI_CONTROL_OWNER);
 }
 
 ScpiEngine::~ScpiEngine() noexcept
 {
-    // The owner normally drains first. An idle engine may also be destroyed directly.
+    // 所有者通常应先等待操作全部完成；空闲引擎也可以直接销毁。
     if (control_ && !HasPending()) {
         service_.ReleaseControl(SCPI_CONTROL_OWNER);
     }
@@ -873,4 +873,4 @@ bool ScpiEngine::CanReleaseControl() const noexcept
     return !connected_ && !control_ && !HasPending();
 }
 
-}  // namespace VnaScpi
+}  // 命名空间 VnaScpi

@@ -35,7 +35,7 @@ void ExerciseNetworkShutdown(VnaService::InstrumentService &service)
     options.onListening = [listeningPromise = &listening](std::uint16_t port) {
         listeningPromise->set_value(port);
     };
-    // Both the success and exception paths join the future before these objects die.
+    // 无论正常完成还是发生异常，都在这些对象销毁前等待异步任务结束。
     auto server = std::async(std::launch::async, [servicePointer = &service, options, stopPointer = &stop] {
         return VnaServer::RunScpiTcpServer(*servicePointer, options, [stopPointer] {
             return stopPointer->load();
@@ -46,7 +46,7 @@ void ExerciseNetworkShutdown(VnaService::InstrumentService &service)
         Client client(boundPort.get());
         client.Write("SENS1:SWE:POIN 10001\nSENS1:SWE:MODE SING;*OPC?\n");
         Expect(std::stoi(client.ReadLine()) == 1, "Finite measurement did not finish");
-        // Stop with a connected controller while a bounded large response is encoded.
+        // 在控制连接仍建立且受限的大响应正在编码时停止服务。
         client.Write("CALC1:DATA? RDATA\n");
         stop.store(true);
         Expect(server.wait_for(std::chrono::seconds(5)) == std::future_status::ready, "Network shutdown stalled");
@@ -72,7 +72,7 @@ void RunNetworkShutdown(const std::string &driver)
     Expect(core.Close().ok, "Core close failed");
     Expect(core.ReadView().state == VnaCore::CoreState::CLOSED, "Core was not joined/closed");
 }
-}  // namespace
+}  // 匿名命名空间
 
 int main(int argc, char **argv)
 {

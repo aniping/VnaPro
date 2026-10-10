@@ -52,7 +52,7 @@ void SocketPollSet::Wait()
     timeval timeout{};
     timeout.tv_usec = EXECUTOR_INTERVAL_MICROSECONDS;
 #ifdef _WIN32
-    // Winsock ignores nfds; avoid narrowing its pointer-width socket handles.
+    // Winsock 忽略 nfds，避免将其指针宽度的套接字句柄窄化。
     const int descriptorCount = 0;
 #else
     const int descriptorCount = maximum_ + 1;
@@ -76,5 +76,5 @@ bool SocketPollSet::IsWritable(Socket socket) const noexcept
 {
     return socket != INVALID_SOCKET_HANDLE && FitsSelect(socket) && FD_ISSET(socket, &writable_);
 }
-}  // namespace Network
-}  // namespace VnaServer
+}  // 命名空间 Network
+}  // 命名空间 VnaServer

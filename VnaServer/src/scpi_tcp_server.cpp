@@ -26,7 +26,7 @@ void AdmitController(
     if (connection || !Network::FitsSelect(incoming.Get()) || !Network::SetNonBlocking(incoming.Get())) {
         return;
     }
-    // Nullable ownership reflects a connection that only exists after admission.
+    // 仅在接入获准后才创建连接，因此允许连接所有者为空。
     connection = std::make_unique<ScpiConnection>(service, std::move(incoming));
 }
 
@@ -60,7 +60,7 @@ void AnnounceListener(const ListenOptions &options, std::uint16_t port)
         options.onListening(port);
     }
 }
-}  // namespace
+}  // 匿名命名空间
 
 int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions &options,
     const std::function<bool()> &shutdownRequested)
@@ -99,4 +99,4 @@ int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions
         PollTransports(listener.Get(), service, connection);
     }
 }
-}  // namespace VnaServer
+}  // 命名空间 VnaServer

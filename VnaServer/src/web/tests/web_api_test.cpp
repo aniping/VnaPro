@@ -244,7 +244,7 @@ void VerifyReleaseScenario(unsigned scenario)
     }
     if (scenario == 1U) {
         time += std::chrono::seconds(31);
-        // No poll between clock jump and claim: admission must enforce expiry.
+        // 时钟跳变与申请之间不调用 Poll，验证准入时也会处理过期。
         Require(Request(api, "POST", "/api/v1/control/claim", "{\"sessionId\":\"" + token + "\"}").status == 409U,
             "Expired lease cannot renew past accepted operation drain");
     }
@@ -338,8 +338,7 @@ void OperationRetentionAndBudgets()
 
 void LongOperationRetention()
 {
-    // Pending operations survive a long native call. Retention starts when the
-    // operation completes, rather than when it enters the device queue.
+    // 长时间原生调用期间保留待完成操作；保留期限从操作完成时开始计算。
     Fixture fixture;
     auto time = HttpApi::Clock::time_point();
     HttpApi api(fixture.service, [clock = &time] {
@@ -396,7 +395,7 @@ void InvalidPointsRemainExplicit()
     const auto held = fixture.core.ReadView().frame;
     Require(held && std::isnan(held->ports.front().iq[16U]) && std::isinf(held->ports.front().iq[33U]),
         "Core preserves received invalid samples for diagnostics");
-    // Verify the serialized public response too: NaN/Inf must never enter JSON.
+    // 同时验证序列化后的公开响应，确保 NaN 和 Inf 不会进入 JSON。
     const auto frame = VnaWeb::ParseJson(VnaWeb::StringifyJson(Request(api, "GET", "/api/v1/frame").json));
     Require(Field(frame, "available").boolean && Field(frame, "current").boolean, "Frame identity remains current");
     const auto &trace = Field(frame, "traces").array.front();
@@ -437,7 +436,7 @@ void JsonAndEndpoint()
     endpoint.Poll();
     Require(endpoint.Drained(), "Empty-root API endpoint shuts down");
 }
-}  // namespace
+}  // 匿名命名空间
 
 int main()
 {

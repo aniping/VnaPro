@@ -1,4 +1,4 @@
-"""Exercise the real TCP service, framing and the mock measurement lifecycle."""
+"""验证真实 TCP 服务、消息分帧和模拟设备的测量生命周期。"""
 import math
 import os
 import queue
@@ -42,8 +42,8 @@ def values(response):
 
 
 def connect_controller(port):
-    # A disconnected controller may be releasing accepted operations. Retry
-    # the transport until a complete identity response proves control was granted.
+    # 断开的控制连接可能仍在等待已受理操作完成后释放控制权。重试连接，
+    # 直到收到完整的身份响应，确认已获得控制权。
     deadline = time.monotonic() + 5
     while True:
         client = Client(port)
@@ -60,10 +60,10 @@ def connect_controller(port):
 def exercise(port):
     client = connect_controller(port)
     try:
-        # No ACK is sent for writes; the following query is the sole response.
+        # 写命令不返回确认消息；后续查询产生唯一的响应。
         assert int(client.query("*CLS;:SENS1:SWE:MODE HOLD;*OPC?")) == 1
         assert int(client.query("*IDN?;*OPC?").rsplit(";", 1)[1]) == 1
-        # Arbitrary packet boundaries and CRLF, followed by two coalesced messages.
+        # 验证任意分包边界和 CRLF 结束符，以及随后粘连的两条消息。
         client.socket.sendall(b"SENSe1:FREQuency:STA")
         client.socket.sendall(b"Rt 1MHZ\r\nSENS1:FREQ:STOP 100MHZ\nSENS1:SWE:POIN 17\n")
         assert float(client.query("SENS1:SWE:POIN?")) == 17
@@ -84,14 +84,14 @@ def exercise(port):
         assert len(a) == len(b) == 34 and a != b
         client.write('CALC1:PAR:SEL "Wave,A"')
         assert values(client.query("CALC1:DATA? RDATA")) == a, "Selection must preserve the complete frame"
-        # A manual CONT run stays armed; INIT requests one finite logical sweep.
+        # 手动触发的 CONT 运行保持待触发状态；INIT 请求一次有限的逻辑扫描。
         client.write("TRIG:SOUR MAN")
         client.write("SENS1:SWE:MODE CONT")
         assert int(client.query("INIT1:IMM;*OPC?")) == 1
         assert client.query("SENS1:SWE:MODE?") == "CONT"
         assert client.query("INIT:CONT?") == "0"
         assert int(client.query("SENS1:SWE:MODE HOLD;*OPC?")) == 1
-        # Standard status/error state, and instrument errors survive reconnect.
+        # 验证标准状态与错误状态，以及重新连接后仍保留的仪器错误。
         client.write("*CLS")
         client.write("*ESE 32")
         client.write("THISCOMMANDDOESNOTEXIST")
@@ -102,7 +102,7 @@ def exercise(port):
         client = connect_controller(port)
         assert client.query("SYST:ERR?").startswith("-113,")
         assert client.query("SYST:ERR?").startswith("0,")
-        # A second connection receives no control or device state changes.
+        # 第二个连接无法获得控制权，也不能更改设备状态。
         second = Client(port)
         try:
             try:
@@ -113,12 +113,12 @@ def exercise(port):
                 pass
         finally:
             second.close()
-        # Relative headers follow the current path; common commands preserve it.
+        # 相对命令头沿用当前路径；公共命令不改变该路径。
         relative = client.query("SENS1:FREQ:STAR?;*OPC?;STOP?").split(";")
         assert [float(value) for value in relative] == [1000000, 1, 100000000]
         client.write("ABOR")
         assert client.query("SYST:ERR?").startswith("-113,")
-        # Disconnect does not discard a finite sweep that was accepted earlier.
+        # 连接断开不会丢弃此前已受理的有限扫描。
         client.write("SENS1:SWE:POIN 19")
         assert float(client.query("SENS1:SWE:POIN?")) == 19
         client.write("TRIG:SOUR IMM")
@@ -127,7 +127,7 @@ def exercise(port):
         client = connect_controller(port)
         assert client.query("SENS1:SWE:MODE?") == "HOLD"
         assert len(values(client.query("CALC1:DATA? RDATA"))) == 38
-        # Large whole arrays stay within the bounded ASCII response contract.
+        # 完整的大数组仍遵守 ASCII 响应的大小限制。
         client.write("SENS1:SWE:POIN 10001")
         assert int(client.query("SENS1:SWE:MODE SING;*OPC?")) == 1
         assert len(values(client.query("SENS1:X?"))) == 10001

@@ -13,7 +13,7 @@
 namespace VnaWeb {
 class JsonParser final {
 public:
-    // Borrow one input document, which must outlive this parser and every Parse call.
+    // 借用输入文档，其生命周期必须覆盖本解析器及每次 Parse 调用。
     explicit JsonParser(const std::string &input) noexcept;
     JsonParser(std::string &&) = delete;
     JsonParser(const std::string &&) = delete;
@@ -22,7 +22,7 @@ public:
     JsonParser &operator=(const JsonParser &) = delete;
     JsonParser(JsonParser &&) = delete;
     JsonParser &operator=(JsonParser &&) = delete;
-    // Restart at the beginning and parse one bounded UTF-8 document; malformed input throws runtime_error.
+    // 从头解析一个有界的 UTF-8 文档；输入格式错误时抛出 runtime_error。
     Json Parse();
 
 private:
@@ -44,8 +44,8 @@ private:
     unsigned nodes_ = 0U;
 };
 
-// Parse one complete JSON document with bounded nesting and node count.
+// 解析一个完整的 JSON 文档，并限制嵌套深度和节点数量。
 Json ParseJson(const std::string &input);
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb
 
 #endif

@@ -65,7 +65,7 @@ std::uint16_t BindListener(Socket socket, const std::string &bindAddress, std::u
     const int reuse = 1;
     setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 #endif
-    // Socket APIs require the generic address view of the same IPv4 structure.
+    // 套接字 API 要求以通用地址类型查看同一份 IPv4 地址结构。
     if (bind(socket, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
         listen(socket, listenBacklog) != 0 || !SetNonBlocking(socket)) {
         throw std::runtime_error("Cannot bind/listen on " + bindAddress + ":" + std::to_string(port));
@@ -80,7 +80,7 @@ std::uint16_t BindListener(Socket socket, const std::string &bindAddress, std::u
 void ConfigureStreamSocket(Socket socket) noexcept
 {
     const int noDelay = 1;
-    // Windows accepts option values as bytes; POSIX accepts the same byte view.
+    // Windows 以字节指针接收选项值；POSIX 也接受同一份字节视图。
     setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&noDelay), sizeof(noDelay));
 #if !defined(_WIN32) && defined(SO_NOSIGPIPE)
     const int noSigPipe = 1;
@@ -127,5 +127,5 @@ bool FitsSelect(Socket socket) noexcept
     return socket >= 0 && socket < FD_SETSIZE;
 #endif
 }
-}  // namespace Network
-}  // namespace VnaServer
+}  // 命名空间 Network
+}  // 命名空间 VnaServer

@@ -10,19 +10,19 @@ namespace VnaServer {
 namespace Network {
 class SocketPollSet final {
 public:
-    // Starts an empty readiness set for one executor turn.
+    // 为一轮执行创建空的就绪检测集合。
     SocketPollSet() noexcept;
     SocketPollSet(const SocketPollSet &) = delete;
     SocketPollSet &operator=(const SocketPollSet &) = delete;
     SocketPollSet(SocketPollSet &&) = delete;
     SocketPollSet &operator=(SocketPollSet &&) = delete;
-    // Adds a selectable descriptor; invalid or out-of-capacity handles are ignored.
+    // 添加可供 select 检测的描述符；忽略无效或超出集合容量的句柄。
     void AddReadable(Socket socket) noexcept;
-    // Adds a selectable descriptor to the writable set; other handles are ignored.
+    // 将可供 select 检测的描述符加入可写集合；忽略其他句柄。
     void AddWritable(Socket socket) noexcept;
-    // Waits for one short executor interval; throws on unrecoverable select errors.
+    // 等待一个较短的执行周期；select 出现不可恢复错误时抛出异常。
     void Wait();
-    // Queries the last Wait result; invalid or out-of-capacity handles return false.
+    // 查询上次 Wait 的结果；句柄无效或超出集合容量时返回假。
     bool IsReadable(Socket socket) const noexcept;
     bool IsWritable(Socket socket) const noexcept;
 
@@ -34,7 +34,7 @@ private:
     Socket maximum_ = 0;
     bool anySocket_ = false;
 };
-}  // namespace Network
-}  // namespace VnaServer
+}  // 命名空间 Network
+}  // 命名空间 VnaServer
 
 #endif

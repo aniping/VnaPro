@@ -45,7 +45,7 @@ void AppendUtf8(std::string &output, unsigned scalar)
         output += static_cast<char>(UTF8_CONTINUATION_PREFIX | (scalar & UTF8_PAYLOAD_MASK));
     }
 }
-}  // namespace
+}  // 匿名命名空间
 
 JsonParser::JsonParser(const std::string &input) noexcept : text_(input)
 {
@@ -314,4 +314,4 @@ Json ParseJson(const std::string &input)
     JsonParser parser(input);
     return parser.Parse();
 }
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb

@@ -136,7 +136,7 @@ bool ParseHeader(const std::string &header, std::vector<std::string> &parent, Pa
     }
     return true;
 }
-}  // namespace
+}  // 匿名命名空间
 
 std::vector<std::string> SplitProgram(const std::string &input)
 {
@@ -230,4 +230,4 @@ bool Integer(const std::string &text, unsigned &value, unsigned maximum)
     value = static_cast<unsigned>(parsed);
     return true;
 }
-}  // namespace VnaScpi
+}  // 命名空间 VnaScpi

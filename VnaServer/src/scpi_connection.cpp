@@ -11,7 +11,7 @@ namespace VnaServer {
 namespace {
 constexpr std::size_t READ_BUFFER_CAPACITY = 4096U;
 const std::chrono::seconds WRITE_PROGRESS_TIMEOUT{10};
-}  // namespace
+}  // 匿名命名空间
 
 ScpiConnection::ScpiConnection(VnaService::InstrumentService &service, Network::SocketOwner socket)
     : socket_(std::move(socket)), engine_(service)
@@ -139,4 +139,4 @@ bool ScpiConnection::Drained() const noexcept
 {
     return socket_.Get() == Network::INVALID_SOCKET_HANDLE && engine_.CanReleaseControl();
 }
-}  // namespace VnaServer
+}  // 命名空间 VnaServer

@@ -9,19 +9,19 @@
 #include "scpi/parsed_command.h"
 
 namespace VnaScpi {
-// Splits semicolon units while retaining delimiters inside SCPI quoted strings.
+// 按分号拆分程序单元，保留 SCPI 引号字符串内部的分隔符。
 std::vector<std::string> SplitProgram(const std::string &input);
-// Updates the relative header parent; syntax failures are returned in the command.
+// 更新相对命令头的父路径；语法错误通过解析结果返回。
 ParsedCommand ParseCommand(const std::string &unit, std::vector<std::string> &parent);
-// Converts header characters without passing signed char values to ctype.
+// 转换命令头字符，避免向 ctype 函数传入负值的 char。
 std::string Upper(std::string value);
-// Removes protocol whitespace, preserving embedded NUL bytes for validation.
+// 去除协议空白字符，保留内嵌 NUL 字节供后续校验。
 std::string Trim(const std::string &value);
-// Produces a SCPI string value, escaping quotes by doubling them.
+// 生成 SCPI 字符串值，通过重复引号转义字符串内部的引号。
 std::string Quote(const std::string &value);
-// Accepts finite numeric values; optional frequency suffixes are converted to Hz.
+// 仅接受有限数值；将可选的频率单位后缀换算为 Hz。
 bool Numeric(const std::string &text, double &value, bool frequencyUnits = false);
-// Accepts a finite integer in the inclusive range [0, maximum].
+// 仅接受闭区间 [0, maximum] 内的有限整数。
 bool Integer(const std::string &text, unsigned &value, unsigned maximum);
-}  // namespace VnaScpi
+}  // 命名空间 VnaScpi
 #endif

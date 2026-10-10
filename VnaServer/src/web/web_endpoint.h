@@ -20,35 +20,35 @@
 #include "web/static_file.h"
 
 namespace VnaWeb {
-// Owns transport state on the same executor as InstrumentService and SCPI.
+// 在与 InstrumentService 和 SCPI 相同的执行器上管理传输状态。
 class WebEndpoint final {
 public:
-    // Bind the listener; service must outlive this endpoint. Throws on failure.
+    // 绑定监听套接字；服务的生命周期必须覆盖本端点，失败时抛出异常。
     WebEndpoint(VnaService::InstrumentService &service, const WebOptions &options);
-    // Closes all owned transports; accepted API work must be drained before destruction.
+    // 关闭持有的全部连接；析构前必须等待已接受的 API 操作完成。
     ~WebEndpoint() noexcept = default;
     WebEndpoint(const WebEndpoint &) = delete;
     WebEndpoint &operator=(const WebEndpoint &) = delete;
     WebEndpoint(WebEndpoint &&) = delete;
     WebEndpoint &operator=(WebEndpoint &&) = delete;
-    // Perform one bounded receive/encode/send pass without waiting for device I/O.
+    // 推进一轮有界的接收、编码和发送，不等待设备 I/O。
     void Poll();
-    // Stop admission, close transports, and drain accepted API operations.
+    // 停止接受新请求，关闭连接，并等待已接受的 API 操作完成。
     void BeginShutdown();
-    // Report whether all transports and finite operations have drained.
+    // 返回所有连接和有限操作是否均已结束。
     bool Drained() const;
-    // Return the actual bound port, including OS-assigned ephemeral ports.
+    // 返回实际绑定的端口，包括操作系统分配的临时端口。
     std::uint16_t Port() const noexcept;
 
 private:
     struct HttpConnection final {
-        // Take ownership of an accepted socket; all other state begins idle.
+        // 接管已接受的套接字，其余状态初始化为空闲。
         explicit HttpConnection(VnaServer::Network::SocketOwner ownedSocket)
             : socket(std::move(ownedSocket)), started(std::chrono::steady_clock::now()), progress(started)
         {
         }
 
-        // Closes transport and file handles even when request parsing throws.
+        // 即使请求解析抛出异常，也关闭连接和文件句柄。
         ~HttpConnection() noexcept = default;
         HttpConnection(const HttpConnection &) = delete;
         HttpConnection &operator=(const HttpConnection &) = delete;
@@ -93,5 +93,5 @@ private:
     std::uint16_t actualPort_ = 0;
     bool closing_ = false;
 };
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb
 #endif

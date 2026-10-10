@@ -459,7 +459,7 @@ void InvalidServiceEnumsDoNotMutate(const std::string &)
         "a valid finite operation must still complete after enum rejection");
     service.ReleaseControl();
 }
-}  // namespace
+}  // 匿名命名空间
 
 int main(int argc, char **argv)
 {

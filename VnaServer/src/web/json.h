@@ -25,7 +25,7 @@ struct Json final {
     std::string string;
     std::vector<Json> array;
     std::map<std::string, Json> object;
-    // Construct null; copies and moves preserve the complete value tree.
+    // 构造 null 值；复制和移动均保留完整的值树。
     Json() noexcept = default;
     ~Json() = default;
     Json(const Json &) = default;
@@ -33,42 +33,42 @@ struct Json final {
     Json(Json &&) noexcept = default;
     Json &operator=(Json &&) noexcept = default;
 
-    // Construct the corresponding JSON scalar.
+    // 构造对应的 JSON 标量。
     explicit Json(bool value) noexcept : type(Type::BOOLEAN), boolean(value)
     {
     }
 
-    // Construct the corresponding JSON scalar.
+    // 构造对应的 JSON 标量。
     explicit Json(double value) noexcept : type(Type::NUMBER), number(value)
     {
     }
 
-    // Construct the corresponding JSON scalar.
+    // 构造对应的 JSON 标量。
     explicit Json(unsigned value) noexcept : Json(static_cast<double>(value))
     {
     }
 
-    // Copy a UTF-8 string; encoding validates its contents before writing JSON.
+    // 复制 UTF-8 字符串；编码时先验证内容，再写入 JSON。
     explicit Json(const std::string &value) : type(Type::STRING), string(value)
     {
     }
 
-    // Copy a NUL-terminated UTF-8 string; nullptr throws invalid_argument.
+    // 复制以 NUL 结尾的 UTF-8 字符串；传入 nullptr 时抛出 invalid_argument。
     explicit Json(const char *value);
 
-    // Construct an empty object.
+    // 构造空对象。
     static Json MakeObject() noexcept;
-    // Construct an empty array.
+    // 构造空数组。
     static Json MakeArray() noexcept;
-    // Return or insert a member; throw unless this value is an object.
+    // 返回或插入成员；当前值不是对象时抛出异常。
     Json &operator[](const std::string &key);
-    // Borrow an existing member, or return nullptr without inserting.
+    // 借用已有成员；不存在时返回 nullptr，不插入新成员。
     const Json *Find(const std::string &key) const noexcept;
 };
 
-// Reject malformed UTF-8, overlong encodings, surrogate scalars, and values beyond Unicode.
-// Embedded control characters remain allowed as string values and are escaped during encoding.
+// 拒绝无效 UTF-8、过长编码、代理区码点及超出 Unicode 范围的值。
+// 字符串值允许包含控制字符，编码时对其进行转义。
 void ValidateJsonString(const std::string &text);
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb
 
 #endif

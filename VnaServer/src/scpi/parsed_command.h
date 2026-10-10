@@ -15,6 +15,6 @@ struct ParsedCommand final {
     int errorCode = 0;
     std::string error;
 };
-}  // namespace VnaScpi
+}  // 命名空间 VnaScpi
 
 #endif

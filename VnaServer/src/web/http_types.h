@@ -14,7 +14,7 @@ namespace VnaWeb {
 struct HttpRequest final {
     std::string method;
     std::string path;
-    std::map<std::string, std::string> headers;  // Lowercase names.
+    std::map<std::string, std::string> headers;  // 字段名统一使用小写。
     std::string body;
 };
 
@@ -29,5 +29,5 @@ struct WebOptions final {
     std::string staticRoot;
     bool enabled = true;
 };
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb
 #endif

@@ -155,7 +155,7 @@ bool SafeName(const std::string &value)
     }
     return true;
 }
-}  // namespace
+}  // 匿名命名空间
 
 HttpApi::HttpApi(VnaService::InstrumentService &service, Now clock) : service_(service), now_(std::move(clock))
 {
@@ -417,7 +417,7 @@ HttpResponse HttpApi::Write(const HttpRequest &request, const Json &body)
 
 HttpResponse HttpApi::Route(const HttpRequest &request)
 {
-    Poll();  // Enforce lease expiry even between event-loop ticks.
+    Poll();  // 即使处于两次事件循环之间，也处理租约过期。
     if (request.method == "GET") {
         if (request.path == "/api/v1/status") {
             return Status(request);
@@ -730,4 +730,4 @@ void HttpApi::RollbackWrite(HttpSession &session, const std::string &operationId
     }
 }
 
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb

@@ -11,10 +11,10 @@
 
 namespace VnaServer {
 
-// Runs HTTP and SCPI on one executor. Returns zero after orderly shutdown.
-// The callback is checked every executor turn; the service must outlive this call.
+// 在同一执行线程上运行 HTTP 和 SCPI；正常关闭后返回零。
+// 每轮执行都会检查回调；服务的生命周期必须覆盖本次调用。
 int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions &options,
     const std::function<bool()> &shutdownRequested);
 
-}  // namespace VnaServer
+}  // 命名空间 VnaServer
 #endif

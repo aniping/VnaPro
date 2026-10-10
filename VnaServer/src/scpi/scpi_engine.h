@@ -14,36 +14,36 @@
 
 namespace VnaScpi {
 
-// One engine per TCP controller; all calls belong to the service executor.
+// 每个 TCP 控制连接对应一个引擎；所有调用都由服务执行线程完成。
 class ScpiEngine final {
 public:
-    // Acquires exclusive control when available. The service must outlive this engine.
+    // 控制权空闲时获取独占控制权；服务的生命周期必须覆盖本引擎。
     explicit ScpiEngine(VnaService::InstrumentService &service);
-    // Destroy only after accepted operations drain; an idle engine releases its grant.
+    // 已接收的操作全部完成后才能销毁；空闲引擎在销毁时释放控制权。
     ~ScpiEngine() noexcept;
     ScpiEngine(const ScpiEngine &) = delete;
     ScpiEngine &operator=(const ScpiEngine &) = delete;
     ScpiEngine(ScpiEngine &&) = delete;
     ScpiEngine &operator=(ScpiEngine &&) = delete;
-    // Admits a bounded program line; false means disconnected, busy, or over budget.
+    // 接收长度受限的程序消息行；连接已断开、引擎忙或超出容量预算时返回假。
     bool SubmitLine(const std::string &line);
-    // Advances accepted commands without blocking for device I/O.
+    // 推进已接收的命令，不阻塞等待设备 I/O。
     void Poll();
-    // Transfers one complete LF-terminated response, or an empty string if unavailable.
+    // 移交一条以 LF 结尾的完整响应；暂无响应时返回空字符串。
     std::string TakeOutput();
-    // Includes queued commands, finite operations, encoding, and OPC watches.
+    // 包括排队命令、有限操作、响应编码和 OPC 完成监视。
     bool HasPending() const noexcept;
-    // Reports whether this connection owns the service control grant.
+    // 报告本连接是否持有服务控制权。
     bool HasControl() const noexcept;
-    // Includes unsent transport bytes in the SCPI message-available status bit.
+    // 设置 SCPI 消息可用状态位时，也计入传输层的待发送字节。
     void SetTransportOutputPending(bool pending) noexcept;
-    // Discards responses; keep polling until accepted operations release control.
+    // 丢弃响应；应继续轮询，直到已接收操作完成并释放控制权。
     void Disconnect() noexcept;
-    // True only after disconnection, operation completion, and control release.
+    // 仅在连接断开、操作完成且控制权释放后返回真。
     bool CanReleaseControl() const noexcept;
 
 private:
-    // Program-message state remains owned by this connection until all units finish.
+    // 程序消息状态由本连接持有，直到所有程序单元执行完成。
     struct ScpiMessage final {
         std::vector<std::string> units;
         std::vector<std::string> parent;
@@ -52,7 +52,7 @@ private:
         bool queryFailed = false;
     };
 
-    // Each OPC watch observes the operations accepted before its program unit.
+    // 每个 OPC 监视项仅跟踪其程序单元之前已接收的操作。
     struct ScpiOpcWatch final {
         std::vector<VnaService::Operation> operations;
         unsigned generation = 0;
@@ -114,5 +114,5 @@ private:
     std::string encodedResponse_;
 };
 
-}  // namespace VnaScpi
+}  // 命名空间 VnaScpi
 #endif

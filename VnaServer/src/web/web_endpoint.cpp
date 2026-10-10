@@ -248,7 +248,7 @@ void ValidateHeaderFraming(const HttpRequest &request)
     }
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 WebEndpoint::WebEndpoint(VnaService::InstrumentService &service, const WebOptions &options)
     : runtime_("Web WSAStartup failed"), api_(service), options_(options)
@@ -518,4 +518,4 @@ std::uint16_t WebEndpoint::Port() const noexcept
     return actualPort_;
 }
 
-}  // namespace VnaWeb
+}  // 命名空间 VnaWeb

@@ -15,9 +15,9 @@ struct NativeFixture final {
     VnaCore::AcquisitionCore core;
     VnaService::InstrumentService service;
 
-    // Initializes the native mock before constructing each protocol test case.
+    // 构造每个协议测试用例前，先初始化原生模拟设备。
     explicit NativeFixture(const std::string &driver);
-    // Joins the core after the protocol test destroys its engines.
+    // 协议测试销毁引擎后，再等待核心工作线程退出。
     ~NativeFixture() noexcept;
     NativeFixture(const NativeFixture &) = delete;
     NativeFixture &operator=(const NativeFixture &) = delete;
@@ -25,6 +25,6 @@ struct NativeFixture final {
     NativeFixture &operator=(NativeFixture &&) = delete;
 };
 
-}  // namespace VnaScpiTest
+}  // 命名空间 VnaScpiTest
 
 #endif

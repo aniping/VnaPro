@@ -1,4 +1,4 @@
-"""Exercise the real typed HTTP API alongside the instrument's TCP SCPI service."""
+"""联合验证真实类型化 HTTP API 和仪器 TCP SCPI 服务。"""
 
 import errno
 from http.client import HTTPConnection
@@ -141,7 +141,7 @@ def wait_operation(http, operation_id, token, check=None):
             assert operation["state"] == "completed" and operation["result"]["ok"] is True, operation
             return operation
         assert time.monotonic() < deadline, operation
-        # Poll a protocol state; this interval makes no assumption about I/O completion.
+        # 轮询协议状态；此间隔不用于推断 I/O 是否完成。
         time.sleep(0.01)
 
 
@@ -170,7 +170,7 @@ def check_frame(frame, status, points):
     assert frame["displayPointCount"] == points and frame["decimated"] is False, frame
     axis = frame["frequencyHz"]
     config = status["config"]
-    # The verified mock profile quantizes the committed stimulus to integer Hz.
+    # 已验证的模拟设备配置会将提交的激励频率量化到整数 Hz。
     expected_axis = [
         math.floor(config["startHz"] + index * (config["stopHz"] - config["startHz"]) / (points - 1) + 0.5)
         for index in range(points)
@@ -381,8 +381,8 @@ def main():
             print(lines.get_nowait())
         raise
     finally:
-        # Process cleanup is not a graceful-shutdown assertion, especially on Windows.
-        # Ordered drain/RF-off/join belongs to the controlled C++ lifecycle tests.
+        # 清理进程不等同于验证优雅关闭，尤其是在 Windows 上。
+        # 等待操作完成、关闭射频和回收线程的顺序由受控 C++ 生命周期测试验证。
         if process.poll() is None:
             process.terminate()
         try:

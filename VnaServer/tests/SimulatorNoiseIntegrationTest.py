@@ -1,4 +1,4 @@
-"""Repeatable changing device data across Native/Core/service/HTTP/SCPI."""
+"""验证 Native、Core、服务层及 HTTP、SCPI 中可重复且随采集变化的设备数据。"""
 
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
@@ -48,7 +48,7 @@ def check_frame(frame, revision, run=None):
 
 
 def data_signature(frame):
-    # Device samples only; run/frame metadata is expected to change.
+    # 只比较设备采样值；运行和帧的元数据应随采集变化。
     return tuple(tuple(trace[key]) for trace in frame["traces"] for key in ("real", "imag"))
 
 

@@ -1,7 +1,7 @@
-"""Verify DLL -> Core -> HTTP/ASCII SCPI against fixed, independently computed IQ literals.
+"""使用固定且独立计算的 IQ 字面量验证 DLL → Core → HTTP/ASCII SCPI 数据链路。
 
-The oracle is golden_iq_vectors.h, whose provenance is documented next to its constants.
-Only literals are parsed: no production signal formula is imported or recomputed.
+预期值取自 golden_iq_vectors.h，其来源记录在对应常量的注释中。
+只解析字面量，不导入或重新计算正式代码中的信号公式。
 """
 
 from contextlib import contextmanager
@@ -44,7 +44,7 @@ def exercise(http_port, scpi_port, vectors):
     client = connect_scpi(scpi_port)
     try:
         assert int(client.query("*CLS;:SENS1:SWE:MODE HOLD;*OPC?")) == 1
-        # Service profile ends at 1 GHz. Equal endpoints are legal; do not widen production limits.
+        # 服务配置的频率上限为 1 GHz；允许起止频率相同，不扩大正式代码的限制。
         assert int(client.query("SENS1:FREQ:STOP 1GHz;STAR 1GHz;:SENS1:SWE:POIN 2;*OPC?")) == 1
         assert int(client.query('CALC1:PAR:DEL "DefaultA";*OPC?')) == 1
         client.query("FORM:DATA ASC,0;:TRIG:SOUR IMM;*OPC?")
@@ -55,7 +55,7 @@ def exercise(http_port, scpi_port, vectors):
         assert int(client.query("SENS1:SWE:MODE SING;*OPC?")) == 1
         assert client.query("SENS1:SWE:MODE?") == "HOLD"
         compare([float(value) for value in client.query("SENS1:X?").split(",")], [1e9, 1e9], "SCPI axis")
-        # All 32 measurements initially share one complete four-source logical frame.
+        # 初始时全部 32 个测量项共享同一个完整的四激励源逻辑帧。
         initial = http.frame()
         for name, source, kind, receiver in measurements:
             component = (receiver - 1) * 4 + (2 if kind == "b" else 0)
@@ -66,7 +66,7 @@ def exercise(http_port, scpi_port, vectors):
         assert all(selected[key] == initial[key] for key in ("revision", "runId", "frameSeq")), \
             "Selection must retain the complete frame identity"
 
-        # HTTP intentionally displays the first four traces. Delete verified batches to expose all 32.
+        # HTTP 只显示前四条轨迹；分批删除已验证的测量项，直到检查完全部 32 项。
         for offset in range(0, len(measurements), 4):
             if offset:
                 for name, _, _, _ in measurements[offset - 4:offset]:
@@ -95,7 +95,7 @@ def exercise(http_port, scpi_port, vectors):
 
 @contextmanager
 def running_server(server, driver, environment):
-    """Yield listener ports for a fresh server; lifecycle tests own graceful-shutdown assertions."""
+    """返回新启动服务的监听端口；优雅关闭由生命周期测试验证。"""
     process = subprocess.Popen(
         [server, "--port", "0", "--web-port", "0", "--driver", os.path.abspath(driver)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment,
@@ -126,7 +126,7 @@ def running_server(server, driver, environment):
         print("Server startup:", startup)
         raise
     finally:
-        # Transport process cleanup; graceful drain/RF-off is covered by lifecycle tests.
+        # 此处只清理传输测试进程；等待操作完成和关闭射频由生命周期测试验证。
         if process.poll() is None:
             process.terminate()
         try:

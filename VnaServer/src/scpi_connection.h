@@ -12,32 +12,32 @@
 #include "scpi/scpi_engine.h"
 
 namespace VnaServer {
-// Owns one controller transport and its accepted SCPI command lifetime.
+// 管理一个控制连接的传输资源及已接收 SCPI 命令的生命周期。
 class ScpiConnection final {
 public:
-    // Takes ownership of socket. The service must outlive this connection.
+    // 接管 socket 的所有权；服务的生命周期必须覆盖本连接。
     ScpiConnection(VnaService::InstrumentService &service, Network::SocketOwner socket);
-    // The owner must continue Poll until Drained before normal destruction.
+    // 正常销毁前，所有者必须持续调用 Poll，直到 Drained 返回真。
     ~ScpiConnection() noexcept = default;
     ScpiConnection(const ScpiConnection &) = delete;
     ScpiConnection &operator=(const ScpiConnection &) = delete;
     ScpiConnection(ScpiConnection &&) = delete;
     ScpiConnection &operator=(ScpiConnection &&) = delete;
-    // Returns a borrowed socket handle; invalid after disconnection.
+    // 返回借用的套接字句柄；断开连接后该句柄无效。
     Network::Socket GetSocket() const noexcept;
-    // Applies backpressure when unsent output consumes half the budget.
+    // 待发送数据占用一半容量预算时，通过暂停读取施加背压。
     bool WantsRead() const noexcept;
-    // Reports unsent output for selecting writable sockets.
+    // 报告是否存在待发送数据，供选择可写套接字时使用。
     bool WantsWrite() const noexcept;
-    // Advances finite operations and encoding; closes stalled writers.
+    // 推进有限操作和响应编码，并关闭发送停滞的连接。
     void Poll();
-    // Reads available bytes and admits complete LF-terminated program messages.
+    // 读取可用字节，并接收以 LF 结尾的完整程序消息。
     void Read();
-    // Writes available response bytes; partial sends retain the remaining bytes.
+    // 发送可用的响应字节；部分发送时保留尚未发送的字节。
     void Write();
-    // Detaches the transport while retaining accepted commands until completion.
+    // 关闭传输连接，但保留已接收的命令，直到命令执行完成。
     void Disconnect() noexcept;
-    // True only after disconnection and the engine's exclusive grant is released.
+    // 仅在连接断开且引擎释放独占控制权后返回真。
     bool Drained() const noexcept;
 
 private:
@@ -51,6 +51,6 @@ private:
     std::chrono::steady_clock::time_point lastSendProgress_ = std::chrono::steady_clock::now();
     VnaScpi::ScpiEngine engine_;
 };
-}  // namespace VnaServer
+}  // 命名空间 VnaServer
 
 #endif
