@@ -5,7 +5,7 @@
 #ifndef VNAPRO_SERVICE_ERROR_CODE_H
 #define VNAPRO_SERVICE_ERROR_CODE_H
 
-namespace vna_service {
+namespace VnaService {
 namespace Detail {
 enum ServiceErrorCode : int {
     MISSING_PARAMETER_ERROR = -109,
@@ -17,5 +17,5 @@ enum ServiceErrorCode : int {
     INPUT_BUFFER_OVERRUN = -363
 };
 }  // namespace Detail
-}  // namespace vna_service
+}  // namespace VnaService
 #endif

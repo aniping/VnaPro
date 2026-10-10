@@ -53,8 +53,8 @@ std::string Command(vna_scpi::ScpiEngine &engine, const std::string &text)
     return engine.TakeOutput();
 }
 
-vna_service::OperationResult AwaitOperation(
-    vna_service::InstrumentService &service, const vna_service::Operation &operation)
+VnaService::OperationResult AwaitOperation(
+    VnaService::InstrumentService &service, const VnaService::Operation &operation)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
@@ -125,7 +125,7 @@ void ConfigurationAndRevision(const std::string &driver)
     }
     Expect(!outOfRange.get().ok, "coupled start out of range");
     Expect(fixture.service.Settings().revision == prior, "failed candidate must not commit");
-    vna_service::Measurement typed;
+    VnaService::Measurement typed;
     typed.name = "UpperCaseTyped";
     typed.receiverKind = 'B';
     const auto defined = fixture.service.DefineMeasurement(typed);
@@ -253,7 +253,7 @@ void SoftwareBounds(const std::string &driver)
 
 void BlockedFiniteAndWatchBudget(const std::string &)
 {
-    vna_service_test::Fixture fixture;
+    VnaServiceTest::Fixture fixture;
     vna_scpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;SENS1:SWE:MODE SING;*OPC?");
     const auto old = fixture.core.ReadView().frame;
@@ -288,7 +288,7 @@ void BlockedFiniteAndWatchBudget(const std::string &)
 
 void FailedSingleCannotReturnOldFrame(const std::string &)
 {
-    vna_service_test::Fixture fixture;
+    VnaServiceTest::Fixture fixture;
     vna_scpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;SENS1:SWE:MODE SING;*OPC?");
     const auto old = fixture.core.ReadView().frame;
@@ -321,7 +321,7 @@ void MalformedHeaders(const std::string &driver)
 
 void InvalidReceiverCannotProduceCurve(const std::string &)
 {
-    vna_service_test::Fixture fixture;
+    VnaServiceTest::Fixture fixture;
     vna_scpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;CALC1:PAR:DEF:EXT 'HealthyB','b1,1'");
     fixture.device->SetInvalidSamples(true);
@@ -350,10 +350,10 @@ void InvalidReceiverCannotProduceCurve(const std::string &)
 
 void ConfigurationPreservesDirectSettings(const std::string &)
 {
-    vna_service_test::Fixture fixture;
+    VnaServiceTest::Fixture fixture;
     auto &service = fixture.service;
     Expect(service.TryAcquireControl(), "typed control");
-    vna_service::Measurement alternate;
+    VnaService::Measurement alternate;
     alternate.name = "Alternate";
     alternate.receiverKind = 'b';
     const auto defined = service.DefineMeasurement(alternate);
@@ -409,10 +409,10 @@ void EmbeddedNulNumeric(const std::string &driver)
 
 void BootstrapPreparationFailureCanRetry(const std::string &)
 {
-    auto owned = std::make_unique<vna_service_test::ControlledDevice>();
+    auto owned = std::make_unique<VnaServiceTest::ControlledDevice>();
     auto *device = owned.get();
     VnaCore::AcquisitionCore core(std::move(owned));
-    vna_service::InstrumentService service(core);
+    VnaService::InstrumentService service(core);
     Expect(core.Initialize().get().ok, "bootstrap device initialization");
     device->FailNextPlanPreparation();
     std::string error;
@@ -433,13 +433,13 @@ void BootstrapPreparationFailureCanRetry(const std::string &)
 
 void InvalidServiceEnumsDoNotMutate(const std::string &)
 {
-    vna_service_test::Fixture fixture;
+    VnaServiceTest::Fixture fixture;
     auto &service = fixture.service;
     Expect(service.TryAcquireControl(), "typed enum validation control");
     const auto settings = service.Settings();
     const auto before = fixture.core.ReadView();
-    const auto source = service.SetTriggerSource(static_cast<vna_service::TriggerSource>(99));
-    const auto mode = service.SetSweepMode(static_cast<vna_service::SweepMode>(99));
+    const auto source = service.SetTriggerSource(static_cast<VnaService::TriggerSource>(99));
+    const auto mode = service.SetSweepMode(static_cast<VnaService::SweepMode>(99));
     Expect(source.wait_for(std::chrono::seconds(0)) == std::future_status::ready &&
                mode.wait_for(std::chrono::seconds(0)) == std::future_status::ready && !source.get().ok &&
                !mode.get().ok && source.get().errorCode == -224 && mode.get().errorCode == -224 &&
@@ -455,7 +455,7 @@ void InvalidServiceEnumsDoNotMutate(const std::string &)
     Expect(
         service.PopError().code == -224 && service.PopError().code == -224, "standard parameter errors are recorded");
     Expect(AwaitOperation(service, service.RunSingle("SCPI")).ok && fixture.core.ReadView().frame &&
-               service.Settings().sweepMode == vna_service::SweepMode::HOLD,
+               service.Settings().sweepMode == VnaService::SweepMode::HOLD,
         "a valid finite operation must still complete after enum rejection");
     service.ReleaseControl();
 }

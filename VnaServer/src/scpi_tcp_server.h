@@ -13,7 +13,7 @@ namespace vna_server {
 
 // Runs HTTP and SCPI on one executor. Returns zero after orderly shutdown.
 // The callback is checked every executor turn; the service must outlive this call.
-int RunScpiTcpServer(vna_service::InstrumentService &service, const ListenOptions &options,
+int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions &options,
     const std::function<bool()> &shutdownRequested);
 
 }  // namespace vna_server

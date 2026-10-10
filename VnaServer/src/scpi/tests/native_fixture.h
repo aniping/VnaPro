@@ -13,7 +13,7 @@ namespace vna_scpi_test {
 
 struct NativeFixture final {
     VnaCore::AcquisitionCore core;
-    vna_service::InstrumentService service;
+    VnaService::InstrumentService service;
 
     // Initializes the native mock before constructing each protocol test case.
     explicit NativeFixture(const std::string &driver);

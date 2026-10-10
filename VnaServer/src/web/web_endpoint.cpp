@@ -250,7 +250,7 @@ void ValidateHeaderFraming(const HttpRequest &request)
 
 }  // namespace
 
-WebEndpoint::WebEndpoint(vna_service::InstrumentService &service, const WebOptions &options)
+WebEndpoint::WebEndpoint(VnaService::InstrumentService &service, const WebOptions &options)
     : runtime_("Web WSAStartup failed"), api_(service), options_(options)
 {
     if (!options_.enabled) {

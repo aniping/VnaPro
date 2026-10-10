@@ -9,7 +9,7 @@
 #include "vna_core/core_types.h"
 #include "vna_service/instrument_settings.h"
 
-namespace vna_service {
+namespace VnaService {
 
 struct InstrumentSnapshot final {
     InstrumentSettings settings;
@@ -20,6 +20,6 @@ struct InstrumentSnapshot final {
     bool finitePending = false;
 };
 
-}  // namespace vna_service
+}  // namespace VnaService
 
 #endif

@@ -21,7 +21,7 @@
 #include "vna_service/operation_result.h"
 #include "vna_service/service_task.h"
 
-namespace vna_service {
+namespace VnaService {
 
 // Thread confinement: all calls after startup belong to the service executor.
 // The referenced core must outlive this service. Protocol state survives clients.
@@ -158,5 +158,5 @@ private:
     std::string observedFault_;
 };
 
-}  // namespace vna_service
+}  // namespace VnaService
 #endif

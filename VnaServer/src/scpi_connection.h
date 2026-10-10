@@ -16,7 +16,7 @@ namespace vna_server {
 class ScpiConnection final {
 public:
     // Takes ownership of socket. The service must outlive this connection.
-    ScpiConnection(vna_service::InstrumentService &service, network::SocketOwner socket);
+    ScpiConnection(VnaService::InstrumentService &service, network::SocketOwner socket);
     // The owner must continue Poll until Drained before normal destruction.
     ~ScpiConnection() noexcept = default;
     ScpiConnection(const ScpiConnection &) = delete;

@@ -24,7 +24,7 @@ namespace vna_web {
 class WebEndpoint final {
 public:
     // Bind the listener; service must outlive this endpoint. Throws on failure.
-    WebEndpoint(vna_service::InstrumentService &service, const WebOptions &options);
+    WebEndpoint(VnaService::InstrumentService &service, const WebOptions &options);
     // Closes all owned transports; accepted API work must be drained before destruction.
     ~WebEndpoint() noexcept = default;
     WebEndpoint(const WebEndpoint &) = delete;

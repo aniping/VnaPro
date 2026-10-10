@@ -6,13 +6,13 @@
 #define VNAPRO_VNASERVICE_INCLUDE_VNA_SERVICE_INSTRUMENTERROR_H
 #include <string>
 
-namespace vna_service {
+namespace VnaService {
 
 struct InstrumentError final {
     int code = 0;
     std::string message = "No error";
 };
 
-}  // namespace vna_service
+}  // namespace VnaService
 
 #endif

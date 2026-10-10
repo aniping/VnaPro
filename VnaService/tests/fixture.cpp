@@ -4,7 +4,7 @@
 
 #include "fixture.h"
 
-namespace vna_service_test {
+namespace VnaServiceTest {
 
 Fixture::Fixture() : Fixture(std::make_unique<ControlledDevice>())
 {
@@ -27,4 +27,4 @@ Fixture::~Fixture()
     core.Close();
 }
 
-}  // namespace vna_service_test
+}  // namespace VnaServiceTest

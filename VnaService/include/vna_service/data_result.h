@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace vna_service {
+namespace VnaService {
 
 struct DataResult final {
     bool ok = false;
@@ -15,6 +15,6 @@ struct DataResult final {
     std::vector<double> values;
 };
 
-}  // namespace vna_service
+}  // namespace VnaService
 
 #endif

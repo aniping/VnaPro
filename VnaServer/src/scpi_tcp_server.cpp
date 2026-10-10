@@ -17,7 +17,7 @@
 namespace vna_server {
 namespace {
 void AdmitController(
-    vna_service::InstrumentService &service, network::Socket listener, std::unique_ptr<ScpiConnection> &connection)
+    VnaService::InstrumentService &service, network::Socket listener, std::unique_ptr<ScpiConnection> &connection)
 {
     network::SocketOwner incoming(accept(listener, nullptr, nullptr));
     if (incoming.Get() == network::INVALID_SOCKET_HANDLE) {
@@ -31,7 +31,7 @@ void AdmitController(
 }
 
 void PollTransports(
-    network::Socket listener, vna_service::InstrumentService &service, std::unique_ptr<ScpiConnection> &connection)
+    network::Socket listener, VnaService::InstrumentService &service, std::unique_ptr<ScpiConnection> &connection)
 {
     network::SocketPollSet events;
     events.AddReadable(listener);
@@ -62,7 +62,7 @@ void AnnounceListener(const ListenOptions &options, std::uint16_t port)
 }
 }  // namespace
 
-int RunScpiTcpServer(vna_service::InstrumentService &service, const ListenOptions &options,
+int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions &options,
     const std::function<bool()> &shutdownRequested)
 {
     network::NetworkRuntime runtime;

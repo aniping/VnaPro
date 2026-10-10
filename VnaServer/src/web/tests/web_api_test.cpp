@@ -21,10 +21,10 @@
 namespace {
 constexpr std::chrono::seconds TEST_WAIT_TIMEOUT(3);
 constexpr std::chrono::milliseconds TEST_POLL_INTERVAL(1);
-using vna_service_test::Fixture;
 using vna_web::HttpApi;
 using vna_web::HttpResponse;
 using vna_web::Json;
+using VnaServiceTest::Fixture;
 
 void Require(bool value, const std::string &message)
 {
@@ -79,7 +79,7 @@ void Until(const std::function<bool()> &done, const std::function<void()> &poll)
     }
 }
 
-vna_service::OperationResult Finish(vna_service::InstrumentService &service, const vna_service::Operation &operation)
+VnaService::OperationResult Finish(VnaService::InstrumentService &service, const VnaService::Operation &operation)
 {
     Until(
         [&operation] {
@@ -177,12 +177,12 @@ void ConfigurationThenSingleFifo()
     const std::string owner = "web-fifo";
     Require(fixture.service.TryAcquireControl(owner), "Acquire typed owner");
     const auto revision = fixture.service.Settings().revision;
-    vna_service::ConfigPatch patch;
+    VnaService::ConfigPatch patch;
     patch.hasPoints = true;
     patch.points = 23U;
     const auto config = fixture.service.ApplyConfiguration(patch, revision, owner);
     const auto single = fixture.service.RunSingle(owner);
-    Require(fixture.service.Settings().sweepMode == vna_service::SweepMode::HOLD,
+    Require(fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD,
         "Queued Single does not change committed mode");
     Require(Finish(fixture.service, config).ok, "Earlier configuration succeeds");
     Require(Finish(fixture.service, single).ok, "Later single succeeds");
@@ -190,7 +190,7 @@ void ConfigurationThenSingleFifo()
     Require(view.frame && view.frame->configRevision == revision + 1U && view.frame->plan.frequencyHz.size() == 23U &&
                 view.frame->runId == view.runId,
         "Single uses preceding committed configuration");
-    Require(fixture.service.Settings().sweepMode == vna_service::SweepMode::HOLD, "Single completes in HOLD");
+    Require(fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD, "Single completes in HOLD");
 }
 
 void ExecutionRevisionCheck()
@@ -199,10 +199,10 @@ void ExecutionRevisionCheck()
     const std::string owner = "web-cas";
     Require(fixture.service.TryAcquireControl(owner), "Acquire typed owner");
     const auto revision = fixture.service.Settings().revision;
-    vna_service::ConfigPatch first;
+    VnaService::ConfigPatch first;
     first.hasPoints = true;
     first.points = 17U;
-    vna_service::ConfigPatch second;
+    VnaService::ConfigPatch second;
     second.hasPoints = true;
     second.points = 29U;
     const auto a = fixture.service.ApplyConfiguration(first, revision, owner);

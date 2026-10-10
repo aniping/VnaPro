@@ -14,7 +14,7 @@
 
 #include "vna_core/device_session.h"
 
-namespace vna_service_test {
+namespace VnaServiceTest {
 class ControlledDevice final : public VnaCore::Detail::DeviceSession {
 public:
     // Gate state and the worker identity remain bound to this instance.
@@ -71,5 +71,5 @@ public:
     bool planReleased_ = false;
     bool failPlanPreparation_ = false;
 };
-}  // namespace vna_service_test
+}  // namespace VnaServiceTest
 #endif

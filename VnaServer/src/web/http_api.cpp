@@ -109,7 +109,7 @@ void Allowed(const Json &value, const std::vector<std::string> &keys)
     }
 }
 
-bool Ready(const vna_service::Operation &value)
+bool Ready(const VnaService::Operation &value)
 {
     return value.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
@@ -132,7 +132,7 @@ std::string CoreStateName(VnaCore::CoreState value)
     }
 }
 
-Json MeasurementJson(const vna_service::Measurement &measurement)
+Json MeasurementJson(const VnaService::Measurement &measurement)
 {
     Json value = Json::MakeObject();
     value["name"] = Json(measurement.name);
@@ -157,7 +157,7 @@ bool SafeName(const std::string &value)
 }
 }  // namespace
 
-HttpApi::HttpApi(vna_service::InstrumentService &service, Now clock) : service_(service), now_(std::move(clock))
+HttpApi::HttpApi(VnaService::InstrumentService &service, Now clock) : service_(service), now_(std::move(clock))
 {
     if (!now_) {
         throw std::invalid_argument("HTTP clock callback is required");
@@ -494,21 +494,21 @@ bool HttpApi::Drained() const
     return true;
 }
 
-Json HttpApi::ConfigurationJson(const vna_service::InstrumentSettings &settings)
+Json HttpApi::ConfigurationJson(const VnaService::InstrumentSettings &settings)
 {
     Json config = Json::MakeObject();
     config["startHz"] = Json(settings.startHz);
     config["stopHz"] = Json(settings.stopHz);
     config["points"] = Json(settings.points);
     config["ifBandwidthHz"] = Json(settings.ifBandwidthHz);
-    config["triggerSource"] = Json(settings.triggerSource == vna_service::TriggerSource::IMMEDIATE ? "IMM" : "MAN");
-    config["sweepMode"] = Json(settings.sweepMode == vna_service::SweepMode::HOLD     ? "HOLD"
-                               : settings.sweepMode == vna_service::SweepMode::SINGLE ? "SING"
-                                                                                      : "CONT");
+    config["triggerSource"] = Json(settings.triggerSource == VnaService::TriggerSource::IMMEDIATE ? "IMM" : "MAN");
+    config["sweepMode"] = Json(settings.sweepMode == VnaService::SweepMode::HOLD     ? "HOLD"
+                               : settings.sweepMode == VnaService::SweepMode::SINGLE ? "SING"
+                                                                                     : "CONT");
     return config;
 }
 
-Json HttpApi::ControlJson(const vna_service::InstrumentSnapshot &snapshot, const HttpRequest &request) const
+Json HttpApi::ControlJson(const VnaService::InstrumentSnapshot &snapshot, const HttpRequest &request) const
 {
     Json control = Json::MakeObject();
     const std::string owner = snapshot.controlOwner;
@@ -533,7 +533,7 @@ Json HttpApi::ControlJson(const vna_service::InstrumentSnapshot &snapshot, const
     return control;
 }
 
-Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const vna_service::Measurement &measurement,
+Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
     const std::vector<std::size_t> &indexes)
 {
     const std::size_t count = frame.plan.frequencyHz.size();
@@ -609,9 +609,9 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
     return result;
 }
 
-vna_service::ConfigPatch HttpApi::ConfigurationPatch(const Json &body)
+VnaService::ConfigPatch HttpApi::ConfigurationPatch(const Json &body)
 {
-    vna_service::ConfigPatch patch;
+    VnaService::ConfigPatch patch;
     if (body.Find("startHz")) {
         patch.hasStartHz = true;
         patch.startHz = Numeric(body, "startHz");
@@ -631,9 +631,9 @@ vna_service::ConfigPatch HttpApi::ConfigurationPatch(const Json &body)
     return patch;
 }
 
-vna_service::Measurement HttpApi::MeasurementDefinition(const Json &body)
+VnaService::Measurement HttpApi::MeasurementDefinition(const Json &body)
 {
-    vna_service::Measurement measurement;
+    VnaService::Measurement measurement;
     measurement.name = Text(body, "name");
     const auto kind = Text(body, "receiverKind");
     if (!SafeName(measurement.name) || kind.size() != 1U ||
@@ -646,7 +646,7 @@ vna_service::Measurement HttpApi::MeasurementDefinition(const Json &body)
     return measurement;
 }
 
-vna_service::Operation HttpApi::StartAction(const Json &body, const std::string &id)
+VnaService::Operation HttpApi::StartAction(const Json &body, const std::string &id)
 {
     const std::string action = Text(body, "action");
     if (action == "single") {
@@ -654,7 +654,7 @@ vna_service::Operation HttpApi::StartAction(const Json &body, const std::string 
     } else if (action == "continuous") {
         return service_.RunContinuous(id);
     } else if (action == "hold") {
-        return service_.SetSweepMode(vna_service::SweepMode::HOLD, id);
+        return service_.SetSweepMode(VnaService::SweepMode::HOLD, id);
     } else if (action == "trigger") {
         return service_.Trigger(id);
     } else {
@@ -705,7 +705,7 @@ HttpResponse HttpApi::RecordWrite(
             const auto result = submitted.operation.get();
             if (!result.ok) {
                 RollbackWrite(session, operationId);
-                return HttpError(result.errorCode == vna_service::Detail::INPUT_BUFFER_OVERRUN ? 429U : 409U,
+                return HttpError(result.errorCode == VnaService::Detail::INPUT_BUFFER_OVERRUN ? 429U : 409U,
                     "operation_rejected", result.message);
             }
         }

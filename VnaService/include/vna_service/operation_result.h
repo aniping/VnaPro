@@ -7,7 +7,7 @@
 #include <future>
 #include <string>
 
-namespace vna_service {
+namespace VnaService {
 
 struct OperationResult final {
     bool ok = false;
@@ -17,6 +17,6 @@ struct OperationResult final {
 
 using Operation = std::shared_future<OperationResult>;
 
-}  // namespace vna_service
+}  // namespace VnaService
 
 #endif

@@ -14,12 +14,12 @@
 #include "vna_core/acquisition_core.h"
 #include "vna_service/instrument_service.h"
 
-namespace vna_service_test {
+namespace VnaServiceTest {
 
 struct Fixture final {
     ControlledDevice *device = nullptr;
     VnaCore::AcquisitionCore core;
-    vna_service::InstrumentService service;
+    VnaService::InstrumentService service;
 
     // Transfers the controlled device into the core before exposing test handles.
     Fixture();
@@ -35,6 +35,6 @@ private:
     explicit Fixture(std::unique_ptr<ControlledDevice> owned);
 };
 
-}  // namespace vna_service_test
+}  // namespace VnaServiceTest
 
 #endif

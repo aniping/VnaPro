@@ -10,7 +10,7 @@
 
 #include "vna_service/measurement.h"
 
-namespace vna_service {
+namespace VnaService {
 
 enum class TriggerSource {
     IMMEDIATE,
@@ -47,6 +47,6 @@ struct InstrumentSettings final {
     std::uint64_t revision = 0U;
 };
 
-}  // namespace vna_service
+}  // namespace VnaService
 
 #endif

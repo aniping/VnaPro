@@ -6,7 +6,7 @@
 #define VNAPRO_VNASERVICE_INCLUDE_VNA_SERVICE_MEASUREMENT_H
 #include <string>
 
-namespace vna_service {
+namespace VnaService {
 
 struct Measurement final {
     std::string name;
@@ -17,6 +17,6 @@ struct Measurement final {
     std::string Parameter() const;
 };
 
-}  // namespace vna_service
+}  // namespace VnaService
 
 #endif

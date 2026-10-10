@@ -24,7 +24,7 @@ void Expect(bool condition, const std::string &message)
     }
 }
 
-void ExerciseNetworkShutdown(vna_service::InstrumentService &service)
+void ExerciseNetworkShutdown(VnaService::InstrumentService &service)
 {
     std::promise<std::uint16_t> listening;
     auto boundPort = listening.get_future();
@@ -65,7 +65,7 @@ void RunNetworkShutdown(const std::string &driver)
     VnaTest::ScopedSimulatorEnvironment environment("golden", nullptr);
     VnaCore::AcquisitionCore core(driver);
     Expect(core.Initialize().get().ok, "Core initialization failed");
-    vna_service::InstrumentService service(core);
+    VnaService::InstrumentService service(core);
     std::string error;
     Expect(service.BootstrapMockProfile(error), "Service bootstrap failed");
     ExerciseNetworkShutdown(service);

@@ -17,7 +17,7 @@
 #include "vna_core/frame_layout.h"
 #include "vna_service/service_error_code.h"
 
-namespace vna_service {
+namespace VnaService {
 namespace {
 constexpr double MIN_FREQUENCY_HZ = 1.0;
 constexpr double MAX_FREQUENCY_HZ = 1000000000.0;
@@ -950,4 +950,4 @@ unsigned InstrumentService::StatusByte(bool outputAvailable) const noexcept
     return value;
 }
 
-}  // namespace vna_service
+}  // namespace VnaService

@@ -18,7 +18,7 @@ namespace vna_scpi {
 class ScpiEngine final {
 public:
     // Acquires exclusive control when available. The service must outlive this engine.
-    explicit ScpiEngine(vna_service::InstrumentService &service);
+    explicit ScpiEngine(VnaService::InstrumentService &service);
     // Destroy only after accepted operations drain; an idle engine releases its grant.
     ~ScpiEngine() noexcept;
     ScpiEngine(const ScpiEngine &) = delete;
@@ -54,16 +54,16 @@ private:
 
     // Each OPC watch observes the operations accepted before its program unit.
     struct ScpiOpcWatch final {
-        std::vector<vna_service::Operation> operations;
+        std::vector<VnaService::Operation> operations;
         unsigned generation = 0;
     };
 
     void RecordCommandError(const ParsedCommand &command, int code, const std::string &text);
     bool CheckArguments(const ParsedCommand &command, std::size_t count);
     void AppendResponse(const std::string &unit);
-    void BeginEncoding(vna_service::DataResult data, const ParsedCommand &command);
+    void BeginEncoding(VnaService::DataResult data, const ParsedCommand &command);
     void EncodeBatch();
-    void SetOperation(vna_service::Operation operation, bool asynchronous = false);
+    void SetOperation(VnaService::Operation operation, bool asynchronous = false);
     bool NumericArgument(const ParsedCommand &command, double &value, double minimum, double maximum, bool hz);
     bool QueryNumeric(const ParsedCommand &command, double current, double minimum, double maximum);
     void Dispatch(const ParsedCommand &command);
@@ -97,17 +97,17 @@ private:
     bool PollBarrier();
     void PollMessages();
 
-    vna_service::InstrumentService &service_;
+    VnaService::InstrumentService &service_;
     bool control_ = false;
     bool connected_ = true;
     bool transportOutputPending_ = false;
     std::deque<ScpiMessage> messages_;
     std::deque<std::string> output_;
     std::size_t outputBytes_ = 0;
-    vna_service::Operation sequential_;
+    VnaService::Operation sequential_;
     bool waiting_ = false;
     bool waitingQuery_ = false;
-    std::vector<vna_service::Operation> barrier_;
+    std::vector<VnaService::Operation> barrier_;
     std::vector<ScpiOpcWatch> watches_;
     std::vector<double> encoding_;
     std::size_t encoded_ = 0;

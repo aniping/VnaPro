@@ -13,7 +13,7 @@
 #include "vna_service/instrument_settings.h"
 #include "vna_service/operation_result.h"
 
-namespace vna_service {
+namespace VnaService {
 namespace Detail {
 enum class ServiceTaskKind {
     CONFIGURE,
@@ -61,6 +61,6 @@ struct ServiceTask final {
     }
 };
 }  // namespace Detail
-}  // namespace vna_service
+}  // namespace VnaService
 
 #endif

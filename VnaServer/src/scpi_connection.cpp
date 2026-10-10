@@ -13,7 +13,7 @@ constexpr std::size_t READ_BUFFER_CAPACITY = 4096U;
 const std::chrono::seconds WRITE_PROGRESS_TIMEOUT{10};
 }  // namespace
 
-ScpiConnection::ScpiConnection(vna_service::InstrumentService &service, network::SocketOwner socket)
+ScpiConnection::ScpiConnection(VnaService::InstrumentService &service, network::SocketOwner socket)
     : socket_(std::move(socket)), engine_(service)
 {
     network::ConfigureStreamSocket(socket_.Get());

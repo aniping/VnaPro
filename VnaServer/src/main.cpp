@@ -107,7 +107,7 @@ int StartService(const std::string &driver, const vna_server::ListenOptions &opt
         core.Close();
         return 1;
     }
-    vna_service::InstrumentService service(core);
+    VnaService::InstrumentService service(core);
     std::string bootstrapError;
     if (!service.BootstrapMockProfile(bootstrapError)) {
         std::cerr << "Mock configuration failed: " << bootstrapError << '\n';

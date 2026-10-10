@@ -20,12 +20,12 @@ namespace vna_scpi {
 namespace {
 const std::string SCPI_CONTROL_OWNER = "SCPI";
 
-bool OperationReady(const vna_service::Operation &operation)
+bool OperationReady(const VnaService::Operation &operation)
 {
     return operation.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-bool AllReady(const std::vector<vna_service::Operation> &operations)
+bool AllReady(const std::vector<VnaService::Operation> &operations)
 {
     for (const auto &operation : operations) {
         if (!OperationReady(operation)) {
@@ -62,7 +62,7 @@ bool StringArgument(const std::string &text, std::string &value)
     return true;
 }
 
-bool ReceiverParameter(const std::string &text, vna_service::Measurement &measurement)
+bool ReceiverParameter(const std::string &text, VnaService::Measurement &measurement)
 {
     const auto comma = text.find(',');
     if (comma == std::string::npos) {
@@ -131,7 +131,7 @@ void ScpiEngine::AppendResponse(const std::string &unit)
     message.response += unit;
 }
 
-void ScpiEngine::BeginEncoding(vna_service::DataResult data, const ParsedCommand &command)
+void ScpiEngine::BeginEncoding(VnaService::DataResult data, const ParsedCommand &command)
 {
     if (!data.ok) {
         RecordCommandError(command, DATA_CORRUPT_OR_STALE, data.error);
@@ -172,7 +172,7 @@ void ScpiEngine::EncodeBatch()
     }
 }
 
-void ScpiEngine::SetOperation(vna_service::Operation operation, bool asynchronous)
+void ScpiEngine::SetOperation(VnaService::Operation operation, bool asynchronous)
 {
     if (!asynchronous) {
         sequential_ = std::move(operation);
@@ -500,7 +500,7 @@ void ScpiEngine::DispatchSweepType(const ParsedCommand &command)
     } else if (CheckArguments(command, 1)) {
         if (!Matches(Upper(command.arguments.front()), "LIN", "LINEAR")) {
             RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only LINear sweep is supported");
-        } else if (settings.sweepMode != vna_service::SweepMode::HOLD || service_.HasPending()) {
+        } else if (settings.sweepMode != VnaService::SweepMode::HOLD || service_.HasPending()) {
             RecordCommandError(command, SETTINGS_CONFLICT, "Configuration requires HOLD");
         }
     }
@@ -513,8 +513,8 @@ void ScpiEngine::DispatchTriggerSource(const ParsedCommand &command)
     const bool boolean = path.find("INIT") == 0U;
     if (command.query) {
         if (CheckArguments(command, 0)) {
-            AppendResponse(boolean ? (settings.triggerSource == vna_service::TriggerSource::IMMEDIATE ? "1" : "0")
-                                   : (settings.triggerSource == vna_service::TriggerSource::IMMEDIATE ? "IMM" : "MAN"));
+            AppendResponse(boolean ? (settings.triggerSource == VnaService::TriggerSource::IMMEDIATE ? "1" : "0")
+                                   : (settings.triggerSource == VnaService::TriggerSource::IMMEDIATE ? "IMM" : "MAN"));
         }
         return;
     }
@@ -522,21 +522,21 @@ void ScpiEngine::DispatchTriggerSource(const ParsedCommand &command)
         return;
     }
     const std::string value = Upper(command.arguments.front());
-    vna_service::TriggerSource source = vna_service::TriggerSource::MANUAL;
+    VnaService::TriggerSource source = VnaService::TriggerSource::MANUAL;
     if (boolean && (value == "ON" || value == "1")) {
-        source = vna_service::TriggerSource::IMMEDIATE;
+        source = VnaService::TriggerSource::IMMEDIATE;
     } else if (boolean && (value == "OFF" || value == "0")) {
-        source = vna_service::TriggerSource::MANUAL;
+        source = VnaService::TriggerSource::MANUAL;
     } else if (!boolean && Matches(value, "IMM", "IMMEDIATE")) {
-        source = vna_service::TriggerSource::IMMEDIATE;
+        source = VnaService::TriggerSource::IMMEDIATE;
     } else if (!boolean && Matches(value, "MAN", "MANUAL")) {
-        source = vna_service::TriggerSource::MANUAL;
+        source = VnaService::TriggerSource::MANUAL;
     } else {
         RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported trigger source");
         return;
     }
     const bool asynchronous =
-        source == vna_service::TriggerSource::IMMEDIATE && settings.sweepMode == vna_service::SweepMode::SINGLE;
+        source == VnaService::TriggerSource::IMMEDIATE && settings.sweepMode == VnaService::SweepMode::SINGLE;
     SetOperation(service_.SetTriggerSource(source), asynchronous);
 }
 
@@ -567,9 +567,9 @@ void ScpiEngine::DispatchSweepMode(const ParsedCommand &command)
     const auto &settings = service_.Settings();
     if (command.query) {
         if (CheckArguments(command, 0)) {
-            AppendResponse(settings.sweepMode == vna_service::SweepMode::HOLD
+            AppendResponse(settings.sweepMode == VnaService::SweepMode::HOLD
                                ? "HOLD"
-                               : (settings.sweepMode == vna_service::SweepMode::SINGLE ? "SING" : "CONT"));
+                               : (settings.sweepMode == VnaService::SweepMode::SINGLE ? "SING" : "CONT"));
         }
         return;
     }
@@ -577,19 +577,19 @@ void ScpiEngine::DispatchSweepMode(const ParsedCommand &command)
         return;
     }
     const std::string value = Upper(command.arguments.front());
-    vna_service::SweepMode mode = vna_service::SweepMode::HOLD;
+    VnaService::SweepMode mode = VnaService::SweepMode::HOLD;
     if (value == "HOLD") {
-        mode = vna_service::SweepMode::HOLD;
+        mode = VnaService::SweepMode::HOLD;
     } else if (Matches(value, "CONT", "CONTINUOUS")) {
-        mode = vna_service::SweepMode::CONTINUOUS;
+        mode = VnaService::SweepMode::CONTINUOUS;
     } else if (Matches(value, "SING", "SINGLE")) {
-        mode = vna_service::SweepMode::SINGLE;
+        mode = VnaService::SweepMode::SINGLE;
     } else {
         RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported sweep mode");
         return;
     }
     SetOperation(service_.SetSweepMode(mode),
-        mode == vna_service::SweepMode::SINGLE && settings.triggerSource == vna_service::TriggerSource::IMMEDIATE);
+        mode == VnaService::SweepMode::SINGLE && settings.triggerSource == VnaService::TriggerSource::IMMEDIATE);
 }
 
 void ScpiEngine::DispatchInitiate(const ParsedCommand &command)
@@ -608,7 +608,7 @@ void ScpiEngine::DispatchDefineMeasurement(const ParsedCommand &command)
     if (!CheckArguments(command, 2)) {
         return;
     }
-    vna_service::Measurement measurement;
+    VnaService::Measurement measurement;
     std::string parameter;
     if (!StringArgument(command.arguments[0], measurement.name) || !StringArgument(command.arguments[1], parameter)) {
         RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name and parameter require quoted strings");
@@ -763,7 +763,7 @@ bool ScpiEngine::PollBarrier()
         if (!OperationReady(sequential_)) {
             return false;
         }
-        sequential_ = vna_service::Operation();
+        sequential_ = VnaService::Operation();
     }
     if (waiting_) {
         if (!AllReady(barrier_)) {
@@ -804,7 +804,7 @@ void ScpiEngine::PollMessages()
     }
 }
 
-ScpiEngine::ScpiEngine(vna_service::InstrumentService &service) : service_(service)
+ScpiEngine::ScpiEngine(VnaService::InstrumentService &service) : service_(service)
 {
     // Acquire only after all allocating members have constructed successfully.
     control_ = service.TryAcquireControl(SCPI_CONTROL_OWNER);

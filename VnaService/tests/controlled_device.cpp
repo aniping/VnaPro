@@ -6,7 +6,7 @@
 
 #include "../../VnaCore/src/device/plan_preparation_error.h"
 
-namespace vna_service_test {
+namespace VnaServiceTest {
 
 std::string ControlledDevice::Initialize()
 {
@@ -109,4 +109,4 @@ void ControlledDevice::Release()
     cv_.notify_all();
 }
 
-}  // namespace vna_service_test
+}  // namespace VnaServiceTest

@@ -23,7 +23,7 @@ public:
     using Clock = std::chrono::steady_clock;
     using Now = std::function<Clock::time_point()>;
     // The service must outlive this API; the owned callback must keep its captures alive.
-    explicit HttpApi(vna_service::InstrumentService &service, Now clock = Clock::now);
+    explicit HttpApi(VnaService::InstrumentService &service, Now clock = Clock::now);
     // Releases owned session/operation records; the executor must drain accepted work first.
     ~HttpApi() noexcept = default;
     HttpApi(const HttpApi &) = delete;
@@ -54,12 +54,12 @@ private:
     };
 
     struct HttpOperationRecord final {
-        vna_service::Operation operation;
+        VnaService::Operation operation;
         std::string owner;
         std::chrono::steady_clock::time_point created{};
         std::chrono::steady_clock::time_point completed{};
         bool done = false;
-        vna_service::OperationResult result;
+        VnaService::OperationResult result;
     };
 
     struct HttpWriteIdentity final {
@@ -69,34 +69,34 @@ private:
     };
 
     struct HttpWriteResult final {
-        vna_service::Operation operation;
+        VnaService::Operation operation;
         HttpResponse response;
         bool admitted = false;
     };
 
     std::string Token();
     std::string HeaderToken(const HttpRequest &request) const;
-    static Json ConfigurationJson(const vna_service::InstrumentSettings &settings);
-    Json ControlJson(const vna_service::InstrumentSnapshot &snapshot, const HttpRequest &request) const;
+    static Json ConfigurationJson(const VnaService::InstrumentSettings &settings);
+    Json ControlJson(const VnaService::InstrumentSnapshot &snapshot, const HttpRequest &request) const;
     HttpResponse Status(const HttpRequest &request) const;
     HttpResponse Frame() const;
-    static Json TraceJson(const VnaCore::MeasurementFrame &frame, const vna_service::Measurement &measurement,
+    static Json TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
         const std::vector<std::size_t> &indexes);
     HttpResponse OperationStatus(const std::string &id, const std::string &requester) const;
     HttpResponse Accepted(const std::string &id, const std::string &owner) const;
     HttpResponse Claim(const Json &body);
     HttpResponse Release(const std::string &id);
     HttpWriteResult StartWrite(const HttpRequest &request, const Json &body, const std::string &id);
-    static vna_service::ConfigPatch ConfigurationPatch(const Json &body);
-    static vna_service::Measurement MeasurementDefinition(const Json &body);
-    vna_service::Operation StartAction(const Json &body, const std::string &id);
+    static VnaService::ConfigPatch ConfigurationPatch(const Json &body);
+    static VnaService::Measurement MeasurementDefinition(const Json &body);
+    VnaService::Operation StartAction(const Json &body, const std::string &id);
     bool RetryResponse(const HttpSession &session, const HttpWriteIdentity &request, HttpResponse &response) const;
     HttpResponse RecordWrite(
         const HttpRequest &request, const Json &body, HttpSession &session, const HttpWriteIdentity &identity);
     void RollbackWrite(HttpSession &session, const std::string &operationId) noexcept;
     HttpResponse Write(const HttpRequest &request, const Json &body);
     HttpResponse Route(const HttpRequest &request);
-    vna_service::InstrumentService &service_;
+    VnaService::InstrumentService &service_;
     const Now now_;
     std::map<std::string, HttpSession> sessions_;
     std::map<std::string, HttpOperationRecord> records_;
