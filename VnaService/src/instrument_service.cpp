@@ -1,5 +1,3 @@
-#include "vna_service/instrument_service.h"
-
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -10,10 +8,11 @@
 #include <utility>
 
 #include "vna_core/acquisition_core.h"
+#include "vna_service/instrument_service.h"
 
 namespace vna_service {
 namespace {
-OperationResult result(bool ok, int code = 0, const std::string &message = std::string())
+OperationResult Result(bool ok, int code = 0, const std::string &message = std::string())
 {
     OperationResult value;
     value.ok = ok;
@@ -22,17 +21,17 @@ OperationResult result(bool ok, int code = 0, const std::string &message = std::
     return value;
 }
 
-bool ready(const vna_core::Ticket &ticket)
+bool Ready(const vna_core::Ticket &ticket)
 {
     return ticket.valid() && ticket.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-bool validFrequency(double value)
+bool ValidFrequency(double value)
 {
     return std::isfinite(value) && value >= 1.0 && value <= 1000000000.0;
 }
 
-double quantizedBandwidth(double value)
+double QuantizedBandwidth(double value)
 {
     const double values[] = {10.0, 100.0, 1000.0, 10000.0, 100000.0};
     for (double valid : values) {
@@ -43,7 +42,7 @@ double quantizedBandwidth(double value)
     return 0.0;
 }
 
-vna_core::SweepPlan makePlan(const InstrumentSettings &settings)
+vna_core::SweepPlan MakePlan(const InstrumentSettings &settings)
 {
     vna_core::SweepPlan plan;
     plan.ifBandwidthRaw = static_cast<std::uint32_t>(settings.ifBandwidthHz);
@@ -121,280 +120,300 @@ public:
     unsigned generation = 0;
     std::string observedFault;
 
-    void error(int code, const std::string &text)
-    {
-        if (code <= -100 && code > -200) {
-            esr |= 32U;
-        } else if (code <= -200 && code > -300) {
-            esr |= 16U;
-        } else if (code <= -300 && code > -400) {
-            esr |= 8U;
-        } else if (code <= -400 && code > -500) {
-            esr |= 4U;
-        }
-        InstrumentError entry;
-        entry.code = code;
-        entry.message = text;
-        if (errors.size() < 32U) {
-            errors.push_back(std::move(entry));
-        } else {
-            errors.back().code = -350;
-            errors.back().message = "Queue overflow";
-            esr |= 8U;
-        }
-    }
+    void error(int code, const std::string &text);
 
-    Operation rejected(int code, const std::string &message, const std::string &requester = "SCPI")
-    {
-        if (requester == "SCPI") {
-            error(code, message);
-        }
-        std::promise<OperationResult> promise;
-        Operation operation = promise.get_future().share();
-        promise.set_value(result(false, code, message));
-        return operation;
-    }
+    Operation rejected(int code, const std::string &message, const std::string &requester = "SCPI");
 
-    Operation enqueue(std::unique_ptr<Task> task, const std::string &requester = "SCPI")
-    {
-        if (owner != requester || requester.empty() || releasing) {
-            return rejected(-221, "No active instrument control", requester);
-        }
-        if (!mockReady) {
-            return rejected(-221, "Verified backend profile is not initialized", requester);
-        }
-        if (tasks.size() >= 32U) {
-            return rejected(-363, "Control input buffer overrun", requester);
-        }
-        task->owner = requester;
-        task->generation = controlGeneration;
-        Operation operation = task->operation;
-        tasks.push_back(std::move(task));
-        return operation;
-    }
+    Operation enqueue(std::unique_ptr<Task> task, const std::string &requester = "SCPI");
 
     Operation configure(std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected,
-        const std::string &requester = "SCPI")
-    {
-        if (settings.sweepMode != SweepMode::Hold || hasMeasurement() ||
-            core.readView().state != vna_core::CoreState::Ready) {
-            return rejected(-221, "Configuration requires HOLD and no pending measurement", requester);
-        }
-        std::unique_ptr<Task> task(new Task);
-        task->mutate = std::move(mutate);
-        task->expectedRevision = expected;
-        task->checkRevision = expected != 0U || requester != "SCPI";
-        return enqueue(std::move(task), requester);
-    }
+        const std::string &requester = "SCPI");
 
-    bool hasMeasurement() const
-    {
-        for (const auto &task : tasks) {
-            if (task->measurement) {
-                return true;
-            }
+    bool hasMeasurement() const;
+
+    bool hasConfiguration() const;
+
+    void finish(OperationResult value);
+
+    bool consume(Task &task);
+
+    void commitMode(Task &task);
+
+    void pollTask();
+};
+
+void InstrumentService::Impl::error(int code, const std::string &text)
+{
+    if (code <= -100 && code > -200) {
+        esr |= 32U;
+    } else if (code <= -200 && code > -300) {
+        esr |= 16U;
+    } else if (code <= -300 && code > -400) {
+        esr |= 8U;
+    } else if (code <= -400 && code > -500) {
+        esr |= 4U;
+    }
+    InstrumentError entry;
+    entry.code = code;
+    entry.message = text;
+    if (errors.size() < 32U) {
+        errors.push_back(std::move(entry));
+    } else {
+        errors.back().code = -350;
+        errors.back().message = "Queue overflow";
+        esr |= 8U;
+    }
+}
+
+Operation InstrumentService::Impl::rejected(int code, const std::string &message, const std::string &requester)
+{
+    if (requester == "SCPI") {
+        error(code, message);
+    }
+    std::promise<OperationResult> promise;
+    Operation operation = promise.get_future().share();
+    promise.set_value(Result(false, code, message));
+    return operation;
+}
+
+Operation InstrumentService::Impl::enqueue(std::unique_ptr<Task> task, const std::string &requester)
+{
+    if (owner != requester || requester.empty() || releasing) {
+        return rejected(-221, "No active instrument control", requester);
+    }
+    if (!mockReady) {
+        return rejected(-221, "Verified backend profile is not initialized", requester);
+    }
+    if (tasks.size() >= 32U) {
+        return rejected(-363, "Control input buffer overrun", requester);
+    }
+    task->owner = requester;
+    task->generation = controlGeneration;
+    Operation operation = task->operation;
+    tasks.push_back(std::move(task));
+    return operation;
+}
+
+Operation InstrumentService::Impl::configure(
+    std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected, const std::string &requester)
+{
+    if (settings.sweepMode != SweepMode::Hold || hasMeasurement() ||
+        core.readView().state != vna_core::CoreState::Ready) {
+        return rejected(-221, "Configuration requires HOLD and no pending measurement", requester);
+    }
+    std::unique_ptr<Task> task(new Task);
+    task->mutate = std::move(mutate);
+    task->expectedRevision = expected;
+    task->checkRevision = expected != 0U || requester != "SCPI";
+    return enqueue(std::move(task), requester);
+}
+
+bool InstrumentService::Impl::hasMeasurement() const
+{
+    for (const auto &task : tasks) {
+        if (task->measurement) {
+            return true;
         }
+    }
+    return false;
+}
+
+bool InstrumentService::Impl::hasConfiguration() const
+{
+    for (const auto &task : tasks) {
+        if (task->kind == Kind::Configure) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void InstrumentService::Impl::finish(OperationResult value)
+{
+    if (!value.ok) {
+        const auto view = core.readView();
+        if (tasks.front()->measurement &&
+            (view.state == vna_core::CoreState::Faulted || view.state == vna_core::CoreState::Closed)) {
+            settings.sweepMode = SweepMode::Hold;
+        }
+        if (tasks.front()->owner == "SCPI" || view.state == vna_core::CoreState::Faulted) {
+            error(value.errorCode, value.message);
+        }
+        observedFault = view.error;
+    }
+    tasks.front()->promise.set_value(value);
+    tasks.pop_front();
+}
+
+bool InstrumentService::Impl::consume(Task &task)
+{
+    if (!Ready(task.ticket)) {
         return false;
     }
-
-    bool hasConfiguration() const
-    {
-        for (const auto &task : tasks) {
-            if (task->kind == Kind::Configure) {
-                return true;
-            }
-        }
+    const vna_core::CommandResult value = task.ticket.get();
+    task.ticket = vna_core::Ticket();
+    if (!value.ok) {
+        finish(Result(false, -310, value.message));
         return false;
     }
+    return true;
+}
 
-    void finish(OperationResult value)
-    {
-        if (!value.ok) {
-            const auto view = core.readView();
-            if (tasks.front()->measurement &&
-                (view.state == vna_core::CoreState::Faulted || view.state == vna_core::CoreState::Closed)) {
-                settings.sweepMode = SweepMode::Hold;
-            }
-            if (tasks.front()->owner == "SCPI" || view.state == vna_core::CoreState::Faulted) {
-                error(value.errorCode, value.message);
-            }
-            observedFault = view.error;
-        }
-        tasks.front()->promise.set_value(value);
-        tasks.pop_front();
+void InstrumentService::Impl::commitMode(Task &task)
+{
+    settings.triggerSource = task.candidate.triggerSource;
+    settings.sweepMode = task.candidate.sweepMode;
+    finish(Result(true));
+}
+
+void InstrumentService::Impl::pollTask()
+{
+    if (tasks.empty()) {
+        return;
     }
-
-    bool consume(Task &task)
-    {
-        if (!ready(task.ticket)) {
-            return false;
-        }
-        const vna_core::CommandResult value = task.ticket.get();
-        task.ticket = vna_core::Ticket();
-        if (!value.ok) {
-            finish(result(false, -310, value.message));
-            return false;
-        }
-        return true;
+    Task &task = *tasks.front();
+    if (task.stage == 0 && (task.owner != owner || task.generation != controlGeneration)) {
+        finish(Result(false, -221, "Instrument control generation changed"));
+        return;
     }
-
-    void commitMode(Task &task)
-    {
-        settings.triggerSource = task.candidate.triggerSource;
-        settings.sweepMode = task.candidate.sweepMode;
-        finish(result(true));
-    }
-
-    void pollTask()
-    {
-        if (tasks.empty()) {
-            return;
-        }
-        Task &task = *tasks.front();
-        if (task.stage == 0 && (task.owner != owner || task.generation != controlGeneration)) {
-            finish(result(false, -221, "Instrument control generation changed"));
-            return;
-        }
-        if (task.kind == Kind::Configure) {
-            if (task.stage == 0) {
-                const auto view = core.readView();
-                if (settings.sweepMode != SweepMode::Hold || view.state != vna_core::CoreState::Ready) {
-                    finish(result(false, -221, "Configuration requires HOLD and no pending measurement"));
-                    return;
-                }
-                if (task.checkRevision && task.expectedRevision != settings.revision) {
-                    finish(result(false, -221, "Configuration revision changed"));
-                    return;
-                }
-                task.candidate = settings;
-                const OperationResult prepared = task.mutate(task.candidate);
-                if (!prepared.ok) {
-                    finish(prepared);
-                    return;
-                }
-                task.ticket = core.configure(makePlan(task.candidate));
-                task.stage = 1;
-                return;
-            }
-            if (!ready(task.ticket)) {
-                return;
-            }
-            const auto value = task.ticket.get();
-            if (!value.ok) {
-                finish(result(false, -310, value.message));
-                return;
-            }
-            task.candidate.revision = value.configRevision;
-            settings = task.candidate;
-            finish(result(true));
-            return;
-        }
-        if (task.kind == Kind::Trigger) {
-            if (task.stage == 0) {
-                const auto view = core.readView();
-                if (settings.triggerSource != TriggerSource::Manual || settings.sweepMode == SweepMode::Hold ||
-                    view.state != vna_core::CoreState::Running) {
-                    finish(result(false, -221, "INIT requires MANual source and an armed channel"));
-                    return;
-                }
-                task.ticket = core.triggerOnce(view.runId, view.configRevision);
-                task.stage = 1;
-                return;
-            }
-            if (!consume(task)) {
-                return;
-            }
-            if (task.stage == 1 && settings.sweepMode == SweepMode::Single) {
-                task.ticket = core.stop(core.readView().runId);
-                task.stage = 2;
-                return;
-            }
-            if (task.stage == 2) {
-                settings.sweepMode = SweepMode::Hold;
-            }
-            finish(result(true));
-            return;
-        }
-        // Mode/source changes are finite transitions. SING internally uses a
-        // manual run, one trigger and a Stop barrier, so it cannot oversweep.
+    if (task.kind == Kind::Configure) {
         if (task.stage == 0) {
             const auto view = core.readView();
-            if (view.state != vna_core::CoreState::Ready && view.state != vna_core::CoreState::Running) {
-                finish(result(false, -221, "Instrument is not ready"));
+            if (settings.sweepMode != SweepMode::Hold || view.state != vna_core::CoreState::Ready) {
+                finish(Result(false, -221, "Configuration requires HOLD and no pending measurement"));
+                return;
+            }
+            if (task.checkRevision && task.expectedRevision != settings.revision) {
+                finish(Result(false, -221, "Configuration revision changed"));
                 return;
             }
             task.candidate = settings;
-            if (task.kind == Kind::Mode) {
-                task.candidate.sweepMode = task.mode;
-            } else {
-                task.candidate.triggerSource = task.source;
-            }
-            if (task.forceInternalSource) {
-                task.candidate.triggerSource = TriggerSource::Immediate;
-            }
-            task.measurement = task.candidate.sweepMode == SweepMode::Single &&
-                               task.candidate.triggerSource == TriggerSource::Immediate;
-            if (view.state == vna_core::CoreState::Running) {
-                task.ticket = core.stop(view.runId);
-                task.stage = 1;
+            const OperationResult prepared = task.mutate(task.candidate);
+            if (!prepared.ok) {
+                finish(prepared);
                 return;
             }
-            task.stage = 2;
+            task.ticket = core.configure(MakePlan(task.candidate));
+            task.stage = 1;
+            return;
         }
-        if (task.stage == 1) {
-            if (!consume(task)) {
+        if (!Ready(task.ticket)) {
+            return;
+        }
+        const auto value = task.ticket.get();
+        if (!value.ok) {
+            finish(Result(false, -310, value.message));
+            return;
+        }
+        task.candidate.revision = value.configRevision;
+        settings = task.candidate;
+        finish(Result(true));
+        return;
+    }
+    if (task.kind == Kind::Trigger) {
+        if (task.stage == 0) {
+            const auto view = core.readView();
+            if (settings.triggerSource != TriggerSource::Manual || settings.sweepMode == SweepMode::Hold ||
+                view.state != vna_core::CoreState::Running) {
+                finish(Result(false, -221, "INIT requires MANual source and an armed channel"));
                 return;
             }
+            task.ticket = core.triggerOnce(view.runId, view.configRevision);
+            task.stage = 1;
+            return;
+        }
+        if (!consume(task)) {
+            return;
+        }
+        if (task.stage == 1 && settings.sweepMode == SweepMode::Single) {
+            task.ticket = core.stop(core.readView().runId);
             task.stage = 2;
+            return;
         }
         if (task.stage == 2) {
-            if (task.candidate.sweepMode == SweepMode::Hold) {
-                commitMode(task);
-                return;
-            }
-            const auto mode = task.candidate.triggerSource == TriggerSource::Immediate &&
-                                      task.candidate.sweepMode == SweepMode::Continuous
-                                  ? vna_core::RunMode::Continuous
-                                  : vna_core::RunMode::Manual;
-            task.ticket = core.start(mode);
-            task.stage = 3;
-            return;
+            settings.sweepMode = SweepMode::Hold;
         }
-        if (task.stage == 3) {
-            if (!consume(task)) {
-                return;
-            }
-            if (task.candidate.sweepMode == SweepMode::Single) {
-                settings.sweepMode = SweepMode::Single;
-                settings.triggerSource = task.candidate.triggerSource;
-            }
-            if (task.candidate.sweepMode != SweepMode::Single ||
-                task.candidate.triggerSource != TriggerSource::Immediate) {
-                commitMode(task);
-                return;
-            }
-            const auto view = core.readView();
-            task.ticket = core.triggerOnce(view.runId, view.configRevision);
-            task.stage = 4;
-            return;
-        }
-        if (task.stage == 4) {
-            if (!consume(task)) {
-                return;
-            }
-            task.ticket = core.stop(core.readView().runId);
-            task.stage = 5;
-            return;
-        }
-        if (task.stage == 5) {
-            if (!consume(task)) {
-                return;
-            }
-            task.candidate.sweepMode = SweepMode::Hold;
-            commitMode(task);
-        }
+        finish(Result(true));
+        return;
     }
-};
+    // Mode/source changes are finite transitions. SING internally uses a
+    // manual run, one trigger and a Stop barrier, so it cannot oversweep.
+    if (task.stage == 0) {
+        const auto view = core.readView();
+        if (view.state != vna_core::CoreState::Ready && view.state != vna_core::CoreState::Running) {
+            finish(Result(false, -221, "Instrument is not ready"));
+            return;
+        }
+        task.candidate = settings;
+        if (task.kind == Kind::Mode) {
+            task.candidate.sweepMode = task.mode;
+        } else {
+            task.candidate.triggerSource = task.source;
+        }
+        if (task.forceInternalSource) {
+            task.candidate.triggerSource = TriggerSource::Immediate;
+        }
+        task.measurement =
+            task.candidate.sweepMode == SweepMode::Single && task.candidate.triggerSource == TriggerSource::Immediate;
+        if (view.state == vna_core::CoreState::Running) {
+            task.ticket = core.stop(view.runId);
+            task.stage = 1;
+            return;
+        }
+        task.stage = 2;
+    }
+    if (task.stage == 1) {
+        if (!consume(task)) {
+            return;
+        }
+        task.stage = 2;
+    }
+    if (task.stage == 2) {
+        if (task.candidate.sweepMode == SweepMode::Hold) {
+            commitMode(task);
+            return;
+        }
+        const auto mode = task.candidate.triggerSource == TriggerSource::Immediate &&
+                                  task.candidate.sweepMode == SweepMode::Continuous
+                              ? vna_core::RunMode::Continuous
+                              : vna_core::RunMode::Manual;
+        task.ticket = core.start(mode);
+        task.stage = 3;
+        return;
+    }
+    if (task.stage == 3) {
+        if (!consume(task)) {
+            return;
+        }
+        if (task.candidate.sweepMode == SweepMode::Single) {
+            settings.sweepMode = SweepMode::Single;
+            settings.triggerSource = task.candidate.triggerSource;
+        }
+        if (task.candidate.sweepMode != SweepMode::Single || task.candidate.triggerSource != TriggerSource::Immediate) {
+            commitMode(task);
+            return;
+        }
+        const auto view = core.readView();
+        task.ticket = core.triggerOnce(view.runId, view.configRevision);
+        task.stage = 4;
+        return;
+    }
+    if (task.stage == 4) {
+        if (!consume(task)) {
+            return;
+        }
+        task.ticket = core.stop(core.readView().runId);
+        task.stage = 5;
+        return;
+    }
+    if (task.stage == 5) {
+        if (!consume(task)) {
+            return;
+        }
+        task.candidate.sweepMode = SweepMode::Hold;
+        commitMode(task);
+    }
+}
 
 InstrumentService::InstrumentService(vna_core::AcquisitionCore &core) : impl_(new Impl(core))
 {
@@ -414,7 +433,7 @@ bool InstrumentService::bootstrapMockProfile(std::string &error)
     initial.name = "DefaultA";
     impl_->settings.measurements.push_back(initial);
     impl_->settings.selectedMeasurement = initial.name;
-    const auto configured = impl_->core.configure(makePlan(impl_->settings)).get();
+    const auto configured = impl_->core.configure(MakePlan(impl_->settings)).get();
     if (!configured.ok) {
         error = configured.message;
         return false;
@@ -511,18 +530,18 @@ Operation InstrumentService::setStartHz(double value, std::uint64_t expected)
 {
     return impl_->configure(
         [value](InstrumentSettings &settings) {
-            if (!validFrequency(value)) {
-                return result(false, -222, "Start frequency out of mock range");
+            if (!ValidFrequency(value)) {
+                return Result(false, -222, "Start frequency out of mock range");
             }
             const double span = settings.stopHz - settings.startHz;
             const double start = std::round(value);
             const double stop = start > settings.stopHz ? start + span : settings.stopHz;
-            if (!validFrequency(stop)) {
-                return result(false, -222, "Coupled stop frequency out of mock range");
+            if (!ValidFrequency(stop)) {
+                return Result(false, -222, "Coupled stop frequency out of mock range");
             }
             settings.startHz = start;
             settings.stopHz = stop;
-            return result(true);
+            return Result(true);
         },
         expected);
 }
@@ -531,18 +550,18 @@ Operation InstrumentService::setStopHz(double value, std::uint64_t expected)
 {
     return impl_->configure(
         [value](InstrumentSettings &settings) {
-            if (!validFrequency(value)) {
-                return result(false, -222, "Stop frequency out of mock range");
+            if (!ValidFrequency(value)) {
+                return Result(false, -222, "Stop frequency out of mock range");
             }
             const double span = settings.stopHz - settings.startHz;
             const double stop = std::round(value);
             const double start = stop < settings.startHz ? stop - span : settings.startHz;
-            if (!validFrequency(start)) {
-                return result(false, -222, "Coupled start frequency out of mock range");
+            if (!ValidFrequency(start)) {
+                return Result(false, -222, "Coupled start frequency out of mock range");
             }
             settings.startHz = start;
             settings.stopHz = stop;
-            return result(true);
+            return Result(true);
         },
         expected);
 }
@@ -552,10 +571,10 @@ Operation InstrumentService::setPoints(unsigned value, std::uint64_t expected)
     return impl_->configure(
         [value](InstrumentSettings &settings) {
             if (value < 2U || value > 10001U) {
-                return result(false, -222, "Point count outside 2..10001 mock range");
+                return Result(false, -222, "Point count outside 2..10001 mock range");
             }
             settings.points = value;
-            return result(true);
+            return Result(true);
         },
         expected);
 }
@@ -565,14 +584,14 @@ Operation InstrumentService::setIfBandwidthHz(double value, std::uint64_t expect
     return impl_->configure(
         [value](InstrumentSettings &settings) {
             if (!std::isfinite(value) || value <= 0.0) {
-                return result(false, -222, "IF bandwidth out of range");
+                return Result(false, -222, "IF bandwidth out of range");
             }
-            const double quantized = quantizedBandwidth(value);
+            const double quantized = QuantizedBandwidth(value);
             if (quantized == 0.0) {
-                return result(false, -222, "IF bandwidth out of mock range");
+                return Result(false, -222, "IF bandwidth out of mock range");
             }
             settings.ifBandwidthHz = quantized;
-            return result(true);
+            return Result(true);
         },
         expected);
 }
@@ -582,25 +601,25 @@ Operation InstrumentService::applyConfiguration(ConfigPatch patch, std::uint64_t
     return impl_->configure(
         [patch](InstrumentSettings &settings) {
             if (!patch.hasStartHz && !patch.hasStopHz && !patch.hasPoints && !patch.hasIfBandwidthHz) {
-                return result(false, -109, "Configuration patch is empty");
+                return Result(false, -109, "Configuration patch is empty");
             }
             const double span = settings.stopHz - settings.startHz;
             double start = settings.startHz;
             double stop = settings.stopHz;
             if (patch.hasStartHz) {
-                if (!validFrequency(patch.startHz)) {
-                    return result(false, -222, "Start frequency out of mock range");
+                if (!ValidFrequency(patch.startHz)) {
+                    return Result(false, -222, "Start frequency out of mock range");
                 }
                 start = std::round(patch.startHz);
             }
             if (patch.hasStopHz) {
-                if (!validFrequency(patch.stopHz)) {
-                    return result(false, -222, "Stop frequency out of mock range");
+                if (!ValidFrequency(patch.stopHz)) {
+                    return Result(false, -222, "Stop frequency out of mock range");
                 }
                 stop = std::round(patch.stopHz);
             }
             if (patch.hasStartHz && patch.hasStopHz && start > stop) {
-                return result(false, -222, "Start frequency exceeds stop frequency");
+                return Result(false, -222, "Start frequency exceeds stop frequency");
             }
             if (patch.hasStartHz && !patch.hasStopHz && start > stop) {
                 stop = start + span;
@@ -608,25 +627,25 @@ Operation InstrumentService::applyConfiguration(ConfigPatch patch, std::uint64_t
             if (patch.hasStopHz && !patch.hasStartHz && stop < start) {
                 start = stop - span;
             }
-            if (!validFrequency(start) || !validFrequency(stop)) {
-                return result(false, -222, "Coupled frequency endpoint out of mock range");
+            if (!ValidFrequency(start) || !ValidFrequency(stop)) {
+                return Result(false, -222, "Coupled frequency endpoint out of mock range");
             }
             if (patch.hasPoints && (patch.points < 2U || patch.points > 10001U)) {
-                return result(false, -222, "Point count outside 2..10001");
+                return Result(false, -222, "Point count outside 2..10001");
             }
             if (patch.hasIfBandwidthHz) {
                 if (!std::isfinite(patch.ifBandwidthHz) || patch.ifBandwidthHz <= 0 ||
-                    quantizedBandwidth(patch.ifBandwidthHz) == 0) {
-                    return result(false, -222, "IF bandwidth out of mock range");
+                    QuantizedBandwidth(patch.ifBandwidthHz) == 0) {
+                    return Result(false, -222, "IF bandwidth out of mock range");
                 }
-                settings.ifBandwidthHz = quantizedBandwidth(patch.ifBandwidthHz);
+                settings.ifBandwidthHz = QuantizedBandwidth(patch.ifBandwidthHz);
             }
             settings.startHz = start;
             settings.stopHz = stop;
             if (patch.hasPoints) {
                 settings.points = patch.points;
             }
-            return result(true);
+            return Result(true);
         },
         expected, owner);
 }
@@ -640,21 +659,21 @@ Operation InstrumentService::defineMeasurement(
             if (measurement.name.empty() || measurement.name.size() > 128U ||
                 (measurement.receiverKind != 'a' && measurement.receiverKind != 'b') || measurement.receiverPort < 1U ||
                 measurement.receiverPort > 4U || measurement.sourcePort < 1U || measurement.sourcePort > 4U) {
-                return result(false, -222, "Invalid non-ratio receiver measurement");
+                return Result(false, -222, "Invalid non-ratio receiver measurement");
             }
             if (settings.measurements.size() >= 32U) {
-                return result(false, -222, "Measurement catalog is full");
+                return Result(false, -222, "Measurement catalog is full");
             }
             for (const auto &existing : settings.measurements) {
                 if (existing.name == measurement.name) {
-                    return result(false, -221, "Measurement name already exists");
+                    return Result(false, -221, "Measurement name already exists");
                 }
             }
             settings.measurements.push_back(measurement);
             if (settings.selectedMeasurement.empty()) {
                 settings.selectedMeasurement = measurement.name;
             }
-            return result(true);
+            return Result(true);
         },
         expected, owner);
 }
@@ -669,14 +688,14 @@ Operation InstrumentService::deleteMeasurement(
                     return measurement.name == name;
                 });
             if (found == settings.measurements.end()) {
-                return result(false, -224, "Measurement name does not exist");
+                return Result(false, -224, "Measurement name does not exist");
             }
             settings.measurements.erase(found);
             if (settings.selectedMeasurement == name) {
                 settings.selectedMeasurement =
                     settings.measurements.empty() ? std::string() : settings.measurements.front().name;
             }
-            return result(true);
+            return Result(true);
         },
         expected, owner);
 }
@@ -770,7 +789,7 @@ DataResult InstrumentService::stimulusAxis() const
         value.error = "No valid committed stimulus configuration";
         return value;
     }
-    value.values = makePlan(impl_->settings).frequencyHz;
+    value.values = MakePlan(impl_->settings).frequencyHz;
     value.ok = true;
     return value;
 }
