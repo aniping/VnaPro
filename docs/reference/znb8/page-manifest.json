@@ -1,0 +1,72 @@
+[
+  {
+    "file": "pages/gs-v70-page-037.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/getting_started/1316_0062_01/ZNB_GettingStarted_en_70.pdf",
+    "manual": "ZNB_GettingStarted_en_70.pdf",
+    "pdfPage": 37,
+    "width": 1075,
+    "height": 1521,
+    "sha256": "99ca918f0ffd79a094c8bbfd1ecfc90a06a176779cc2a891bfab3eeaf3cf771a",
+    "method": "whole-page reference render copied without alteration"
+  },
+  {
+    "file": "pages/gs-v70-page-038.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/getting_started/1316_0062_01/ZNB_GettingStarted_en_70.pdf",
+    "manual": "ZNB_GettingStarted_en_70.pdf",
+    "pdfPage": 38,
+    "width": 1075,
+    "height": 1521,
+    "sha256": "96b852ed075fd2d790292e3f26f47b971f650c122546426333489430ff82a92f",
+    "method": "whole-page reference render copied without alteration"
+  },
+  {
+    "file": "pages/gs-v70-page-039.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/getting_started/1316_0062_01/ZNB_GettingStarted_en_70.pdf",
+    "manual": "ZNB_GettingStarted_en_70.pdf",
+    "pdfPage": 39,
+    "width": 1075,
+    "height": 1521,
+    "sha256": "8a8c8a380df38541a28e1586f59d076c5e50e6cedbda8be2483c4c6cbd59fe34",
+    "method": "whole-page reference render copied without alteration"
+  },
+  {
+    "file": "pages/gs-v70-page-040.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/getting_started/1316_0062_01/ZNB_GettingStarted_en_70.pdf",
+    "manual": "ZNB_GettingStarted_en_70.pdf",
+    "pdfPage": 40,
+    "width": 910,
+    "height": 1287,
+    "sha256": "d1ae78a82071e44981493737de45e371c702d4dcdef4dc8e6494f66ff1c49e31",
+    "method": "whole-page reference render copied without alteration"
+  },
+  {
+    "file": "pages/gs-v70-page-048.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/getting_started/1316_0062_01/ZNB_GettingStarted_en_70.pdf",
+    "manual": "ZNB_GettingStarted_en_70.pdf",
+    "pdfPage": 48,
+    "width": 1075,
+    "height": 1521,
+    "sha256": "04c295391830bbaf65d7dc203e2d000dbdb89f06ac013f4609cf8c55310733a0",
+    "method": "whole-page reference render copied without alteration"
+  },
+  {
+    "file": "pages/um-v74-page-090.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
+    "manual": "ZNB_UserManual_en_74.pdf",
+    "pdfPage": 90,
+    "width": 910,
+    "height": 1287,
+    "sha256": "37aedaa4ae2f321872acac051c9a3574dbdd9da339955db90f1157d2a0296578",
+    "method": "whole-page reference render copied without alteration"
+  },
+  {
+    "file": "pages/um-v74-page-094.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
+    "manual": "ZNB_UserManual_en_74.pdf",
+    "pdfPage": 94,
+    "width": 910,
+    "height": 1287,
+    "sha256": "70a96facefcf523c56b3fa3443c63fee08efbfa1a54ba88d5f3096f9c02d287a",
+    "method": "whole-page reference render copied without alteration"
+  }
+]

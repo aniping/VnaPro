@@ -1,0 +1,47 @@
+[
+  {
+    "file": "web/official-znb8-front.jpg",
+    "imageUrl": "https://cdn.rohde-schwarz.com/pws/product/z_1/znb/ZNB8-Vector-network-analyzer_46216_01b_w1280_hX.jpg",
+    "sourcePage": null,
+    "publisher": "Rohde & Schwarz historical product CDN",
+    "model": "ZNB8, 4-port, 9 kHz to 8.5 GHz confirmed from visible front panel",
+    "firmware": "unknown; visible screen clock is in 2013, which does not identify firmware",
+    "role": "secondary evidence: genuine ZNB8 front panel and older UI appearance",
+    "note": "The current bargains page no longer documents this ZNB8 image; provenance is the official historical image URL itself.",
+    "width": 1280,
+    "height": 720,
+    "accessed": "2026-10-10",
+    "sha256": "00bcaf534ba90678fa4d44dfea05d4a3bcec043545e38e44a6cf7b6a3fefbd4b",
+    "method": "public source image bytes downloaded without resizing or retouching"
+  },
+  {
+    "file": "web/ebay-znb8-4port-lab.jpg",
+    "imageUrl": "https://i.ebayimg.com/images/g/9bEAAOSw5kdn5qR5/s-l1600.jpg",
+    "sourcePage": "https://www.ebay.com/itm/256873950534",
+    "publisher": "eBay seller listing",
+    "model": "ZNB8, 4-port, 9 kHz to 8.5 GHz confirmed from visible front panel",
+    "firmware": "unknown; visible screen clock is in 2023, which does not identify firmware",
+    "role": "secondary evidence: real laboratory unit, two stacked Cartesian diagrams",
+    "note": "Public original photo downloaded; listing HTML returns HTTP 403, so no further listing media was extracted.",
+    "width": 1382,
+    "height": 699,
+    "accessed": "2026-10-10",
+    "sha256": "ea27cb7f4515765129f54726f0d8b4f1f996a5205fd1253e6992e9f52f4a2053",
+    "method": "public source image bytes downloaded without resizing or retouching"
+  },
+  {
+    "file": "web/official-znb-family-43ghz-front.jpg",
+    "imageUrl": "https://assets.rohde-schwarz.com/public/image/products/test-and-measurement/analyzers/network-analyzers/network-analyzers-hardware/znb/rs-znb-vector-network-analyzer-front-low-rohde-schwarz_200_59604_1024_576_1.jpg",
+    "sourcePage": "https://www.rohde-schwarz.com/products/test-and-measurement/vnas/rs-znb-vector-network-analyzer_63493-11648.html",
+    "publisher": "Rohde & Schwarz",
+    "model": "Original ZNB family, front panel range 100 kHz to 43.5 GHz; not a ZNB8",
+    "firmware": "unknown",
+    "role": "auxiliary same-family evidence only: UI arrangement, overlay markers and old blue skin",
+    "note": "Model frequency range differs from ZNB8. Do not use this picture as ZNB8-specific evidence.",
+    "width": 1024,
+    "height": 576,
+    "accessed": "2026-10-10",
+    "sha256": "cd9c89988fd2e1bcc804374cab95248754eb3cd07c084b334fabc40374f31393",
+    "method": "public source image bytes downloaded without resizing or retouching"
+  }
+]
