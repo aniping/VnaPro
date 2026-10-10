@@ -13,12 +13,12 @@ std::string ControlledDevice::Initialize()
     return "VnaPro,NativeSimulator,TEST,1.0";
 }
 
-void ControlledDevice::ApplyPlan(const vna_core::SweepPlan &)
+void ControlledDevice::ApplyPlan(const VnaCore::SweepPlan &)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     if (failPlanPreparation_) {
         failPlanPreparation_ = false;
-        throw vna_core::Detail::PlanPreparationError();
+        throw VnaCore::Detail::PlanPreparationError();
     }
     if (blockPlan_) {
         planEntered_ = true;
@@ -37,7 +37,7 @@ void ControlledDevice::Shutdown() noexcept
 {
 }
 
-std::vector<double> ControlledDevice::AcquirePort(const vna_core::SweepPlan &plan, std::uint32_t)
+std::vector<double> ControlledDevice::AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     if (blocked_) {

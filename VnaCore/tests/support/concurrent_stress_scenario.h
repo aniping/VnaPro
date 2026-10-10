@@ -13,7 +13,7 @@
 
 #include "fixture.h"
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 class ConcurrentStressScenario final {
 public:
     // Creates one running device and freezes a baseline frame for all readers.
@@ -28,14 +28,14 @@ public:
 private:
     void SubmitWorker(std::size_t submitter);
     void ReadWorker();
-    void CheckSnapshots(const std::vector<std::pair<vna_core::FramePtr, vna_core::MeasurementFrame>> &snapshots);
+    void CheckSnapshots(const std::vector<std::pair<VnaCore::FramePtr, VnaCore::MeasurementFrame>> &snapshots);
     void CheckResults();
     static void CollectWorkers(std::vector<std::future<void>> &workers, std::exception_ptr &workerError);
 
     Fixture fixture_;
-    vna_core::CommandResult started_;
-    vna_core::FramePtr retained_;
-    vna_core::MeasurementFrame baseline_;
+    VnaCore::CommandResult started_;
+    VnaCore::FramePtr retained_;
+    VnaCore::MeasurementFrame baseline_;
     std::promise<void> startWorkers_;
     std::shared_future<void> startSignal_ = startWorkers_.get_future().share();
     std::atomic<bool> finished_{false};
@@ -45,7 +45,7 @@ private:
     std::atomic<std::size_t> successfulTriggers_{0U};
     std::atomic<std::size_t> rejectedTriggers_{0U};
     std::mutex plansMutex_;
-    std::vector<std::pair<std::uint64_t, vna_core::SweepPlan>> committedPlans_;
+    std::vector<std::pair<std::uint64_t, VnaCore::SweepPlan>> committedPlans_;
 };
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest
 #endif

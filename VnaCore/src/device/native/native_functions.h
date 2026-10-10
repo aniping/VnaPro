@@ -6,7 +6,7 @@
 #define VNAPRO_VNACORE_SRC_DEVICE_NATIVE_NATIVEFUNCTIONS_H
 #include "vna_native/native_api_contract.h"
 
-namespace vna_core {
+namespace VnaCore {
 namespace Detail {
 
 struct NativeFunctions final {
@@ -22,6 +22,6 @@ struct NativeFunctions final {
 };
 
 }  // namespace Detail
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif

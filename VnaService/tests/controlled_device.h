@@ -15,7 +15,7 @@
 #include "vna_core/device_session.h"
 
 namespace vna_service_test {
-class ControlledDevice final : public vna_core::Detail::DeviceSession {
+class ControlledDevice final : public VnaCore::Detail::DeviceSession {
 public:
     // Gate state and the worker identity remain bound to this instance.
     ControlledDevice() = default;
@@ -28,7 +28,7 @@ public:
     std::string Initialize() override;
 
     // Applies the frozen plan or blocks/fails at a gate controlled by this test.
-    void ApplyPlan(const vna_core::SweepPlan &) override;
+    void ApplyPlan(const VnaCore::SweepPlan &) override;
 
     // A controlled run requires no native RF operation and cannot fail during arming.
     void EnableRf() noexcept override;
@@ -37,7 +37,7 @@ public:
     void Shutdown() noexcept override;
 
     // Returns a complete deterministic IQ vector after any armed gate is released.
-    std::vector<double> AcquirePort(const vna_core::SweepPlan &plan, std::uint32_t) override;
+    std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t) override;
 
     // Toggles deliberate NaN/infinity injection while holding the device mutex.
     void SetInvalidSamples(bool value);

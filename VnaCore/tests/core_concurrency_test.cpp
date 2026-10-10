@@ -23,8 +23,8 @@
 #include "vna_core/acquisition_core.h"
 
 namespace {
-using namespace vna_core;
-using namespace vna_core_test;
+using namespace VnaCore;
+using namespace VnaCoreTest;
 using namespace std::chrono;
 
 void TestStopFifo()

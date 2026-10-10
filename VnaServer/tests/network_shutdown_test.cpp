@@ -63,14 +63,14 @@ void ExerciseNetworkShutdown(vna_service::InstrumentService &service)
 void RunNetworkShutdown(const std::string &driver)
 {
     VnaTest::ScopedSimulatorEnvironment environment("golden", nullptr);
-    vna_core::AcquisitionCore core(driver);
+    VnaCore::AcquisitionCore core(driver);
     Expect(core.Initialize().get().ok, "Core initialization failed");
     vna_service::InstrumentService service(core);
     std::string error;
     Expect(service.BootstrapMockProfile(error), "Service bootstrap failed");
     ExerciseNetworkShutdown(service);
     Expect(core.Close().ok, "Core close failed");
-    Expect(core.ReadView().state == vna_core::CoreState::CLOSED, "Core was not joined/closed");
+    Expect(core.ReadView().state == VnaCore::CoreState::CLOSED, "Core was not joined/closed");
 }
 }  // namespace
 

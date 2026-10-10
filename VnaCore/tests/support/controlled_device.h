@@ -16,9 +16,9 @@
 #include "device/plan_preparation_error.h"
 #include "vna_core/device_session.h"
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 
-class ControlledDevice final : public vna_core::Detail::DeviceSession {
+class ControlledDevice final : public VnaCore::Detail::DeviceSession {
 public:
     // Gate state and the worker identity remain bound to this instance.
     ControlledDevice() = default;
@@ -31,13 +31,13 @@ public:
     std::string Initialize() override;
 
     // Applies the frozen plan or blocks/fails at a gate controlled by this test.
-    void ApplyPlan(const vna_core::SweepPlan &plan) override;
+    void ApplyPlan(const VnaCore::SweepPlan &plan) override;
 
     // Begins a controlled run without native RF output.
     void EnableRf() override;
 
     // Returns a complete deterministic IQ vector after any armed gate is released.
-    std::vector<double> AcquirePort(const vna_core::SweepPlan &plan, std::uint32_t source) override;
+    std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t source) override;
 
     // Records or completes controlled cleanup; injected failures remain observable.
     void Shutdown() override;
@@ -66,12 +66,12 @@ public:
     std::thread::id deviceThread_;
     bool wrongThread_ = false;
     bool shutdownCalled_ = false;
-    vna_core::SweepPlan applied_;
+    VnaCore::SweepPlan applied_;
 
 private:
     void RecordThread();
 };
 
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest
 
 #endif

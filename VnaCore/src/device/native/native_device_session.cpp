@@ -13,7 +13,7 @@
 #include "vna_core/frame_layout.h"
 #include "vna_native/native_api_contract.h"
 
-namespace vna_core {
+namespace VnaCore {
 namespace Detail {
 namespace {
 
@@ -131,4 +131,4 @@ void NativeDeviceSession::Shutdown()
 }
 
 }  // namespace Detail
-}  // namespace vna_core
+}  // namespace VnaCore

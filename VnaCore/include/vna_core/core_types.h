@@ -11,7 +11,7 @@
 
 #include "vna_core/measurement_frame.h"
 
-namespace vna_core {
+namespace VnaCore {
 
 enum class CoreState {
     UNINITIALIZED,
@@ -45,6 +45,6 @@ struct CoreView final {
     std::string deviceIdn;
 };
 
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif

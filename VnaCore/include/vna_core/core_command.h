@@ -11,7 +11,7 @@
 #include "vna_core/core_types.h"
 #include "vna_core/sweep_plan.h"
 
-namespace vna_core {
+namespace VnaCore {
 namespace Detail {
 enum class CoreCommandKind {
     INITIALIZE,
@@ -33,6 +33,6 @@ struct CoreCommand final {
 };
 
 }  // namespace Detail
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif

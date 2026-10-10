@@ -53,7 +53,7 @@ OperationResult Result(bool ok, int code = 0, const std::string &message = std::
     return value;
 }
 
-bool Ready(const vna_core::Ticket &ticket)
+bool Ready(const VnaCore::Ticket &ticket)
 {
     return ticket.valid() && ticket.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
@@ -74,9 +74,9 @@ double QuantizedBandwidth(double value) noexcept
     return 0.0;
 }
 
-vna_core::SweepPlan MakePlan(const InstrumentSettings &settings)
+VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings)
 {
-    vna_core::SweepPlan plan;
+    VnaCore::SweepPlan plan;
     plan.ifBandwidthRaw = static_cast<std::uint32_t>(settings.ifBandwidthHz);
     std::set<unsigned> sources;
     for (const Measurement &measurement : settings.measurements) {
@@ -98,7 +98,7 @@ vna_core::SweepPlan MakePlan(const InstrumentSettings &settings)
         plan.frequencyRaw.push_back(raw);
         plan.frequencyHz.push_back(static_cast<double>(raw));
     }
-    plan.tableData.assign(static_cast<std::size_t>(settings.points) * vna_core::TABLE_VALUES_PER_POINT, 0.0);
+    plan.tableData.assign(static_cast<std::size_t>(settings.points) * VnaCore::TABLE_VALUES_PER_POINT, 0.0);
     return plan;
 }
 
@@ -161,7 +161,7 @@ OperationResult ApplySettingsPatch(const ConfigPatch &patch, InstrumentSettings 
     return Result(true);
 }
 
-DataResult ExtractMeasurement(const vna_core::MeasurementFrame &frame, const Measurement &measurement)
+DataResult ExtractMeasurement(const VnaCore::MeasurementFrame &frame, const Measurement &measurement)
 {
     DataResult value;
 
@@ -170,20 +170,20 @@ DataResult ExtractMeasurement(const vna_core::MeasurementFrame &frame, const Mea
         return value;
     }
     const auto port =
-        std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const vna_core::PortFrame &source) {
+        std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const VnaCore::PortFrame &source) {
             return source.sourcePort == measurement.sourcePort;
         });
     const std::size_t points = frame.plan.frequencyHz.size();
-    if (port == frame.ports.end() || port->iq.size() != points * vna_core::IQ_VALUES_PER_POINT) {
+    if (port == frame.ports.end() || port->iq.size() != points * VnaCore::IQ_VALUES_PER_POINT) {
         value.error = "Receiver source frame is unavailable";
         return value;
     }
-    value.values.reserve(points * vna_core::COMPLEX_COMPONENT_COUNT);
-    const std::size_t component = (measurement.receiverPort - 1U) * vna_core::IQ_VALUES_PER_RECEIVER +
-                                  (measurement.receiverKind == 'b' ? vna_core::COMPLEX_COMPONENT_COUNT : 0U);
+    value.values.reserve(points * VnaCore::COMPLEX_COMPONENT_COUNT);
+    const std::size_t component = (measurement.receiverPort - 1U) * VnaCore::IQ_VALUES_PER_RECEIVER +
+                                  (measurement.receiverKind == 'b' ? VnaCore::COMPLEX_COMPONENT_COUNT : 0U);
     for (std::size_t point = 0; point < points; ++point) {
-        const double real = port->iq[point * vna_core::IQ_VALUES_PER_POINT + component];
-        const double imaginary = port->iq[point * vna_core::IQ_VALUES_PER_POINT + component + 1U];
+        const double real = port->iq[point * VnaCore::IQ_VALUES_PER_POINT + component];
+        const double imaginary = port->iq[point * VnaCore::IQ_VALUES_PER_POINT + component + 1U];
         if (!std::isfinite(real) || !std::isfinite(imaginary)) {
             value.values.clear();
             value.error = "Receiver frame contains invalid values";
@@ -254,7 +254,7 @@ Operation InstrumentService::Configure(
     std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected, const std::string &requester)
 {
     if (settings_.sweepMode != SweepMode::HOLD || HasMeasurement() ||
-        core_.ReadView().state != vna_core::CoreState::READY) {
+        core_.ReadView().state != VnaCore::CoreState::READY) {
         return Rejected(
             Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement", requester);
     }
@@ -290,10 +290,10 @@ void InstrumentService::Finish(OperationResult value)
     if (!value.ok) {
         const auto view = core_.ReadView();
         if (tasks_.front().measurement &&
-            (view.state == vna_core::CoreState::FAULTED || view.state == vna_core::CoreState::CLOSED)) {
+            (view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED)) {
             settings_.sweepMode = SweepMode::HOLD;
         }
-        if (tasks_.front().owner == "SCPI" || view.state == vna_core::CoreState::FAULTED) {
+        if (tasks_.front().owner == "SCPI" || view.state == VnaCore::CoreState::FAULTED) {
             Error(value.errorCode, value.message);
         }
         observedFault_ = view.error;
@@ -307,8 +307,8 @@ bool InstrumentService::Consume(Detail::ServiceTask &task)
     if (!Ready(task.ticket)) {
         return false;
     }
-    const vna_core::CommandResult value = task.ticket.get();
-    task.ticket = vna_core::Ticket();
+    const VnaCore::CommandResult value = task.ticket.get();
+    task.ticket = VnaCore::Ticket();
     if (!value.ok) {
         Finish(Result(false, Detail::DEVICE_SPECIFIC_ERROR, value.message));
         return false;
@@ -347,7 +347,7 @@ void InstrumentService::PollConfiguration(Detail::ServiceTask &task)
 {
     if (task.stage == Detail::ServiceTaskStage::PENDING) {
         const auto view = core_.ReadView();
-        if (settings_.sweepMode != SweepMode::HOLD || view.state != vna_core::CoreState::READY) {
+        if (settings_.sweepMode != SweepMode::HOLD || view.state != VnaCore::CoreState::READY) {
             Finish(Result(
                 false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement"));
             return;
@@ -385,7 +385,7 @@ void InstrumentService::PollTrigger(Detail::ServiceTask &task)
     if (task.stage == Detail::ServiceTaskStage::PENDING) {
         const auto view = core_.ReadView();
         if (settings_.triggerSource != TriggerSource::MANUAL || settings_.sweepMode == SweepMode::HOLD ||
-            view.state != vna_core::CoreState::RUNNING) {
+            view.state != VnaCore::CoreState::RUNNING) {
             Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "INIT requires MANual source and an armed channel"));
             return;
         }
@@ -411,7 +411,7 @@ void InstrumentService::PollTrigger(Detail::ServiceTask &task)
 bool InstrumentService::BeginMode(Detail::ServiceTask &task)
 {
     const auto view = core_.ReadView();
-    if (view.state != vna_core::CoreState::READY && view.state != vna_core::CoreState::RUNNING) {
+    if (view.state != VnaCore::CoreState::READY && view.state != VnaCore::CoreState::RUNNING) {
         Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Instrument is not ready"));
         return false;
     }
@@ -426,7 +426,7 @@ bool InstrumentService::BeginMode(Detail::ServiceTask &task)
     }
     task.measurement =
         task.candidate.sweepMode == SweepMode::SINGLE && task.candidate.triggerSource == TriggerSource::IMMEDIATE;
-    if (view.state == vna_core::CoreState::RUNNING) {
+    if (view.state == VnaCore::CoreState::RUNNING) {
         task.ticket = core_.Stop(view.runId);
         task.stage = Detail::ServiceTaskStage::WAITING_STOP;
         return false;
@@ -456,8 +456,8 @@ void InstrumentService::PollMode(Detail::ServiceTask &task)
         }
         const auto mode = task.candidate.triggerSource == TriggerSource::IMMEDIATE &&
                                   task.candidate.sweepMode == SweepMode::CONTINUOUS
-                              ? vna_core::RunMode::CONTINUOUS
-                              : vna_core::RunMode::MANUAL;
+                              ? VnaCore::RunMode::CONTINUOUS
+                              : VnaCore::RunMode::MANUAL;
         task.ticket = core_.Start(mode);
         task.stage = Detail::ServiceTaskStage::WAITING_START;
         return;
@@ -501,7 +501,7 @@ void InstrumentService::PollStartedMode(Detail::ServiceTask &task)
     }
 }
 
-InstrumentService::InstrumentService(vna_core::AcquisitionCore &core) : core_(core)
+InstrumentService::InstrumentService(VnaCore::AcquisitionCore &core) : core_(core)
 {
 }
 
@@ -510,7 +510,7 @@ InstrumentService::~InstrumentService() = default;
 bool InstrumentService::BootstrapMockProfile(std::string &error)
 {
     const auto view = core_.ReadView();
-    if (mockReady_ || !owner_.empty() || view.state != vna_core::CoreState::READY ||
+    if (mockReady_ || !owner_.empty() || view.state != VnaCore::CoreState::READY ||
         view.deviceIdn.find("VnaPro,NativeSimulator,") != 0U) {
         error = "Mock profile requires an initialized NativeSimulator before connection admission";
         return false;
@@ -535,7 +535,7 @@ void InstrumentService::Poll()
 {
     PollTask();
     const auto view = core_.ReadView();
-    if (tasks_.empty() && view.state == vna_core::CoreState::FAULTED && view.error != observedFault_) {
+    if (tasks_.empty() && view.state == VnaCore::CoreState::FAULTED && view.error != observedFault_) {
         Error(Detail::DEVICE_SPECIFIC_ERROR, view.error);
         observedFault_ = view.error;
     }
@@ -701,8 +701,8 @@ Operation InstrumentService::DefineMeasurement(
         [measurement](InstrumentSettings &settings) {
             if (measurement.name.empty() || measurement.name.size() > MAX_MEASUREMENT_NAME_LENGTH ||
                 (measurement.receiverKind != 'a' && measurement.receiverKind != 'b') || measurement.receiverPort < 1U ||
-                measurement.receiverPort > vna_core::PHYSICAL_PORT_COUNT || measurement.sourcePort < 1U ||
-                measurement.sourcePort > vna_core::PHYSICAL_PORT_COUNT) {
+                measurement.receiverPort > VnaCore::PHYSICAL_PORT_COUNT || measurement.sourcePort < 1U ||
+                measurement.sourcePort > VnaCore::PHYSICAL_PORT_COUNT) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Invalid non-ratio receiver measurement");
             }
             if (settings.measurements.size() >= MEASUREMENT_CAPACITY) {
@@ -834,7 +834,7 @@ DataResult InstrumentService::StimulusAxis() const
 {
     DataResult value;
     const auto view = core_.ReadView();
-    if (!mockReady_ || view.state == vna_core::CoreState::FAULTED || view.state == vna_core::CoreState::CLOSED ||
+    if (!mockReady_ || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
         view.configRevision != settings_.revision) {
         value.error = "No valid committed stimulus configuration";
         return value;
@@ -862,7 +862,7 @@ DataResult InstrumentService::MeasurementData() const
     }
     const Measurement measurement = *found;
     const auto view = core_.ReadView();
-    if (!view.frame || view.state == vna_core::CoreState::FAULTED || view.state == vna_core::CoreState::CLOSED ||
+    if (!view.frame || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
         view.frame->configRevision != settings_.revision || view.configRevision != settings_.revision ||
         view.frame->runId != view.runId) {
         value.error = "No complete measurement for the current configuration";

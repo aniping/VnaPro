@@ -10,13 +10,13 @@
 #include "concurrency_assertions.h"
 #include "worker_start_on_exit.h"
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 namespace {
 constexpr std::size_t SUBMITTER_COUNT = 3U;
 constexpr std::size_t READER_COUNT = 2U;
 }  // namespace
 
-using namespace vna_core;
+using namespace VnaCore;
 using namespace std::chrono;
 
 ConcurrentStressScenario::ConcurrentStressScenario()
@@ -167,4 +167,4 @@ void ConcurrentStressScenario::CheckResults()
     std::cout << "stress: 144 tickets, " << successfulTriggers_.load() << " frames, " << rejectedTriggers_.load()
               << " superseded triggers, " << checkedViews_.load() << " consistent views\n";
 }
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest

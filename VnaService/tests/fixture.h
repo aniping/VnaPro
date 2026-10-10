@@ -18,7 +18,7 @@ namespace vna_service_test {
 
 struct Fixture final {
     ControlledDevice *device = nullptr;
-    vna_core::AcquisitionCore core;
+    VnaCore::AcquisitionCore core;
     vna_service::InstrumentService service;
 
     // Transfers the controlled device into the core before exposing test handles.

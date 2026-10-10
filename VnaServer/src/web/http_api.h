@@ -80,7 +80,7 @@ private:
     Json ControlJson(const vna_service::InstrumentSnapshot &snapshot, const HttpRequest &request) const;
     HttpResponse Status(const HttpRequest &request) const;
     HttpResponse Frame() const;
-    static Json TraceJson(const vna_core::MeasurementFrame &frame, const vna_service::Measurement &measurement,
+    static Json TraceJson(const VnaCore::MeasurementFrame &frame, const vna_service::Measurement &measurement,
         const std::vector<std::size_t> &indexes);
     HttpResponse OperationStatus(const std::string &id, const std::string &requester) const;
     HttpResponse Accepted(const std::string &id, const std::string &owner) const;

@@ -7,7 +7,7 @@
 
 #include "controlled_device.h"
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 
 struct ReleaseGateOnExit final {
     // The fixture must outlive this guard; copying would release the gate twice.
@@ -27,6 +27,6 @@ struct ReleaseGateOnExit final {
     }
 };
 
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest
 
 #endif

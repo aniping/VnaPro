@@ -8,7 +8,7 @@
 #include "device/native/native_library.h"
 #include "vna_core/device_session.h"
 
-namespace vna_core {
+namespace VnaCore {
 namespace Detail {
 
 class NativeDeviceSession final : public DeviceSession {
@@ -38,6 +38,6 @@ private:
 };
 
 }  // namespace Detail
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif

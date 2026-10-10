@@ -17,7 +17,7 @@
 #include "vna_core/device_session.h"
 #include "vna_core/sweep_plan.h"
 
-namespace vna_core {
+namespace VnaCore {
 
 class AcquisitionCore final {
 public:
@@ -93,6 +93,6 @@ private:
     std::thread worker_;
 };
 
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif

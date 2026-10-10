@@ -4,7 +4,7 @@
 
 #include "controlled_device.h"
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 
 std::string ControlledDevice::Initialize()
 {
@@ -13,13 +13,13 @@ std::string ControlledDevice::Initialize()
     return "TestDevice";
 }
 
-void ControlledDevice::ApplyPlan(const vna_core::SweepPlan &plan)
+void ControlledDevice::ApplyPlan(const VnaCore::SweepPlan &plan)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     RecordThread();
     if (failPrepare_) {
         failPrepare_ = false;
-        throw vna_core::Detail::PlanPreparationError();
+        throw VnaCore::Detail::PlanPreparationError();
     }
     applied_ = plan;  // Simulate a partial mutation before reporting failure.
     if (failApply_) {
@@ -35,7 +35,7 @@ void ControlledDevice::EnableRf()
     acquisitionFrame_ = 0U;
 }
 
-std::vector<double> ControlledDevice::AcquirePort(const vna_core::SweepPlan &plan, std::uint32_t source)
+std::vector<double> ControlledDevice::AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t source)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     RecordThread();
@@ -114,4 +114,4 @@ void ControlledDevice::RecordThread()
     wrongThread_ = wrongThread_ || deviceThread_ != std::this_thread::get_id();
 }
 
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest

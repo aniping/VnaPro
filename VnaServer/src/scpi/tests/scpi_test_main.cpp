@@ -192,7 +192,7 @@ void PendingBarriersAndErrors(const std::string &driver)
     Command(engine, "INIT1:IMM");
     Expect(Command(engine, "SYST:ERR?").find("-221,") == 0U, "INIT rejects internal trigger source");
     Expect(
-        Command(engine, "SENS1:SWE:MODE?") == "CONT\n" && fixture.core.ReadView().state == vna_core::CoreState::RUNNING,
+        Command(engine, "SENS1:SWE:MODE?") == "CONT\n" && fixture.core.ReadView().state == VnaCore::CoreState::RUNNING,
         "invalid INIT must not change the actual continuous mode");
     Command(engine, "SENS1:SWE:MODE HOLD");
 }
@@ -411,13 +411,13 @@ void BootstrapPreparationFailureCanRetry(const std::string &)
 {
     auto owned = std::make_unique<vna_service_test::ControlledDevice>();
     auto *device = owned.get();
-    vna_core::AcquisitionCore core(std::move(owned));
+    VnaCore::AcquisitionCore core(std::move(owned));
     vna_service::InstrumentService service(core);
     Expect(core.Initialize().get().ok, "bootstrap device initialization");
     device->FailNextPlanPreparation();
     std::string error;
     Expect(!service.BootstrapMockProfile(error), "first bootstrap must report preparation failure");
-    Expect(!error.empty() && core.ReadView().state == vna_core::CoreState::READY,
+    Expect(!error.empty() && core.ReadView().state == VnaCore::CoreState::READY,
         "preparation failure must leave the device retryable");
     Expect(service.Settings().measurements.empty() && service.Settings().selectedMeasurement.empty() &&
                service.Settings().revision == 0U,

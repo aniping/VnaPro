@@ -96,7 +96,7 @@ ArgumentResult ParseArguments(
 
 int StartService(const std::string &driver, const vna_server::ListenOptions &options)
 {
-    vna_core::AcquisitionCore core(driver);
+    VnaCore::AcquisitionCore core(driver);
     const auto initialized = core.Initialize().get();
     if (!initialized.ok) {
         std::cerr << "Driver initialization failed: " << initialized.message << '\n';

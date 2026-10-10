@@ -4,7 +4,7 @@
 
 #include "concurrency_assertions.h"
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 
 void Require(bool value, const char *message)
 {
@@ -86,4 +86,4 @@ void RequireUnchanged(const MeasurementFrame &frame, const MeasurementFrame &sna
     }
 }
 
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest

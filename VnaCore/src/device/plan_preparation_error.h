@@ -6,7 +6,7 @@
 #define VNAPRO_VNACORE_SRC_DEVICE_PLANPREPARATIONERROR_H
 #include <exception>
 
-namespace vna_core {
+namespace VnaCore {
 namespace Detail {
 
 // This exception is reserved for failures before any plan-related device mutation.
@@ -17,6 +17,6 @@ public:
 };
 
 }  // namespace Detail
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif

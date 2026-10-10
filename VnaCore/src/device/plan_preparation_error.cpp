@@ -4,7 +4,7 @@
 
 #include "device/plan_preparation_error.h"
 
-namespace vna_core {
+namespace VnaCore {
 namespace Detail {
 
 const char *PlanPreparationError::what() const noexcept
@@ -13,4 +13,4 @@ const char *PlanPreparationError::what() const noexcept
 }
 
 }  // namespace Detail
-}  // namespace vna_core
+}  // namespace VnaCore

@@ -11,11 +11,11 @@
 #include "controlled_device.h"
 #include "vna_core/acquisition_core.h"
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 
 struct Fixture final {
     ControlledDevice *device = nullptr;
-    vna_core::AcquisitionCore core;
+    VnaCore::AcquisitionCore core;
 
     // Transfers the controlled device into the core before exposing test handles.
     Fixture();
@@ -31,6 +31,6 @@ private:
     explicit Fixture(std::unique_ptr<ControlledDevice> owned);
 };
 
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest
 
 #endif

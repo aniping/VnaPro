@@ -14,7 +14,7 @@
 #include "device/plan_preparation_error.h"
 #include "vna_core/frame_layout.h"
 
-namespace vna_core {
+namespace VnaCore {
 namespace {
 
 constexpr std::size_t QUEUE_CAPACITY = 64U;
@@ -425,4 +425,4 @@ void AcquisitionCore::WorkerLoop()
     }
 }
 
-}  // namespace vna_core
+}  // namespace VnaCore

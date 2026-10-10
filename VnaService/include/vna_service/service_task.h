@@ -46,7 +46,7 @@ struct ServiceTask final {
     bool checkRevision = false;
     std::function<OperationResult(InstrumentSettings &)> mutate;
     InstrumentSettings candidate;
-    vna_core::Ticket ticket;
+    VnaCore::Ticket ticket;
     std::promise<OperationResult> promise;
     Operation operation;
 

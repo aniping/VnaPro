@@ -23,7 +23,7 @@ void Require(bool value, const char *message)
     }
 }
 
-vna_core::CommandResult Await(const vna_core::Ticket &ticket)
+VnaCore::CommandResult Await(const VnaCore::Ticket &ticket)
 {
     Require(ticket.wait_for(std::chrono::seconds(3)) == std::future_status::ready, "native ticket timed out");
     const auto result = ticket.get();
@@ -33,8 +33,8 @@ vna_core::CommandResult Await(const vna_core::Ticket &ticket)
     return result;
 }
 
-void VerifyFrame(const vna_core::MeasurementFrame *frame, const vna_core::SweepPlan &plan,
-    const std::vector<std::vector<double>> &expected, const vna_core::CommandResult &triggered)
+void VerifyFrame(const VnaCore::MeasurementFrame *frame, const VnaCore::SweepPlan &plan,
+    const std::vector<std::vector<double>> &expected, const VnaCore::CommandResult &triggered)
 {
     Require(frame && frame->ports.size() == expected.size(), "multi-source frame was incomplete");
     Require(frame->frameSeq == triggered.frameSeq && frame->runId == triggered.runId &&
@@ -68,8 +68,7 @@ void SelectGoldenProfile()
 #endif
 }
 
-void VerifyHighWord(
-    vna_core::AcquisitionCore &core, vna_core::SweepPlan plan, const vna_core::MeasurementFrame &retained)
+void VerifyHighWord(VnaCore::AcquisitionCore &core, VnaCore::SweepPlan plan, const VnaCore::MeasurementFrame &retained)
 {
     // The low words are equal; both complete RI vectors must match independent literals.
     plan.frequencyRaw[1] = VnaTest::GOLDEN_IQ_HIGH_WORD_FREQUENCY;
@@ -80,22 +79,22 @@ void VerifyHighWord(
     highWordExpected.insert(
         highWordExpected.end(), VnaTest::g_goldenIqHighWordSource0, VnaTest::g_goldenIqHighWordSource0 + 16U);
     const auto highConfigured = Await(core.Configure(plan));
-    const auto highStarted = Await(core.Start(vna_core::RunMode::MANUAL));
+    const auto highStarted = Await(core.Start(VnaCore::RunMode::MANUAL));
     const auto highTriggered = Await(core.TriggerOnce(highStarted.runId, highConfigured.configRevision));
     VerifyFrame(core.ReadView().frame.get(), plan, {highWordExpected}, highTriggered);
     Require(retained.ports.size() == 4U && retained.plan.frequencyRaw[1] == VnaTest::g_goldenIqFrequencies[1],
         "reconfiguration modified an old published frame");
     Await(core.Stop(highStarted.runId));
-    Require(core.Close().ok && core.ReadView().state == vna_core::CoreState::CLOSED, "native close failed");
+    Require(core.Close().ok && core.ReadView().state == VnaCore::CoreState::CLOSED, "native close failed");
 }
 
 void VerifyLoaderFailures(const std::string &libraryPath)
 {
-    vna_core::AcquisitionCore missing(libraryPath + ".does-not-exist");
-    Require(!missing.Initialize().get().ok && missing.ReadView().state == vna_core::CoreState::FAULTED,
+    VnaCore::AcquisitionCore missing(libraryPath + ".does-not-exist");
+    Require(!missing.Initialize().get().ok && missing.ReadView().state == VnaCore::CoreState::FAULTED,
         "loader failure did not terminate initialization with Faulted");
     Require(missing.Close().ok, "failed initialization could not be closed");
-    vna_core::AcquisitionCore relative("C:does-not-exist-vna-core-test-library");
+    VnaCore::AcquisitionCore relative("C:does-not-exist-vna-core-test-library");
     const auto relativeResult = relative.Initialize().get();
     Require(!relativeResult.ok && relativeResult.message.find("absolute") != std::string::npos,
         "relative or drive-relative native path was allowed");
@@ -109,10 +108,10 @@ int main(int argc, char **argv)
     try {
         Require(argc == 2, "usage: native test <simulator library>");
         SelectGoldenProfile();
-        vna_core::AcquisitionCore core(argv[1]);
+        VnaCore::AcquisitionCore core(argv[1]);
         Await(core.Initialize());
         Require(core.ReadView().deviceIdn.find("VnaPro,NativeSimulator,") == 0U, "unexpected simulator identity");
-        vna_core::SweepPlan plan;
+        VnaCore::SweepPlan plan;
         plan.frequencyRaw = {VnaTest::g_goldenIqFrequencies[0], VnaTest::g_goldenIqFrequencies[1]};
         plan.frequencyHz = {1000000000.0, 2000000000.0};
         plan.ifBandwidthRaw = 1000U;
@@ -124,7 +123,7 @@ int main(int argc, char **argv)
             expected.push_back(VnaTest::GoldenIqForSource(source));
         }
         const auto configured = Await(core.Configure(plan));
-        const auto started = Await(core.Start(vna_core::RunMode::MANUAL));
+        const auto started = Await(core.Start(VnaCore::RunMode::MANUAL));
         Require(started.configRevision == configured.configRevision, "start changed the configuration revision");
         const auto triggered = Await(core.TriggerOnce(started.runId, configured.configRevision));
         const auto first = core.ReadView().frame;

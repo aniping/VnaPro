@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace vna_core {
+namespace VnaCore {
 
 struct SweepPlan final {
     std::vector<std::uint64_t> frequencyRaw;
@@ -19,6 +19,6 @@ struct SweepPlan final {
     std::vector<double> tableData;           // Owned, opaque 9N table values.
 };
 
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif

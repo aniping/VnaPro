@@ -28,7 +28,7 @@ namespace vna_service {
 class InstrumentService final {
 public:
     // Binds to a core that must outlive this service; subsequent calls share one service executor.
-    explicit InstrumentService(vna_core::AcquisitionCore &core);
+    explicit InstrumentService(VnaCore::AcquisitionCore &core);
     // Destroy only after accepted operations and protocol users have finished.
     ~InstrumentService();
     // Executor confinement and core binding cannot be transferred to another instance.
@@ -143,7 +143,7 @@ private:
     void PollMode(Detail::ServiceTask &task);
     void PollStartedMode(Detail::ServiceTask &task);
 
-    vna_core::AcquisitionCore &core_;
+    VnaCore::AcquisitionCore &core_;
     InstrumentSettings settings_;
     std::deque<Detail::ServiceTask> tasks_;
     std::deque<InstrumentError> errors_;

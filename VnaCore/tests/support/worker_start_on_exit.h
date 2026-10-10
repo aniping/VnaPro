@@ -8,7 +8,7 @@
 #include <atomic>
 #include <future>
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 
 struct WorkerStartOnExit final {
     // Ensures already launched workers can exit if later thread creation throws.
@@ -33,6 +33,6 @@ struct WorkerStartOnExit final {
     }
 };
 
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest
 
 #endif

@@ -19,7 +19,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace vna_core {
+namespace VnaCore {
 namespace Detail {
 namespace {
 
@@ -113,4 +113,4 @@ void NativeLibrary::Close() noexcept
 }
 
 }  // namespace Detail
-}  // namespace vna_core
+}  // namespace VnaCore

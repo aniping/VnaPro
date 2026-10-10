@@ -114,18 +114,18 @@ bool Ready(const vna_service::Operation &value)
     return value.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-std::string CoreStateName(vna_core::CoreState value)
+std::string CoreStateName(VnaCore::CoreState value)
 {
     switch (value) {
-        case vna_core::CoreState::UNINITIALIZED:
+        case VnaCore::CoreState::UNINITIALIZED:
             return "Uninitialized";
-        case vna_core::CoreState::READY:
+        case VnaCore::CoreState::READY:
             return "Ready";
-        case vna_core::CoreState::RUNNING:
+        case VnaCore::CoreState::RUNNING:
             return "Running";
-        case vna_core::CoreState::FAULTED:
+        case VnaCore::CoreState::FAULTED:
             return "Faulted";
-        case vna_core::CoreState::CLOSED:
+        case VnaCore::CoreState::CLOSED:
             return "Closed";
         default:
             return "Uninitialized";
@@ -234,9 +234,9 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
     value["pending"] = Json(snapshot.pending);
     value["revision"] = Json(std::to_string(settings.revision));
     value["runId"] = Json(std::to_string(snapshot.core.runId));
-    value["activeConfigValid"] = Json(
-        snapshot.core.state != vna_core::CoreState::FAULTED && snapshot.core.state != vna_core::CoreState::CLOSED &&
-        snapshot.core.configRevision != 0U && snapshot.core.configRevision == settings.revision);
+    value["activeConfigValid"] =
+        Json(snapshot.core.state != VnaCore::CoreState::FAULTED && snapshot.core.state != VnaCore::CoreState::CLOSED &&
+             snapshot.core.configRevision != 0U && snapshot.core.configRevision == settings.revision);
     value["config"] = ConfigurationJson(settings);
     Json measurements = Json::MakeArray();
     for (const auto &measurement : settings.measurements) {
@@ -270,8 +270,8 @@ HttpResponse HttpApi::Frame() const
     }
     value["available"] = Json(true);
     value["current"] =
-        Json(!snapshot.finitePending && snapshot.core.state != vna_core::CoreState::FAULTED &&
-             snapshot.core.state != vna_core::CoreState::CLOSED && frame.configRevision == snapshot.settings.revision &&
+        Json(!snapshot.finitePending && snapshot.core.state != VnaCore::CoreState::FAULTED &&
+             snapshot.core.state != VnaCore::CoreState::CLOSED && frame.configRevision == snapshot.settings.revision &&
              frame.configRevision == snapshot.core.configRevision && frame.runId == snapshot.core.runId);
     value["channelId"] = Json(frame.channelId);
     value["runId"] = Json(std::to_string(frame.runId));
@@ -533,7 +533,7 @@ Json HttpApi::ControlJson(const vna_service::InstrumentSnapshot &snapshot, const
     return control;
 }
 
-Json HttpApi::TraceJson(const vna_core::MeasurementFrame &frame, const vna_service::Measurement &measurement,
+Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const vna_service::Measurement &measurement,
     const std::vector<std::size_t> &indexes)
 {
     const std::size_t count = frame.plan.frequencyHz.size();
@@ -542,16 +542,16 @@ Json HttpApi::TraceJson(const vna_core::MeasurementFrame &frame, const vna_servi
     Json imaginary = Json::MakeArray();
     Json validity = Json::MakeArray();
     const auto port =
-        std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const vna_core::PortFrame &item) {
+        std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const VnaCore::PortFrame &item) {
             return item.sourcePort == measurement.sourcePort;
         });
-    const bool available = port != frame.ports.end() && port->iq.size() == count * vna_core::IQ_VALUES_PER_POINT &&
+    const bool available = port != frame.ports.end() && port->iq.size() == count * VnaCore::IQ_VALUES_PER_POINT &&
                            (frame.plan.receiverMask & (1U << (measurement.receiverPort - 1U))) != 0U;
-    const unsigned component = (measurement.receiverPort - 1U) * vna_core::IQ_VALUES_PER_RECEIVER +
-                               (measurement.receiverKind == 'b' ? vna_core::COMPLEX_COMPONENT_COUNT : 0U);
+    const unsigned component = (measurement.receiverPort - 1U) * VnaCore::IQ_VALUES_PER_RECEIVER +
+                               (measurement.receiverKind == 'b' ? VnaCore::COMPLEX_COMPONENT_COUNT : 0U);
     for (auto index : indexes) {
-        const double re = available ? port->iq[index * vna_core::IQ_VALUES_PER_POINT + component] : 0;
-        const double im = available ? port->iq[index * vna_core::IQ_VALUES_PER_POINT + component + 1U] : 0;
+        const double re = available ? port->iq[index * VnaCore::IQ_VALUES_PER_POINT + component] : 0;
+        const double im = available ? port->iq[index * VnaCore::IQ_VALUES_PER_POINT + component + 1U] : 0;
         const bool valid = available && std::isfinite(re) && std::isfinite(im);
         real.array.push_back(valid ? Json(re) : Json());
         imaginary.array.push_back(valid ? Json(im) : Json());
@@ -641,8 +641,8 @@ vna_service::Measurement HttpApi::MeasurementDefinition(const Json &body)
         throw std::runtime_error("Invalid measurement name or receiver kind");
     }
     measurement.receiverKind = kind.front();
-    measurement.receiverPort = PositiveInteger(body, "receiverPort", vna_core::PHYSICAL_PORT_COUNT);
-    measurement.sourcePort = PositiveInteger(body, "sourcePort", vna_core::PHYSICAL_PORT_COUNT);
+    measurement.receiverPort = PositiveInteger(body, "receiverPort", VnaCore::PHYSICAL_PORT_COUNT);
+    measurement.sourcePort = PositiveInteger(body, "sourcePort", VnaCore::PHYSICAL_PORT_COUNT);
     return measurement;
 }
 

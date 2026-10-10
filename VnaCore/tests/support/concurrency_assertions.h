@@ -14,12 +14,12 @@
 #include "vna_core/measurement_frame.h"
 #include "vna_core/sweep_plan.h"
 
-namespace vna_core_test {
+namespace VnaCoreTest {
 
-using vna_core::CommandResult;
-using vna_core::MeasurementFrame;
-using vna_core::SweepPlan;
-using vna_core::Ticket;
+using VnaCore::CommandResult;
+using VnaCore::MeasurementFrame;
+using VnaCore::SweepPlan;
+using VnaCore::Ticket;
 
 void Require(bool value, const char *message);
 
@@ -36,6 +36,6 @@ void RequireFrameContent(const MeasurementFrame &frame);
 
 void RequireUnchanged(const MeasurementFrame &frame, const MeasurementFrame &snapshot);
 
-}  // namespace vna_core_test
+}  // namespace VnaCoreTest
 
 #endif

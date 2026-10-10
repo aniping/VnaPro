@@ -13,7 +13,7 @@ namespace vna_service {
 
 struct InstrumentSnapshot final {
     InstrumentSettings settings;
-    vna_core::CoreView core;
+    VnaCore::CoreView core;
     std::string controlOwner;
     bool releasing = false;
     bool pending = false;

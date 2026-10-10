@@ -7,13 +7,13 @@
 #include <cstdint>
 #include <vector>
 
-namespace vna_core {
+namespace VnaCore {
 
 struct PortFrame final {
     std::uint32_t sourcePort = 0U;
     std::vector<double> iq;  // Point-major: A.real,A.imag,B.real,B.imag for each receiver.
 };
 
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif

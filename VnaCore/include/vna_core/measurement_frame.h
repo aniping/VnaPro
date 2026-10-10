@@ -12,7 +12,7 @@
 #include "vna_core/port_frame.h"
 #include "vna_core/sweep_plan.h"
 
-namespace vna_core {
+namespace VnaCore {
 
 struct MeasurementFrame final {
     std::uint32_t channelId = 1U;
@@ -25,6 +25,6 @@ struct MeasurementFrame final {
 
 using FramePtr = std::shared_ptr<const MeasurementFrame>;
 
-}  // namespace vna_core
+}  // namespace VnaCore
 
 #endif
