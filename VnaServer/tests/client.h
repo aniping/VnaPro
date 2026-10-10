@@ -1,90 +1,35 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #ifndef VNAPRO_SERVER_TEST_CLIENT_H
 #define VNAPRO_SERVER_TEST_CLIENT_H
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-// clang-format off
-#include <winsock2.h>
-#include <ws2tcpip.h>
-// clang-format on
-#else
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
-
-#include <cstddef>
 #include <cstdint>
-#include <stdexcept>
 #include <string>
+
+#include "network/network_runtime.h"
+#include "network/socket_owner.h"
 
 namespace vna_server_test {
 
-class Client {
+class Client final {
 public:
-    explicit Client(std::uint16_t port)
-    {
-#ifdef _WIN32
-        WSADATA data;
-        expect(WSAStartup(MAKEWORD(2, 2), &data) == 0, "Test network initialization failed");
-#endif
-        socket_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        address.sin_port = htons(port);
-        inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
-        expect(connect(socket_, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0,
-            "Test controller connection failed");
-    }
-
-    ~Client()
-    {
-#ifdef _WIN32
-        closesocket(socket_);
-        WSACleanup();
-#else
-        close(socket_);
-#endif
-    }
-
-    void write(const std::string &text)
-    {
-        std::size_t offset = 0;
-        while (offset != text.size()) {
-            const int count = send(socket_, text.data() + offset, static_cast<int>(text.size() - offset), 0);
-            expect(count > 0, "Test write failed");
-            offset += static_cast<std::size_t>(count);
-        }
-    }
-
-    std::string readLine()
-    {
-        std::string text;
-        char value;
-        while (recv(socket_, &value, 1, 0) == 1) {
-            if (value == '\n') {
-                return text;
-            }
-            text += value;
-        }
-        throw std::runtime_error("Test response ended early");
-    }
+    // Connects to a loopback SCPI listener; construction failure releases resources.
+    explicit Client(std::uint16_t port);
+    // The socket closes before its matching network runtime cleanup.
+    ~Client() noexcept = default;
+    Client(const Client &) = delete;
+    Client &operator=(const Client &) = delete;
+    Client(Client &&) = delete;
+    Client &operator=(Client &&) = delete;
+    // Sends all bytes or throws if the connection fails.
+    void Write(const std::string &text);
+    // Returns one response line without LF; throws on premature EOF.
+    std::string ReadLine();
 
 private:
-    static void expect(bool condition, const char *message)
-    {
-        if (!condition) {
-            throw std::runtime_error(message);
-        }
-    }
-
-#ifdef _WIN32
-    SOCKET socket_ = INVALID_SOCKET;
-#else
-    int socket_ = -1;
-#endif
+    vna_server::network::NetworkRuntime runtime_;
+    vna_server::network::SocketOwner socket_;
 };
 
 }  // namespace vna_server_test
