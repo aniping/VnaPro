@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #ifndef VNAPRO_CORE_TEST_FIXTURE_H
 #define VNAPRO_CORE_TEST_FIXTURE_H
 
@@ -5,29 +9,26 @@
 #include <utility>
 
 #include "controlled_device.h"
-#include "core_test_access.h"
+#include "vna_core/acquisition_core.h"
 
 namespace vna_core_test {
 
-struct Fixture {
-    ControlledDevice *device;
-    std::unique_ptr<vna_core::AcquisitionCore> core;
+struct Fixture final {
+    ControlledDevice *device = nullptr;
+    vna_core::AcquisitionCore core;
 
-    Fixture()
-    {
-        auto owned = std::unique_ptr<ControlledDevice>(new ControlledDevice);
-        device = owned.get();
-        core = vna_core::detail::CoreTestAccess::create(std::move(owned));
-        require(await(core->initialize()).ok, "initialize failed");
-        require(core->readView().deviceIdn == "TestDevice", "identity was not published");
-        require(await(core->configure(makePlan())).ok, "configure failed");
-    }
+    // Transfers the controlled device into the core before exposing test handles.
+    Fixture();
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
+    Fixture(Fixture &&) = delete;
+    Fixture &operator=(Fixture &&) = delete;
 
-    ~Fixture()
-    {
-        device->releaseGate();
-        core->close();
-    }
+    // Releases all gates before draining the worker, including on assertion failure.
+    ~Fixture();
+
+private:
+    explicit Fixture(std::unique_ptr<ControlledDevice> owned);
 };
 
 }  // namespace vna_core_test
