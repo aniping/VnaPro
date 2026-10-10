@@ -1,246 +1,317 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #include "web/json_parser.h"
 
 #include <cmath>
-#include <cstdlib>
+#include <locale>
+#include <sstream>
 #include <stdexcept>
 
 namespace vna_web {
 namespace {
-void utf8(std::string &output, unsigned value)
+constexpr unsigned UTF8_ASCII_LIMIT = 0x80U;
+constexpr unsigned UTF8_TWO_BYTE_LIMIT = 0x800U;
+constexpr unsigned UTF8_THREE_BYTE_LIMIT = 0x10000U;
+constexpr unsigned UTF8_CONTINUATION_PREFIX = 0x80U;
+constexpr unsigned UTF8_TWO_BYTE_PREFIX = 0xc0U;
+constexpr unsigned UTF8_THREE_BYTE_PREFIX = 0xe0U;
+constexpr unsigned UTF8_FOUR_BYTE_PREFIX = 0xf0U;
+constexpr unsigned UTF8_PAYLOAD_BITS = 6U;
+constexpr unsigned UTF8_PAYLOAD_MASK = 63U;
+constexpr unsigned HEX_ESCAPE_DIGITS = 4U;
+constexpr unsigned HEX_RADIX = 16U;
+constexpr unsigned HEX_LETTER_OFFSET = 10U;
+constexpr unsigned CONTROL_CHARACTER_LIMIT = 32U;
+constexpr std::size_t UNICODE_ESCAPE_PREFIX_LENGTH = 2U;
+
+void AppendUtf8(std::string &output, unsigned scalar)
 {
-    if (value < 0x80U) {
-        output += static_cast<char>(value);
-    } else if (value < 0x800U) {
-        output += static_cast<char>(0xc0U | (value >> 6U));
-        output += static_cast<char>(0x80U | (value & 63U));
-    } else if (value < 0x10000U) {
-        output += static_cast<char>(0xe0U | (value >> 12U));
-        output += static_cast<char>(0x80U | ((value >> 6U) & 63U));
-        output += static_cast<char>(0x80U | (value & 63U));
+    if (scalar < UTF8_ASCII_LIMIT) {
+        output += static_cast<char>(scalar);
+    } else if (scalar < UTF8_TWO_BYTE_LIMIT) {
+        output += static_cast<char>(UTF8_TWO_BYTE_PREFIX | (scalar >> UTF8_PAYLOAD_BITS));
+        output += static_cast<char>(UTF8_CONTINUATION_PREFIX | (scalar & UTF8_PAYLOAD_MASK));
+    } else if (scalar < UTF8_THREE_BYTE_LIMIT) {
+        output += static_cast<char>(UTF8_THREE_BYTE_PREFIX | (scalar >> (2U * UTF8_PAYLOAD_BITS)));
+        output += static_cast<char>(UTF8_CONTINUATION_PREFIX | ((scalar >> UTF8_PAYLOAD_BITS) & UTF8_PAYLOAD_MASK));
+        output += static_cast<char>(UTF8_CONTINUATION_PREFIX | (scalar & UTF8_PAYLOAD_MASK));
     } else {
-        output += static_cast<char>(0xf0U | (value >> 18U));
-        output += static_cast<char>(0x80U | ((value >> 12U) & 63U));
-        output += static_cast<char>(0x80U | ((value >> 6U) & 63U));
-        output += static_cast<char>(0x80U | (value & 63U));
+        output += static_cast<char>(UTF8_FOUR_BYTE_PREFIX | (scalar >> (3U * UTF8_PAYLOAD_BITS)));
+        output +=
+            static_cast<char>(UTF8_CONTINUATION_PREFIX | ((scalar >> (2U * UTF8_PAYLOAD_BITS)) & UTF8_PAYLOAD_MASK));
+        output += static_cast<char>(UTF8_CONTINUATION_PREFIX | ((scalar >> UTF8_PAYLOAD_BITS) & UTF8_PAYLOAD_MASK));
+        output += static_cast<char>(UTF8_CONTINUATION_PREFIX | (scalar & UTF8_PAYLOAD_MASK));
     }
 }
 }  // namespace
 
-JsonParser::JsonParser(const std::string &input) : text(input)
+JsonParser::JsonParser(const std::string &input) noexcept : text_(input)
 {
 }
 
-Json JsonParser::parse()
+Json JsonParser::Parse()
 {
-    Json result = value();
-    space();
-    if (position != text.size()) {
+    position_ = 0U;
+    nodes_ = 0U;
+    Json result = Value(0U);
+    Space();
+    if (position_ != text_.size()) {
         throw std::runtime_error("Trailing JSON data");
     }
     return result;
 }
 
-void JsonParser::space()
+void JsonParser::Space()
 {
-    while (position < text.size() &&
-           (text[position] == ' ' || text[position] == '\r' || text[position] == '\n' || text[position] == '\t')) {
-        ++position;
+    while (position_ < text_.size() && (text_[position_] == ' ' || text_[position_] == '\r' ||
+                                           text_[position_] == '\n' || text_[position_] == '\t')) {
+        ++position_;
     }
 }
 
-bool JsonParser::take(char character)
+bool JsonParser::Take(char character)
 {
-    space();
-    if (position < text.size() && text[position] == character) {
-        ++position;
+    Space();
+    if (position_ < text_.size() && text_[position_] == character) {
+        ++position_;
         return true;
     }
     return false;
 }
 
-void JsonParser::require(char character)
+void JsonParser::Require(char character)
 {
-    if (!take(character)) {
+    if (!Take(character)) {
         throw std::runtime_error("Invalid JSON delimiter");
     }
 }
 
-unsigned JsonParser::hex4()
+unsigned JsonParser::Hex4()
 {
-    unsigned value = 0;
-    for (unsigned index = 0; index < 4; ++index) {
-        if (position == text.size()) {
+    unsigned scalar = 0U;
+    for (unsigned index = 0U; index < HEX_ESCAPE_DIGITS; ++index) {
+        if (position_ == text_.size()) {
             throw std::runtime_error("Incomplete Unicode escape");
         }
-        const char digit = text[position++];
-        unsigned nibble;
+        const char digit = text_[position_++];
+        unsigned nibble = 0U;
         if (digit >= '0' && digit <= '9') {
             nibble = digit - '0';
         } else if (digit >= 'a' && digit <= 'f') {
-            nibble = digit - 'a' + 10U;
+            nibble = digit - 'a' + HEX_LETTER_OFFSET;
         } else if (digit >= 'A' && digit <= 'F') {
-            nibble = digit - 'A' + 10U;
+            nibble = digit - 'A' + HEX_LETTER_OFFSET;
         } else {
             throw std::runtime_error("Invalid Unicode escape");
         }
-        value = value * 16U + nibble;
+        scalar = scalar * HEX_RADIX + nibble;
     }
-    return value;
+    return scalar;
 }
 
-std::string JsonParser::quoted()
+std::string JsonParser::Quoted()
 {
-    require('"');
-    std::string value;
-    while (position < text.size()) {
-        const unsigned char character = static_cast<unsigned char>(text[position++]);
+    Require('"');
+    std::string output;
+    while (position_ < text_.size()) {
+        const unsigned char character = static_cast<unsigned char>(text_[position_++]);
         if (character == '"') {
-            return value;
+            ValidateJsonString(output);
+            return output;
         }
-        if (character < 32U) {
+        if (character < CONTROL_CHARACTER_LIMIT) {
             throw std::runtime_error("Control character in JSON string");
         }
         if (character != '\\') {
-            value += static_cast<char>(character);
+            output += static_cast<char>(character);
             continue;
         }
-        if (position == text.size()) {
-            throw std::runtime_error("Incomplete JSON escape");
-        }
-        const char code = text[position++];
-        if (code == '"' || code == '\\' || code == '/') {
-            value += code;
-        } else if (code == 'b') {
-            value += '\b';
-        } else if (code == 'f') {
-            value += '\f';
-        } else if (code == 'n') {
-            value += '\n';
-        } else if (code == 'r') {
-            value += '\r';
-        } else if (code == 't') {
-            value += '\t';
-        } else if (code == 'u') {
-            unsigned scalar = hex4();
-            if (scalar >= 0xd800U && scalar <= 0xdbffU) {
-                if (position + 2U > text.size() || text[position++] != '\\' || text[position++] != 'u') {
-                    throw std::runtime_error("Missing low surrogate");
-                }
-                const unsigned low = hex4();
-                if (low < 0xdc00U || low > 0xdfffU) {
-                    throw std::runtime_error("Invalid low surrogate");
-                }
-                scalar = 0x10000U + ((scalar - 0xd800U) << 10U) + low - 0xdc00U;
-            } else if (scalar >= 0xdc00U && scalar <= 0xdfffU) {
-                throw std::runtime_error("Unpaired low surrogate");
-            }
-            utf8(value, scalar);
-        } else {
-            throw std::runtime_error("Invalid JSON escape");
-        }
+        Escape(output);
     }
     throw std::runtime_error("Unterminated JSON string");
 }
 
-Json JsonParser::value(unsigned depth)
+unsigned JsonParser::UnicodeScalar()
 {
-    space();
-    if (depth > 16U || ++nodes > 4096U || position == text.size()) {
+    constexpr unsigned highBegin = 0xd800U;
+    constexpr unsigned highEnd = 0xdbffU;
+    constexpr unsigned lowBegin = 0xdc00U;
+    constexpr unsigned lowEnd = 0xdfffU;
+    unsigned scalar = Hex4();
+    if (scalar >= highBegin && scalar <= highEnd) {
+        if (text_.size() - position_ < UNICODE_ESCAPE_PREFIX_LENGTH || text_[position_] != '\\' ||
+            text_[position_ + 1U] != 'u') {
+            throw std::runtime_error("Missing low surrogate");
+        }
+        position_ += UNICODE_ESCAPE_PREFIX_LENGTH;
+        const unsigned low = Hex4();
+        if (low < lowBegin || low > lowEnd) {
+            throw std::runtime_error("Invalid low surrogate");
+        }
+        constexpr unsigned supplementaryBegin = 0x10000U;
+        constexpr unsigned surrogateBits = 10U;
+        scalar = supplementaryBegin + ((scalar - highBegin) << surrogateBits) + (low - lowBegin);
+    } else if (scalar >= lowBegin && scalar <= lowEnd) {
+        throw std::runtime_error("Unpaired low surrogate");
+    }
+    return scalar;
+}
+
+void JsonParser::Escape(std::string &output)
+{
+    if (position_ == text_.size()) {
+        throw std::runtime_error("Incomplete JSON escape");
+    }
+    const char code = text_[position_++];
+    switch (code) {
+        case '"':
+        case '\\':
+        case '/':
+            output += code;
+            break;
+        case 'b':
+            output += '\b';
+            break;
+        case 'f':
+            output += '\f';
+            break;
+        case 'n':
+            output += '\n';
+            break;
+        case 'r':
+            output += '\r';
+            break;
+        case 't':
+            output += '\t';
+            break;
+        case 'u':
+            AppendUtf8(output, UnicodeScalar());
+            break;
+        default:
+            throw std::runtime_error("Invalid JSON escape");
+    }
+}
+
+Json JsonParser::Value(unsigned depth)
+{
+    constexpr unsigned maxDepth = 16U;
+    constexpr unsigned maxNodes = 4096U;
+    Space();
+    ++nodes_;
+    if (depth > maxDepth || nodes_ > maxNodes || position_ == text_.size()) {
         throw std::runtime_error("JSON structure limit or missing value");
     }
-    const char first = text[position];
-    if (first == '"') {
-        return Json(quoted());
-    }
-    if (first == '{') {
-        ++position;
-        Json result = Json::makeObject();
-        if (take('}')) {
-            return result;
-        }
-        do {
-            const std::string key = quoted();
-            require(':');
-            if (result.object.count(key) != 0U) {
-                throw std::runtime_error("Duplicate JSON member");
-            }
-            result.object.emplace(key, value(depth + 1U));
-        } while (take(','));
-        require('}');
-        return result;
-    }
-    if (first == '[') {
-        ++position;
-        Json result = Json::makeArray();
-        if (take(']')) {
-            return result;
-        }
-        do {
-            result.array.push_back(value(depth + 1U));
-        } while (take(','));
-        require(']');
-        return result;
+    switch (text_[position_]) {
+        case '"':
+            return Json(Quoted());
+        case '{':
+            return Object(depth);
+        case '[':
+            return Array(depth);
+        default:
+            break;
     }
     for (const auto &keyword : {std::string("null"), std::string("true"), std::string("false")}) {
-        if (text.compare(position, keyword.size(), keyword) == 0) {
-            position += keyword.size();
-            if (keyword == "null") {
-                return Json();
-            }
-            return Json(keyword == "true");
+        if (text_.compare(position_, keyword.size(), keyword) == 0) {
+            position_ += keyword.size();
+            return keyword == "null" ? Json() : Json(keyword == "true");
         }
     }
-    const std::size_t begin = position;
-    if (text[position] == '-') {
-        ++position;
+    return Number();
+}
+
+Json JsonParser::Object(unsigned depth)
+{
+    ++position_;
+    Json result = Json::MakeObject();
+    if (Take('}')) {
+        return result;
     }
-    if (position == text.size()) {
+    do {
+        const std::string key = Quoted();
+        Require(':');
+        if (result.object.count(key) != 0U) {
+            throw std::runtime_error("Duplicate JSON member");
+        }
+        result.object.emplace(key, Value(depth + 1U));
+    } while (Take(','));
+    Require('}');
+    return result;
+}
+
+Json JsonParser::Array(unsigned depth)
+{
+    ++position_;
+    Json result = Json::MakeArray();
+    if (Take(']')) {
+        return result;
+    }
+    do {
+        result.array.push_back(Value(depth + 1U));
+    } while (Take(','));
+    Require(']');
+    return result;
+}
+
+void JsonParser::Digits()
+{
+    const auto begin = position_;
+    while (position_ < text_.size() && text_[position_] >= '0' && text_[position_] <= '9') {
+        ++position_;
+    }
+    if (begin == position_) {
+        throw std::runtime_error("Missing numeric digits");
+    }
+}
+
+void JsonParser::IntegerPart()
+{
+    if (text_[position_] == '-') {
+        ++position_;
+    }
+    if (position_ == text_.size()) {
         throw std::runtime_error("Invalid JSON number");
     }
-    if (text[position] == '0') {
-        ++position;
-    } else {
-        if (text[position] < '1' || text[position] > '9') {
-            throw std::runtime_error("Invalid JSON number");
-        }
-        while (position < text.size() && text[position] >= '0' && text[position] <= '9') {
-            ++position;
-        }
+    if (text_[position_] == '0') {
+        ++position_;
+        return;
     }
-    if (position < text.size() && text[position] == '.') {
-        const auto digits = ++position;
-        while (position < text.size() && text[position] >= '0' && text[position] <= '9') {
-            ++position;
-        }
-        if (digits == position) {
-            throw std::runtime_error("Missing decimal digits");
-        }
+    if (text_[position_] < '1' || text_[position_] > '9') {
+        throw std::runtime_error("Invalid JSON number");
     }
-    if (position < text.size() && (text[position] == 'e' || text[position] == 'E')) {
-        ++position;
-        if (position < text.size() && (text[position] == '+' || text[position] == '-')) {
-            ++position;
-        }
-        const auto digits = position;
-        while (position < text.size() && text[position] >= '0' && text[position] <= '9') {
-            ++position;
-        }
-        if (digits == position) {
-            throw std::runtime_error("Missing exponent digits");
-        }
+    Digits();
+}
+
+Json JsonParser::Number()
+{
+    const std::size_t begin = position_;
+    IntegerPart();
+    if (position_ < text_.size() && text_[position_] == '.') {
+        ++position_;
+        Digits();
     }
-    const std::string number = text.substr(begin, position - begin);
-    char *end = nullptr;
-    const double parsed = std::strtod(number.c_str(), &end);
-    if (end != number.c_str() + number.size() || !std::isfinite(parsed)) {
+    if (position_ < text_.size() && (text_[position_] == 'e' || text_[position_] == 'E')) {
+        ++position_;
+        if (position_ < text_.size() && (text_[position_] == '+' || text_[position_] == '-')) {
+            ++position_;
+        }
+        Digits();
+    }
+    std::istringstream number(text_.substr(begin, position_ - begin));
+    number.imbue(std::locale::classic());
+    double parsed = 0.0;
+    number >> parsed;
+    if (number.fail() || !number.eof() || !std::isfinite(parsed)) {
         throw std::runtime_error("JSON number is not finite");
     }
     return Json(parsed);
 }
 
-Json parseJson(const std::string &text)
+Json ParseJson(const std::string &input)
 {
-    JsonParser parser(text);
-    return parser.parse();
+    JsonParser parser(input);
+    return parser.Parse();
 }
 }  // namespace vna_web

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
 #ifndef VNAPRO_WEB_JSON_PARSER_H
 #define VNAPRO_WEB_JSON_PARSER_H
 
@@ -7,28 +11,41 @@
 #include "web/json.h"
 
 namespace vna_web {
-// Consumes one input document; the input must remain alive until parse() returns.
-class JsonParser {
+class JsonParser final {
 public:
-    explicit JsonParser(const std::string &input);
+    // Borrow one input document, which must outlive this parser and every Parse call.
+    explicit JsonParser(const std::string &input) noexcept;
     JsonParser(std::string &&) = delete;
     JsonParser(const std::string &&) = delete;
-    Json parse();
+    ~JsonParser() = default;
+    JsonParser(const JsonParser &) = delete;
+    JsonParser &operator=(const JsonParser &) = delete;
+    JsonParser(JsonParser &&) = delete;
+    JsonParser &operator=(JsonParser &&) = delete;
+    // Restart at the beginning and parse one bounded UTF-8 document; malformed input throws runtime_error.
+    Json Parse();
 
 private:
-    void space();
-    bool take(char character);
-    void require(char character);
-    unsigned hex4();
-    std::string quoted();
-    Json value(unsigned depth = 0);
-
-    const std::string &text;
-    std::size_t position = 0;
-    unsigned nodes = 0;
+    void Space();
+    bool Take(char character);
+    void Require(char character);
+    unsigned Hex4();
+    unsigned UnicodeScalar();
+    void Escape(std::string &output);
+    std::string Quoted();
+    Json Value(unsigned depth);
+    Json Object(unsigned depth);
+    Json Array(unsigned depth);
+    Json Number();
+    void IntegerPart();
+    void Digits();
+    const std::string &text_;
+    std::size_t position_ = 0U;
+    unsigned nodes_ = 0U;
 };
 
-Json parseJson(const std::string &text);
+// Parse one complete JSON document with bounded nesting and node count.
+Json ParseJson(const std::string &input);
 }  // namespace vna_web
 
 #endif
