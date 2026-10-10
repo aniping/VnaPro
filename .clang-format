@@ -1,10 +1,9 @@
 # 使用 clang-format 18.1.8；未列出的选项继承 Google，源代码由程序直接格式化。
-# 排版依据：华为云 LiteOS《编程规范》的“排版与格式”，并核对 OpenHarmony C++ 第 3 章。
-# 华为公开规范：https://support.huaweicloud.com/contribute-LiteOS/zh-cn_topic_0145350121.html
-# C++ 条款：https://github.com/openharmony/docs/blob/master/zh-cn/contribute/OpenHarmony-cpp-coding-style-guide.md
+# 排版依据：docs/C++语言编程规范.md 第 3 章。
+# 同时保留用户明确要求的定义间空行、短函数展开和程序自动格式化。
 # 选项依据：https://releases.llvm.org/18.1.8/tools/clang/docs/ClangFormatStyleOptions.html
 ---  # YAML 配置文档开始。
-BasedOnStyle: Google  # 仅作为格式器默认值基础；实际排版由下面的规范映射与项目约定确定。
+BasedOnStyle: Google  # 未明确配置项的格式器默认值；以下选项按本地 C++ 规范及用户要求配置。
 Language: Cpp  # 本段配置用于 C++ 源文件和头文件。
 Standard: c++14  # 按 C++14 解析和格式化；实际编译标准仍由 CMake 设置。
 
@@ -39,7 +38,7 @@ AllowShortBlocksOnASingleLine: Never  # 普通短代码块不把整块内容放�
 
 # 指针和引用的位置固定，不根据已有文件写法猜测。
 DerivePointerAlignment: false  # 禁止推导覆盖下面指定的指针/引用对齐方式。
-PointerAlignment: Right  # 华为云规范要求星号靠变量或函数名，例如 int *value；C++ 3.12.1 也允许此写法。
+PointerAlignment: Right  # 对应 C++ 3.12.1：左右对齐都允许，项目固定靠变量名，例如 int *value。
 ReferenceAlignment: Pointer  # C++ 3.12.2 允许靠左或靠右；项目引用跟随指针对齐，例如 const Json &value。
 SpaceAroundPointerQualifiers: Before  # 星号后有 const/restrict 等修饰符时留空格，例如 char * const version。
 
