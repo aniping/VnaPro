@@ -3,7 +3,7 @@
  */
 #include "native_contract_test_support.h"
 
-namespace vna_test {
+namespace VnaTest {
 namespace {
 
 // Independent contract expectations must not use the production decoder/model constants.
@@ -113,11 +113,11 @@ void ExpectIqNear(const std::vector<double> &expected, const double *actual)
 {
     for (std::size_t index = 0U; index < expected.size(); ++index) {
         if (!std::isfinite(actual[index]) || std::fabs(expected[index] - actual[index]) > IQ_TOLERANCE) {
-            vna_test::Fail(std::string("IQ 偏移 ") + ToString(index) + " 不符合黄金值，实际为 " +
-                               ToString(actual[index]) + "，期望为 " + ToString(expected[index]),
-                vna_test::TestLocation{__FILE__, __LINE__});
+            VnaTest::Fail(std::string("IQ 偏移 ") + ToString(index) + " 不符合黄金值，实际为 " +
+                              ToString(actual[index]) + "，期望为 " + ToString(expected[index]),
+                VnaTest::TestLocation{__FILE__, __LINE__});
         }
     }
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest

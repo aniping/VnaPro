@@ -19,7 +19,7 @@
 
 #include "vna_native/native_api_contract.h"
 
-namespace vna_test {
+namespace VnaTest {
 
 struct NativeFunctions final {
     VnaNative::DrvHwInitFn hwInit = nullptr;
@@ -71,5 +71,5 @@ private:
     NativeFunctions functions_;
 };
 
-}  // namespace vna_test
+}  // namespace VnaTest
 #endif  // VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_LIBRARY_PROBE_H

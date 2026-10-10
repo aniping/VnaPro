@@ -12,7 +12,7 @@
 #include <cstring>
 #include <sstream>
 
-namespace vna_test {
+namespace VnaTest {
 namespace {
 
 bool IsAbsolutePath(const std::string &path) noexcept
@@ -188,4 +188,4 @@ const NativeFunctions &NativeLibraryProbe::Functions() const noexcept
     return functions_;
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest

@@ -4,36 +4,36 @@
 #include "native_contract_test_support.h"
 #include "scoped_simulator_environment.h"
 
-namespace vna_test {
+namespace VnaTest {
 namespace {
 
 void ConfigureNoiseSweep(const NativeFunctions &functions, FrameInput &frame)
 {
-    vna_test::Expect(functions.hwInit() == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(functions.setRfPowerOn(1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(functions.activateRxLink(0xFU) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(functions.setFastSweepMode(0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(DownloadFrame(functions, frame) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.hwInit() == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.setRfPowerOn(1U) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.activateRxLink(0xFU) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.setFastSweepMode(0U) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(DownloadFrame(functions, frame) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
 }
 
 std::vector<double> Acquire(const NativeFunctions &functions, std::uint32_t sourcePort)
 {
-    vna_test::Expect(functions.startSweep(3U, sourcePort) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.startSweep(3U, sourcePort) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
     std::vector<double> output(48U);
-    vna_test::Expect(functions.getSweepData(3U, output.data()) == OK, vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.getSweepData(3U, output.data()) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
     return output;
 }
 
 void ExpectBoundedNoise(const std::vector<double> &golden, const std::vector<double> &noisy)
 {
-    vna_test::Expect(noisy.size() == golden.size(), vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(noisy.size() == golden.size(), VnaTest::TestLocation{__FILE__, __LINE__});
     for (std::size_t index = 0U; index < golden.size(); index += 2U) {
-        vna_test::Expect(std::isfinite(noisy[index]) && std::isfinite(noisy[index + 1U]),
-            vna_test::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(
+            std::isfinite(noisy[index]) && std::isfinite(noisy[index + 1U]), VnaTest::TestLocation{__FILE__, __LINE__});
         const double delta = std::hypot(noisy[index] - golden[index], noisy[index + 1U] - golden[index + 1U]);
-        vna_test::Expect(delta > 0.0, vna_test::TestLocation{__FILE__, __LINE__});
-        vna_test::Expect(delta <= 0.002 * std::hypot(golden[index], golden[index + 1U]) + 1.0e-15,
-            vna_test::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(delta > 0.0, VnaTest::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(delta <= 0.002 * std::hypot(golden[index], golden[index + 1U]) + 1.0e-15,
+            VnaTest::TestLocation{__FILE__, __LINE__});
     }
 }
 
@@ -47,13 +47,13 @@ void BoundedRepeatableNoise(const NativeFunctions &functions)
         const std::vector<double> second = Acquire(functions, sourcePort);
         ExpectBoundedNoise(ExpectedIq(frame.frequencies, sourcePort), first);
         ExpectBoundedNoise(ExpectedIq(frame.frequencies, sourcePort), second);
-        vna_test::Expect(first != second, vna_test::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(first != second, VnaTest::TestLocation{__FILE__, __LINE__});
         ConfigureNoiseSweep(functions, frame);
-        vna_test::Expect(first == Acquire(functions, sourcePort), vna_test::TestLocation{__FILE__, __LINE__});
-        vna_test::Expect(second == Acquire(functions, sourcePort), vna_test::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(first == Acquire(functions, sourcePort), VnaTest::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(second == Acquire(functions, sourcePort), VnaTest::TestLocation{__FILE__, __LINE__});
         environment.Set("noise", "43");
         ConfigureNoiseSweep(functions, frame);
-        vna_test::Expect(first != Acquire(functions, sourcePort), vna_test::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(first != Acquire(functions, sourcePort), VnaTest::TestLocation{__FILE__, __LINE__});
         environment.Set("noise", "42");
     }
 }
@@ -67,37 +67,36 @@ void FrozenModeAndPendingConsumption(const NativeFunctions &functions)
     const std::vector<double> second = Acquire(functions, 0U);
     ConfigureNoiseSweep(functions, frame);
     environment.Set("golden", "invalid-but-ignored-in-golden");
-    vna_test::Expect(functions.startSweep(3U, 0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(functions.startSweep(3U, 0U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(
-        functions.getSweepData(3U, nullptr) == INVALID_ARGUMENT, vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.startSweep(3U, 0U) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.startSweep(3U, 0U) == INVALID_STATE, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.getSweepData(3U, nullptr) == INVALID_ARGUMENT, VnaTest::TestLocation{__FILE__, __LINE__});
     std::vector<double> storage(50U, -99.0);
-    vna_test::Expect(
-        functions.getSweepData(2U, storage.data() + 1U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(
+        functions.getSweepData(2U, storage.data() + 1U) == INVALID_STATE, VnaTest::TestLocation{__FILE__, __LINE__});
     for (double value : storage) {
-        vna_test::Expect(value == -99.0, vna_test::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(value == -99.0, VnaTest::TestLocation{__FILE__, __LINE__});
     }
     FrameInput replacement = MakeNormalFrame(3U, 0U, 2000000000ULL);
-    vna_test::Expect(DownloadFrame(functions, replacement) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(functions.getSweepData(3U, storage.data() + 1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(storage.front() == -99.0, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(storage.back() == -99.0, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(first == std::vector<double>(storage.begin() + 1U, storage.end() - 1U),
-        vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(
-        functions.getSweepData(3U, storage.data() + 1U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(DownloadFrame(functions, frame) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(second == Acquire(functions, 0U), vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(DownloadFrame(functions, replacement) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.getSweepData(3U, storage.data() + 1U) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(storage.front() == -99.0, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(storage.back() == -99.0, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(first == std::vector<double>(storage.begin() + 1U, storage.end() - 1U),
+        VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(
+        functions.getSweepData(3U, storage.data() + 1U) == INVALID_STATE, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(DownloadFrame(functions, frame) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(second == Acquire(functions, 0U), VnaTest::TestLocation{__FILE__, __LINE__});
     ConfigureNoiseSweep(functions, frame);
     ExpectIqNear(ExpectedIq(frame.frequencies, 0U), Acquire(functions, 0U).data());
     environment.Set("noise", "1");
     ConfigureNoiseSweep(functions, frame);
-    vna_test::Expect(functions.startSweep(3U, 0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(functions.setRfPowerOn(0U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(
-        functions.getSweepData(3U, storage.data() + 1U) == INVALID_STATE, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(functions.setRfPowerOn(1U) == OK, vna_test::TestLocation{__FILE__, __LINE__});
-    vna_test::Expect(second == Acquire(functions, 0U), vna_test::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.startSweep(3U, 0U) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.setRfPowerOn(0U) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(
+        functions.getSweepData(3U, storage.data() + 1U) == INVALID_STATE, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(functions.setRfPowerOn(1U) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
+    VnaTest::Expect(second == Acquire(functions, 0U), VnaTest::TestLocation{__FILE__, __LINE__});
 }
 
 }  // namespace
@@ -114,4 +113,4 @@ void RunNativeNoiseModeTests(TestRunner &runner, NativeLibraryProbe &library)
     });
 }
 
-}  // namespace vna_test
+}  // namespace VnaTest

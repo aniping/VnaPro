@@ -13,7 +13,7 @@
 #include "../test_support.h"
 #include "native_library_probe.h"
 
-namespace vna_test {
+namespace VnaTest {
 
 // Independent status expectations for the runtime-loaded C ABI contract.
 enum SimulatorStatus {
@@ -52,6 +52,6 @@ void ExpectIqNear(const std::vector<double> &expected, const double *actual);
 void RunNativeNormalSweepTests(TestRunner &runner, NativeLibraryProbe &library);
 void RunNativeNoiseModeTests(TestRunner &runner, NativeLibraryProbe &library);
 
-}  // namespace vna_test
+}  // namespace VnaTest
 
 #endif  // VNAPRO_TESTS_NATIVE_CONTRACT_NATIVE_CONTRACT_TEST_SUPPORT_H
