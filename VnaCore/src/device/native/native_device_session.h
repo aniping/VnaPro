@@ -13,22 +13,22 @@ namespace Detail {
 
 class NativeDeviceSession final : public DeviceSession {
 public:
-    // The absolute library path is retained until worker initialization.
+    // 保留动态库的绝对路径，直到工作线程执行初始化。
     explicit NativeDeviceSession(std::string path);
     NativeDeviceSession(const NativeDeviceSession &) = delete;
     NativeDeviceSession &operator=(const NativeDeviceSession &) = delete;
     NativeDeviceSession(NativeDeviceSession &&) = delete;
     NativeDeviceSession &operator=(NativeDeviceSession &&) = delete;
     ~NativeDeviceSession() override = default;
-    // Loads the driver, initializes hardware, and copies the native identification response.
+    // 加载驱动、初始化硬件，并复制原生设备标识响应。
     std::string Initialize() override;
-    // Prepares every download buffer before mutating any hardware configuration.
+    // 在变更任何硬件配置前，准备好全部下载缓冲区。
     void ApplyPlan(const SweepPlan &plan) override;
-    // Enables RF on the initialized native session.
+    // 在已初始化的原生会话中启用射频。
     void EnableRf() override;
-    // Converts a physical source port to the ABI index and returns a complete owned IQ buffer.
+    // 将物理源端口转换为 ABI 索引，并返回独立持有的完整 IQ 缓冲区。
     std::vector<double> AcquirePort(const SweepPlan &plan, std::uint32_t sourcePort) override;
-    // Attempts RF off, then always releases the library before reporting a shutdown error.
+    // 尝试关闭射频，随后始终释放动态库，再报告关闭错误。
     void Shutdown() override;
 
 private:
@@ -37,7 +37,7 @@ private:
     bool initialized_ = false;
 };
 
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore
 
 #endif

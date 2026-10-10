@@ -36,6 +36,6 @@ void RequireFrameContent(const MeasurementFrame &frame);
 
 void RequireUnchanged(const MeasurementFrame &frame, const MeasurementFrame &snapshot);
 
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest
 
 #endif

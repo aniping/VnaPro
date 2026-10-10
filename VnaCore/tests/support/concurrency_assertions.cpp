@@ -46,7 +46,7 @@ bool SamePlan(const SweepPlan &left, const SweepPlan &right)
 double SampleValue(
     const SweepPlan &plan, std::uint64_t frame, std::uint32_t source, std::size_t point, std::size_t slot)
 {
-    // Exact binary fields distinguish configuration, frame, source, point and all 16 IQ slots.
+    // 使用精确的二进制字段区分配置、帧、源端口、点及全部 16 个 IQ 槽位。
     return static_cast<double>(frame) * 68719476736.0 + static_cast<double>(plan.ifBandwidthRaw) * 1048576.0 +
            static_cast<double>(source) * 65536.0 + static_cast<double>(point) * 256.0 +
            static_cast<double>(slot / 4U) * 16.0 + static_cast<double>(slot % 4U) +
@@ -86,4 +86,4 @@ void RequireUnchanged(const MeasurementFrame &frame, const MeasurementFrame &sna
     }
 }
 
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest

@@ -65,7 +65,7 @@ std::unique_ptr<Detail::DeviceSession> ValidateDevice(std::unique_ptr<Detail::De
     return device;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 AcquisitionCore::AcquisitionCore(const std::string &path)
     : AcquisitionCore(std::make_unique<Detail::NativeDeviceSession>(path))
@@ -163,7 +163,7 @@ CoreView AcquisitionCore::ReadView() const
 
 CommandResult AcquisitionCore::Close()
 {
-    // Lifecycle owners serialize close/destruction; submissions remain thread-safe.
+    // 生命周期所有者串行执行关闭和析构；命令提交仍然线程安全。
     {
         std::lock_guard<std::mutex> guard(queueMutex_);
         if (!closing_) {
@@ -171,7 +171,7 @@ CommandResult AcquisitionCore::Close()
             closeTicket_ = promise.get_future().share();
             queue_.push_back(Detail::CoreCommand{
                 Detail::CoreCommandKind::CLOSE, SweepPlan(), RunMode::MANUAL, 0U, 0U, std::move(promise)});
-            closing_ = true;  // Reserved close entry is admitted even when the normal queue is full.
+            closing_ = true;  // 普通队列已满时，仍接受预留的关闭命令。
         }
     }
     wake_.notify_one();
@@ -206,7 +206,7 @@ void AcquisitionCore::PublishView()
         std::lock_guard<std::mutex> guard(resultMutex_);
         std::swap(published_, view);
     }
-    // The previous potentially large frame is destroyed after releasing the publication lock.
+    // 释放发布锁后，再销毁可能占用较大内存的上一帧。
 }
 
 void AcquisitionCore::Fault(const std::string &error)
@@ -234,7 +234,7 @@ void AcquisitionCore::AcquireFrame()
         }
         completed.ports.push_back(std::move(port));
     }
-    // No mutable alias survives publication. A failed later port never replaces frame_.
+    // 发布后不保留可变别名；后续端口采集失败时，不替换 frame_。
     FramePtr immutable = std::make_shared<const MeasurementFrame>(std::move(completed));
     frameSeq_ = immutable->frameSeq;
     frame_ = std::move(immutable);
@@ -348,7 +348,7 @@ CommandResult AcquisitionCore::ExecuteStop(const Detail::CoreCommand &command)
     if (state_ == CoreState::RUNNING) {
         state_ = CoreState::READY;
     }
-    // Matching idle/Faulted Stop is idempotent and does not clear a fault or turn RF off.
+    // 空闲或故障状态下，匹配当前运行的停止命令具有幂等性，不清除故障，也不关闭射频。
     return Result(true);
 }
 
@@ -425,4 +425,4 @@ void AcquisitionCore::WorkerLoop()
     }
 }
 
-}  // namespace VnaCore
+}  // 命名空间 VnaCore

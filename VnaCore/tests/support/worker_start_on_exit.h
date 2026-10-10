@@ -11,7 +11,7 @@
 namespace VnaCoreTest {
 
 struct WorkerStartOnExit final {
-    // Ensures already launched workers can exit if later thread creation throws.
+    // 后续线程创建抛出异常时，确保已启动的工作线程能够退出。
     WorkerStartOnExit(std::promise<void> &start, std::atomic<bool> &done) noexcept : signal(start), finished(done)
     {
     }
@@ -33,6 +33,6 @@ struct WorkerStartOnExit final {
     }
 };
 
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest
 
 #endif

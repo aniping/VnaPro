@@ -45,6 +45,6 @@ struct CoreView final {
     std::string deviceIdn;
 };
 
-}  // namespace VnaCore
+}  // 命名空间 VnaCore
 
 #endif

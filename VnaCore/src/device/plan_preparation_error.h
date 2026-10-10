@@ -9,14 +9,14 @@
 namespace VnaCore {
 namespace Detail {
 
-// This exception is reserved for failures before any plan-related device mutation.
+// 此异常仅用于计划相关设备状态尚未变更时发生的失败。
 class PlanPreparationError final : public std::exception {
 public:
-    // Distinguishes allocation failure before device mutation from native configuration failures.
+    // 区分设备状态变更前的分配失败与原生配置失败。
     const char *what() const noexcept override;
 };
 
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore
 
 #endif

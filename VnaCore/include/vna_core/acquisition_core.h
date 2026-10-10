@@ -21,11 +21,11 @@ namespace VnaCore {
 
 class AcquisitionCore final {
 public:
-    // Loads only an absolute driver path; initialization remains an asynchronous operation.
+    // 驱动路径必须为绝对路径；设备初始化仍通过异步操作执行。
     explicit AcquisitionCore(const std::string &nativeLibraryPath);
-    // Transfers device ownership; device calls are confined to the core worker.
+    // 接管设备所有权；设备调用仅在核心工作线程执行。
     explicit AcquisitionCore(std::unique_ptr<Detail::DeviceSession> device);
-    // The owner must release all other callers first; destruction drains and joins the worker.
+    // 所有者必须先结束其他调用者的访问；析构时处理完已接受任务，并等待工作线程结束。
     ~AcquisitionCore();
 
     AcquisitionCore(const AcquisitionCore &) = delete;
@@ -33,21 +33,21 @@ public:
     AcquisitionCore(AcquisitionCore &&) = delete;
     AcquisitionCore &operator=(AcquisitionCore &&) = delete;
 
-    // Returns a ticket for device initialization; only UNINITIALIZED accepts it.
+    // 返回设备初始化的结果票据；仅 UNINITIALIZED 状态接受此操作。
     Ticket Initialize();
-    // Copies the entire plan into the FIFO; success advances the committed configuration revision.
+    // 将完整计划复制到先进先出队列；成功后递增已提交配置的版本号。
     Ticket Configure(SweepPlan plan);
-    // Requires READY and a valid plan; success starts a new run with the requested mode.
+    // 要求处于 READY 状态且计划有效；成功后按请求模式启动新一轮运行。
     Ticket Start(RunMode mode);
-    // Requires the current MANUAL run/revision; success publishes a complete immutable multi-source frame.
+    // 要求匹配当前 MANUAL 运行及配置版本；成功后发布完整且不可变的多源帧。
     Ticket TriggerOnce(std::uint64_t runId, std::uint64_t revision);
-    // Rejects zero or stale run IDs; success is a FIFO frame barrier and keeps RF enabled.
+    // 拒绝零值或过期的运行标识；成功后形成先进先出的帧屏障，并保持射频启用。
     Ticket Stop(std::uint64_t runId);
-    // Requires FAULTED; reapplies the last successful plan without restarting acquisition.
+    // 要求处于 FAULTED 状态；重新应用最近成功的计划，不重新启动采集。
     Ticket Recover();
-    // Returns one consistent state/frame snapshot; retained frames remain valid independently of the core.
+    // 返回状态与帧一致的快照；被保留的帧不依赖核心对象的生命周期。
     CoreView ReadView() const;
-    // Owner-thread operation: closes admission, drains accepted work, attempts RF off, then joins.
+    // 由所有者线程执行：停止接受命令，处理完已接受任务，尝试关闭射频，再等待工作线程结束。
     CommandResult Close();
 
 private:
@@ -78,7 +78,7 @@ private:
     mutable std::mutex resultMutex_;
     CoreView published_;
 
-    // The following fields belong exclusively to the worker.
+    // 以下字段仅由工作线程访问。
     CoreState state_ = CoreState::UNINITIALIZED;
     RunMode mode_ = RunMode::MANUAL;
     SweepPlan plan_;
@@ -93,6 +93,6 @@ private:
     std::thread worker_;
 };
 
-}  // namespace VnaCore
+}  // 命名空间 VnaCore
 
 #endif

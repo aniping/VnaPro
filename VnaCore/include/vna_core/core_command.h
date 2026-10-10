@@ -32,7 +32,7 @@ struct CoreCommand final {
     std::promise<CommandResult> promise;
 };
 
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore
 
 #endif

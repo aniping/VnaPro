@@ -13,6 +13,6 @@ struct DownloadFrame final {
     std::vector<std::uint32_t> parameters;
     std::vector<double> table;
 };
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore
 #endif

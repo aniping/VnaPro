@@ -70,7 +70,7 @@ void SelectGoldenProfile()
 
 void VerifyHighWord(VnaCore::AcquisitionCore &core, VnaCore::SweepPlan plan, const VnaCore::MeasurementFrame &retained)
 {
-    // The low words are equal; both complete RI vectors must match independent literals.
+    // 两个频率的低字相同；两组完整实虚部向量必须分别匹配独立给定的字面量。
     plan.frequencyRaw[1] = VnaTest::GOLDEN_IQ_HIGH_WORD_FREQUENCY;
     plan.frequencyHz[1] = static_cast<double>(VnaTest::GOLDEN_IQ_HIGH_WORD_FREQUENCY);
     plan.sourcePorts = {1U};
@@ -101,7 +101,7 @@ void VerifyLoaderFailures(const std::string &libraryPath)
     Require(relative.Close().ok, "rejected relative path could not be closed");
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 int main(int argc, char **argv)
 {

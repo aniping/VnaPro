@@ -20,35 +20,35 @@ namespace VnaCoreTest {
 
 class ControlledDevice final : public VnaCore::Detail::DeviceSession {
 public:
-    // Gate state and the worker identity remain bound to this instance.
+    // 屏障状态和工作线程标识始终绑定到此实例。
     ControlledDevice() = default;
     ControlledDevice(const ControlledDevice &) = delete;
     ControlledDevice &operator=(const ControlledDevice &) = delete;
     ControlledDevice(ControlledDevice &&) = delete;
     ControlledDevice &operator=(ControlledDevice &&) = delete;
     ~ControlledDevice() override = default;
-    // Returns the fixed controlled identity without calling a native driver.
+    // 返回受控设备的固定标识，不调用原生驱动。
     std::string Initialize() override;
 
-    // Applies the frozen plan or blocks/fails at a gate controlled by this test.
+    // 应用已冻结的计划，或在测试控制的屏障处阻塞或失败。
     void ApplyPlan(const VnaCore::SweepPlan &plan) override;
 
-    // Begins a controlled run without native RF output.
+    // 开始受控运行，不启用原生射频输出。
     void EnableRf() override;
 
-    // Returns a complete deterministic IQ vector after any armed gate is released.
+    // 等待已设置的屏障释放后，返回完整且可复现的 IQ 向量。
     std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t source) override;
 
-    // Records or completes controlled cleanup; injected failures remain observable.
+    // 记录或完成受控清理操作；注入的失败仍可被观察。
     void Shutdown() override;
 
-    // Resets and arms the next acquisition barrier; optional failure follows gate release.
+    // 重置并设置下一次采集屏障；若启用故障注入，则在屏障释放后失败。
     void Arm();
 
-    // Waits at most three seconds for the worker to reach the armed gate.
+    // 最多等待三秒，直到工作线程到达已设置的屏障。
     void WaitEntered();
 
-    // Releases the current acquisition gate and wakes its waiting worker.
+    // 释放当前采集屏障，并唤醒等待中的工作线程。
     void ReleaseGate();
 
     std::mutex mutex_;
@@ -72,6 +72,6 @@ private:
     void RecordThread();
 };
 
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest
 
 #endif

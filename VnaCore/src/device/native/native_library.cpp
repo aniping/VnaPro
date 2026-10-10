@@ -52,7 +52,7 @@ Function Resolve(void *handle, const char *name)
     return function;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 NativeLibrary::~NativeLibrary() noexcept
 {
@@ -112,5 +112,5 @@ void NativeLibrary::Close() noexcept
     }
 }
 
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore

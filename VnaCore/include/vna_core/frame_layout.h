@@ -14,5 +14,5 @@ constexpr std::size_t IQ_VALUES_PER_RECEIVER = 4U;
 constexpr std::size_t IQ_VALUES_PER_POINT = IQ_VALUES_PER_RECEIVER * PHYSICAL_PORT_COUNT;
 constexpr std::size_t COMPLEX_COMPONENT_COUNT = 2U;
 constexpr std::size_t TABLE_VALUES_PER_POINT = 9U;
-}  // namespace VnaCore
+}  // 命名空间 VnaCore
 #endif

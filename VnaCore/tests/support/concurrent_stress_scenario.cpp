@@ -14,7 +14,7 @@ namespace VnaCoreTest {
 namespace {
 constexpr std::size_t SUBMITTER_COUNT = 3U;
 constexpr std::size_t READER_COUNT = 2U;
-}  // namespace
+}  // 匿名命名空间
 
 using namespace VnaCore;
 using namespace std::chrono;
@@ -122,7 +122,7 @@ void ConcurrentStressScenario::Run()
 {
     std::vector<std::future<void>> submitters;
     std::vector<std::future<void>> readers;
-    // Allocate future slots before async workers start waiting for the release signal.
+    // 在异步工作线程开始等待释放信号前，预先分配结果句柄槽位。
     submitters.reserve(SUBMITTER_COUNT);
     readers.reserve(READER_COUNT);
     WorkerStartOnExit releaseWorkersOnExit{startWorkers_, finished_};
@@ -167,4 +167,4 @@ void ConcurrentStressScenario::CheckResults()
     std::cout << "stress: 144 tickets, " << successfulTriggers_.load() << " frames, " << rejectedTriggers_.load()
               << " superseded triggers, " << checkedViews_.load() << " consistent views\n";
 }
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest

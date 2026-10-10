@@ -21,7 +21,7 @@ void ControlledDevice::ApplyPlan(const VnaCore::SweepPlan &plan)
         failPrepare_ = false;
         throw VnaCore::Detail::PlanPreparationError();
     }
-    applied_ = plan;  // Simulate a partial mutation before reporting failure.
+    applied_ = plan;  // 先模拟部分状态变更，再报告失败。
     if (failApply_) {
         failApply_ = false;
         throw std::runtime_error("controlled partial configuration failure");
@@ -114,4 +114,4 @@ void ControlledDevice::RecordThread()
     wrongThread_ = wrongThread_ || deviceThread_ != std::this_thread::get_id();
 }
 
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest

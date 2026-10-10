@@ -25,6 +25,6 @@ struct MeasurementFrame final {
 
 using FramePtr = std::shared_ptr<const MeasurementFrame>;
 
-}  // namespace VnaCore
+}  // 命名空间 VnaCore
 
 #endif

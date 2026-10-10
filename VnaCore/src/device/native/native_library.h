@@ -14,20 +14,20 @@ namespace Detail {
 
 class NativeLibrary final {
 public:
-    // This object owns one OS loader handle; copying or moving would duplicate ownership.
+    // 此对象独占一个操作系统加载器句柄；复制或移动会重复持有其所有权。
     NativeLibrary() = default;
     NativeLibrary(const NativeLibrary &) = delete;
     NativeLibrary &operator=(const NativeLibrary &) = delete;
     NativeLibrary(NativeLibrary &&) = delete;
     NativeLibrary &operator=(NativeLibrary &&) = delete;
-    // Releases the loader handle after the device session has attempted RF shutdown.
+    // 设备会话尝试关闭射频后，再释放加载器句柄。
     ~NativeLibrary() noexcept;
-    // Resolves the complete required ABI from an absolute path; failure closes any partially loaded handle.
+    // 从绝对路径加载并解析全部必需 ABI；失败时关闭已部分加载的句柄。
     void Open(const std::string &path);
-    // Clears the function table before releasing the OS handle; repeated calls are harmless.
+    // 释放操作系统句柄前先清空函数表；重复调用无副作用。
     void Close() noexcept;
 
-    // The returned function table is valid only while this library remains open.
+    // 返回的函数表仅在此动态库保持打开期间有效。
     const NativeFunctions &Functions() const noexcept
     {
         return functions_;
@@ -38,7 +38,7 @@ private:
     NativeFunctions functions_;
 };
 
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore
 
 #endif

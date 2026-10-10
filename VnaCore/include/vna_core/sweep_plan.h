@@ -15,10 +15,10 @@ struct SweepPlan final {
     std::vector<double> frequencyHz;
     std::uint32_t ifBandwidthRaw = 0U;
     std::uint32_t receiverMask = 0U;
-    std::vector<std::uint32_t> sourcePorts;  // Physical ports 1..4.
-    std::vector<double> tableData;           // Owned, opaque 9N table values.
+    std::vector<std::uint32_t> sourcePorts;  // 物理端口编号为 1～4。
+    std::vector<double> tableData;           // 独立持有的 9N 个表值，其内容不在此处解释。
 };
 
-}  // namespace VnaCore
+}  // 命名空间 VnaCore
 
 #endif

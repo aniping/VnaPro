@@ -10,7 +10,7 @@
 namespace VnaCoreTest {
 
 struct ReleaseGateOnExit final {
-    // The fixture must outlive this guard; copying would release the gate twice.
+    // 测试夹具的生命周期必须长于本守卫；复制会导致屏障被释放两次。
     explicit ReleaseGateOnExit(ControlledDevice &value) noexcept : device(value)
     {
     }
@@ -27,6 +27,6 @@ struct ReleaseGateOnExit final {
     }
 };
 
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest
 
 #endif

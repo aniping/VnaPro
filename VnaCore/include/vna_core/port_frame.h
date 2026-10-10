@@ -11,9 +11,9 @@ namespace VnaCore {
 
 struct PortFrame final {
     std::uint32_t sourcePort = 0U;
-    std::vector<double> iq;  // Point-major: A.real,A.imag,B.real,B.imag for each receiver.
+    std::vector<double> iq;  // 按采样点排列，每个接收端依次存放 A.real、A.imag、B.real、B.imag。
 };
 
-}  // namespace VnaCore
+}  // 命名空间 VnaCore
 
 #endif

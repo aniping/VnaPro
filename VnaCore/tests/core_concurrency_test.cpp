@@ -298,7 +298,7 @@ void TestConcurrentSubmittersAndReaders()
     scenario.Run();
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 int main()
 {

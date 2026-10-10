@@ -16,13 +16,13 @@
 namespace VnaCoreTest {
 class ConcurrentStressScenario final {
 public:
-    // Creates one running device and freezes a baseline frame for all readers.
+    // 创建一个运行中的设备，并为所有读取线程冻结基准帧。
     ConcurrentStressScenario();
     ConcurrentStressScenario(const ConcurrentStressScenario &) = delete;
     ConcurrentStressScenario &operator=(const ConcurrentStressScenario &) = delete;
     ConcurrentStressScenario(ConcurrentStressScenario &&) = delete;
     ConcurrentStressScenario &operator=(ConcurrentStressScenario &&) = delete;
-    // Drains every async worker before propagating its first error.
+    // 等待所有异步工作线程结束后，再向外传播首次错误。
     void Run();
 
 private:
@@ -47,5 +47,5 @@ private:
     std::mutex plansMutex_;
     std::vector<std::pair<std::uint64_t, VnaCore::SweepPlan>> committedPlans_;
 };
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest
 #endif

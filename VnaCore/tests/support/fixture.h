@@ -17,20 +17,20 @@ struct Fixture final {
     ControlledDevice *device = nullptr;
     VnaCore::AcquisitionCore core;
 
-    // Transfers the controlled device into the core before exposing test handles.
+    // 先将受控设备的所有权移交核心，再向测试暴露访问句柄。
     Fixture();
     Fixture(const Fixture &) = delete;
     Fixture &operator=(const Fixture &) = delete;
     Fixture(Fixture &&) = delete;
     Fixture &operator=(Fixture &&) = delete;
 
-    // Releases all gates before draining the worker, including on assertion failure.
+    // 在等待工作线程结束前释放所有屏障，断言失败时也如此。
     ~Fixture();
 
 private:
     explicit Fixture(std::unique_ptr<ControlledDevice> owned);
 };
 
-}  // namespace VnaCoreTest
+}  // 命名空间 VnaCoreTest
 
 #endif

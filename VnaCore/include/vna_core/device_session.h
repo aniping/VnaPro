@@ -14,7 +14,7 @@
 namespace VnaCore {
 namespace Detail {
 
-// Called only by the core worker. Failures throw with the failing device step.
+// 仅由核心工作线程调用；失败时抛出异常，并说明失败的设备步骤。
 class DeviceSession {
 public:
     DeviceSession() = default;
@@ -22,21 +22,21 @@ public:
     DeviceSession &operator=(const DeviceSession &) = delete;
     DeviceSession(DeviceSession &&) = delete;
     DeviceSession &operator=(DeviceSession &&) = delete;
-    // Allows destruction through the worker-owned polymorphic device interface.
+    // 允许通过工作线程持有的多态设备接口析构对象。
     virtual ~DeviceSession() = default;
-    // Initializes the device and returns its identity; failures report the failing native step.
+    // 初始化设备并返回设备标识；失败时报告失败的原生调用步骤。
     virtual std::string Initialize() = 0;
-    // Applies one owned plan on the worker; preparation failures must precede device mutation.
+    // 在工作线程中应用独立持有的计划；准备阶段的失败必须发生在设备状态变更前。
     virtual void ApplyPlan(const SweepPlan &plan) = 0;
-    // Enables RF before a run begins; invoked only by the core worker.
+    // 运行开始前启用射频；仅由核心工作线程调用。
     virtual void EnableRf() = 0;
-    // Returns one complete point-major 16-value IQ record per frequency for physical ports 1..4.
+    // 每个频率返回物理端口 1～4 的完整 IQ 记录；按采样点排列，每条含 16 个值。
     virtual std::vector<double> AcquirePort(const SweepPlan &plan, std::uint32_t sourcePort) = 0;
-    // Attempts RF off and releases device resources, reporting any native failure.
+    // 尝试关闭射频并释放设备资源，报告发生的原生调用失败。
     virtual void Shutdown() = 0;
 };
 
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore
 
 #endif

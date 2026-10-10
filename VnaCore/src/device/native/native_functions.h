@@ -21,7 +21,7 @@ struct NativeFunctions final {
     VnaNative::DrvDataFrameDownloadFn dataFrameDownload = nullptr;
 };
 
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore
 
 #endif

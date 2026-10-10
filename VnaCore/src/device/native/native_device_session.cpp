@@ -24,7 +24,7 @@ constexpr std::uint32_t NATIVE_SUCCESS = 0U;
 constexpr std::uint32_t NORMAL_SWEEP_MODE = 0U;
 constexpr std::uint32_t FIRST_PHYSICAL_PORT = 1U;
 
-// These fields occupy the six-word normal-sweep record in the frozen native ABI.
+// 这些字段对应已固定原生 ABI 中的六字普通扫描记录。
 enum ParameterOffset : std::size_t {
     FREQUENCY_HIGH_OFFSET = 0U,
     FREQUENCY_LOW_OFFSET = 1U,
@@ -40,7 +40,7 @@ enum RfPowerState : std::uint32_t {
 void Check(std::uint32_t status, const char *step)
 {
     if (status != NATIVE_SUCCESS) {
-        // Preserve the number without interpreting vendor errors as simulator errors.
+        // 保留错误编号，不将厂商错误解释为模拟器错误。
         throw std::runtime_error(std::string(step) + " returned " + std::to_string(status));
     }
 }
@@ -48,7 +48,7 @@ void Check(std::uint32_t status, const char *step)
 DownloadFrame Encode(const SweepPlan &plan, std::uint32_t sourcePort)
 {
     DownloadFrame frame;
-    // Zeroed header and reserved dynamic-link fields select the normal-sweep format.
+    // 将帧头及预留动态链路字段置零，以选择普通扫描格式。
     frame.parameters.resize(PARAM_HEADER_VALUES + VnaNative::PARAM_VALUES_PER_POINT * plan.frequencyRaw.size(), 0U);
     frame.table = plan.tableData;
     for (std::size_t point = 0U; point < plan.frequencyRaw.size(); ++point) {
@@ -62,7 +62,7 @@ DownloadFrame Encode(const SweepPlan &plan, std::uint32_t sourcePort)
     return frame;
 }
 
-}  // namespace
+}  // 匿名命名空间
 
 NativeDeviceSession::NativeDeviceSession(std::string path) : path_(std::move(path))
 {
@@ -82,7 +82,7 @@ std::string NativeDeviceSession::Initialize()
 
 void NativeDeviceSession::ApplyPlan(const SweepPlan &plan)
 {
-    // Prepare every owned ABI buffer before the first device mutation.
+    // 在首次变更设备状态前，准备好全部独立持有的 ABI 缓冲区。
     std::vector<DownloadFrame> downloads;
     try {
         downloads.reserve(plan.sourcePorts.size());
@@ -130,5 +130,5 @@ void NativeDeviceSession::Shutdown()
     Check(status, "DrvSetRfPowerOn(0)");
 }
 
-}  // namespace Detail
-}  // namespace VnaCore
+}  // 命名空间 Detail
+}  // 命名空间 VnaCore
