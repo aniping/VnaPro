@@ -1,0 +1,12 @@
+[
+  {
+    "manual": "ZNB_GettingStarted_en_70.pdf",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/getting_started/1316_0062_01/ZNB_GettingStarted_en_70.pdf",
+    "sha256": "bacb2215e85138aa2d261a1d449f2b460b78d070e804cc23f7178b3795869128"
+  },
+  {
+    "manual": "ZNB_UserManual_en_74.pdf",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
+    "sha256": "874901ee4e880dbca9a606406df448494f610233f0cd3b6a61244464b19fdccd"
+  }
+]
