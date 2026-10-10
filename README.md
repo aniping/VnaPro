@@ -17,7 +17,7 @@ cmake --build build --parallel
 cmake -E chdir build ctest --output-on-failure
 ```
 
-替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立模拟器构建仍见 [VnaNativeSimulator/README.md](VnaNativeSimulator/README.md)。本次验证环境为 Windows MinGW/GCC 10.3；Linux、macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
+替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立模拟器构建仍见 [VnaNativeSimulator/README.md](VnaNativeSimulator/README.md)。本轮已验证 Windows MinGW/GCC 10.3 和 WSL/Linux GCC 13.3 的全目标 ThreadSanitizer；macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
 
 `npm run build` 包含 Vue/TypeScript 类型检查，产物在 `frontend/dist`。只构建或运行 SCPI 服务可跳过 Node/npm 步骤，并以 `--no-web` 启动；Web HTTP 集成测试需要先生成前端产物。前端开发与目录说明见 [frontend/README.md](frontend/README.md)。
 
@@ -30,13 +30,14 @@ C++ 开发统一遵守 [C++语言编程规范](docs/C++语言编程规范.md)。
 先正常编写代码，再直接运行 clang-format 程序，使用根目录 `.clang-format` 自动格式化，排版依据上述规范第 3 章。单条语句的条件、循环也自动补上 `{}`（InsertBraces: true）；短函数体展开，类、结构体和函数定义之间自动留一空行（SeparateDefinitionBlocks: Always）；120 列由格式器处理，不为满足提交行数压缩代码。按功能拆分提交，不通过省略换行缩小差异。使用 clang-format 18.1.8，在根目录运行：
 
 ```powershell
-$cppFiles = Get-ChildItem -Path VnaCore,VnaService,VnaServer,VnaNativeSimulator -Recurse -File |
-    Where-Object { $_.Extension -in '.h','.cpp' } | Select-Object -ExpandProperty FullName
+$cppFiles = rg --files VnaCore VnaService VnaServer VnaNativeSimulator -g '*.h' -g '*.cpp'
 clang-format --style=file -i $cppFiles
 clang-format --style=file --dry-run --Werror $cppFiles
 ```
 
 日常修改只需将本次变更的文件传给格式器。其他 C++ 模块同样使用根目录配置。配置各项有中文注释：按 C++14 解析、固定四空格缩进和指针位置，展开短 Lambda/枚举，保留一行定义间空白及 C++ 注释的人工分行。Standard 只影响格式解析，不替代 CMake 的编译设置。选项含义参照 [clang-format 18.1.8 官方文档](https://releases.llvm.org/18.1.8/tools/clang/docs/ClangFormatStyleOptions.html)。
+
+对象状态优先使用值成员。多态设备会话仍通过 `unique_ptr` 转交所有权，已发布的不可变帧通过 `shared_ptr<const ...>` 供读者保留；这些生命周期需求继续采用 RAII。九个 Drv* 函数的 C ABI、原生数组和平台句柄保持边界约定。本项目保留 C++14，原始 demo 参考代码不参与此次整改。
 
 ## 启动与测量
 
