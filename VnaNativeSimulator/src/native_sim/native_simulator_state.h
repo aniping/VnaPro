@@ -1,122 +1,103 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
 #ifndef VNAPRO_NATIVE_SIM_NATIVE_SIMULATOR_STATE_H
 #define VNAPRO_NATIVE_SIM_NATIVE_SIMULATOR_STATE_H
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <mutex>
-#include <vector>
 
+#include "failure_injector.h"
+#include "native_frame_slot.h"
+#include "native_pending_sweep.h"
 #include "normal_frame_decoder.h"
 
 namespace vna_native {
 
-// 在完整候选对象构造后、替换共享状态前注入异常，用于验证失败时旧状态仍可用。
-enum class FailurePoint { kBeforeFrameCommit, kBeforePendingCommit };
-
-// 注入器在持有状态锁时调用；实现不得回调本状态对象，以免重复加锁。
-class VNA_NATIVE_HIDDEN FailureInjector {
-public:
-    virtual ~FailureInjector() {}
-    virtual void ThrowIfRequested(FailurePoint point) = 0;
+// A coherent state summary, copied under the same mutex used by all driver operations.
+struct VNA_NATIVE_HIDDEN NativeSimulatorSnapshot final {
+    bool initialized = false;
+    bool rfEnabled = false;
+    bool rxConfigured = false;
+    std::uint32_t rxPortBitmap = 0U;
+    bool fastModeConfigured = false;
+    std::uint32_t fastSweepMode = 0U;
+    std::array<bool, NATIVE_PORT_COUNT> frameValid{};
+    std::array<std::uint32_t, NATIVE_PORT_COUNT> framePointCount{};
+    bool pendingSweep = false;
+    std::uint32_t pendingPointCount = 0U;
+    std::uint32_t pendingSourcePort = 0U;
 };
 
-// 仅暴露状态摘要；完整下载帧通过 CopyFrameForTest 另行复制。
-struct VNA_NATIVE_HIDDEN NativeSimulatorSnapshot {
-    bool initialized;
-    bool rfEnabled;
-    bool rxConfigured;
-    std::uint32_t rxPortBitmap;
-    bool fastModeConfigured;
-    std::uint32_t fastSweepMode;
-    std::array<bool, kNativePortCount> frameValid;
-    std::array<std::uint32_t, kNativePortCount> framePointCount;
-    bool pendingSweep;
-    std::uint32_t pendingPointCount;
-    std::uint32_t pendingSourcePort;
-
-    NativeSimulatorSnapshot();
-};
-
-// 管理普通模式的配置、各源端口下载帧及唯一一份待读取的扫描结果。
-// Instance 为导出 API 提供共享状态；直接构造实例可让单元测试互不干扰。
-// 扫描数据在 StartSweep 内同步生成，不存在后台采集线程或结果队列。
-class VNA_NATIVE_HIDDEN NativeSimulatorState {
+// One mutex serializes configuration, copied frames, synchronous IQ generation, and consumption.
+// Callers still coordinate multi-call workflows; there is no background acquisition thread.
+class VNA_NATIVE_HIDDEN NativeSimulatorState final {
 public:
-    NativeSimulatorState();
+    // Starts uninitialized; tests may construct independent instances instead of using the singleton.
+    NativeSimulatorState() noexcept = default;
+    NativeSimulatorState(const NativeSimulatorState &) = delete;
+    NativeSimulatorState &operator=(const NativeSimulatorState &) = delete;
+    NativeSimulatorState(NativeSimulatorState &&) = delete;
+    NativeSimulatorState &operator=(NativeSimulatorState &&) = delete;
 
-    static NativeSimulatorState& Instance();
+    // Returns the process-wide state used by all nine C ABI functions.
+    static NativeSimulatorState &Instance();
 
-    // 持锁读取并冻结模拟模式/种子，重置扫描序号、配置、帧及 pending，保持 RF 关闭。
-    // 非法环境配置返回 INVALID_ARGUMENT，保留原状态。
-    std::uint32_t HwInit();
-    // 调用方须提供 pointCount * kIqValuesPerPoint 个 double 的可写空间；接口无容量参数。
-    // 只有点数与 pending 一致时才复制并消费结果；错误返回不会消费 pending。
-    std::uint32_t GetSweepData(std::uint32_t pointCount, double* iqData);
-    // 前置条件：RF 已开、接收链路与普通模式已配置、该源端口存在同点数的帧。
-    // sourcePort 为 0..3；有未消费的 pending 时不能开始下一次扫描。
-    std::uint32_t StartSweep(std::uint32_t pointCount, std::uint32_t sourcePort);
-    // 位图低四位对应四个接收端口，要求至少选中一个端口。
-    std::uint32_t ActivateRxLink(std::uint32_t rxPortBitmap);
-    // enabled 仅接受 0/1；关闭 RF 会丢弃 pending，但保留配置及下载帧。
-    std::uint32_t SetRfPowerOn(std::uint32_t enabled);
-    // 当前只支持 mode=0；即使值默认为 0，也必须显式调用以完成配置。
-    std::uint32_t SetFastSweepMode(std::uint32_t mode);
-    // capacity 包含末尾 NUL；容量不足时写入带 NUL 的截断字符串并返回错误。
-    std::uint32_t GetIDN(char* buffer, int capacity);
-    // 尚未模拟功率检测；合法调用会清零输出并返回 NOT_SUPPORTED。
-    std::uint32_t CheckSweepPortPower(std::uint32_t rfPortBitmap, std::uint32_t* checkBitmap,
-        std::uint16_t* overFreqIndex, std::uint32_t indexCapacity);
-    // 解码成功后替换帧内 sourcePort 对应的槽位；数组内容会复制为模块自有数据。
-    // 下载本身不启动扫描，也不修改已生成的 pending。
-    std::uint32_t DataFrameDownload(std::uint32_t pointCount, const std::uint32_t* paramData,
-        std::uint32_t paramDataLen, const double* tableData, std::uint32_t tableDataLen);
+    // Latches environment mode/seed, resets sequence, frames, configuration and pending, and disables RF.
+    // Invalid mode/seed preserves the previous state and returns INVALID_ARGUMENT.
+    std::uint32_t HwInit() noexcept;
+    // The writable buffer must hold pointCount * IQ_VALUES_PER_POINT doubles; no ABI capacity is available.
+    // A matching pending result is consumed once; failures leave pending and caller memory unchanged.
+    std::uint32_t GetSweepData(std::uint32_t pointCount, double *iqData) noexcept;
+    // Requires RF, RX, normal-mode configuration, and a matching frame for sourcePort in 0..3.
+    // Rejects a second Start while pending is unread; generation and commit occur under the state mutex.
+    std::uint32_t StartSweep(std::uint32_t pointCount, std::uint32_t sourcePort) noexcept;
+    // Accepts a nonzero bitmap of the four receiver ports; IQ still contains all four ports.
+    std::uint32_t ActivateRxLink(std::uint32_t rxPortBitmap) noexcept;
+    // Accepts 0/1. Disabling RF cancels pending while retaining downloaded frames and configuration.
+    std::uint32_t SetRfPowerOn(std::uint32_t enabled) noexcept;
+    // Only normal mode 0 is supported; this call is required even for the default value.
+    std::uint32_t SetFastSweepMode(std::uint32_t mode) noexcept;
+    // Capacity includes NUL. Truncation writes a terminated prefix and returns BUFFER_TOO_SMALL.
+    std::uint32_t GetIDN(char *buffer, int capacity) noexcept;
+    // Power checking is not modeled. A valid call zeros outputs and returns NOT_SUPPORTED.
+    // An indexCapacity of zero allows a null index buffer; other output storage must be writable.
+    std::uint32_t CheckSweepPortPower(std::uint32_t rfPortBitmap, std::uint32_t *checkBitmap,
+        std::uint16_t *overFreqIndex, std::uint32_t indexCapacity) noexcept;
+    // Copies the borrowed frame and atomically replaces its source slot; pending is unaffected.
+    // Counts are exact element counts; callers guarantee actual capacity and lifetime through the call.
+    std::uint32_t DataFrameDownload(std::uint32_t pointCount, const std::uint32_t *paramData,
+        std::uint32_t paramDataLen, const double *tableData, std::uint32_t tableDataLen) noexcept;
 
-    // 以下接口只供直接链接内部对象的单元测试使用，不属于 C ABI。
+    // Returns a coherent summary for unit tests; locking failure propagates to the test runner.
     NativeSimulatorSnapshot SnapshotForTest() const;
-    std::uint32_t CopyFrameForTest(std::uint32_t sourcePort, NormalFrameSnapshot* output) const;
-    void SetFailureInjectorForTest(std::shared_ptr<FailureInjector> failureInjector);
+    // Copies a stored frame for tests; invalid ports/empty slots leave output unchanged.
+    std::uint32_t CopyFrameForTest(std::uint32_t sourcePort, NormalFrameSnapshot &output) const noexcept;
+    // Borrows an injector until replaced or cleared with nullptr; it must outlive every invoking call.
+    // The caller must not destroy it concurrently. No ownership transfer or reference counting occurs.
+    void SetFailureInjectorForTest(FailureInjector *failureInjector);
 
 private:
-    struct FrameSlot {
-        bool valid;
-        NormalFrameSnapshot frame;
+    std::uint32_t ValidateSweepState(std::uint32_t pointCount, std::uint32_t sourcePort) const noexcept;
+    std::uint32_t GeneratePending(std::uint32_t pointCount, std::uint32_t sourcePort, std::size_t expectedValueCount);
+    void ThrowIfRequested(FailurePoint point) const;
 
-        FrameSlot();
-        void Swap(FrameSlot& other) noexcept;
-    };
-
-    // valid 为 false 时无待读取结果；消费或取消时与默认构造的空对象交换。
-    // 下载帧可继续更新，但这里保存的是 StartSweep 当次生成的数据快照。
-    struct PendingSweep {
-        bool valid;
-        std::uint32_t pointCount;
-        std::uint32_t sourcePort;
-        std::vector<double> iqData;
-
-        PendingSweep();
-        void Swap(PendingSweep& other) noexcept;
-    };
-
-    void ThrowIfRequested(FailurePoint point);
-
-    // 一把锁保护下方全部状态；解码、生成与结果复制也在锁内完成，避免跨调用混用配置。
-    // 锁保证单次调用的状态一致性；调用方仍需协调多步配置/扫描流程的调用顺序。
     mutable std::mutex mutex_;
-    bool initialized_;
-    bool rfEnabled_;
-    bool rxConfigured_;
-    std::uint32_t rxPortBitmap_;
-    bool fastModeConfigured_;
-    std::uint32_t fastSweepMode_;
-    bool noiseEnabled_;
-    std::uint64_t noiseSeed_;
-    std::uint64_t successfulSweepIndex_;
-    std::array<FrameSlot, kNativePortCount> downloadedFrames_;
-    PendingSweep pendingSweep_;
-    std::shared_ptr<FailureInjector> failureInjector_;
+    bool initialized_ = false;
+    bool rfEnabled_ = false;
+    bool rxConfigured_ = false;
+    std::uint32_t rxPortBitmap_ = 0U;
+    bool fastModeConfigured_ = false;
+    std::uint32_t fastSweepMode_ = 0U;
+    bool noiseEnabled_ = false;
+    std::uint64_t noiseSeed_ = 1U;
+    std::uint64_t successfulSweepIndex_ = 0U;
+    std::array<NativeFrameSlot, NATIVE_PORT_COUNT> downloadedFrames_;
+    NativePendingSweep pendingSweep_;
+    FailureInjector *failureInjector_ = nullptr;
 };
 
 }  // namespace vna_native
-
 #endif  // VNAPRO_NATIVE_SIM_NATIVE_SIMULATOR_STATE_H
