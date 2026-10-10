@@ -15,6 +15,10 @@ public:
     // 成功时一次性替换 output；失败时 output 保持不变。
     // 输出布局不随接收掩码裁剪；IFBW 和不透明功率表目前均不影响数值。
     static std::uint32_t Generate(const NormalFrameSnapshot& frame, std::vector<double>* output);
+    // 在黄金值上叠加确定性复数噪声，幅度不超过原波幅的 0.2%；同种子和序号可复现。
+    // sweepIndex 由状态层按成功 Start 递增，Get 只读取已生成的快照。
+    static std::uint32_t GenerateNoisy(
+        const NormalFrameSnapshot& frame, std::uint64_t seed, std::uint64_t sweepIndex, std::vector<double>* output);
 };
 
 }  // namespace vna_native

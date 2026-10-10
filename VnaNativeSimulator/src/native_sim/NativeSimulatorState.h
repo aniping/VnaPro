@@ -47,7 +47,8 @@ public:
 
     static NativeSimulatorState& Instance();
 
-    // 重置配置、下载帧及 pending，随后保持已初始化、RF 关闭的状态。
+    // 持锁读取并冻结模拟模式/种子，重置扫描序号、配置、帧及 pending，保持 RF 关闭。
+    // 非法环境配置返回 INVALID_ARGUMENT，保留原状态。
     std::uint32_t HwInit();
     // 调用方须提供 pointCount * kIqValuesPerPoint 个 double 的可写空间；接口无容量参数。
     // 只有点数与 pending 一致时才复制并消费结果；错误返回不会消费 pending。
@@ -108,6 +109,9 @@ private:
     std::uint32_t rxPortBitmap_;
     bool fastModeConfigured_;
     std::uint32_t fastSweepMode_;
+    bool noiseEnabled_;
+    std::uint64_t noiseSeed_;
+    std::uint64_t successfulSweepIndex_;
     std::array<FrameSlot, kNativePortCount> downloadedFrames_;
     PendingSweep pendingSweep_;
     std::shared_ptr<FailureInjector> failureInjector_;

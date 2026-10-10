@@ -40,6 +40,24 @@ cmake -E chdir build-win ctest --output-on-failure
 - `native_contract`：不链接模拟库，通过 POSIX `dlopen`/`dlsym` 或 Windows `LoadLibraryEx`/`GetProcAddress` 按绝对路径加载，验证原生合同及固定 IQ 黄金向量（含频率高 32 位）；
 - `native_export_symbols`：检查动态库只导出允许的 9 个 `Drv*` 符号。
 
+## 可选连续观察噪声
+
+默认未设置 `VNAPRO_SIM_MODE` 或设置为 `golden` 时，重复扫描仍输出原有固定 IQ 黄金向量。需要观察 Web 界面连续更新时，可在启动使用模拟库的进程前设置：
+
+```powershell
+$env:VNAPRO_SIM_MODE = 'noise'
+$env:VNAPRO_SIM_SEED = '42'
+# 随后启动使用本模拟库的服务或采集程序。
+```
+
+Linux/macOS 可使用 `VNAPRO_SIM_MODE=noise VNAPRO_SIM_SEED=42 <程序及参数>`。种子仅在 `noise` 模式读取，接受 `0`～`18446744073709551615` 的十进制整数，未设置或空值默认为 `1`。模式仅接受 `golden`、`noise`，空值等同默认；非法模式或噪声种子使 `DrvHwInit` 返回 `INVALID_ARGUMENT`，原配置、帧和 pending 保持不变。
+
+`DrvHwInit` 在状态锁内冻结模式和种子，并清零扫描序号。噪声由种子、成功 `DrvStartSweep` 序号、完整频率、激励端口、接收端口及 A/B 波确定；每个复数波的加性扰动模长最多为黄金波幅的 **0.2%**，保持有限 IQ 和原有 `16N` 布局。它只是测试扰动，不模拟真实射频噪声、S 参数或校准。
+
+同一初始化周期内，所有激励端口共用成功 Start 序号。成功 Start 生成并缓存一次结果，失败 Start 不推进序号；错误 Get 不消费缓存，正确 Get 仍只能成功一次。关闭 RF 丢弃已成功 Start 的 pending，不回退序号。用同一种子重新 Init，再按相同帧及 Start 顺序执行，可重放相同数据。
+
+运行期间更改环境不会改变已初始化实例；切换模式须重新 Init，不能在同一 pending 中混用两种模式。环境是进程配置，应在初始化前设置，不应并发修改。模拟器单元及动态合同测试主动隔离外部环境，分别验证默认黄金向量和噪声模式。
+
 ## Sanitizer
 
 Sanitizer 必须使用不同构建目录，不能组合启用：

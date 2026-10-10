@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <utility>
@@ -12,6 +13,38 @@ namespace vna_native {
 namespace {
 
 const char kSimulatorIdn[] = "VnaPro,NativeSimulator,4PORT,1.0";
+
+bool ReadNoiseConfiguration(bool* enabled, std::uint64_t* seed)
+{
+    *enabled = false;
+    *seed = 1U;
+    const char* mode = std::getenv("VNAPRO_SIM_MODE");
+    if (mode == NULL || mode[0] == '\0' || std::strcmp(mode, "golden") == 0) {
+        // 默认路径不读取种子；残留的噪声种子配置不会改变黄金向量。
+        return true;
+    }
+    if (std::strcmp(mode, "noise") != 0) {
+        return false;
+    }
+    *enabled = true;
+    const char* text = std::getenv("VNAPRO_SIM_SEED");
+    if (text == NULL || text[0] == '\0') {
+        return true;
+    }
+    std::uint64_t parsed = 0U;
+    for (const char* digit = text; *digit != '\0'; ++digit) {
+        if (*digit < '0' || *digit > '9') {
+            return false;
+        }
+        const std::uint64_t value = static_cast<std::uint64_t>(*digit - '0');
+        if (parsed > ((std::numeric_limits<std::uint64_t>::max)() - value) / 10U) {
+            return false;
+        }
+        parsed = parsed * 10U + value;
+    }
+    *seed = parsed;
+    return true;
+}
 
 std::uint32_t ValidateIqShape(std::uint32_t pointCount, std::size_t* valueCount)
 {
@@ -79,7 +112,10 @@ NativeSimulatorState::NativeSimulatorState()
       rxConfigured_(false),
       rxPortBitmap_(0U),
       fastModeConfigured_(false),
-      fastSweepMode_(0U)
+      fastSweepMode_(0U),
+      noiseEnabled_(false),
+      noiseSeed_(1U),
+      successfulSweepIndex_(0U)
 {
 }
 
@@ -97,6 +133,12 @@ std::uint32_t NativeSimulatorState::HwInit()
         PendingSweep emptyPending;
         std::lock_guard<std::mutex> lock(mutex_);
 
+        bool noiseEnabled = false;
+        std::uint64_t noiseSeed = 1U;
+        if (!ReadNoiseConfiguration(&noiseEnabled, &noiseSeed)) {
+            return DRV_SIM_INVALID_ARGUMENT;
+        }
+
         downloadedFrames_.swap(emptyFrames);
         pendingSweep_.Swap(emptyPending);
         initialized_ = true;
@@ -105,6 +147,9 @@ std::uint32_t NativeSimulatorState::HwInit()
         rxPortBitmap_ = 0U;
         fastModeConfigured_ = false;
         fastSweepMode_ = 0U;
+        noiseEnabled_ = noiseEnabled;
+        noiseSeed_ = noiseSeed;
+        successfulSweepIndex_ = 0U;
         return DRV_SIM_OK;
     } catch (...) {
         return DRV_SIM_INTERNAL_ERROR;
@@ -180,7 +225,9 @@ std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount, std::ui
         PendingSweep candidate;
         candidate.pointCount = pointCount;
         candidate.sourcePort = sourcePort;
-        const std::uint32_t generateStatus = SignalModel::Generate(frameSlot.frame, &candidate.iqData);
+        const std::uint32_t generateStatus = noiseEnabled_ ? SignalModel::GenerateNoisy(frameSlot.frame, noiseSeed_,
+                                                                 successfulSweepIndex_, &candidate.iqData)
+                                                           : SignalModel::Generate(frameSlot.frame, &candidate.iqData);
         if (generateStatus != DRV_SIM_OK) {
             return generateStatus;
         }
@@ -192,6 +239,9 @@ std::uint32_t NativeSimulatorState::StartSweep(std::uint32_t pointCount, std::ui
         // 分配、计算和测试异常均发生在提交前；Swap 不抛异常，失败时共享状态保持原样。
         ThrowIfRequested(FailurePoint::kBeforePendingCommit);
         pendingSweep_.Swap(candidate);
+        if (noiseEnabled_) {
+            ++successfulSweepIndex_;
+        }
         return DRV_SIM_OK;
     } catch (...) {
         return DRV_SIM_INTERNAL_ERROR;

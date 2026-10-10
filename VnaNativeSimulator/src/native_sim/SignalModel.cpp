@@ -1,5 +1,6 @@
 #include "SignalModel.h"
 
+#include <cmath>
 #include <cstddef>
 #include <limits>
 
@@ -36,6 +37,19 @@ bool CheckedOutputValueCount(std::size_t pointCount, std::size_t* valueCount)
     }
     *valueCount = count;
     return true;
+}
+
+std::uint64_t MixNoiseBits(std::uint64_t value)
+{
+    // 无符号回绕有意保留；不用实现相关的随机分布，便于重放同一采集序列。
+    value = (value ^ (value >> 30U)) * UINT64_C(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27U)) * UINT64_C(0x94d049bb133111eb);
+    return value ^ (value >> 31U);
+}
+
+double SignedNoiseUnit(std::uint64_t key)
+{
+    return 2.0 * static_cast<double>(MixNoiseBits(key) >> 11U) / 9007199254740992.0 - 1.0;
 }
 
 }  // namespace
@@ -95,6 +109,41 @@ std::uint32_t SignalModel::Generate(const NormalFrameSnapshot& frame, std::vecto
         }
 
         // 全部点生成完成后统一提交；此交换不承担线程同步。
+        output->swap(candidate);
+        return DRV_SIM_OK;
+    } catch (...) {
+        return DRV_SIM_INTERNAL_ERROR;
+    }
+}
+
+std::uint32_t SignalModel::GenerateNoisy(
+    const NormalFrameSnapshot& frame, std::uint64_t seed, std::uint64_t sweepIndex, std::vector<double>* output)
+{
+    if (output == NULL) {
+        return DRV_SIM_INVALID_ARGUMENT;
+    }
+    try {
+        std::vector<double> candidate;
+        const std::uint32_t status = Generate(frame, &candidate);
+        if (status != DRV_SIM_OK) {
+            return status;
+        }
+        const std::uint64_t sweepKey = MixNoiseBits(sweepIndex ^ UINT64_C(0x9e3779b97f4a7c15));
+        for (std::size_t point = 0U; point < frame.points.size(); ++point) {
+            const std::uint64_t frequencyKey = MixNoiseBits(frame.points[point].frequencyRaw);
+            for (std::uint32_t receiver = 0U; receiver < kNativePortCount; ++receiver) {
+                for (std::uint32_t wave = 0U; wave < 2U; ++wave) {
+                    const std::uint64_t channel = frame.sourcePort * 8U + receiver * 2U + wave;
+                    const std::uint64_t key = MixNoiseBits(
+                        seed ^ sweepKey ^ frequencyKey ^ MixNoiseBits(channel ^ UINT64_C(0xd1b54a32d192ed03)));
+                    const std::size_t base = point * kIqValuesPerPoint + receiver * 4U + wave * 2U;
+                    // 每轴最多 0.2% / sqrt(2)，使复数扰动模长最多 0.2%，而非逐分量相对噪声。
+                    const double scale = std::hypot(candidate[base], candidate[base + 1U]) * 0.001414213562373095;
+                    candidate[base] += scale * SignedNoiseUnit(key);
+                    candidate[base + 1U] += scale * SignedNoiseUnit(key ^ UINT64_C(0xa0761d6478bd642f));
+                }
+            }
+        }
         output->swap(candidate);
         return DRV_SIM_OK;
     } catch (...) {

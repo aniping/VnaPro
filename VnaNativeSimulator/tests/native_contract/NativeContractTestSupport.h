@@ -109,6 +109,7 @@ inline void ExpectIqNear(const std::vector<double>& expected, const double* actu
 }
 
 void RunNativeNormalSweepTests(TestRunner* runner, NativeLibraryProbe* library);
+void RunNativeNoiseModeTests(TestRunner* runner, NativeLibraryProbe* library);
 
 }  // namespace vna_test
 

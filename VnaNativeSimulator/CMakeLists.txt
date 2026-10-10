@@ -106,6 +106,7 @@ if(BUILD_TESTING)
         tests/native_unit/UnitTestMain.cpp
         tests/native_unit/NativeApiSignatureTest.cpp
         tests/native_unit/NativeStateTest.cpp
+        tests/native_unit/NoiseModeTest.cpp
         tests/native_unit/NormalFrameDecoderTest.cpp
         tests/native_unit/SignalModelTest.cpp
     )
@@ -122,6 +123,7 @@ if(BUILD_TESTING)
         tests/native_contract/NativeLibraryProbe.cpp
         tests/native_contract/NativeAbiContractTest.cpp
         tests/native_contract/NativeNormalSweepTest.cpp
+        tests/native_contract/NativeNoiseModeTest.cpp
     )
     target_include_directories(vnb_drv_sim_contract_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include

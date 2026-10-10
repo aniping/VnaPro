@@ -140,9 +140,11 @@ def exercise(port):
 
 
 def main():
+    environment = dict(os.environ, VNAPRO_SIM_MODE="golden")
+    environment.pop("VNAPRO_SIM_SEED", None)
     process = subprocess.Popen(
-        [sys.argv[1], "--port", "0", "--driver", os.path.abspath(sys.argv[2])],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        [sys.argv[1], "--port", "0", "--no-web", "--driver", os.path.abspath(sys.argv[2])],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment,
     )
     lines = queue.Queue()
 

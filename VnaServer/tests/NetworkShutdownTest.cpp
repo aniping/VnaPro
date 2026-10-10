@@ -18,6 +18,7 @@
 #include <string>
 
 #include "ScpiTcpServer.h"
+#include "../../VnaNativeSimulator/tests/SimulatorEnvironment.h"
 #include "vna_core/AcquisitionCore.h"
 #include "vna_service/InstrumentService.h"
 
@@ -91,6 +92,7 @@ int main(int argc, char** argv)
         return 2;
     }
     try {
+        vna_test::ScopedSimulatorEnvironment environment("golden", NULL);
         vna_core::AcquisitionCore core(argv[1]);
         expect(core.initialize().get().ok, "Core initialization failed");
         vna_service::InstrumentService service(core);
@@ -101,6 +103,7 @@ int main(int argc, char** argv)
         std::atomic<bool> stop{false};
         vna_server::ListenOptions options;
         options.port = 0;
+        options.web.port = 0;
         options.onListening = [&](std::uint16_t port) { listening.set_value(port); };
         auto server = std::async(std::launch::async,
             [&] { return vna_server::RunScpiTcpServer(service, options, [&] { return stop.load(); }); });

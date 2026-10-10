@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "NativeContractTestSupport.h"
+#include "SimulatorEnvironment.h"
 
 namespace vna_test {
 namespace {
@@ -131,6 +132,7 @@ void RunPowerCheckTests(TestRunner* runner, NativeLibraryProbe* library)
 
 int main(int argc, char** argv)
 {
+    vna_test::ScopedSimulatorEnvironment environment(NULL, NULL);
     if (argc != 2) {
         std::cerr << "用法：" << argv[0] << " /absolute/path/libvnb_drv_sim\n";
         return 2;
@@ -172,6 +174,7 @@ int main(int argc, char** argv)
     vna_test::RunIdnTests(&runner, &library);
     vna_test::RunPowerCheckTests(&runner, &library);
     vna_test::RunNativeNormalSweepTests(&runner, &library);
+    vna_test::RunNativeNoiseModeTests(&runner, &library);
     runner.Run("关闭动态库并释放解析后的函数表", [&library]() {
         library.Close();
         VNA_EXPECT_FALSE(library.IsOpen());
