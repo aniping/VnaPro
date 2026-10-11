@@ -14,6 +14,7 @@ export function validAt(trace: FrameTrace | undefined, index: number): boolean {
 export function displayValue(real: number, imaginary: number, format: DisplayFormat): number {
   if (!Number.isFinite(real) || !Number.isFinite(imaginary)) return NaN
   switch (format) {
+    case 'smith': return NaN
     case 'db': {
       // 先缩放复数分量，避免可表示的 dB 因中间线性幅度溢出而丢失。
       const maximum = Math.max(Math.abs(real), Math.abs(imaginary))
@@ -30,7 +31,7 @@ export function displayValue(real: number, imaginary: number, format: DisplayFor
 }
 
 export function displaySeries(trace: FrameTrace | undefined, format: DisplayFormat): DisplaySeries[] {
-  if (!trace) return []
+  if (!trace || format === 'smith') return []
   const primary = trace.real.map((real, index) => validAt(trace, index)
     ? displayValue(real!, trace.imag[index]!, format) : NaN)
   if (format !== 'realimag') return [{ values: primary, component: 'primary' }]
@@ -119,9 +120,12 @@ export interface MarkerResult {
 }
 
 export function markerResult(frame: AcquiredFrame | null, trace: FrameTrace | undefined,
-  frequencyHz: number | null, format: DisplayFormat): MarkerResult | null {
+  frequencyHz: number | null, format: DisplayFormat, sampleIndex?: number | null): MarkerResult | null {
   if (!frame || !trace) return null
-  const index = nearestIndex(frame.frequencyHz, frequencyHz)
+  const retainsSample = sampleIndex !== undefined && sampleIndex !== null && Number.isInteger(sampleIndex)
+    && sampleIndex >= 0 && sampleIndex < frame.frequencyHz.length
+    && frame.frequencyHz[sampleIndex] === frequencyHz
+  const index = retainsSample ? sampleIndex! : nearestIndex(frame.frequencyHz, frequencyHz)
   if (index < 0) return null
   const valid = validAt(trace, index)
   return {

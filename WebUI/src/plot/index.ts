@@ -2,6 +2,7 @@ import type { AcquiredFrame, Measurement } from '../api/types'
 import type { DisplayFormat, DisplayScale, TracePresentation } from '../domain/presentation'
 import { FORMAT_INFO, measurementFormatInfo, numberText } from './formatting'
 import { markerResult, traceScale } from './traceMath'
+import { smithReadout } from './smithMath'
 
 export { exportVisibleFrameCsv } from './exportCsv'
 export { FORMAT_INFO, measurementFormatInfo, frequencyText, numberText, scaleValue } from './formatting'
@@ -23,11 +24,13 @@ export function getMarkerReadout(frame: AcquiredFrame | null, measurement: Measu
   } | null {
   if (!presentation?.marker.enabled || !measurement) return null
   const trace = frame?.traces.find(item => item.name === measurement.name)
-  const result = markerResult(frame, trace, presentation.marker.frequencyHz, presentation.format)
+  const result = markerResult(frame, trace, presentation.marker.frequencyHz, presentation.format, presentation.marker.sampleIndex)
   if (!result) return null
   const displayed = trace ?? measurement
   const suffix = presentation.format === 'realimag' ? ` / ${numberText(result.imaginary ?? NaN, 8)} ${displayed.unit}` : ''
   return { frequencyHz: result.frequencyHz, index: result.index, value: result.value,
-    valueText: result.valid ? `${numberText(result.value, 8)} ${measurementFormatInfo(presentation.format, displayed).shortUnit}${suffix}` : 'Invalid point',
+    valueText: !result.valid ? 'Invalid point' : presentation.format === 'smith'
+      ? smithReadout(result.real!, result.imaginary!)
+      : `${numberText(result.value, 8)} ${measurementFormatInfo(presentation.format, displayed).shortUnit}${suffix}`,
     real: result.real, imag: result.imaginary, valid: result.valid }
 }

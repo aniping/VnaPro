@@ -118,9 +118,11 @@ export function snapPhysicalStroke(position: number, physicalScale: number, orig
   return (Math.round(origin + position * physicalScale - halfWidth) + halfWidth - origin) / physicalScale
 }
 
-/** 绘图区边界取自父元素，不能取自已应用补偿变换的画布。 */
-export function paintDiagram(canvas: HTMLCanvasElement, diagram: CanvasDiagram, bounds: ScreenBounds): void {
-  const raster = rasterGeometry(diagram, bounds, window.devicePixelRatio)
+/** 统一画布位图与像素补偿；矩形图和圆图共享相同的屏幕映射。 */
+export function prepareCanvas(canvas: HTMLCanvasElement, size: { width: number; height: number }, bounds: ScreenBounds): {
+  context: CanvasRenderingContext2D; raster: RasterGeometry
+} | null {
+  const raster = rasterGeometry(size, bounds, window.devicePixelRatio)
   // 通过变换避开 CSS 布局的小数取整，使每个位图像素对应一个物理像素。
   // 父元素裁剪不足一个像素的越界部分，绘图偏移保证采样点与 DOM 标记对齐。
   const transform = `matrix(${raster.canvasScaleX},0,0,${raster.canvasScaleY},${raster.canvasOffsetX},${raster.canvasOffsetY})`
@@ -129,7 +131,7 @@ export function paintDiagram(canvas: HTMLCanvasElement, diagram: CanvasDiagram, 
   if (canvas.width !== raster.bitmapWidth) canvas.width = raster.bitmapWidth
   if (canvas.height !== raster.bitmapHeight) canvas.height = raster.bitmapHeight
   const context = canvas.getContext('2d')
-  if (!context) return
+  if (!context) return null
   context.setTransform(1, 0, 0, 1, 0, 0)
   context.clearRect(0, 0, raster.bitmapWidth, raster.bitmapHeight)
   context.globalAlpha = 1
@@ -140,6 +142,14 @@ export function paintDiagram(canvas: HTMLCanvasElement, diagram: CanvasDiagram, 
   context.fillStyle = '#000000'
   context.fillRect(0, 0, raster.bitmapWidth, raster.bitmapHeight)
   context.setTransform(raster.physicalScaleX, 0, 0, raster.physicalScaleY, raster.offsetX, raster.offsetY)
+  return { context, raster }
+}
+
+/** 绘图区边界取自父元素，不能取自已应用补偿变换的画布。 */
+export function paintDiagram(canvas: HTMLCanvasElement, diagram: CanvasDiagram, bounds: ScreenBounds): void {
+  const prepared = prepareCanvas(canvas, diagram, bounds)
+  if (!prepared) return
+  const { context, raster } = prepared
   const { left, top, width, height } = diagram.rect
   const alignX = (x: number) => snapPhysicalStroke(x, raster.physicalScaleX, raster.originX)
   const alignY = (y: number) => snapPhysicalStroke(y, raster.physicalScaleY, raster.originY)

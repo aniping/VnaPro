@@ -16,6 +16,7 @@ export const FORMAT_INFO: Record<DisplayFormat, FormatDefinition> = {
   real: { label: 'Real', unit: 'a.u.', shortUnit: 'a.u.', minimumSpan: 0.2, fallback: { min: -1, max: 1 } },
   imag: { label: 'Imag', unit: 'a.u.', shortUnit: 'a.u.', minimumSpan: 0.2, fallback: { min: -1, max: 1 } },
   realimag: { label: 'Real / Imag', unit: 'a.u.', shortUnit: 'a.u.', minimumSpan: 0.2, fallback: { min: -1, max: 1 } },
+  smith: { label: 'Smith', unit: '1', shortUnit: '1', minimumSpan: 1, fallback: { min: -1, max: 1 } },
 }
 
 export function numberText(value: number, significantDigits = 6): string {

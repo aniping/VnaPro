@@ -128,7 +128,7 @@ test('CSV preserves uint64 identities, sample provenance, gaps and each visible 
   })
   assert.match(csv, /frameSeq=18446744073709551615,runId=18446744073709551613,revision=18446744073709551614/)
   assert.match(csv, /originalPointCount=10001,displayPointCount=3,decimated=true/)
-  assert.match(csv, /Source sample indices are not supplied/)
+  assert.match(csv, /未提供原始采样索引；display_index 对应返回的实际展示数组/)
   assert.match(csv, /"Receiver A",a,1,1,0,1000000,0,0,true,db,"dB re 1 a.u.",-Infinity,/)
   assert.match(csv, /"Receiver A",a,1,1,1,2000000,,,false,db/)
   assert.doesNotMatch(csv, /Hidden/)
