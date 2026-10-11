@@ -116,6 +116,21 @@ void Single(HttpApi &api, const std::string &token, const std::string &requestId
     Complete(api, Accepted(Request(api, "POST", "/api/v1/operations", body, token)), token);
 }
 
+void Wait(const std::function<bool()> &condition)
+{
+    const auto deadline = HttpApi::Clock::now() + WAIT_TIMEOUT;
+    while (!condition()) {
+        Require(HttpApi::Clock::now() < deadline, "Observed state arrives before timeout");
+        std::this_thread::sleep_for(POLL_INTERVAL);
+    }
+}
+
+void SetMode(HttpApi &api, const std::string &token, const std::string &action)
+{
+    const auto body = "{\"requestId\":\"mode-" + action + "\",\"action\":\"" + action + "\"}";
+    Complete(api, Accepted(Request(api, "POST", "/api/v1/operations", body, token)), token);
+}
+
 void VerifySwitched(Fixture &fixture, HttpApi &api, const std::string &token, std::uint64_t revision)
 {
     const auto &settings = fixture.service.Settings();
@@ -157,6 +172,75 @@ void UpdateAndRetry()
                     .status == 409U,
         "New stale request is rejected");
     VerifySwitched(fixture, api, token, revision);
+}
+
+void VersionContract()
+{
+    Fixture fixture;
+    HttpApi api(fixture.service);
+    const auto token = Claim(api);
+    const auto initial = Request(api, "GET", "/api/v1/status");
+    Require(Field(initial.json, "acquisitionRevision").type == Json::Type::STRING,
+        "Acquisition revision is a lossless decimal string independent of catalog revision");
+    Single(api, token, "version-contract-frame");
+    const auto status = Request(api, "GET", "/api/v1/status");
+    const auto frame = Request(api, "GET", "/api/v1/frame");
+    Require(Field(frame.json, "revision").string == Field(status.json, "acquisitionRevision").string,
+        "Frame revision identifies the actual acquisition plan");
+    Require(Field(frame.json, "measurementRevision").string == Field(status.json, "revision").string,
+        "Frame measurement revision identifies the catalog used for calculation");
+}
+
+void VerifyCoveredUpdate(const Json &before, const Json &after, const Json &frame)
+{
+    Require(Field(after, "state").string == "Running" && Field(after, "runId").string == Field(before, "runId").string,
+        "Covered update keeps the continuous run");
+    Require(Field(after, "acquisitionRevision").string == Field(before, "acquisitionRevision").string &&
+                Field(after, "activeConfigValid").boolean,
+        "Covered update keeps the physical plan and its valid identity");
+    Require(Field(frame, "current").boolean &&
+                Field(frame, "measurementRevision").string == Field(after, "revision").string,
+        "Current frame is calculated with the new measurement definition");
+    const auto &trace = Field(frame, "traces").array.front();
+    Require(Field(trace, "name").string == "Trc1" && Field(trace, "parameter").string == "S11" &&
+                Field(trace, "available").boolean && Field(trace, "real").array.front().number == 0.25 &&
+                Field(trace, "imag").array.front().number == 0.25,
+        "Retained trace uses b1/a1 from the frozen source-1 frame");
+}
+
+void LiveCoveredUpdate()
+{
+    Fixture fixture;
+    HttpApi api(fixture.service);
+    const auto token = Claim(api);
+    PrepareS21(fixture, api, token);
+    // 令 S21 与 S11 的复数结果不同，防止只改标题也能通过测试。
+    fixture.device->SetSamples({2.0, 0.0, 0.5, 0.5, 3.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0});
+    SetMode(api, token, "continuous");
+    Wait([&api] {
+        return Field(Request(api, "GET", "/api/v1/frame").json, "current").boolean;
+    });
+    fixture.device->Arm();
+    Wait([&fixture] {
+        return fixture.device->HasEntered();
+    });
+    // 阻塞下一帧硬件采集，验证目录操作无需等待或停止核心工作线程。
+    const auto before = Request(api, "GET", "/api/v1/status").json;
+    const auto previous = Request(api, "GET", "/api/v1/frame").json;
+    const auto revision = fixture.service.Settings().revision;
+    Complete(api,
+        Accepted(Request(api, "PUT", MEASUREMENT_PATH,
+            VnaWeb::StringifyJson(UpdateBody(revision, "live-covered-S11", 1U, 1U)), token)),
+        token);
+    const auto after = Request(api, "GET", "/api/v1/status").json;
+    const auto frame = Request(api, "GET", "/api/v1/frame").json;
+    Require(Field(frame, "frameSeq").string == Field(previous, "frameSeq").string &&
+                Field(frame, "revision").string == Field(previous, "revision").string,
+        "Definition update does not relabel or replace the immutable acquisition frame");
+    Require(fixture.service.Settings().revision == revision + 1U, "Only logical catalog revision advances");
+    VerifyCoveredUpdate(before, after, frame);
+    fixture.device->Release();
+    SetMode(api, token, "hold");
 }
 
 void RejectedUpdatesKeepCatalog()
@@ -207,6 +291,7 @@ void RejectedUpdatesKeepCatalog()
 int main()
 {
     const std::vector<std::pair<std::string, std::function<void()>>> tests = {
+        {"measurement-version-contract", VersionContract}, {"measurement-live-covered-update", LiveCoveredUpdate},
         {"measurement-update-and-retry", UpdateAndRetry},
         {"measurement-update-rejections", RejectedUpdatesKeepCatalog}};
     unsigned failures = 0U;

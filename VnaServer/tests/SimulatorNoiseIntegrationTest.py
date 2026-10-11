@@ -44,9 +44,10 @@ def configure(http):
     return token
 
 
-def check_frame(frame, revision, run=None):
+def check_frame(frame, revision, measurement_revision, run=None):
     assert frame["available"] and frame["current"], frame
     assert frame["revision"] == revision, frame
+    assert frame["measurementRevision"] == measurement_revision, frame
     if run is not None:
         assert frame["runId"] == run, frame
     assert frame["originalPointCount"] == frame["displayPointCount"] == 65
@@ -68,13 +69,15 @@ def data_signature(frame):
 
 def exercise(http, scpi_port, pressure=False):
     token = configure(http)
-    revision = http.status()["revision"]
+    status = http.status()
+    revision = status["acquisitionRevision"]
+    measurement_revision = status["revision"]
     scans = []
     for scan in range(3):
         wait_operation(http, accepted(http, "operations",
             {"action": "single", "requestId": "noise-single-" + str(scan)}, token), token)
         frame = http.frame()
-        check_frame(frame, revision)
+        check_frame(frame, revision, measurement_revision)
         assert http.frame() == frame, "HOLD reads must not add fresh noise"
         scans.append(data_signature(frame))
     assert scans[0] != scans[1] != scans[2] and scans[0] != scans[2], "Noise must change between acquisitions"
@@ -92,7 +95,7 @@ def exercise(http, scpi_port, pressure=False):
             while len(seen) < 20:
                 frame = http.frame()
                 if frame.get("current") and frame.get("runId") == run:
-                    check_frame(frame, revision, run)
+                    check_frame(frame, revision, measurement_revision, run)
                     seq = int(frame["frameSeq"])
                     assert seq >= previous, "Published frames must not move backwards"
                     previous = seq
@@ -111,7 +114,7 @@ def exercise(http, scpi_port, pressure=False):
             {"action": "hold", "requestId": "noise-hold"}, token), token)
         print("Noise continuous: 3 readers x 20 distinct full frames; identities stable")
     held = http.frame()
-    check_frame(held, revision)
+    check_frame(held, revision, measurement_revision)
     assert http.status()["config"]["sweepMode"] == "HOLD"
     assert http.frame() == held, "HOLD completes before further same-frame reads"
     http.request("POST", "/api/v1/control/release", {}, token)

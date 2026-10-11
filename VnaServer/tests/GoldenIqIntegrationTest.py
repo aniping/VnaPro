@@ -75,8 +75,9 @@ def exercise(http_port, scpi_port, vectors):
                 assert int(client.query("SENS1:SWE:MODE SING;*OPC?")) == 1
             status, frame = http.status(), http.frame()
             assert frame["available"] is True and frame["current"] is True, frame
-            assert frame["revision"] == status["revision"] and frame["runId"] == status["runId"]
-            assert all(identity_number(frame[key]) > 0 for key in ("revision", "runId", "frameSeq"))
+            assert frame["revision"] == status["acquisitionRevision"] and frame["runId"] == status["runId"]
+            assert frame["measurementRevision"] == status["revision"]
+            assert all(identity_number(frame[key]) > 0 for key in ("revision", "measurementRevision", "runId", "frameSeq"))
             assert frame["originalPointCount"] == frame["displayPointCount"] == 2 and not frame["decimated"]
             assert frame["frequencyHz"] == [1e9, 1e9]
             batch = measurements[offset:offset + 4]

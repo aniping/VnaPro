@@ -246,10 +246,11 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
     value["error"] = Json(snapshot.core.error);
     value["pending"] = Json(snapshot.pending);
     value["revision"] = Json(std::to_string(settings.revision));
+    value["acquisitionRevision"] = Json(std::to_string(settings.acquisitionRevision));
     value["runId"] = Json(std::to_string(snapshot.core.runId));
     value["activeConfigValid"] =
         Json(snapshot.core.state != VnaCore::CoreState::FAULTED && snapshot.core.state != VnaCore::CoreState::CLOSED &&
-             snapshot.core.configRevision != 0U && snapshot.core.configRevision == settings.revision);
+             snapshot.core.configRevision != 0U && snapshot.core.configRevision == settings.acquisitionRevision);
     value["config"] = ConfigurationJson(settings);
     Json measurements = Json::MakeArray();
     for (const auto &measurement : settings.measurements) {
@@ -283,13 +284,14 @@ HttpResponse HttpApi::Frame(const std::string &query) const
         indexes.push_back(display == 1U ? 0U : index * (count - 1U) / (display - 1U));
     }
     value["available"] = Json(true);
-    value["current"] =
-        Json(!snapshot.finitePending && snapshot.core.state != VnaCore::CoreState::FAULTED &&
-             snapshot.core.state != VnaCore::CoreState::CLOSED && frame.configRevision == snapshot.settings.revision &&
-             frame.configRevision == snapshot.core.configRevision && frame.runId == snapshot.core.runId);
+    value["current"] = Json(!snapshot.finitePending && snapshot.core.state != VnaCore::CoreState::FAULTED &&
+                            snapshot.core.state != VnaCore::CoreState::CLOSED &&
+                            frame.configRevision == snapshot.settings.acquisitionRevision &&
+                            frame.configRevision == snapshot.core.configRevision && frame.runId == snapshot.core.runId);
     value["channelId"] = Json(frame.channelId);
     value["runId"] = Json(std::to_string(frame.runId));
     value["revision"] = Json(std::to_string(frame.configRevision));
+    value["measurementRevision"] = Json(std::to_string(snapshot.settings.revision));
     value["frameSeq"] = Json(std::to_string(frame.frameSeq));
     value["originalPointCount"] = Json(static_cast<unsigned>(count));
     value["displayPointCount"] = Json(display);

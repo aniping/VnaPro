@@ -1,6 +1,6 @@
 # 未校准双端口 S 参数与 Smith 显示
 
-日期：2026-10-11。交付范围：模拟后台、S11/S21/S12/S22 同源复数比值、反射参数 Smith 显示、Web 与 Keysight SCPI 已核验命令子集。原始 A/B 接收波仍可单独查看，校准保持独立的后续工作。
+日期：2026-10-11。交付范围：模拟后台、S11/S21/S12/S22 同源复数比值、反射参数 Smith、运行中测量目录更新与逻辑/采集双版本、Web 与 Keysight SCPI 已核验命令子集。原始 A/B 接收波仍可单独查看，校准保持独立的后续工作。
 
 ## 波量与结果合同
 
@@ -42,13 +42,16 @@ flowchart TB
     profile["InstrumentProfile：启动校验后固定"]
     dll["模拟设备 DLL：各激励源原始 IQ"]
     core["VnaCore：单 worker 采集、完整不可变帧"]
-    service["VnaService：能力、测量目录、版本、控制权"]
+    service["VnaService：能力、测量目录、逻辑 CAS、控制权"]
+    demand["服务内 activePlan_：实际计划覆盖与采集版本"]
     math["VnaMeasurement：同源波量提取、稳定复数归一化"]
     scpi["SCPI：所选测量完整 Re/Im 数组"]
     http["HTTP：单快照、显示集合、频轴和有效性"]
     ui["WebUI：幅相、Smith、标记点、未校准标签"]
     yaml --> profile --> service
-    service -->|冻结源集合和参考接收器需求| core
+    service -->|测量需求候选| demand
+    demand -->|缺需求：完整帧边界下发计划| core
+    demand -->|已有 IQ：只更新目录| math
     dll -->|按激励源返回 IQ| core
     core -->|整轮完成后一次发布| service
     service -->|校验帧身份和测量定义| math
@@ -61,7 +64,7 @@ flowchart TB
     classDef process fill:#e5dbff,stroke:#5f3dc4;
     classDef output fill:#c5f6fa,stroke:#0c8599;
     class yaml,profile config;
-    class core,service,math process;
+    class core,service,demand,math process;
     class scpi,http,ui output;
 ```
 
@@ -112,7 +115,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     request([读取测量]) --> snapshot[一次取得配置和完整 FramePtr]
-    snapshot --> current{当前 revision/run 匹配且有限操作完成？}
+    snapshot --> current{当前 acquisitionRevision/run 匹配且有限操作完成？}
     current -->|否| stale[SCPI 拒绝；HTTP 标旧帧并保留其身份]
     current -->|是| check[检查测量定义、所有源帧完整性、接收器掩码]
     check --> structure{结构可用？}
@@ -144,17 +147,21 @@ flowchart TD
 
 ## 并发与版本
 
-1. 配置及测量定义只能在 HOLD 下修改，保留控制者、expectedRevision 和执行时复核。
-2. 计划合并所有测量的源端口集合；每个 S 参数同时启用目标接收端和源端参考接收器，即 `receiverMask |= 1U << (sourcePort - 1U)`。仅 S22 时只需源 2 和接收器 2；S12 必须另启用接收器 1。全部四参数的源集合为 `{1,2}`、接收器掩码为 `0b0011`。
-3. 每次计算只读一个保留的不可变完整帧；分子、参考、频轴、runId、revision、frameSeq 均来自该帧。采集线程发布下一帧不会改变已保留帧。
-4. SCPI 在一次 `ReadView` 上检查状态和身份后计算。配置更新但没有新帧、有限采集未完成、故障或已关闭时，RDATA 不能返回旧数据。
-5. HTTP 可以观察旧帧，但 `current=false`，其频轴和身份仍属于旧帧。前端禁止把它当成当前配置的采集结果。
-6. 一条查询内结果一致；连续模式的多条独立查询可能跨帧。需要多曲线同轮验证时，单次完成或 HOLD 收尾后读取。HTTP 单个 frame 响应中的多条曲线共享一个快照。
-7. 源 1 与源 2 是同一轮内先后采集，完整帧保证身份和配置一致，不表示两个源同时采样。加入反向参数会增加每轮扫描耗时，增加多少取决于实际驱动。
+1. 频率、点数及 IFBW 等物理扫描配置仍要求 HOLD；新增、原位更新和删除测量目录允许 Ready/Running。控制者、授权代次和逻辑 expectedRevision 在执行时复核；有限 SING/Trigger 尚未完成时可先受理目录请求，FIFO 在原有限任务结束后执行。
+2. 候选计划合并所有测量的源端口；S 参数同时需要目标接收器和激励源参考接收器，即 `receiverMask |= 1U << (sourcePort - 1U)`。S22 需求为源 2 与接收器 2，S12 还需接收器 1；四参数需求为 `{1,2}` 和 `0b0011`。服务缓存实际已成功下发的 activePlan_，删除或减少目录需求时保留其额外源和接收器；不能把当前目录的最小集合误认为实际设备计划。
+3. 需求被 activePlan_ 覆盖时只更新目录及逻辑 revision，同一完整原始 IQ 可重新计算。缺需求时核心在完整多源帧结束后 Configure，成功才更新目录、逻辑 revision、acquisitionRevision 和缓存；不 Stop/Start，CONT/MAN、runId 和 frameSeq 延续，MAN 不隐式触发。
+4. 每次计算只读一个不可变完整帧；分子、参考、频轴、runId、物理 configRevision、frameSeq 均来自该帧。服务逻辑 revision 不冒充原始采集版本，目录写 CAS 和 acquisitionRevision 分开。采集线程发布下一帧不会改变已保留帧。
+5. SCPI 在一次 `ReadView` 上检查 acquisitionRevision/run 后计算。已有原始波覆盖的目录切换可立即返回新比值；物理计划改变但尚无新帧、有限采集未完成、故障或已关闭时拒绝当前数据。
+6. HTTP 的 frame.revision 对应 status.acquisitionRevision，frame.measurementRevision 对应计算所用目录的 status.revision。客户端同时配对二者，避免并行状态/帧响应把旧参数数据套用新标题。旧物理版本可观察但 `current=false`，其频轴和身份保持原值。
+7. 一条查询内结果一致；连续模式的多条独立查询可能跨帧。需要多曲线同轮验证时，单次完成或 HOLD 收尾后读取。HTTP 单个 frame 响应中的多条曲线共享一个快照。
+8. 源 1 与源 2 是同一轮内先后采集，完整帧保证身份和配置一致，不表示同时采样。新增反向源需求会增加每轮扫描耗时，增加多少取决于实际驱动。
+9. 准备缓冲失败保留原目录、两个版本、计划及运行模式；设备部分下发失败进入 Faulted，服务转 HOLD。逻辑版本耗尽或核心计划身份不一致在设备调用前拒绝，版本不回绕，失败候选不提交。
 
 结果按需计算，没有结果缓存，因此无需缓存淘汰、跨版本失效或写锁。反向参数复用已有多源完整帧机制，不引入额外采集线程。校准应作为明确的独立处理阶段增加，不能只修改标签。
 
-活动迹线通过 `UpdateMeasurement` 原位替换同名定义，保留目录数量、位置和选择，成功时 revision 只增加一次；配置失败、旧版本、错误控制者或非 HOLD 状态都不提交候选。满 32 项目录仍可修改已有测量，不采用先删后加。旧完整帧继续保留原身份，不能根据新定义把它解释为当前数据。
+活动迹线通过 `UpdateMeasurement` 原位替换同名定义，保留目录数量、位置和选择，成功时逻辑 revision 只增加一次；配置失败、旧版本、错误控制者或 Faulted/Closed 都不提交候选。满 32 项仍可修改，不采用先删后加。S21→S11 复用同源 IQ 并保持原始帧有效；若增加源 2 需求，则等完整帧边界下发，旧帧仍保持原物理身份，等待新采集版本。
+
+职责依据 [ZNB User Manual v74 第 77～79 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=77) 对迹线/硬件通道设置及改测量准备的区分，以及[第 87～88 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=87) 的逐迹线数据流。完整帧边界、双版本及覆盖缓存是本项目设计，不声称厂商采用相同内部实现。
 
 ## 远程合同
 
@@ -191,9 +198,9 @@ HTTP 创建示例：
 
 `kind` 缺省仍按原始 `receiver` 处理。服务端响应对每条测量/曲线明确输出 `kind`、`unit`、`calibration`：原始波为 `receiver` / `a.u.` / `raw`，S 参数为 `sParameter` / `1` / `uncalibrated`。前端严格验证元数据与端口、参数一致。
 
-Meas 的测量按钮修改活动迹线，不创建新名称；这对应 [ZNB User Manual v74 第 289 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=289) 的活动 trace 合同。HTTP 使用 `PUT /api/v1/measurements/{name}`，名称只在编码后的路径中，正文必须给出 requestId、expectedRevision、kind、receiverKind、receiverPort、sourcePort，不能含 name。受理返回 202/operationId，须等待真实完成后读回；不存在的测量明确拒绝，不隐式新增。完整更新与重试合同见[服务设计](网分服务与远程控制设计.md#6-web-接口与仪器面板)。
+Meas 的测量按钮修改活动迹线，不创建新名称；这对应 [ZNB User Manual v74 第 289 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=289) 的活动 trace 合同。HTTP 使用 `PUT /api/v1/measurements/{name}`，名称只在路径中，正文必须给出 requestId、expectedRevision、kind、receiverKind、receiverPort、sourcePort，不能含 name；expectedRevision 使用服务逻辑版本。CONT/MAN 中无需先 HOLD，受理返回 202/operationId，仍须等真实完成并读回；不存在的测量拒绝，不隐式新增。完整更新与重试见[服务设计](网分服务与远程控制设计.md#6-web-接口与仪器面板)。
 
-Add Trace 在 Trace Config 中复制活动测量定义并生成未使用的 `Trc<n>`，显示和删除也归该工具。Ratios 及原机 All S-Params 的完整 n×n 矩阵尚未实现，不将端口 1/2 的四参数选择器称为完整四端口 S 矩阵；RAW 的全部配置端口范围保持可用。
+Add Trace 在 Trace Config 中复制活动定义并生成未使用的 `Trc<n>`，复制和删除仅更新目录及逻辑版本，保留原始采集身份。可见性、图窗、格式、刻度和标记只影响本地显示，不要求 HOLD 或写控制权。Ratios 及原机 All S-Params 的完整 n×n 矩阵尚未实现，不将端口 1/2 的四参数选择器称为完整四端口 S 矩阵；RAW 的全部配置端口范围保持可用。
 
 测量目录最多 32 项，单个 HTTP frame 响应最多返回 4 条曲线、2001 个显示点；采集仍覆盖整个测量目录。显示集合与采集目录分别管理：
 
@@ -217,6 +224,7 @@ Smith 格式仅接受 S11/S22。图中 Γ 是该反射参数的未校准复数�
 
 - 测量模块：独立构造已知复数反射、直通、衰减与延迟；a2 与本源 a1、另一源 a2 故意不同，打乱源帧顺序，检查四参数同源性、缺参考、畸形帧、非有限输入、极端数值和参考下限。
 - 服务：检查参考接收器按源自动启用、仅 S22 的掩码为 2、四参数共享双源完整轮次、坏点整条拒绝、配置变更后拒绝旧帧、越界定义不提交；核心原有第二源失败不发布部分帧的测试继续适用。
+- 运行中目录：门控 CONT 验证同源切换的同帧复算、新增源的帧边界提交、旧帧计划/IQ 深不可变、准备失败继续旧模式、复制/删除不下发、CAS/控制者/2 端口能力和 MAN armed 无隐式触发；物理扫描配置继续要求 HOLD。
 - HTTP：复数比值、元数据、零参考的 null/valid 表示、错误队列隔离，以及目录第五项选择、显示顺序和空显示集合的身份保留。
 - 实际 DLL→Core→服务→网络：从独立审核的 golden IQ 字面量用 Python 复数运算得预期四参数；对比 HTTP 和 SCPI，容差 `1e-12`，并证明错误参考或跨源参考不会通过。
 - 噪声与连续模式：保留单 HTTP 快照中 S21 与 b2/a1 的独立核对，增加四参数在双源完整帧中共同推进和变化；HOLD 后核对 HTTP、SCPI 及各源原始波的比值。

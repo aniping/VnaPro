@@ -166,8 +166,9 @@ def wait_no_owner(http):
 
 def check_frame(frame, status, points):
     assert frame["available"] is True and frame["current"] is True, frame
-    assert frame["revision"] == status["revision"] and frame["runId"] == status["runId"], frame
-    for key in ("revision", "runId", "frameSeq"):
+    assert frame["revision"] == status["acquisitionRevision"] and frame["runId"] == status["runId"], frame
+    assert frame["measurementRevision"] == status["revision"], frame
+    for key in ("revision", "measurementRevision", "runId", "frameSeq"):
         assert identity_number(frame[key]) > 0, (key, frame[key])
     assert frame["originalPointCount"] == points, frame
     assert frame["displayPointCount"] == points and frame["decimated"] is False, frame
@@ -188,6 +189,118 @@ def check_frame(frame, status, points):
         assert all(math.isfinite(value) for value in trace["real"] + trace["imag"]), trace
     assert traces["Web A"]["real"] != traces["Web B"]["real"], "Do not fabricate identical receiver curves"
     return traces
+
+
+def define_receiver(http, token, name, wave, receiver, source):
+    body = {
+        "name": name, "kind": "receiver", "receiverKind": wave,
+        "receiverPort": receiver, "sourcePort": source,
+        "expectedRevision": http.status()["revision"], "requestId": "live-define-" + name,
+    }
+    wait_operation(http, accepted(http, "measurements", body, token), token)
+
+
+def wait_current_frame(http, revision):
+    deadline = time.monotonic() + 8
+    while True:
+        frame = http.frame()
+        if frame["available"] and frame["current"] and frame["measurementRevision"] == revision:
+            return frame
+        assert time.monotonic() < deadline, frame
+        time.sleep(0.002)
+
+
+def switch_live_parameter(http, token, before, receiver, source, request_id):
+    body = {
+        "kind": "sParameter", "receiverKind": "b", "receiverPort": receiver, "sourcePort": source,
+        "expectedRevision": before["revision"], "requestId": request_id,
+    }
+    path = "/api/v1/measurements/Trc1"
+    response = http.request("PUT", path, body, token, expected=202)
+
+    def check_continuous():
+        status = http.status()
+        assert status["config"]["sweepMode"] == "CONT" and status["runId"] == before["runId"], status
+
+    wait_operation(http, response["operationId"], token, check_continuous)
+    after = http.status()
+    check_continuous()
+    assert identity_number(after["revision"]) == identity_number(before["revision"]) + 1, after
+    assert [item["name"] for item in after["measurements"]] == [item["name"] for item in before["measurements"]]
+    assert after["activeConfigValid"], after
+    frame = wait_current_frame(http, after["revision"])
+    assert frame["revision"] == after["acquisitionRevision"], frame
+    assert frame["runId"] == before["runId"], frame
+    stale = dict(body, requestId=request_id + "-stale")
+    http.request("PUT", path, stale, token, expected=409)
+    assert http.status()["revision"] == after["revision"], "Stale CAS must preserve the live measurement"
+    return after, frame
+
+
+def assert_trace_ratio(frame, reference_name, response_name, parameter):
+    traces = {trace["name"]: trace for trace in frame["traces"]}
+    ratio = traces["Trc1"]
+    assert ratio["parameter"] == parameter and ratio["available"] and all(ratio["valid"]), ratio
+    reference = traces[reference_name]
+    response = traces[response_name]
+    count = frame["displayPointCount"]
+    assert count > 0, frame
+    for trace in (ratio, reference, response):
+        assert trace["available"] and all(trace["valid"]), trace
+        assert all(len(trace[key]) == count for key in ("real", "imag", "valid")), trace
+    for values in zip(ratio["real"], ratio["imag"], reference["real"], reference["imag"],
+                      response["real"], response["imag"]):
+        real, imaginary, a_real, a_imaginary, b_real, b_imaginary = values
+        expected = complex(b_real, b_imaginary) / complex(a_real, a_imaginary)
+        assert abs(complex(real, imaginary) - expected) < 1e-12, (parameter, values, expected)
+
+
+def exercise_live_measurements(http, token):
+    """连续采集时原位修改测量，分别验证复算与新增源端口的计划切换。"""
+    receivers = (("Live a1", "a", 1, 1), ("Live b1", "b", 1, 1), ("Live b2", "b", 2, 1))
+    for receiver in receivers:
+        define_receiver(http, token, *receiver)
+    wait_operation(http, accepted(http, "operations", {
+        "action": "continuous", "requestId": "live-start-continuous",
+    }, token), token)
+    before = http.status()
+    original = wait_current_frame(http, before["revision"])
+    assert_trace_ratio(original, "Live a1", "Live b2", "S21")
+    same_source, switched = switch_live_parameter(http, token, before, 1, 1, "live-S11")
+    assert same_source["acquisitionRevision"] == before["acquisitionRevision"], "Covered inputs keep the hardware plan"
+    assert_trace_ratio(switched, "Live a1", "Live b1", "S11")
+    reverse, first_reverse = switch_live_parameter(http, token, same_source, 1, 2, "live-S12")
+    assert identity_number(reverse["acquisitionRevision"]) > identity_number(same_source["acquisitionRevision"])
+    deadline = time.monotonic() + 8
+    while True:
+        later = wait_current_frame(http, reverse["revision"])
+        assert http.status()["config"]["sweepMode"] == "CONT", "Plan changes must preserve continuous mode"
+        if identity_number(later["frameSeq"]) > identity_number(first_reverse["frameSeq"]):
+            break
+        assert time.monotonic() < deadline, "Reverse sweeps stopped after the update"
+    reverse_receivers = (("Live a2", "a", 2, 2), ("Live b1rev", "b", 1, 2))
+    for receiver in reverse_receivers:
+        define_receiver(http, token, *receiver)
+        status = http.status()
+        assert status["config"]["sweepMode"] == "CONT" and status["runId"] == reverse["runId"], status
+        assert status["acquisitionRevision"] == reverse["acquisitionRevision"], "Covered RAW additions do not reconfigure"
+    wait_operation(http, accepted(http, "operations", {"action": "hold", "requestId": "live-freeze"}, token), token)
+    frozen = http.frame()
+    query = "&".join("trace=" + quote(name, safe="") for name in ("Trc1", "Live a2", "Live b1rev"))
+    reverse_frame = http.request("GET", "/api/v1/frame?" + query)
+    assert reverse_frame["current"] and reverse_frame["revision"] == frozen["revision"]
+    assert reverse_frame["frameSeq"] == frozen["frameSeq"], "Trace filtering must reuse the frozen physical frame"
+    assert_trace_ratio(reverse_frame, "Live a2", "Live b1rev", "S12")
+    for receiver in receivers + reverse_receivers:
+        response = http.request("DELETE", "/api/v1/measurements/" + quote(receiver[0], safe=""), {
+            "expectedRevision": http.status()["revision"], "requestId": "live-delete-" + receiver[0],
+        }, token, expected=202)
+        wait_operation(http, response["operationId"], token)
+    response = http.request("PUT", "/api/v1/measurements/Trc1", {
+        "kind": "sParameter", "receiverKind": "b", "receiverPort": 2, "sourcePort": 1,
+        "expectedRevision": http.status()["revision"], "requestId": "live-restore-S21",
+    }, token, expected=202)
+    wait_operation(http, response["operationId"], token)
 
 
 def exercise_colon_measurement(http, token):
@@ -242,6 +355,7 @@ def exercise(http_port, scpi_port):
     assert "VnaPro" in json.dumps(initial["identity"]), initial
     assert initial["control"]["owner"] == "none" and initial["control"]["hasControl"] is False, initial
     assert identity_number(initial["revision"]) > 0, initial
+    assert identity_number(initial["acquisitionRevision"]) > 0, initial
     assert http.frame()["available"] is False, "An observer must not manufacture a measurement"
     assert http.status()["revision"] == initial["revision"], "Observer GET must not mutate configuration"
 
@@ -294,6 +408,7 @@ def exercise(http_port, scpi_port):
     http.request("GET", "/api/v1/operations/" + quote(operation_id, safe=""), expected=403)
     http.request("GET", "/api/v1/operations/" + quote(operation_id, safe=""), token=token + "-other", expected=403)
 
+    exercise_live_measurements(http, token)
     for name, kind, port in (("Web A", "a", 1), ("Web B", "b", 2)):
         measurement = {
             "name": name, "receiverKind": kind, "receiverPort": port, "sourcePort": port,
@@ -348,7 +463,8 @@ def exercise(http_port, scpi_port):
         status = http.status()
         assert reduced["current"] is True and reduced["decimated"] is True, reduced
         assert reduced["originalPointCount"] == 2501 and reduced["displayPointCount"] == 2001, reduced
-        assert reduced["revision"] == status["revision"] and len(reduced["traces"]) <= 4, reduced
+        assert reduced["revision"] == status["acquisitionRevision"] and len(reduced["traces"]) <= 4, reduced
+        assert reduced["measurementRevision"] == status["revision"], reduced
         full_axis = [float(value) for value in scpi.query("SENS1:X?").split(",")]
         full_iq = [float(value) for value in scpi.query("CALC1:DATA? RDATA").split(",")]
         samples = {hz: (full_iq[2 * index], full_iq[2 * index + 1]) for index, hz in enumerate(full_axis)}

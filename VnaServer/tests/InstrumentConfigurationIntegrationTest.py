@@ -39,7 +39,9 @@ def assert_frame(http, client):
     assert int(client.query("TRIG:SOUR IMM;:SENS1:SWE:MODE SING;*OPC?")) == 1
     frame = http.frame()
     assert frame["available"] and frame["current"], frame
-    assert frame["revision"] == http.status()["revision"]
+    status = http.status()
+    assert frame["revision"] == status["acquisitionRevision"]
+    assert frame["measurementRevision"] == status["revision"]
     assert frame["originalPointCount"] == frame["displayPointCount"] == DEFAULT_POINTS
     expected_axis = [MIN_HZ + index * ((MAX_HZ - MIN_HZ) // (DEFAULT_POINTS - 1))
                      for index in range(DEFAULT_POINTS)]
