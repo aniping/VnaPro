@@ -10,7 +10,7 @@ const props = defineProps<{
   status: InstrumentStatus | null
   activeTraceName: string
   displayedNames: string[]
-  canConfigure: boolean
+  canChangeMeasurements: boolean
   busy: boolean
   add: (
     candidate: MeasurementCandidate,
@@ -31,7 +31,7 @@ const active = computed(() =>
   catalog.value.find((trace) => trace.name === props.activeTraceName),
 )
 const disabled = computed(
-  () => !props.canConfigure || props.busy || working.value,
+  () => !props.canChangeMeasurements || props.busy || working.value,
 )
 
 async function clone() {
@@ -126,8 +126,11 @@ async function remove() {
     <p class="softtool-note">
       Add Trace 复制活动迹线。Meas 修改其测量量；显示最多四条，目录最多32项。
     </p>
-    <p v-if="!canConfigure" class="softtool-note">
-      {{ status?.control.readOnlyReason || 'Hold 后可添加或删除迹线。' }}
+    <p v-if="!canChangeMeasurements" class="softtool-note">
+      {{
+        status?.control.readOnlyReason ||
+        '取得控制权并等待当前操作完成后可添加或删除迹线。'
+      }}
     </p>
   </section>
 </template>

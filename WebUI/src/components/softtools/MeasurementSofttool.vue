@@ -9,7 +9,7 @@ import WaveQuantityDialog from './WaveQuantityDialog.vue'
 
 const props = defineProps<{
   status: InstrumentStatus | null
-  canConfigure: boolean
+  canChangeMeasurements: boolean
   busy: boolean
   activeTraceName: string
   mode: 'meas' | 'meas-wave'
@@ -27,7 +27,11 @@ const active = computed(() =>
   ),
 )
 const disabled = computed(
-  () => !props.canConfigure || props.busy || working.value || !active.value,
+  () =>
+    !props.canChangeMeasurements ||
+    props.busy ||
+    working.value ||
+    !active.value,
 )
 const portCount = computed(() => props.status?.capabilities.portCount ?? 0)
 const parameters: MeasurementChoice[] = ['S11', 'S12', 'S21', 'S22']
@@ -176,8 +180,11 @@ async function applyWave(candidate: MeasurementCandidate) {
     <p class="measurement-context">
       {{ active?.name ?? 'No active trace' }} · {{ active?.parameter ?? '—' }}
     </p>
-    <p v-if="!canConfigure" class="softtool-note">
-      {{ status?.control.readOnlyReason || 'Hold 后可修改活动迹线。' }}
+    <p v-if="!canChangeMeasurements" class="softtool-note">
+      {{
+        status?.control.readOnlyReason ||
+        '取得控制权并等待当前操作完成后可修改活动迹线。'
+      }}
     </p>
     <p v-if="validation" class="softtool-note" role="status">
       {{ validation }}
