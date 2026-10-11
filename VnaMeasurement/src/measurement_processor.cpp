@@ -144,7 +144,8 @@ std::string ValidateMeasurement(const VnaCore::MeasurementFrame &frame, const Me
     if ((frame.plan.receiverMask & receiverBit) == 0U) {
         return "measurement receiver is not enabled in this frame";
     }
-    if (measurement.kind == MeasurementKind::S_PARAMETER && (frame.plan.receiverMask & 1U) == 0U) {
+    const auto referenceBit = 1U << (measurement.sourcePort - 1U);
+    if (measurement.kind == MeasurementKind::S_PARAMETER && (frame.plan.receiverMask & referenceBit) == 0U) {
         return "measurement reference receiver is not enabled in this frame";
     }
     if (FindSource(frame, measurement.sourcePort) == nullptr) {
@@ -171,7 +172,8 @@ TraceResult MeasurementProcessor::Calculate(const VnaCore::MeasurementFrame &fra
     for (std::size_t index = 0U; index < frame.plan.frequencyRaw.size(); ++index) {
         const auto numerator = ReadPoint(*port, index, measurement.receiverPort, measurement.receiverKind);
         if (measurement.kind == MeasurementKind::S_PARAMETER) {
-            result.points.push_back(Normalize(numerator, ReadPoint(*port, index, 1U, 'a')));
+            // 分子与源端入射参考均来自同一激励源的完整端口帧。
+            result.points.push_back(Normalize(numerator, ReadPoint(*port, index, measurement.sourcePort, 'a')));
         } else {
             result.points.push_back(numerator);
         }

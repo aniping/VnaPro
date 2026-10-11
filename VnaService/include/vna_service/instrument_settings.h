@@ -35,8 +35,8 @@ struct ConfigPatch final {
 };
 
 struct InstrumentSettings final {
-    double startHz = 1000000.0;
-    double stopHz = 100000000.0;
+    double startHz = 10000000.0;
+    double stopHz = 8000000000.0;
     unsigned points = 201U;
     double ifBandwidthHz = 1000.0;
     TriggerSource triggerSource = TriggerSource::IMMEDIATE;

@@ -87,11 +87,14 @@ bool ReceiverParameter(const std::string &text, VnaService::Measurement &measure
 bool MeasurementParameter(const std::string &text, VnaService::Measurement &measurement)
 {
     // Keysight 扩展测量参数区分大小写；同时接受标准单数字端口下划线写法。
-    if (text == "S11" || text == "S1_1" || text == "S21" || text == "S2_1") {
+    const bool compact = text.size() == 3U;
+    const bool separated = text.size() == 4U && text[2U] == '_';
+    if ((compact || separated) && text.front() == 'S' && (text[1U] == '1' || text[1U] == '2') &&
+        (text.back() == '1' || text.back() == '2')) {
         measurement.kind = VnaService::MeasurementKind::S_PARAMETER;
         measurement.receiverKind = 'b';
         measurement.receiverPort = text[1] == '1' ? 1U : 2U;
-        measurement.sourcePort = 1U;
+        measurement.sourcePort = text.back() == '1' ? 1U : 2U;
         return true;
     }
     return ReceiverParameter(text, measurement);
@@ -453,13 +456,15 @@ void ScpiEngine::DispatchFrequency(const ParsedCommand &command)
 {
     const std::string &path = command.path;
     const auto &settings = service_.Settings();
+    const auto &profile = service_.Profile();
     const bool start = path == "SENS1:FREQ:STAR";
     if (command.query) {
-        QueryNumeric(command, start ? settings.startHz : settings.stopHz, FREQUENCY_MINIMUM_HZ, FREQUENCY_MAXIMUM_HZ);
+        QueryNumeric(
+            command, start ? settings.startHz : settings.stopHz, profile.minFrequencyHz, profile.maxFrequencyHz);
         return;
     }
     double value = 0;
-    if (NumericArgument(command, value, FREQUENCY_MINIMUM_HZ, FREQUENCY_MAXIMUM_HZ, true)) {
+    if (NumericArgument(command, value, profile.minFrequencyHz, profile.maxFrequencyHz, true)) {
         SetOperation(start ? service_.SetStartHz(value) : service_.SetStopHz(value));
     }
 }
@@ -629,7 +634,7 @@ void ScpiEngine::DispatchDefineMeasurement(const ParsedCommand &command)
     }
     if (!MeasurementParameter(parameter, measurement)) {
         RecordCommandError(
-            command, ILLEGAL_PARAMETER_VALUE, "Only S11, S21 and logical a1..a4/b1..b4 receivers are supported");
+            command, ILLEGAL_PARAMETER_VALUE, "Only S11/S21/S12/S22 and logical a1..a4/b1..b4 receivers are supported");
         return;
     }
     SetOperation(service_.DefineMeasurement(measurement));

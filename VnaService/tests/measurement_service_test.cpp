@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -63,7 +64,7 @@ VnaService::Measurement SParameter(const std::string &name, unsigned receiver, u
 std::vector<double> KnownSamples()
 {
     std::vector<double> iq(TEST_POINT_COUNT * VnaCore::IQ_VALUES_PER_POINT, 7.0);
-    // 独立给出三组波量；逐点 a1 不同，而 b1/a1=0.5+0.25i、b2/a1=0.25-0.5i。
+    // 独立给出三组波量；a2=2*a1，而 b1/a1=0.5+0.25i、b2/a1=0.25-0.5i。
     const double referenceReal[] = {2.0, -3.0, 4.0};
     const double referenceImag[] = {4.0, 1.0, -2.0};
     const double reflectionReal[] = {0.0, -1.75, 2.5};
@@ -76,6 +77,8 @@ std::vector<double> KnownSamples()
         iq[offset + 1U] = referenceImag[point];
         iq[offset + 2U] = reflectionReal[point];
         iq[offset + 3U] = reflectionImag[point];
+        iq[offset + 4U] = referenceReal[point] * 2.0;
+        iq[offset + 5U] = referenceImag[point] * 2.0;
         iq[offset + 6U] = transmissionReal[point];
         iq[offset + 7U] = transmissionImag[point];
     }
@@ -134,6 +137,34 @@ void InvalidReferenceAndSampleRejectWholeArray()
     Require(!invalid.ok && invalid.values.empty() && !invalid.error.empty(), "无效接收波不能成为有效 S 参数");
 }
 
+void ReverseRatiosAndCompleteTwoSourceFrame()
+{
+    Fixture fixture;
+    Prepare(fixture);
+    fixture.device->SetSamples(KnownSamples());
+    Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter("ReverseReflection", 2U, 2U))).ok,
+        "定义仅使用源端口 2 的 S22");
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "完成 S22 扫描");
+    const auto reverse = fixture.service.Snapshot().core.frame;
+    Require(reverse && reverse->plan.receiverMask == 2U && reverse->plan.sourcePorts == std::vector<std::uint32_t>{2U},
+        "S22 只启用端口 2 的激励和参考接收器");
+    ExpectRatio(fixture, "ReverseReflection", 0.125, -0.25);
+    Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter("ReverseTransmission", 1U, 2U))).ok,
+        "增加 S12 测量");
+    Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter("Reflection", 1U))).ok, "增加 S11 测量");
+    Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter("Transmission", 2U))).ok, "增加 S21 测量");
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "完成包含全部四参数的双源轮次");
+    const auto frame = fixture.service.Snapshot().core.frame;
+    Require(frame && frame->ports.size() == 2U && frame->plan.sourcePorts == std::vector<std::uint32_t>{1U, 2U} &&
+                frame->plan.receiverMask == 3U,
+        "四参数应共用完整的双源帧和两路参考接收器");
+    ExpectRatio(fixture, "Reflection", 0.5, 0.25);
+    ExpectRatio(fixture, "Transmission", 0.25, -0.5);
+    ExpectRatio(fixture, "ReverseTransmission", 0.25, 0.125);
+    ExpectRatio(fixture, "ReverseReflection", 0.125, -0.25);
+    Require(fixture.service.Snapshot().core.frame == frame, "切换四个参数不能拼接不同轮次的数据");
+}
+
 void ConfigurationChangeRejectsRetainedFrame()
 {
     Fixture fixture;
@@ -156,8 +187,10 @@ void UnsupportedDefinitionAndRawCompatibility()
     Fixture fixture;
     Prepare(fixture);
     const auto revision = fixture.service.Settings().revision;
-    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("S12", 1U, 2U))).ok, "拒绝未实现的反向 S12");
-    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("S22", 2U, 2U))).ok, "拒绝未实现的反向 S22");
+    Require(
+        !Finish(fixture, fixture.service.DefineMeasurement(SParameter("S13", 1U, 3U))).ok, "拒绝双端口范围外的 S13");
+    Require(
+        !Finish(fixture, fixture.service.DefineMeasurement(SParameter("S23", 2U, 3U))).ok, "拒绝双端口范围外的 S23");
     Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("S31", 3U))).ok, "拒绝超出首发范围的 S31");
     auto unknown = SParameter("Unknown", 1U);
     unknown.kind = static_cast<VnaService::MeasurementKind>(99);
@@ -216,6 +249,7 @@ int main()
 {
     unsigned failed = 0U;
     Run("已知复比值和参考接收需求", KnownRatiosAndReferenceDemand, failed);
+    Run("反向比值及完整双源轮次", ReverseRatiosAndCompleteTwoSourceFrame, failed);
     Run("无效参考和接收样本", InvalidReferenceAndSampleRejectWholeArray, failed);
     Run("配置更新后的旧帧拒绝", ConfigurationChangeRejectsRetainedFrame, failed);
     Run("不支持的定义和原始接收机兼容", UnsupportedDefinitionAndRawCompatibility, failed);

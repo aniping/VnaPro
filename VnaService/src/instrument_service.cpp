@@ -21,10 +21,6 @@
 
 namespace VnaService {
 namespace {
-constexpr double MIN_FREQUENCY_HZ = 1.0;
-constexpr double MAX_FREQUENCY_HZ = 1000000000.0;
-constexpr unsigned MIN_SWEEP_POINTS = 2U;
-constexpr unsigned MAX_SWEEP_POINTS = 10001U;
 constexpr std::size_t TASK_QUEUE_CAPACITY = 32U;
 constexpr std::size_t ERROR_QUEUE_CAPACITY = 32U;
 constexpr std::size_t MEASUREMENT_CAPACITY = 32U;
@@ -90,9 +86,9 @@ bool Ready(const VnaCore::Ticket &ticket)
     return ticket.valid() && ticket.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-bool ValidFrequency(double value) noexcept
+bool ValidFrequency(double value, const InstrumentProfile &profile) noexcept
 {
-    return std::isfinite(value) && value >= MIN_FREQUENCY_HZ && value <= MAX_FREQUENCY_HZ;
+    return std::isfinite(value) && value >= profile.minFrequencyHz && value <= profile.maxFrequencyHz;
 }
 
 double QuantizedBandwidth(double value) noexcept
@@ -115,8 +111,8 @@ VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings)
         sources.insert(measurement.sourcePort);
         plan.receiverMask |= 1U << (measurement.receiverPort - 1U);
         if (measurement.kind == MeasurementKind::S_PARAMETER) {
-            // S11/S21 都使用激励端口 1 的 a1 作为同帧参考波。
-            plan.receiverMask |= 1U;
+            // 每个 S 参数使用自身激励端口的参考波，必须与响应波来自同一源帧。
+            plan.receiverMask |= 1U << (measurement.sourcePort - 1U);
         }
     }
     if (sources.empty()) {
@@ -138,19 +134,20 @@ VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings)
     return plan;
 }
 
-OperationResult ApplyFrequencyPatch(const ConfigPatch &patch, InstrumentSettings &settings)
+OperationResult ApplyFrequencyPatch(
+    const ConfigPatch &patch, InstrumentSettings &settings, const InstrumentProfile &profile)
 {
     const double span = settings.stopHz - settings.startHz;
     double start = settings.startHz;
     double stop = settings.stopHz;
     if (patch.hasStartHz) {
-        if (!ValidFrequency(patch.startHz)) {
+        if (!ValidFrequency(patch.startHz, profile)) {
             return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of mock range");
         }
         start = std::round(patch.startHz);
     }
     if (patch.hasStopHz) {
-        if (!ValidFrequency(patch.stopHz)) {
+        if (!ValidFrequency(patch.stopHz, profile)) {
             return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of mock range");
         }
         stop = std::round(patch.stopHz);
@@ -164,7 +161,7 @@ OperationResult ApplyFrequencyPatch(const ConfigPatch &patch, InstrumentSettings
     if (patch.hasStopHz && !patch.hasStartHz && stop < start) {
         start = stop - span;
     }
-    if (!ValidFrequency(start) || !ValidFrequency(stop)) {
+    if (!ValidFrequency(start, profile) || !ValidFrequency(stop, profile)) {
         return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled frequency endpoint out of mock range");
     }
     settings.startHz = start;
@@ -172,12 +169,13 @@ OperationResult ApplyFrequencyPatch(const ConfigPatch &patch, InstrumentSettings
     return Result(true);
 }
 
-OperationResult ApplySettingsPatch(const ConfigPatch &patch, InstrumentSettings &settings)
+OperationResult ApplySettingsPatch(
+    const ConfigPatch &patch, InstrumentSettings &settings, const InstrumentProfile &profile)
 {
     if (!patch.hasStartHz && !patch.hasStopHz && !patch.hasPoints && !patch.hasIfBandwidthHz) {
         return Result(false, Detail::MISSING_PARAMETER_ERROR, "Configuration patch is empty");
     }
-    const OperationResult frequency = ApplyFrequencyPatch(patch, settings);
+    const OperationResult frequency = ApplyFrequencyPatch(patch, settings, profile);
     if (!frequency.ok) {
         return frequency;
     }
@@ -533,8 +531,14 @@ void InstrumentService::PollStartedMode(Detail::ServiceTask &task)
     }
 }
 
-InstrumentService::InstrumentService(VnaCore::AcquisitionCore &core) : core_(core)
+InstrumentService::InstrumentService(VnaCore::AcquisitionCore &core, InstrumentProfile profile)
+    : core_(core), profile_(std::move(profile))
 {
+    ValidateInstrumentProfile(profile_);
+    settings_.startHz = profile_.defaultStartHz;
+    settings_.stopHz = profile_.defaultStopHz;
+    settings_.points = profile_.defaultPoints;
+    settings_.ifBandwidthHz = profile_.defaultIfBandwidthHz;
 }
 
 InstrumentService::~InstrumentService() = default;
@@ -645,22 +649,28 @@ const InstrumentSettings &InstrumentService::Settings() const noexcept
     return settings_;
 }
 
+const InstrumentProfile &InstrumentService::Profile() const noexcept
+{
+    return profile_;
+}
+
 std::string InstrumentService::Identity() const
 {
-    return mockReady_ ? "VnaPro,NativeSimulator,4PORT,1.0" : "VnaPro,UnverifiedBackend,0,1.0";
+    return mockReady_ ? "VnaPro,NativeSimulator," + std::to_string(profile_.portCount) + "PORT,1.0"
+                      : "VnaPro,UnverifiedBackend,0,1.0";
 }
 
 Operation InstrumentService::SetStartHz(double value, std::uint64_t expected)
 {
     return Configure(
-        [value](InstrumentSettings &settings) {
-            if (!ValidFrequency(value)) {
+        [this, value](InstrumentSettings &settings) {
+            if (!ValidFrequency(value, profile_)) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of mock range");
             }
             const double span = settings.stopHz - settings.startHz;
             const double start = std::round(value);
             const double stop = start > settings.stopHz ? start + span : settings.stopHz;
-            if (!ValidFrequency(stop)) {
+            if (!ValidFrequency(stop, profile_)) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled stop frequency out of mock range");
             }
             settings.startHz = start;
@@ -673,14 +683,14 @@ Operation InstrumentService::SetStartHz(double value, std::uint64_t expected)
 Operation InstrumentService::SetStopHz(double value, std::uint64_t expected)
 {
     return Configure(
-        [value](InstrumentSettings &settings) {
-            if (!ValidFrequency(value)) {
+        [this, value](InstrumentSettings &settings) {
+            if (!ValidFrequency(value, profile_)) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of mock range");
             }
             const double span = settings.stopHz - settings.startHz;
             const double stop = std::round(value);
             const double start = stop < settings.startHz ? stop - span : settings.startHz;
-            if (!ValidFrequency(start)) {
+            if (!ValidFrequency(start, profile_)) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled start frequency out of mock range");
             }
             settings.startHz = start;
@@ -723,8 +733,8 @@ Operation InstrumentService::SetIfBandwidthHz(double value, std::uint64_t expect
 Operation InstrumentService::ApplyConfiguration(ConfigPatch patch, std::uint64_t expected, const std::string &owner)
 {
     return Configure(
-        [patch](InstrumentSettings &settings) {
-            return ApplySettingsPatch(patch, settings);
+        [this, patch](InstrumentSettings &settings) {
+            return ApplySettingsPatch(patch, settings, profile_);
         },
         expected, owner);
 }
@@ -734,9 +744,10 @@ Operation InstrumentService::DefineMeasurement(
 {
     measurement.receiverKind = static_cast<char>(std::tolower(static_cast<unsigned char>(measurement.receiverKind)));
     return Configure(
-        [measurement](InstrumentSettings &settings) {
+        [this, measurement](InstrumentSettings &settings) {
             if (measurement.name.empty() || measurement.name.size() > MAX_MEASUREMENT_NAME_LENGTH ||
-                !measurement.IsSupported()) {
+                !measurement.IsSupported() || measurement.sourcePort > profile_.portCount ||
+                measurement.receiverPort > profile_.portCount) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Unsupported measurement definition");
             }
             if (settings.measurements.size() >= MEASUREMENT_CAPACITY) {

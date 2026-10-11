@@ -19,7 +19,7 @@ std::string Measurement::Parameter() const
 bool Measurement::IsSupported() const noexcept
 {
     if (kind == MeasurementKind::S_PARAMETER) {
-        return receiverKind == 'b' && sourcePort == 1U && (receiverPort == 1U || receiverPort == 2U);
+        return receiverKind == 'b' && sourcePort >= 1U && sourcePort <= 2U && receiverPort >= 1U && receiverPort <= 2U;
     }
     return kind == MeasurementKind::RECEIVER && (receiverKind == 'a' || receiverKind == 'b') && receiverPort >= 1U &&
            receiverPort <= VnaCore::PHYSICAL_PORT_COUNT && sourcePort >= 1U &&

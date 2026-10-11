@@ -23,6 +23,8 @@ struct Fixture final {
 
     // 先将受控设备的所有权移交给核心，再公开测试所用的借用句柄。
     Fixture();
+    // 用显式能力配置验证仪器边界；默认构造保留既有低频黄金向量。
+    explicit Fixture(VnaService::InstrumentProfile profile);
     Fixture(const Fixture &) = delete;
     Fixture &operator=(const Fixture &) = delete;
     Fixture(Fixture &&) = delete;
@@ -32,7 +34,7 @@ struct Fixture final {
     ~Fixture();
 
 private:
-    explicit Fixture(std::unique_ptr<ControlledDevice> owned);
+    Fixture(std::unique_ptr<ControlledDevice> owned, VnaService::InstrumentProfile profile);
 };
 
 }  // 命名空间 VnaServiceTest

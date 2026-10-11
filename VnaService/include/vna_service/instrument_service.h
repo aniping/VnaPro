@@ -15,6 +15,7 @@
 #include "vna_core/acquisition_core.h"
 #include "vna_service/data_result.h"
 #include "vna_service/instrument_error.h"
+#include "vna_service/instrument_profile.h"
 #include "vna_service/instrument_settings.h"
 #include "vna_service/instrument_snapshot.h"
 #include "vna_service/measurement.h"
@@ -28,7 +29,7 @@ namespace VnaService {
 class InstrumentService final {
 public:
     // 绑定生命周期覆盖本服务的核心；后续调用统一由服务执行线程完成。
-    explicit InstrumentService(VnaCore::AcquisitionCore &core);
+    explicit InstrumentService(VnaCore::AcquisitionCore &core, InstrumentProfile profile = {});
     // 已接收的操作及协议使用者全部结束后，才能销毁本服务。
     ~InstrumentService();
     // 不能将执行线程约束及核心绑定关系转移给另一实例。
@@ -60,11 +61,13 @@ public:
 
     // 返回已提交的设置；返回的引用仅在本服务存活期间有效。
     const InstrumentSettings &Settings() const noexcept;
+    // 返回启动时已验证的仪器能力，引用在本服务存活期间有效。
+    const InstrumentProfile &Profile() const noexcept;
     // 返回已验证的模拟设备标识，或明确标注为未验证的后端标识。
     std::string Identity() const;
-    // 将取整后位于 1 Hz～1 GHz 的端点加入队列；端点交叉时保持原有频率跨度。
+    // 将仪器支持频段内的端点加入队列；端点交叉时保持原有频率跨度。
     Operation SetStartHz(double value, std::uint64_t expectedRevision = 0U);
-    // 将取整后位于 1 Hz～1 GHz 的端点加入队列；联动调整后的两个端点都必须在范围内。
+    // 将端点加入队列；取整及联动调整后的两个端点都必须在仪器支持频段内。
     Operation SetStopHz(double value, std::uint64_t expectedRevision = 0U);
     // 将 2～10001 个扫描点的配置加入队列；expectedRevision 为零时跳过 SCPI 版本检查。
     Operation SetPoints(unsigned value, std::uint64_t expectedRevision = 0U);
@@ -72,7 +75,7 @@ public:
     Operation SetIfBandwidthHz(double value, std::uint64_t expectedRevision = 0U);
     // 将一个原子配置候选加入队列；改变设备状态前重新校验所有者及预期版本。
     Operation ApplyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string &owner);
-    // 添加唯一的 1～128 字节测量名称；支持 1～4 端口的原始波量和端口 1 激励的未校准 S11/S21。
+    // 添加唯一的 1～128 字节测量名称；端口必须在仪器能力内，S 参数支持未校准 S11/S21/S12/S22。
     Operation DefineMeasurement(
         Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
     // 按区分大小写的名称，将已有测量项的删除操作加入队列，并按需更新当前选择。
@@ -144,6 +147,7 @@ private:
     void PollStartedMode(Detail::ServiceTask &task);
 
     VnaCore::AcquisitionCore &core_;
+    const InstrumentProfile profile_;
     InstrumentSettings settings_;
     std::deque<Detail::ServiceTask> tasks_;
     std::deque<InstrumentError> errors_;

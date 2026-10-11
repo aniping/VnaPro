@@ -7,6 +7,7 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <iostream>
 #include <limits>
@@ -73,12 +74,13 @@ void SetIq(VnaCore::PortFrame &port, std::size_t pointIndex, unsigned receiverPo
     port.iq[offset + 1U] = value.imag();
 }
 
-Measurement SParameter(unsigned receiverPort)
+Measurement SParameter(unsigned receiverPort, unsigned sourcePort = 1U)
 {
     Measurement measurement;
     measurement.kind = MeasurementKind::S_PARAMETER;
     measurement.receiverKind = 'b';
     measurement.receiverPort = receiverPort;
+    measurement.sourcePort = sourcePort;
     return measurement;
 }
 
@@ -99,9 +101,10 @@ void TestSupportedParameters()
         }
     }
     Require(SParameter(1U).Parameter() == "S11" && SParameter(2U).Parameter() == "S21", "S 参数名称错误");
-    auto unsupported = SParameter(1U);
-    unsupported.sourcePort = 2U;
-    Require(!unsupported.IsSupported(), "当前范围外的 S12 被接受");
+    Require(SParameter(1U, 2U).IsSupported() && SParameter(1U, 2U).Parameter() == "S12", "反向 S12 未被支持");
+    Require(SParameter(2U, 2U).IsSupported() && SParameter(2U, 2U).Parameter() == "S22", "反向 S22 未被支持");
+    auto unsupported = SParameter(1U, 3U);
+    Require(!unsupported.IsSupported(), "双端口范围外的 S13 被接受");
     unsupported = SParameter(3U);
     Require(!unsupported.IsSupported(), "当前范围外的 S31 被接受");
     unsupported = SParameter(1U);
@@ -192,6 +195,47 @@ void TestOptionalPhysicalAxis()
     const auto result = MeasurementProcessor::Calculate(frame, SParameter(1U));
     Require(result.available && result.points.size() == 1U, "核心允许的无物理单位频率轴帧被错误拒绝");
     RequirePoint(result.points[0U], {0.25, -0.25});
+}
+
+void TestReverseRatiosUseSourceReference()
+{
+    auto frame = Frame({2U, 1U}, 1U);
+    // 独立给出两源波量：源 2 的 a2 与本源 a1、源 1 的 a2 均不同。
+    SetIq(frame.ports[0U], 0U, 1U, 'a', {99.0, 88.0});
+    SetIq(frame.ports[0U], 0U, 2U, 'a', {2.0, -3.0});
+    SetIq(frame.ports[0U], 0U, 1U, 'b', {1.0, 1.75});
+    SetIq(frame.ports[0U], 0U, 2U, 'b', {-0.6, -1.7});
+    SetIq(frame.ports[1U], 0U, 2U, 'a', {-50.0, 60.0});
+    SetIq(frame.ports[1U], 0U, 1U, 'b', {77.0, 66.0});
+    const auto original = frame.ports[0U].iq;
+    const auto s12 = MeasurementProcessor::Calculate(frame, SParameter(1U, 2U));
+    const auto s22 = MeasurementProcessor::Calculate(frame, SParameter(2U, 2U));
+    Require(s12.available && s22.available, "反向测量未返回完整结果");
+    RequirePoint(s12.points[0U], {-0.25, 0.5});
+    RequirePoint(s22.points[0U], {0.3, -0.4});
+    Require(frame.ports[0U].iq == original, "反向归一化修改了原始波量");
+    frame.plan.receiverMask = 2U;
+    const auto onlySecondReceiver = MeasurementProcessor::Calculate(frame, SParameter(2U, 2U));
+    Require(onlySecondReceiver.available, "S22 只需接收器 2，不应依赖接收器 1");
+    RequirePoint(onlySecondReceiver.points[0U], {0.3, -0.4});
+    frame.plan.receiverMask = 1U;
+    const auto missingReference = MeasurementProcessor::Calculate(frame, SParameter(1U, 2U));
+    Require(!missingReference.available && !missingReference.error.empty(), "缺少 a2 参考接收器时仍返回 S12");
+}
+
+void TestReverseReferenceInvalidity()
+{
+    auto frame = Frame({2U}, 3U);
+    SetIq(frame.ports[0U], 0U, 2U, 'a', {VnaMeasurement::MIN_REFERENCE_MAGNITUDE, 0.0});
+    SetIq(frame.ports[0U], 1U, 2U, 'a', {std::numeric_limits<double>::infinity(), 0.0});
+    SetIq(frame.ports[0U], 2U, 2U, 'a', {2.0, 0.0});
+    SetIq(frame.ports[0U], 2U, 1U, 'b', {0.5, -1.0});
+    const auto result = MeasurementProcessor::Calculate(frame, SParameter(1U, 2U));
+    Require(result.available && result.points.size() == 3U, "无效反向参考应按点保留有效性");
+    Require(!result.points[0U].valid && result.points[0U].error == PointError::REFERENCE_TOO_SMALL,
+        "反向参考下限未得到检查");
+    Require(!result.points[1U].valid && result.points[1U].error == PointError::INVALID_SAMPLE, "非有限 a2 参考被接受");
+    RequirePoint(result.points[2U], {0.25, -0.5});
 }
 
 void TestSmallReferenceBoundary()
@@ -325,13 +369,15 @@ int main()
         TestKnownReflectionAndTransmission();
         TestDelayPhase();
         TestSameSourceOnly();
+        TestReverseRatiosUseSourceReference();
+        TestReverseReferenceInvalidity();
         TestOptionalPhysicalAxis();
         TestSmallReferenceBoundary();
         TestNonfiniteSamplesAndResults();
         TestExtremeFiniteValues();
         TestMissingAndDisabledReceivers();
         TestMalformedFrameLayouts();
-        std::cout << "测量计算：10 组场景通过\n";
+        std::cout << "测量计算：12 组场景通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

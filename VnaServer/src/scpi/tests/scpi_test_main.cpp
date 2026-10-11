@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "../../../../VnaNativeSimulator/tests/scoped_simulator_environment.h"
 #include "fixture.h"
@@ -141,6 +142,55 @@ void ConfigurationAndRevision(const std::string &driver)
     Expect(Numbers(Command(engine, "SENS1:X?")).size() == 201U, "axis before acquisition");
     Expect(Command(engine, "CALC1:DATA? RDATA").empty(), "RDATA before acquisition must not fabricate data");
     Expect(Command(engine, "SYST:ERR?").find("-230,") == 0U, "missing data error");
+}
+
+void TwoPortSParameterDefinitions(const std::string &driver)
+{
+    NativeFixture fixture(driver);
+    VnaScpi::ScpiEngine engine(fixture.service);
+    const std::vector<std::pair<std::string, std::string>> definitions = {{"ForwardReflection", "S1_1"},
+        {"ForwardTransmission", "S21"}, {"ReverseTransmission", "S1_2"}, {"ReverseReflection", "S22"}};
+    for (const auto &definition : definitions) {
+        Command(engine, "CALC1:PAR:DEF:EXT '" + definition.first + "','" + definition.second + "';*OPC?");
+        Expect(Command(engine, "SYST:ERR?").find("0,") == 0U, "标准双端口 S 参数定义被拒绝");
+    }
+    const auto catalog = Command(engine, "CALC1:PAR:CAT:EXT?");
+    Expect(catalog.find("ReverseTransmission,S12,ReverseReflection,S22") != std::string::npos,
+        "目录未规范化反向 S 参数名称");
+    const auto revision = fixture.service.Settings().revision;
+    for (const auto &parameter : {"s12", "S13", "S31", "S1__2", "S_12", "S012"}) {
+        Command(engine, std::string("CALC1:PAR:DEF:EXT 'Invalid','") + parameter + "'");
+        Expect(Command(engine, "SYST:ERR?").find("-224,") == 0U, "非法 S 参数未记录标准错误");
+    }
+    Expect(fixture.service.Settings().revision == revision, "拒绝的 S 参数定义改变了配置");
+    Command(engine, "CALC1:PAR:SEL 'ReverseTransmission'");
+    Expect(Command(engine, "CALC1:DATA? SDATA").empty(), "未校准测量不应返回校准数据");
+    Expect(Command(engine, "SYST:ERR?").find("-224,") == 0U, "SDATA 未记录标准错误");
+}
+
+void FrequencyQueriesFollowInstrumentProfile(const std::string &)
+{
+    VnaService::InstrumentProfile profile;
+    profile.portCount = 2U;
+    VnaServiceTest::Fixture fixture(profile);
+    VnaScpi::ScpiEngine engine(fixture.service);
+    Near(std::stod(Command(engine, "SENS1:FREQ:STAR? MIN")), 10000000.0);
+    Near(std::stod(Command(engine, "SENS1:FREQ:STOP? MAX")), 8000000000.0);
+    Near(std::stod(Command(engine, "SENS1:FREQ:STAR?")), 10000000.0);
+    Near(std::stod(Command(engine, "SENS1:FREQ:STOP?")), 8000000000.0);
+    Near(std::stod(Command(engine, "SENS1:SWE:POIN?")), 201.0);
+    Command(engine, "SENS1:FREQ:STOP MIN;STAR MAX;*OPC?");
+    Expect(Command(engine, "SYST:ERR?").find("0,") == 0U, "频率 MIN/MAX 写入未使用仪器能力");
+    Near(std::stod(Command(engine, "SENS1:FREQ:STAR?")), 8000000000.0);
+    Near(std::stod(Command(engine, "SENS1:FREQ:STOP?")), 8000000000.0);
+    const auto revision = fixture.service.Settings().revision;
+    for (const auto &frequency : {"9MHz", "8.001GHz"}) {
+        Command(engine, std::string("SENS1:FREQ:STOP ") + frequency);
+        Expect(Command(engine, "SYST:ERR?").find("-222,") == 0U, "仪器频率范围外的设置被接受");
+    }
+    Command(engine, "CALC1:PAR:DEF:EXT 'OutOfRangePort','b3,3'");
+    Expect(Command(engine, "SYST:ERR?").find("-222,") == 0U, "超出双端口能力的定义未记录范围错误");
+    Expect(fixture.service.Settings().revision == revision, "能力范围外的请求改变了配置");
 }
 
 void SingleFrameAndReceivers(const std::string &driver)
@@ -472,6 +522,8 @@ int main(int argc, char **argv)
     unsigned failed = 0;
     Run("parser and compound responses", ParserAndCompoundResponse, driver, failed);
     Run("configuration and revision", ConfigurationAndRevision, driver, failed);
+    Run("标准双端口 S 参数定义及错误合同", TwoPortSParameterDefinitions, driver, failed);
+    Run("频率查询及设置遵守仪器能力", FrequencyQueriesFollowInstrumentProfile, driver, failed);
     Run("single frame and receiver mapping", SingleFrameAndReceivers, driver, failed);
     Run("pending barriers and errors", PendingBarriersAndErrors, driver, failed);
     Run("busy admission and old run", BusyAdmissionAndOldRun, driver, failed);
