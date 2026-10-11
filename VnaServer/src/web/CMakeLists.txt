@@ -2,6 +2,7 @@ add_library(vna_web STATIC
     web_endpoint.cpp
     static_file.cpp
     http_api.cpp
+    frame_selection.cpp
     json.cpp
     json_parser.cpp
     json_encoder.cpp
@@ -16,6 +17,9 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(vna_frame_selection_tests tests/frame_selection_test.cpp)
+    target_link_libraries(vna_frame_selection_tests PRIVATE vna_web vna_service_test_support)
+    add_test(NAME web_frame_selection COMMAND vna_frame_selection_tests)
     add_executable(vna_web_tests tests/web_api_test.cpp)
     target_link_libraries(vna_web_tests PRIVATE vna_web vna_service_test_support)
     target_include_directories(vna_web_tests PRIVATE

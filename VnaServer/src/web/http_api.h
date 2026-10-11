@@ -79,7 +79,7 @@ private:
     static Json ConfigurationJson(const VnaService::InstrumentSettings &settings);
     Json ControlJson(const VnaService::InstrumentSnapshot &snapshot, const HttpRequest &request) const;
     HttpResponse Status(const HttpRequest &request) const;
-    HttpResponse Frame() const;
+    HttpResponse Frame(const std::string &query) const;
     static Json TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
         const std::vector<std::size_t> &indexes);
     HttpResponse OperationStatus(const std::string &id, const std::string &requester) const;

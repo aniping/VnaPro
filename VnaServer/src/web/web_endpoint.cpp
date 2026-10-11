@@ -200,6 +200,10 @@ std::size_t ParseRequestLine(const std::string &input, HttpRequest &request)
         }
     }
     request.path = DecodePath(target);
+    const std::size_t queryStart = target.find('?');
+    if (queryStart != std::string::npos) {
+        request.query = target.substr(queryStart + 1U);
+    }
     return firstEnd + CRLF_LENGTH;
 }
 

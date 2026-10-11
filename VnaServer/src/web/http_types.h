@@ -14,6 +14,7 @@ namespace VnaWeb {
 struct HttpRequest final {
     std::string method;
     std::string path;
+    std::string query;                           // 保留未解码的查询部分，交由对应 API 校验。
     std::map<std::string, std::string> headers;  // 字段名统一使用小写。
     std::string body;
 };

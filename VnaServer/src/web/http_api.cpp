@@ -20,6 +20,7 @@
 #include "vna_measurement/measurement_processor.h"
 #include "vna_service/instrument_service.h"
 #include "vna_service/service_error_code.h"
+#include "web/frame_selection.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
 
@@ -44,7 +45,6 @@ constexpr std::size_t RETRY_LIMIT = 32U;
 constexpr std::size_t OPERATION_LIMIT = 128U;
 constexpr std::size_t NAME_LENGTH_LIMIT = 128U;
 constexpr unsigned DISPLAY_POINT_LIMIT = 2001U;
-constexpr unsigned DISPLAY_TRACE_LIMIT = 4U;
 constexpr unsigned SWEEP_POINT_LIMIT = 10001U;
 constexpr unsigned TOKEN_WORD_COUNT = 4U;
 constexpr int TOKEN_WORD_HEX_WIDTH = 8;
@@ -234,6 +234,14 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
     Json &value = response.json = Json::MakeObject();
     value["identity"] = Json(service_.Identity());
     value["backend"] = Json("NativeSimulator");
+    const auto &profile = service_.Profile();
+    Json capabilities = Json::MakeObject();
+    capabilities["portCount"] = Json(profile.portCount);
+    capabilities["minFrequencyHz"] = Json(profile.minFrequencyHz);
+    capabilities["maxFrequencyHz"] = Json(profile.maxFrequencyHz);
+    capabilities["minSweepPoints"] = Json(VnaService::MIN_SWEEP_POINTS);
+    capabilities["maxSweepPoints"] = Json(VnaService::MAX_SWEEP_POINTS);
+    value["capabilities"] = std::move(capabilities);
     value["state"] = Json(CoreStateName(snapshot.core.state));
     value["error"] = Json(snapshot.core.error);
     value["pending"] = Json(snapshot.pending);
@@ -252,9 +260,10 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
     return response;
 }
 
-HttpResponse HttpApi::Frame() const
+HttpResponse HttpApi::Frame(const std::string &query) const
 {
     const auto snapshot = service_.Snapshot();
+    const auto selected = SelectFrameMeasurements(query, snapshot.settings.measurements);
     HttpResponse response;
     Json &value = response.json = Json::MakeObject();
     if (!snapshot.core.frame) {
@@ -291,10 +300,7 @@ HttpResponse HttpApi::Frame() const
     }
     value["frequencyHz"] = std::move(axis);
     Json traces = Json::MakeArray();
-    for (const auto &measurement : snapshot.settings.measurements) {
-        if (traces.array.size() == DISPLAY_TRACE_LIMIT) {
-            break;
-        }
+    for (const auto &measurement : selected) {
         traces.array.push_back(TraceJson(frame, measurement, indexes));
     }
     value["traces"] = std::move(traces);
@@ -428,7 +434,7 @@ HttpResponse HttpApi::Route(const HttpRequest &request)
             return Status(request);
         }
         if (request.path == "/api/v1/frame") {
-            return Frame();
+            return Frame(request.query);
         }
         const std::string prefix = "/api/v1/operations/";
         if (request.path.find(prefix) == 0U) {
