@@ -1,5 +1,10 @@
 /** 仪器标识保持为十进制字符串，以完整保留服务端 uint64 计数器的值。 */
-export type CoreState = 'Uninitialized' | 'Ready' | 'Running' | 'Faulted' | 'Closed'
+export type CoreState =
+  | 'Uninitialized'
+  | 'Ready'
+  | 'Running'
+  | 'Faulted'
+  | 'Closed'
 export type RunAction = 'single' | 'continuous' | 'hold' | 'trigger'
 
 export interface SweepConfiguration {
@@ -20,7 +25,10 @@ export interface Measurement {
   calibration: 'raw' | 'uncalibrated'
 }
 
-export type MeasurementCandidate = Pick<Measurement, 'name' | 'kind' | 'receiverKind' | 'receiverPort' | 'sourcePort'>
+export type MeasurementCandidate = Pick<
+  Measurement,
+  'name' | 'kind' | 'receiverKind' | 'receiverPort' | 'sourcePort'
+>
 
 export interface InstrumentCapabilities {
   portCount: number
@@ -36,7 +44,10 @@ export interface InstrumentStatus {
   state: CoreState
   error: string
   pending: boolean
+  /** 逻辑配置与测量目录的 CAS 版本。 */
   revision: string
+  /** 已成功提交给采集核心的硬件计划版本。 */
+  acquisitionRevision: string
   runId: string
   activeConfigValid: boolean
   capabilities: InstrumentCapabilities
@@ -66,7 +77,10 @@ export interface AcquiredFrame {
   current: boolean
   channelId: number
   runId: string
+  /** 此不可变原始帧实际使用的采集计划版本。 */
   revision: string
+  /** 本次响应计算迹线时使用的测量目录版本。 */
+  measurementRevision: string
   frameSeq: string
   originalPointCount: number
   displayPointCount: number

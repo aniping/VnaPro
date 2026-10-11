@@ -14,7 +14,7 @@ function receiver(real: (number | null)[], imaginary = real.map(() => 0)): Recei
 
 function frame(trace = receiver([1, 1.001, 1.002])): AcquiredFrame {
   return { available: true, current: true, channelId: 1,
-    runId: '18446744073709551613', revision: '18446744073709551614', frameSeq: '18446744073709551615',
+    runId: '18446744073709551613', revision: '18446744073709551614', measurementRevision: '18446744073709551615', frameSeq: '18446744073709551615',
     originalPointCount: 10001, displayPointCount: 3, decimated: true,
     frequencyHz: [1e6, 2e6, 9e6], traces: [trace] }
 }
@@ -127,6 +127,7 @@ test('CSV preserves uint64 identities, sample provenance, gaps and each visible 
     [trace.name]: defaultTracePresentation(), Hidden: { ...defaultTracePresentation(), visible: false },
   })
   assert.match(csv, /frameSeq=18446744073709551615,runId=18446744073709551613,revision=18446744073709551614/)
+  assert.match(csv, /measurementRevision=18446744073709551615/)
   assert.match(csv, /originalPointCount=10001,displayPointCount=3,decimated=true/)
   assert.match(csv, /未提供原始采样索引；display_index 对应返回的实际展示数组/)
   assert.match(csv, /"Receiver A",a,1,1,0,1000000,0,0,true,db,"dB re 1 a.u.",-Infinity,/)

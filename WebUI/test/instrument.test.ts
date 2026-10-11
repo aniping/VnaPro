@@ -12,7 +12,7 @@ import { useInstrument } from '../src/composables/useInstrument'
 function snapshot(revision = '1'): InstrumentStatus {
   return {
     identity: 'VnaPro,NativeSimulator,0,0.2', backend: 'NativeSimulator', state: 'Ready', error: '', pending: false,
-    revision, runId: '1', activeConfigValid: true,
+    revision, acquisitionRevision: revision, runId: '1', activeConfigValid: true,
     capabilities: { portCount: 4, minFrequencyHz: 1, maxFrequencyHz: 8e9, minSweepPoints: 2, maxSweepPoints: 10001 },
     config: { startHz: 1e6, stopHz: 100e6, points: 201, ifBandwidthHz: 1000, triggerSource: 'IMM', sweepMode: 'HOLD' },
     measurements: [{ name: 'DefaultA', kind: 'receiver', receiverKind: 'a', receiverPort: 1, sourcePort: 1,
@@ -85,7 +85,7 @@ test('transport keeps uint64 identities as strings and rejects malformed receive
   assert.equal(decodeStatus(status).runId, '9007199254740993')
   assert.throws(() => decodeStatus({ ...status, revision: 9007199254740992 }))
   const frame = {
-    available: true, current: true, channelId: 1, runId: '9007199254740993', revision: '1', frameSeq: '18446744073709551615',
+    available: true, current: true, channelId: 1, runId: '9007199254740993', revision: '1', measurementRevision: '1', frameSeq: '18446744073709551615',
     originalPointCount: 2, displayPointCount: 2, decimated: false, frequencyHz: [1e6, 2e6],
     traces: [{ ...status.measurements[0], available: true, real: [1, null], imag: [0, 0], valid: [true, false] }],
   }
@@ -232,7 +232,7 @@ test('late responses from a previous display set cannot replace the newly select
   const oldRead = model.refresh()
   model.setDisplayedMeasurements(['Other'])
   const acquired = {
-    available: true as const, current: true, channelId: 1, runId: '1', revision: '1', frameSeq: '1',
+    available: true as const, current: true, channelId: 1, runId: '1', revision: '1', measurementRevision: '1', frameSeq: '1',
     originalPointCount: 2, displayPointCount: 2, decimated: false, frequencyHz: [10e6, 20e6],
     traces: [{ ...api.current.measurements[0]!, available: true, real: [1, 1], imag: [0, 0], valid: [true, true] }],
   }

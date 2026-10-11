@@ -20,7 +20,7 @@ function sParameter(receiverPort = 1): Measurement {
 function snapshot(measurement: Measurement) {
   return {
     identity: 'VnaPro,NativeSimulator,0,0.2', backend: 'NativeSimulator', state: 'Ready', error: '', pending: false,
-    revision: '2', runId: '1', activeConfigValid: true,
+    revision: '2', acquisitionRevision: '2', runId: '1', activeConfigValid: true,
     capabilities: { portCount: 4, minFrequencyHz: 1, maxFrequencyHz: 8e9, minSweepPoints: 2, maxSweepPoints: 10001 },
     config: { startHz: 1e6, stopHz: 100e6, points: 201, ifBandwidthHz: 1000, triggerSource: 'IMM', sweepMode: 'HOLD' },
     measurements: [measurement],
@@ -30,7 +30,7 @@ function snapshot(measurement: Measurement) {
 
 function frame(): AcquiredFrame {
   return {
-    available: true, current: true, channelId: 1, runId: '1', revision: '2', frameSeq: '3',
+    available: true, current: true, channelId: 1, runId: '1', revision: '2', measurementRevision: '2', frameSeq: '3',
     originalPointCount: 3, displayPointCount: 3, decimated: false, frequencyHz: [1e6, 2e6, 3e6],
     traces: [{ ...sParameter(2), available: true, real: [0.5, 0, null], imag: [0, 0.25, null], valid: [true, true, false] }],
   }

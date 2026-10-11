@@ -15,7 +15,7 @@ const transmit: Measurement = { ...reflect, name: 'Transmit', receiverPort: 2, p
 
 function acquired(real: number[], imaginary = real.map(() => 0)): AcquiredFrame {
   return {
-    available: true, current: true, channelId: 1, runId: '1', revision: '1', frameSeq: '1',
+    available: true, current: true, channelId: 1, runId: '1', revision: '1', measurementRevision: '1', frameSeq: '1',
     originalPointCount: real.length, displayPointCount: real.length, decimated: false,
     frequencyHz: real.map((_, index) => (index + 1) * 1e6),
     traces: [

@@ -1,6 +1,14 @@
 import type {
-  AcceptedOperation, AcquiredFrame, ClaimResponse, CoreState, FrameResponse,
-  InstrumentCapabilities, InstrumentStatus, Measurement, OperationSnapshot, ReceiverTrace,
+  AcceptedOperation,
+  AcquiredFrame,
+  ClaimResponse,
+  CoreState,
+  FrameResponse,
+  InstrumentCapabilities,
+  InstrumentStatus,
+  Measurement,
+  OperationSnapshot,
+  ReceiverTrace,
 } from './types'
 
 type ObjectValue = Record<string, unknown>
@@ -10,7 +18,8 @@ function invalid(field: string): never {
 }
 
 function object(value: unknown, field: string): ObjectValue {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) invalid(field)
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    invalid(field)
   return value as ObjectValue
 }
 
@@ -24,12 +33,28 @@ function flag(value: unknown, field: string): boolean {
   return value
 }
 
-function number(value: unknown, field: string, minimum = -Infinity, maximum = Infinity): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) invalid(field)
+function number(
+  value: unknown,
+  field: string,
+  minimum = -Infinity,
+  maximum = Infinity,
+): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < minimum ||
+    value > maximum
+  )
+    invalid(field)
   return value
 }
 
-function integer(value: unknown, field: string, minimum: number, maximum: number): number {
+function integer(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): number {
   const result = number(value, field, minimum, maximum)
   if (!Number.isInteger(result)) invalid(field)
   return result
@@ -41,7 +66,11 @@ function identity(value: unknown, field: string): string {
   return result
 }
 
-function choice<T extends string>(value: unknown, field: string, choices: readonly T[]): T {
+function choice<T extends string>(
+  value: unknown,
+  field: string,
+  choices: readonly T[],
+): T {
   const result = text(value, field)
   const match = choices.find((item) => item === result)
   if (match === undefined) invalid(field)
@@ -60,22 +89,38 @@ function measurement(value: unknown): Measurement {
   const result: Measurement = {
     name,
     kind: choice(item.kind, 'measurement.kind', ['receiver', 'sParameter']),
-    receiverKind: choice(item.receiverKind, 'measurement.receiverKind', ['a', 'b']),
+    receiverKind: choice(item.receiverKind, 'measurement.receiverKind', [
+      'a',
+      'b',
+    ]),
     receiverPort: integer(item.receiverPort, 'measurement.receiverPort', 1, 4),
     sourcePort: integer(item.sourcePort, 'measurement.sourcePort', 1, 4),
     parameter: text(item.parameter, 'measurement.parameter'),
     unit: choice(item.unit, 'measurement.unit', ['a.u.', '1']),
-    calibration: choice(item.calibration, 'measurement.calibration', ['raw', 'uncalibrated']),
+    calibration: choice(item.calibration, 'measurement.calibration', [
+      'raw',
+      'uncalibrated',
+    ]),
   }
   if (result.kind === 'receiver') {
     const parameter = `${result.receiverKind}${result.receiverPort},${result.sourcePort}`
-    if (result.parameter !== parameter || result.unit !== 'a.u.' || result.calibration !== 'raw') {
+    if (
+      result.parameter !== parameter ||
+      result.unit !== 'a.u.' ||
+      result.calibration !== 'raw'
+    ) {
       invalid('receiver metadata')
     }
   } else {
     const parameter = `S${result.receiverPort}${result.sourcePort}`
-    if (result.receiverKind !== 'b' || result.sourcePort > 2 || result.receiverPort > 2
-      || result.parameter !== parameter || result.unit !== '1' || result.calibration !== 'uncalibrated') {
+    if (
+      result.receiverKind !== 'b' ||
+      result.sourcePort > 2 ||
+      result.receiverPort > 2 ||
+      result.parameter !== parameter ||
+      result.unit !== '1' ||
+      result.calibration !== 'uncalibrated'
+    ) {
       invalid('S-parameter metadata')
     }
   }
@@ -90,42 +135,111 @@ export function decodeStatus(value: unknown): InstrumentStatus {
   const portCount = integer(limits.portCount, 'capabilities.portCount', 1, 4)
   const capabilities: InstrumentCapabilities = {
     portCount,
-    minFrequencyHz: number(limits.minFrequencyHz, 'capabilities.minFrequencyHz', Number.MIN_VALUE),
-    maxFrequencyHz: number(limits.maxFrequencyHz, 'capabilities.maxFrequencyHz', Number.MIN_VALUE),
-    minSweepPoints: integer(limits.minSweepPoints, 'capabilities.minSweepPoints', 2, 10001),
-    maxSweepPoints: integer(limits.maxSweepPoints, 'capabilities.maxSweepPoints', 2, 10001),
+    minFrequencyHz: number(
+      limits.minFrequencyHz,
+      'capabilities.minFrequencyHz',
+      Number.MIN_VALUE,
+    ),
+    maxFrequencyHz: number(
+      limits.maxFrequencyHz,
+      'capabilities.maxFrequencyHz',
+      Number.MIN_VALUE,
+    ),
+    minSweepPoints: integer(
+      limits.minSweepPoints,
+      'capabilities.minSweepPoints',
+      2,
+      10001,
+    ),
+    maxSweepPoints: integer(
+      limits.maxSweepPoints,
+      'capabilities.maxSweepPoints',
+      2,
+      10001,
+    ),
   }
-  if (capabilities.minFrequencyHz > capabilities.maxFrequencyHz
-    || capabilities.minSweepPoints > capabilities.maxSweepPoints) invalid('capabilities bounds')
-  const startHz = number(config.startHz, 'config.startHz', capabilities.minFrequencyHz, capabilities.maxFrequencyHz)
-  const stopHz = number(config.stopHz, 'config.stopHz', capabilities.minFrequencyHz, capabilities.maxFrequencyHz)
+  if (
+    capabilities.minFrequencyHz > capabilities.maxFrequencyHz ||
+    capabilities.minSweepPoints > capabilities.maxSweepPoints
+  )
+    invalid('capabilities bounds')
+  const startHz = number(
+    config.startHz,
+    'config.startHz',
+    capabilities.minFrequencyHz,
+    capabilities.maxFrequencyHz,
+  )
+  const stopHz = number(
+    config.stopHz,
+    'config.stopHz',
+    capabilities.minFrequencyHz,
+    capabilities.maxFrequencyHz,
+  )
   if (startHz > stopHz) invalid('config.startHz / stopHz')
-  const measurements = array(item.measurements, 'measurements', 32).map(measurement)
-  if (new Set(measurements.map((entry) => entry.name)).size !== measurements.length) invalid('measurement names')
-  if (measurements.some(entry => entry.receiverPort > portCount || entry.sourcePort > portCount)) invalid('measurement port capability')
+  const measurements = array(item.measurements, 'measurements', 32).map(
+    measurement,
+  )
+  if (
+    new Set(measurements.map((entry) => entry.name)).size !==
+    measurements.length
+  )
+    invalid('measurement names')
+  if (
+    measurements.some(
+      (entry) => entry.receiverPort > portCount || entry.sourcePort > portCount,
+    )
+  )
+    invalid('measurement port capability')
   return {
     identity: text(item.identity, 'identity'),
     backend: text(item.backend, 'backend'),
-    state: choice<CoreState>(item.state, 'state', ['Uninitialized', 'Ready', 'Running', 'Faulted', 'Closed']),
+    state: choice<CoreState>(item.state, 'state', [
+      'Uninitialized',
+      'Ready',
+      'Running',
+      'Faulted',
+      'Closed',
+    ]),
     error: text(item.error, 'error'),
     pending: flag(item.pending, 'pending'),
     revision: identity(item.revision, 'revision'),
+    acquisitionRevision: identity(
+      item.acquisitionRevision,
+      'acquisitionRevision',
+    ),
     runId: identity(item.runId, 'runId'),
     activeConfigValid: flag(item.activeConfigValid, 'activeConfigValid'),
     capabilities,
     config: {
-      startHz, stopHz,
-      points: integer(config.points, 'config.points', capabilities.minSweepPoints, capabilities.maxSweepPoints),
+      startHz,
+      stopHz,
+      points: integer(
+        config.points,
+        'config.points',
+        capabilities.minSweepPoints,
+        capabilities.maxSweepPoints,
+      ),
       ifBandwidthHz: number(config.ifBandwidthHz, 'config.ifBandwidthHz', 10),
-      triggerSource: choice(config.triggerSource, 'config.triggerSource', ['IMM', 'MAN']),
-      sweepMode: choice(config.sweepMode, 'config.sweepMode', ['HOLD', 'SING', 'CONT']),
+      triggerSource: choice(config.triggerSource, 'config.triggerSource', [
+        'IMM',
+        'MAN',
+      ]),
+      sweepMode: choice(config.sweepMode, 'config.sweepMode', [
+        'HOLD',
+        'SING',
+        'CONT',
+      ]),
     },
     measurements,
     control: {
       owner: choice(control.owner, 'control.owner', ['none', 'scpi', 'web']),
       hasControl: flag(control.hasControl, 'control.hasControl'),
       releasing: flag(control.releasing, 'control.releasing'),
-      leaseRemainingMs: number(control.leaseRemainingMs, 'control.leaseRemainingMs', 0),
+      leaseRemainingMs: number(
+        control.leaseRemainingMs,
+        'control.leaseRemainingMs',
+        0,
+      ),
       readOnlyReason: text(control.readOnlyReason, 'control.readOnlyReason'),
     },
   }
@@ -133,35 +247,82 @@ export function decodeStatus(value: unknown): InstrumentStatus {
 
 function trace(value: unknown, count: number): ReceiverTrace {
   const item = object(value, 'trace')
-  const real = array(item.real, 'trace.real', 2001).map((entry) => entry === null ? null : number(entry, 'trace.real'))
-  const imag = array(item.imag, 'trace.imag', 2001).map((entry) => entry === null ? null : number(entry, 'trace.imag'))
-  const valid = array(item.valid, 'trace.valid', 2001).map((entry) => flag(entry, 'trace.valid'))
-  if ([real.length, imag.length, valid.length].some((length) => length !== count)) invalid('trace point count')
-  if (valid.some((entry, index) => entry && (real[index] === null || imag[index] === null))) invalid('trace valid data')
-  return { ...measurement(item), available: flag(item.available, 'trace.available'), real, imag, valid }
+  const real = array(item.real, 'trace.real', 2001).map((entry) =>
+    entry === null ? null : number(entry, 'trace.real'),
+  )
+  const imag = array(item.imag, 'trace.imag', 2001).map((entry) =>
+    entry === null ? null : number(entry, 'trace.imag'),
+  )
+  const valid = array(item.valid, 'trace.valid', 2001).map((entry) =>
+    flag(entry, 'trace.valid'),
+  )
+  if (
+    [real.length, imag.length, valid.length].some((length) => length !== count)
+  )
+    invalid('trace point count')
+  if (
+    valid.some(
+      (entry, index) => entry && (real[index] === null || imag[index] === null),
+    )
+  )
+    invalid('trace valid data')
+  return {
+    ...measurement(item),
+    available: flag(item.available, 'trace.available'),
+    real,
+    imag,
+    valid,
+  }
 }
 
 export function decodeFrame(value: unknown): FrameResponse {
   const item = object(value, 'frame')
   if (!flag(item.available, 'frame.available')) {
-    if (flag(item.current, 'frame.current')) invalid('unavailable frame.current')
-    return { available: false, current: false, reason: text(item.reason, 'frame.reason') }
+    if (flag(item.current, 'frame.current'))
+      invalid('unavailable frame.current')
+    return {
+      available: false,
+      current: false,
+      reason: text(item.reason, 'frame.reason'),
+    }
   }
-  const count = integer(item.displayPointCount, 'frame.displayPointCount', 1, 2001)
-  const originalCount = integer(item.originalPointCount, 'frame.originalPointCount', count, 10001)
-  const axis = array(item.frequencyHz, 'frame.frequencyHz', 2001)
-    .map((entry) => number(entry, 'frame.frequencyHz', Number.MIN_VALUE))
-  if (axis.length !== count || axis.some((entry, index) => index > 0 && entry < axis[index - 1]!)) invalid('frame axis')
+  const count = integer(
+    item.displayPointCount,
+    'frame.displayPointCount',
+    1,
+    2001,
+  )
+  const originalCount = integer(
+    item.originalPointCount,
+    'frame.originalPointCount',
+    count,
+    10001,
+  )
+  const axis = array(item.frequencyHz, 'frame.frequencyHz', 2001).map((entry) =>
+    number(entry, 'frame.frequencyHz', Number.MIN_VALUE),
+  )
+  if (
+    axis.length !== count ||
+    axis.some((entry, index) => index > 0 && entry < axis[index - 1]!)
+  )
+    invalid('frame axis')
   const decimated = flag(item.decimated, 'frame.decimated')
-  if (decimated !== (originalCount > count)) invalid('frame.decimated')
-  const traces = array(item.traces, 'frame.traces', 4).map((entry) => trace(entry, count))
-  if (new Set(traces.map((entry) => entry.name)).size !== traces.length) invalid('trace names')
+  if (decimated !== originalCount > count) invalid('frame.decimated')
+  const traces = array(item.traces, 'frame.traces', 4).map((entry) =>
+    trace(entry, count),
+  )
+  if (new Set(traces.map((entry) => entry.name)).size !== traces.length)
+    invalid('trace names')
   const result: AcquiredFrame = {
     available: true,
     current: flag(item.current, 'frame.current'),
     channelId: integer(item.channelId, 'frame.channelId', 1, 65535),
     runId: identity(item.runId, 'frame.runId'),
     revision: identity(item.revision, 'frame.revision'),
+    measurementRevision: identity(
+      item.measurementRevision,
+      'frame.measurementRevision',
+    ),
     frameSeq: identity(item.frameSeq, 'frame.frameSeq'),
     originalPointCount: originalCount,
     displayPointCount: count,
@@ -175,8 +336,17 @@ export function decodeFrame(value: unknown): FrameResponse {
 export function decodeClaim(value: unknown): ClaimResponse {
   const item = object(value, 'claim')
   const sessionId = text(item.sessionId, 'claim.sessionId')
-  if (!sessionId || sessionId.length > 128 || !flag(item.hasControl, 'claim.hasControl')) invalid('claim control')
-  return { sessionId, hasControl: true, leaseSeconds: number(item.leaseSeconds, 'claim.leaseSeconds', 1) }
+  if (
+    !sessionId ||
+    sessionId.length > 128 ||
+    !flag(item.hasControl, 'claim.hasControl')
+  )
+    invalid('claim control')
+  return {
+    sessionId,
+    hasControl: true,
+    leaseSeconds: number(item.leaseSeconds, 'claim.leaseSeconds', 1),
+  }
 }
 
 export function decodeAccepted(value: unknown): AcceptedOperation {
@@ -185,7 +355,11 @@ export function decodeAccepted(value: unknown): AcceptedOperation {
   if (!operationId || operationId.length > 128) invalid('operation.operationId')
   return {
     operationId,
-    state: choice(item.state, 'operation.state', ['pending', 'completed', 'failed']),
+    state: choice(item.state, 'operation.state', [
+      'pending',
+      'completed',
+      'failed',
+    ]),
   }
 }
 

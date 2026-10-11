@@ -12,7 +12,7 @@ const capabilities = {
 function status(receiverPort = 1, sourcePort = 2) {
   return {
     identity: 'VnaPro,NativeSimulator,0,0.2', backend: 'NativeSimulator', state: 'Ready',
-    error: '', pending: false, revision: '1', runId: '1', activeConfigValid: true,
+    error: '', pending: false, revision: '1', acquisitionRevision: '1', runId: '1', activeConfigValid: true,
     capabilities,
     config: { startHz: 10e6, stopHz: 8e9, points: 201, ifBandwidthHz: 1000, triggerSource: 'IMM', sweepMode: 'HOLD' },
     measurements: [{ name: 'Reverse', kind: 'sParameter', receiverKind: 'b', receiverPort, sourcePort,
@@ -26,7 +26,7 @@ test('reverse S12 and S22 ratios decode with the source-2 reference', () => {
     const value = status(port)
     assert.deepEqual(decodeStatus(value).measurements, value.measurements)
     const frame = {
-      available: true, current: true, channelId: 1, runId: '1', revision: '1', frameSeq: '1',
+      available: true, current: true, channelId: 1, runId: '1', revision: '1', measurementRevision: '1', frameSeq: '1',
       originalPointCount: 2, displayPointCount: 2, decimated: false, frequencyHz: [10e6, 8e9],
       traces: [{ ...value.measurements[0], available: true, real: [0.2, 0.3], imag: [0.1, 0.2], valid: [true, true] }],
     }
