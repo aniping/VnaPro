@@ -17,6 +17,7 @@ public:
     // 方法名遵循第三方虚函数接口，输出等级名称不修改第三方库全局配置。
     void format(
         const spdlog::details::log_msg &message, const std::tm &time, spdlog::memory_buf_t &destination) override;
+    // 为原生 pattern_formatter 创建独立的大写等级标志实例。
     std::unique_ptr<spdlog::custom_flag_formatter> clone() const override;
 };
 

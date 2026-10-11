@@ -12,6 +12,7 @@
 #include "network/socket_owner.h"
 #include "network/socket_poll_set.h"
 #include "scpi_connection.h"
+#include "vna_log/logger.h"
 #include "web/web_endpoint.h"
 
 namespace VnaServer {
@@ -24,6 +25,7 @@ void AdmitController(
         return;
     }
     if (connection || !Network::FitsSelect(incoming.Get()) || !Network::SetNonBlocking(incoming.Get())) {
+        VnaLog::Debug(VnaLog::Module::SCPI, "SCPI 连接未获准接入");
         return;
     }
     // 仅在接入获准后才创建连接，因此允许连接所有者为空。
@@ -55,7 +57,7 @@ void PollTransports(
 
 void AnnounceListener(const ListenOptions &options, std::uint16_t port)
 {
-    std::cout << "LISTENING " << options.bindAddress << ':' << port << std::endl;
+    VnaLog::Info(VnaLog::Module::SCPI, "TCP SCPI 已监听，address={}:{}", options.bindAddress, port);
     if (options.onListening) {
         options.onListening(port);
     }
@@ -79,6 +81,7 @@ int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions
     bool shuttingDown = false;
     while (true) {
         if (!shuttingDown && shutdownRequested()) {
+            VnaLog::Info(VnaLog::Module::SERVER, "收到退出请求，开始排空已接受操作");
             shuttingDown = true;
             listener.Reset();
             if (connection) {

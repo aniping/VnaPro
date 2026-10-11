@@ -7,13 +7,13 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
-#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
 
 #include "network/network_runtime.h"
 #include "network/socket_owner.h"
+#include "vna_log/logger.h"
 #include "web/http_api.h"
 #include "web/json_encoder.h"
 #include "web/static_file.h"
@@ -261,11 +261,14 @@ WebEndpoint::WebEndpoint(VnaService::InstrumentService &service, const WebOption
         throw std::runtime_error("Cannot create Web listener");
     }
     actualPort_ = VnaServer::Network::BindListener(listener_.Get(), options_.bindAddress, options_.port);
-    std::cout << "WEB_LISTENING http://" << options_.bindAddress << ':' << actualPort_ << std::endl;
+    VnaLog::Info(VnaLog::Module::WEB, "Web 已监听，address=http://{}:{}", options_.bindAddress, actualPort_);
 }
 
 void WebEndpoint::Respond(HttpConnection &client, HttpResponse response)
 {
+    // 只记录已解析路径和结果，不输出头、控制令牌或请求正文。
+    VnaLog::Debug(VnaLog::Module::WEB, "HTTP method={} path={} status={}", client.request.method, client.request.path,
+        response.status);
     client.dispatched = true;
     client.input.clear();
     client.status = response.status;

@@ -8,6 +8,7 @@ add_library(vna_web STATIC
 )
 target_include_directories(vna_web PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(vna_web PUBLIC vna_service vna_network)
+target_link_libraries(vna_web PRIVATE vna_log)
 target_compile_features(vna_web PUBLIC cxx_std_14)
 target_compile_options(vna_web PRIVATE -Wall -Wextra -Wpedantic)
 if(WIN32)

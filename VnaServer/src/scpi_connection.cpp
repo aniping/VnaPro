@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "scpi/scpi_constants.h"
+#include "vna_log/logger.h"
 
 namespace VnaServer {
 namespace {
@@ -18,7 +19,10 @@ ScpiConnection::ScpiConnection(VnaService::InstrumentService &service, Network::
 {
     Network::ConfigureStreamSocket(socket_.Get());
     if (!engine_.HasControl()) {
+        VnaLog::Debug(VnaLog::Module::SCPI, "控制权已占用，关闭 SCPI 连接");
         Disconnect();
+    } else {
+        VnaLog::Info(VnaLog::Module::SCPI, "SCPI 连接取得控制权");
     }
 }
 
@@ -44,6 +48,7 @@ void ScpiConnection::Poll()
     engine_.Poll();
     CollectResponses();
     if (WantsWrite() && (std::chrono::steady_clock::now() - lastSendProgress_) > WRITE_PROGRESS_TIMEOUT) {
+        VnaLog::Warn(VnaLog::Module::SCPI, "响应发送超时，关闭 SCPI 连接");
         Disconnect();
     }
 }
@@ -59,6 +64,7 @@ void ScpiConnection::CollectResponses()
             continue;
         }
         if (response.size() > (VnaScpi::TRANSPORT_OUTPUT_BYTE_LIMIT - (output_.size() - sent_))) {
+            VnaLog::Warn(VnaLog::Module::SCPI, "响应超过发送预算，关闭 SCPI 连接");
             Disconnect();
             return;
         }
@@ -128,6 +134,9 @@ void ScpiConnection::Write()
 
 void ScpiConnection::Disconnect() noexcept
 {
+    if (socket_.Get() != Network::INVALID_SOCKET_HANDLE) {
+        VnaLog::Info(VnaLog::Module::SCPI, "SCPI 连接关闭，等待已接受操作排空");
+    }
     socket_.Reset();
     input_.clear();
     output_.clear();

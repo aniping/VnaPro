@@ -351,7 +351,7 @@ def main():
     process = subprocess.Popen(
         [sys.argv[1], "--port", "0", "--web-port", "0", "--driver", os.path.abspath(sys.argv[2]),
          "--web-root", os.path.abspath(sys.argv[3])],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=environment,
     )
     lines = queue.Queue()
 

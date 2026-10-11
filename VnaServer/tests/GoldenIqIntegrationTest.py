@@ -98,7 +98,7 @@ def running_server(server, driver, environment):
     """返回新启动服务的监听端口；优雅关闭由生命周期测试验证。"""
     process = subprocess.Popen(
         [server, "--port", "0", "--web-port", "0", "--driver", os.path.abspath(driver)],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=environment,
     )
     lines = queue.Queue()
 

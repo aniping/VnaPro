@@ -144,7 +144,7 @@ def main():
     environment.pop("VNAPRO_SIM_SEED", None)
     process = subprocess.Popen(
         [sys.argv[1], "--port", "0", "--no-web", "--driver", os.path.abspath(sys.argv[2])],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=environment,
     )
     lines = queue.Queue()
 

@@ -19,6 +19,7 @@ namespace VnaLog {
 
 class Logger final {
 public:
+    // 返回进程内唯一的配置入口；不注册第三方全局 logger，也不自动开启输出。
     static Logger &Instance();
 
     Logger(const Logger &) = delete;
@@ -30,6 +31,7 @@ public:
     void Configure(const LogConfig &config);
     // 调用方先结束业务线程；已取得的写入快照仍保持有效。
     void Shutdown() noexcept;
+    // 刷新全部已配置目标的缓冲，不承诺日志已经掉电持久化。
     void Flush() noexcept;
     // 未配置或等级关闭时返回 false，不创建默认文件或控制台输出。
     bool Enabled(Level level) const noexcept;

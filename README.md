@@ -4,7 +4,7 @@
 
 ## 构建和测试
 
-Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.13、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。Windows MinGW 的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
+Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.13、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。首次 CMake 配置下载固定版本 spdlog 1.17.0 并校验摘要，离线源码覆盖方式见[日志模块说明](VnaLog/README.md)。Windows MinGW 的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
 
 ```powershell
 Set-Location WebUI
@@ -32,7 +32,7 @@ C++ 开发统一遵守 [C++语言编程规范](docs/C++语言编程规范.md)。
 先正常编写代码，再直接运行 clang-format 程序，使用根目录 `.clang-format` 自动格式化，排版依据上述规范第 3 章。单条语句的条件、循环也自动补上 `{}`（InsertBraces: true）；短函数体展开，类、结构体和函数定义之间自动留一空行（SeparateDefinitionBlocks: Always）；120 列由格式器处理，不为满足提交行数压缩代码。按功能拆分提交，不通过省略换行缩小差异。使用 clang-format 18.1.8，在根目录运行：
 
 ```powershell
-$cppFiles = rg --files VnaCore VnaService VnaServer VnaNativeSimulator -g '*.h' -g '*.cpp'
+$cppFiles = rg --files VnaCore VnaService VnaServer VnaNativeSimulator VnaLog -g '*.h' -g '*.cpp'
 clang-format --style=file -i $cppFiles
 clang-format --style=file --dry-run --Werror $cppFiles
 ```
@@ -48,6 +48,12 @@ clang-format --style=file --dry-run --Werror $cppFiles
 ```
 
 默认加载构建生成的模拟动态库，并启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。静态根目录为构建时指定的 `WebUI/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时显式传入 `--driver` 的模拟库绝对路径，并用 `--web-root` 指向部署后的 `WebUI/dist`；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，启动输出 `LISTENING 地址:端口` / `WEB_LISTENING URL`。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认仅绑定本机；`--no-web` 关闭 Web 入口。
+
+## 日志配置
+
+服务采用 spdlog，默认 INFO，同时输出终端 stderr 和构建目录 `bin/logs/vnapro.log`；日志包含毫秒时间、等级、线程、模块和消息。单文件 10 MiB，保留 5 个备份，单条完整记录最多 64 KiB；逐帧摘要只在 TRACE 打开时输出。
+
+默认配置为 [config/logging.properties](config/logging.properties)，CMake 将它复制到构建目录 `bin/logging.properties`。可用 `--log-config 配置文件` 指定部署配置，相对日志路径按配置文件目录解析；修改配置后重启生效。大小、备份、刷新、格式、中文路径及历史文件边界见[日志模块说明](VnaLog/README.md)，库的公开采用证据见[选型调研](docs/research/C++日志库选型.md)。
 
 ## 使用 Web 验证
 
@@ -98,6 +104,7 @@ CALC1:DATA? RDATA
 | 目录 | 职责 |
 | --- | --- |
 | `VnaNativeSimulator` | 九个 Drv* ABI、确定性模拟信号、独立合同测试 |
+| `VnaLog` / `config/logging.properties` | spdlog 日志门面、线程安全滚动目标与启动配置 |
 | `VnaCore/include/vna_core` | 配置、不可变完整帧、异步命令结果与状态视图 |
 | `VnaCore/src` | 命令 FIFO、单 worker 生命周期、Native 加载与帧转换 |
 | `VnaService` | 物理配置、测量目录、控制权、有限操作及仪器错误状态 |

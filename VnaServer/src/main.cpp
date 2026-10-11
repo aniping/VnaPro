@@ -7,9 +7,12 @@
 #include <iostream>
 #include <string>
 
+#include "log_config_loader.h"
 #include "scpi_tcp_server.h"
 #include "server_defaults.h"
+#include "utf8_argument.h"
 #include "vna_core/acquisition_core.h"
+#include "vna_log/logger.h"
 #include "vna_service/instrument_service.h"
 
 namespace {
@@ -32,6 +35,7 @@ void PrintHelp()
     std::cout << "VnaPro mock SCPI and Web service\n"
                  "Usage: vna_server [--bind IPv4] [--port 0..65535] [--driver absolute-simulator-path]\n"
                  "                  [--web-bind IPv4] [--web-port 0..65535] [--web-root directory] [--no-web]\n"
+                 "                  [--log-config properties-file]\n"
                  "Defaults: SCPI 127.0.0.1:5025, Web http://127.0.0.1:8080.\n"
                  "Port 0 selects an available port. Only the VnaPro mock profile is implemented.\n";
 }
@@ -48,8 +52,8 @@ bool ParsePort(const std::string &value, std::uint16_t &port)
     return true;
 }
 
-bool ParseOption(
-    const std::string &argument, const std::string &value, VnaServer::ListenOptions &options, std::string &driver)
+bool ParseOption(const std::string &argument, const std::string &value, VnaServer::ListenOptions &options,
+    std::string &driver, std::string &logConfig)
 {
     if (argument == "--bind") {
         options.bindAddress = value;
@@ -59,6 +63,8 @@ bool ParseOption(
         options.web.staticRoot = value;
     } else if (argument == "--driver") {
         driver = value;
+    } else if (argument == "--log-config") {
+        logConfig = value;
     } else if (argument == "--port") {
         return ParsePort(value, options.port);
     } else if (argument == "--web-port") {
@@ -71,7 +77,7 @@ bool ParseOption(
 }
 
 ArgumentResult ParseArguments(
-    int argc, const char * const *argv, VnaServer::ListenOptions &options, std::string &driver)
+    int argc, const char * const *argv, VnaServer::ListenOptions &options, std::string &driver, std::string &logConfig)
 {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -87,30 +93,52 @@ ArgumentResult ParseArguments(
             return ArgumentResult::ERROR;
         }
         ++index;
-        if (!ParseOption(argument, argv[index], options, driver)) {
+        try {
+            const std::string value =
+                argument == "--log-config" ? VnaServer::Utf8Argument(index, argv[index]) : argv[index];
+            if (!ParseOption(argument, value, options, driver, logConfig)) {
+                return ArgumentResult::ERROR;
+            }
+        } catch (const std::exception &error) {
+            // 日志初始化前的路径编码错误仍按参数错误返回，避免直接终止进程。
+            std::cerr << "Invalid option value: " << argument << ": " << error.what() << '\n';
             return ArgumentResult::ERROR;
         }
     }
     return ArgumentResult::READY;
 }
 
+bool ConfigureLogging(const std::string &path)
+{
+    try {
+        VnaLog::Logger::Instance().Configure(VnaServer::LoadLogConfig(path));
+        VnaLog::Info(VnaLog::Module::SERVER, "日志配置已加载，config={}", path);
+        return true;
+    } catch (const std::exception &error) {
+        // 此时日志后端尚未就绪，启动诊断直接写终端。
+        std::cerr << "Logging configuration failed: " << error.what() << '\n';
+        return false;
+    }
+}
+
 int StartService(const std::string &driver, const VnaServer::ListenOptions &options)
 {
+    VnaLog::Info(VnaLog::Module::SERVER, "服务启动，driver={}", driver);
     VnaCore::AcquisitionCore core(driver);
     const auto initialized = core.Initialize().get();
     if (!initialized.ok) {
-        std::cerr << "Driver initialization failed: " << initialized.message << '\n';
+        VnaLog::Error(VnaLog::Module::SERVER, "Driver initialization failed: {}", initialized.message);
         return 1;
     }
     if (core.ReadView().deviceIdn.find("VnaPro,NativeSimulator,") != 0U) {
-        std::cerr << "The service only supports the verified VnaPro mock unit/receiver profile\n";
+        VnaLog::Error(VnaLog::Module::SERVER, "设备身份不符合已验证的 VnaPro 模拟器合同");
         core.Close();
         return 1;
     }
     VnaService::InstrumentService service(core);
     std::string bootstrapError;
     if (!service.BootstrapMockProfile(bootstrapError)) {
-        std::cerr << "Mock configuration failed: " << bootstrapError << '\n';
+        VnaLog::Error(VnaLog::Module::SERVER, "Mock configuration failed: {}", bootstrapError);
         core.Close();
         return 1;
     }
@@ -119,7 +147,7 @@ int StartService(const std::string &driver, const VnaServer::ListenOptions &opti
     });
     const auto closed = core.Close();
     if (!closed.ok) {
-        std::cerr << "Driver shutdown failed: " << closed.message << '\n';
+        VnaLog::Error(VnaLog::Module::SERVER, "Driver shutdown failed: {}", closed.message);
         return 1;
     }
     return result;
@@ -131,7 +159,8 @@ int main(int argc, char **argv)
     VnaServer::ListenOptions options;
     options.web.staticRoot = VnaServer::DEFAULT_WEB_ROOT_PATH;
     std::string driver = VnaServer::DEFAULT_DRIVER_PATH;
-    const ArgumentResult parsed = ParseArguments(argc, argv, options, driver);
+    std::string logConfig = VnaServer::DEFAULT_LOG_CONFIG_PATH;
+    const ArgumentResult parsed = ParseArguments(argc, argv, options, driver, logConfig);
     if (parsed == ArgumentResult::HELP) {
         PrintHelp();
         return 0;
@@ -139,12 +168,19 @@ int main(int argc, char **argv)
     if (parsed == ArgumentResult::ERROR) {
         return 2;
     }
+    if (!ConfigureLogging(logConfig)) {
+        return 2;
+    }
     std::signal(SIGINT, HandleSignal);
     std::signal(SIGTERM, HandleSignal);
+    int result = 1;
     try {
-        return StartService(driver, options);
+        result = StartService(driver, options);
     } catch (const std::exception &error) {
-        std::cerr << "Service failed: " << error.what() << '\n';
-        return 1;
+        VnaLog::Error(VnaLog::Module::SERVER, "Service failed: {}", error.what());
     }
+    VnaLog::Info(VnaLog::Module::SERVER, "服务退出，exit_code={}", result);
+    // StartService 的局部对象已析构，设备 worker 已停止，然后刷新并关闭日志。
+    VnaLog::Logger::Instance().Shutdown();
+    return result;
 }

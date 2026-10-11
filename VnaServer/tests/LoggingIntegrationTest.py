@@ -1,0 +1,168 @@
+"""使用真实服务进程验证日志配置、采集摘要和滚动文件。"""
+
+from contextlib import contextmanager
+import os
+from pathlib import Path
+import queue
+import re
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+
+def environment(mode="golden"):
+    result = dict(os.environ, VNAPRO_SIM_MODE=mode)
+    result.pop("VNAPRO_SIM_SEED", None)
+    return result
+
+
+def config_file(directory, extra=""):
+    path = directory / "logging.properties"
+    path.write_text(
+        "level=TRACE\nconsole.enabled=false\nfile.path=logs/service.log\n"
+        "file.max_bytes=1024\nfile.backups=2\nfile.max_record_bytes=512\n"
+        "flush.level=TRACE\n" + extra,
+        encoding="utf-8",
+    )
+    return path
+
+
+def command(config):
+    return [sys.argv[1], "--port", "0", "--no-web", "--driver",
+            os.path.abspath(sys.argv[2]), "--log-config", str(config)]
+
+
+def logs(directory):
+    return sorted((directory / "logs").glob("service*.log"))
+
+
+def contents(directory):
+    return "".join(path.read_text(encoding="utf-8") for path in logs(directory))
+
+
+@contextmanager
+def running(config):
+    process = subprocess.Popen(command(config), stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, encoding="utf-8", env=environment())
+    lines = queue.Queue()
+
+    def collect():
+        for line in process.stdout:
+            lines.put(line.rstrip())
+        lines.put(None)
+
+    collector = threading.Thread(target=collect, daemon=True)
+    collector.start()
+    try:
+        deadline = time.monotonic() + 10
+        while True:
+            line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
+            assert line is not None, "服务在完成监听前退出"
+            if line.startswith("LISTENING "):
+                yield int(line.rsplit(":", 1)[1])
+                break
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        collector.join(timeout=2)
+        errors = process.stderr.read()
+        process.stdout.close()
+        process.stderr.close()
+        assert not errors, errors
+
+
+def query(connection, reader, message):
+    connection.sendall((message + "\n").encode("ascii"))
+    response = reader.readline()
+    assert response, "SCPI 响应意外关闭"
+    return response.decode("ascii").strip()
+
+
+def exercise_logging(directory):
+    config = config_file(directory)
+    with running(config) as port:
+        # 路径按配置文件目录解析，而非调用者当前目录。
+        before = contents(directory)
+        assert "设备初始化成功" in before, before
+        assert "TCP SCPI 已监听" in before, before
+        with socket.create_connection(("127.0.0.1", port), timeout=3) as connection:
+            with connection.makefile("rb") as reader:
+                assert query(connection, reader, "*IDN?").startswith("VnaPro,NativeSimulator,")
+                assert int(query(connection, reader, "*CLS;SENS1:SWE:MODE HOLD;*OPC?")) == 1
+                for index in range(35):
+                    assert int(query(connection, reader, f"SENS1:SWE:POIN {17 + index};*OPC?")) == 1
+                assert int(query(connection, reader, "TRIG:SOUR IMM;:SENS1:SWE:MODE SING;*OPC?")) == 1
+                assert int(query(connection, reader, "SENS1:SWE:MODE HOLD;*OPC?")) == 1
+                assert query(connection, reader, "SYST:ERR?").startswith("0,")
+                output = contents(directory)
+                assert "[TRACE]" in output and "frame=" in output, output
+                assert "VnaCore" in output and "VnaService" in output, output
+                # HOLD 且控制连接保持打开时读取；关闭连接的日志仍可能触发下一次轮转。
+                paths = logs(directory)
+                assert len(paths) == 3, paths
+                assert all(path.stat().st_size <= 1024 for path in paths), paths
+                assert not (directory / "logs" / "service.3.log").exists()
+                prefix = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} "
+                                    r"\[(TRACE|DEBUG|INFO|WARN|ERROR|CRITICAL)\] \[\d+\] Vna\w+ - ")
+                assert all(prefix.match(line) for line in contents(directory).splitlines())
+
+
+def exercise_unicode_path(directory):
+    config = directory / "日志配置.properties"
+    config.write_text("console.enabled=false\nfile.path=日志/采集.log\n", encoding="utf-8")
+    failed = subprocess.run(command(config), capture_output=True, text=True,
+                            encoding="utf-8", env=environment("invalid"), timeout=10)
+    assert failed.returncode == 1, failed.stderr
+    output = (directory / "日志" / "采集.log").read_text(encoding="utf-8")
+    assert "DrvHwInit returned 1" in output and "服务退出" in output, output
+
+
+def exercise_startup_failures(directory):
+    config = config_file(directory, "unknown.option=true\n")
+    invalid = subprocess.run(command(config), capture_output=True, text=True,
+                             encoding="utf-8", env=environment(), timeout=10)
+    assert invalid.returncode == 2, invalid
+    assert "unknown.option" in invalid.stderr, invalid.stderr
+    assert "LISTENING " not in invalid.stdout
+    assert not logs(directory), "无效配置应在设备启动和创建日志目标前拒绝"
+    if os.name == "nt":
+        # Windows 原始命令行可以含孤立 UTF-16 代理，参数边界应拒绝而非崩溃。
+        invalid_unicode = subprocess.run(command("\ud800.properties"), capture_output=True, text=True,
+                                         encoding="utf-8", env=environment(), timeout=10)
+        assert invalid_unicode.returncode == 2, invalid_unicode
+        assert "Invalid option value: --log-config" in invalid_unicode.stderr, invalid_unicode.stderr
+    config = config_file(directory)
+    # 模拟设备 Init 返回非零，错误和退出日志应在进程结束前写出。
+    failed = subprocess.run(command(config), capture_output=True, text=True,
+                            encoding="utf-8", env=environment("invalid"), timeout=10)
+    assert failed.returncode == 1, failed
+    output = contents(directory)
+    assert "[ERROR]" in output and "DrvHwInit returned 1" in output, output
+    assert "服务退出，exit_code=1" in output, output
+    assert "LISTENING " not in failed.stdout
+
+
+def main():
+    with tempfile.TemporaryDirectory(prefix="vnapro-logging-") as temporary:
+        directory = Path(temporary)
+        valid = directory / "valid"
+        invalid = directory / "invalid"
+        valid.mkdir()
+        invalid.mkdir()
+        exercise_logging(valid)
+        exercise_startup_failures(invalid)
+        unicode_path = directory / "中文目录"
+        unicode_path.mkdir()
+        exercise_unicode_path(unicode_path)
+    print("日志集成验证通过：配置目录、采集摘要、轮转保留、启动失败与刷新")
+
+
+if __name__ == "__main__":
+    main()
