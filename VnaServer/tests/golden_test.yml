@@ -1,0 +1,16 @@
+# 独立黄金向量的历史频率配置；生产默认频段通过配置集成测试验收。
+instrument:
+  portCount: 4
+  frequency:
+    minHz: 1
+    maxHz: 1000000000
+  sweep:
+    defaultStartHz: 1000000
+    defaultStopHz: 100000000
+    defaultPoints: 201
+    defaultIfBandwidthHz: 1000
+log:
+  console:
+    enabled: true
+  file:
+    enabled: false

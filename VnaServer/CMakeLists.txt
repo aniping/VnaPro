@@ -1,13 +1,15 @@
+include("${CMAKE_SOURCE_DIR}/cmake/yaml_cpp.cmake")
 add_subdirectory(src/network)
 add_subdirectory(src/scpi)
 add_subdirectory(src/web)
-add_executable(vna_server src/main.cpp src/log_config_loader.cpp src/utf8_argument.cpp
+set(SERVER_CONFIG_SOURCES src/server_config_loader.cpp src/server_config_io.cpp src/yaml_config_reader.cpp)
+add_executable(vna_server src/main.cpp ${SERVER_CONFIG_SOURCES} src/utf8_argument.cpp
     src/scpi_tcp_server.cpp src/scpi_connection.cpp)
-target_link_libraries(vna_server PRIVATE vna_scpi vna_web vna_log)
+target_link_libraries(vna_server PRIVATE vna_scpi vna_web vna_log yaml-cpp::yaml-cpp)
 set(DEFAULT_DRIVER_PATH "$<TARGET_FILE:vnb_drv_sim>")
 set(DEFAULT_WEB_ROOT_PATH "${CMAKE_SOURCE_DIR}/WebUI/dist")
-set(DEFAULT_LOG_CONFIG_PATH "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/logging.properties")
-configure_file("${CMAKE_SOURCE_DIR}/config/logging.properties" "${DEFAULT_LOG_CONFIG_PATH}" COPYONLY)
+set(DEFAULT_CONFIG_PATH "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/vnapro.yml")
+configure_file("${CMAKE_SOURCE_DIR}/config/vnapro.yml" "${DEFAULT_CONFIG_PATH}" COPYONLY)
 configure_file(src/server_defaults.h.in generated/server_defaults.h.in @ONLY)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>/server_defaults.h"
     INPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/server_defaults.h.in")
@@ -53,13 +55,17 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/SimulatorNoiseIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>)
     set_tests_properties(noise_iq_integration PROPERTIES TIMEOUT 60)
-    add_executable(vna_log_config_tests tests/log_config_loader_test.cpp src/log_config_loader.cpp)
-    target_include_directories(vna_log_config_tests PRIVATE src)
-    target_link_libraries(vna_log_config_tests PRIVATE vna_log)
-    add_test(NAME log_config
-        COMMAND vna_log_config_tests "${CMAKE_CURRENT_BINARY_DIR}/log-config-test")
+    add_executable(vna_server_config_tests tests/server_config_loader_test.cpp ${SERVER_CONFIG_SOURCES})
+    target_include_directories(vna_server_config_tests PRIVATE src)
+    target_link_libraries(vna_server_config_tests PRIVATE vna_service vna_log yaml-cpp::yaml-cpp)
+    add_test(NAME server_config
+        COMMAND vna_server_config_tests "${CMAKE_CURRENT_BINARY_DIR}/server-config-test")
     add_test(NAME logging_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/LoggingIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>)
     set_tests_properties(logging_integration PROPERTIES TIMEOUT 45)
+    add_test(NAME instrument_configuration_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/InstrumentConfigurationIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>)
+    set_tests_properties(instrument_configuration_integration PROPERTIES TIMEOUT 45)
 endif()

@@ -17,7 +17,7 @@
 记录初始化、配置提交、运行/停止、故障、监听、控制连接和退出。
 INFO 默认不打印逐帧数据；TRACE 才记录完整帧的 run、frame、revision、点数和端口数。
 HTTP 方法、已解析路径和响应状态在 DEBUG 输出，不记录控制令牌、请求正文或 IQ 数组。
-标准输出继续保留 `LISTENING` / `WEB_LISTENING` 启动行，方便客户端等待服务就绪。
+监听地址通过 INFO 日志报告，客户端应从日志等待 SCPI/Web 监听就绪。
 
 默认每个活动文件最大 **10 MiB**，保留 **5 个备份**，单条完整输出最多 **64 KiB**。
 新目录按该配置最多有活动文件和 5 个归档，即约 60 MiB；备份数不包含活动文件。
@@ -26,31 +26,31 @@ HTTP 方法、已解析路径和响应状态在 DEBUG 输出，不记录控制�
 
 ## 配置
 
-默认配置源为 [config/logging.properties](../config/logging.properties)。
-CMake 配置时复制到构建目录 `bin/logging.properties`，默认启动读取该副本。
+默认配置源为 [config/vnapro.yml](../config/vnapro.yml)。
+CMake 配置时复制到构建目录 `bin/vnapro.yml`，默认启动读取该副本。
 编辑源配置后重新执行 CMake 配置；需要保留独立运行配置时，显式指定文件：
 
 ```powershell
-.\build\bin\vna_server.exe --log-config I:\vnapro-config\logging.properties
+.\build\bin\vna_server.exe --config I:\vnapro-config\vnapro.yml
 ```
 
-迁移可执行程序时携带配置，并用 `--log-config` 指向部署文件；默认路径是构建时生成的绝对路径。
+迁移可执行程序时携带配置，并用 `--config` 指向部署文件；默认路径是构建时生成的绝对路径。
 配置变更在服务重启后生效，不提供运行中热更新。
 文件路径相对**配置文件所在目录**解析，Windows 支持中文配置目录、配置文件名和日志路径。
 设备库和 Web 根目录仍遵循既有启动参数合同。
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| `level` | `INFO` | 输出阈值：TRACE、DEBUG、INFO、WARN、ERROR、CRITICAL、OFF |
-| `console.enabled` | `true` | 是否写终端 stderr；终端支持时显示级别颜色 |
-| `file.enabled` | `true` | 是否写滚动文件 |
-| `file.path` | `logs/vnapro.log` | UTF-8 文件路径，不允许空值 |
-| `file.max_bytes` | `10485760` | 单文件大小，1024…4294967296 字节 |
-| `file.backups` | `5` | 0…1000 个备份；0 表示滚动时只重置活动文件 |
-| `file.max_record_bytes` | `65536` | 单条完整输出限制，32…4294967296 字节 |
-| `file.rotate_on_open` | `false` | true 时启动即归档已有非空活动文件 |
-| `flush.level` | `INFO` | 达到该级别后立即刷新；OFF 只手动刷新或退出刷新 |
-| `pattern` | 见配置文件 | 元数据和消息布局，1…1024 字节，不允许换行 |
+| `log.level` | `INFO` | 输出阈值：TRACE、DEBUG、INFO、WARN、ERROR、CRITICAL、OFF |
+| `log.console.enabled` | `true` | 是否写终端 stderr；终端支持时显示级别颜色 |
+| `log.file.enabled` | `true` | 是否写滚动文件 |
+| `log.file.path` | `logs/vnapro.log` | UTF-8 文件路径，不允许空值 |
+| `log.file.maxSizeBytes` | `10485760` | 单文件大小，1024…4294967296 字节 |
+| `log.file.maxFiles` | `5` | 0…1000 个备份；0 表示滚动时只重置活动文件 |
+| `log.file.maxRecordBytes` | `65536` | 单条完整输出限制，32…4294967296 字节 |
+| `log.file.rotateOnOpen` | `false` | true 时启动即归档已有非空活动文件 |
+| `log.flush.level` | `INFO` | 达到该级别后立即刷新；OFF 只手动刷新或退出刷新 |
+| `log.pattern` | 见配置文件 | 元数据和消息布局，1…1024 字节，不允许换行 |
 
 格式沿用 spdlog pattern：`%Y-%m-%d %H:%M:%S.%e` 为毫秒时间，`%t` 为线程 ID，
 `%n` 为模块，`%v` 为消息，`%K` 是本项目扩展的大写级别。
@@ -58,16 +58,13 @@ CMake 配置时复制到构建目录 `bin/logging.properties`，默认启动读�
 用原生 spdlog 选项调整格式，不能直接填 SLF4J/Logback 的格式语法或 XML。
 其他字段见 [spdlog 格式说明](https://github.com/gabime/spdlog/wiki/Custom-formatting)。
 
-properties 支持 `key=value`、空行、以 `#` 开头的整行注释，以及可选 UTF-8 BOM。
-键和值两侧空格会裁去；布尔值严格使用 `true` / `false`，数值使用十进制字节或个数。
-不支持行内注释、变量插值和续行；未知键、重复键、非法值或溢出报出行号和键名。
-配置文件最多 64 KiB，单行最多 2048 字节。
+统一使用 UTF-8 YAML，全部日志项置于 `log` 映射下，示例见默认配置。支持空行、`#` 注释与可选 UTF-8 BOM；只接受一个文档、已登记的键及严格类型，拒绝 null、未知键、重复键与溢出。布尔值为不加引号的 `true` / `false`，大小和个数为不加引号的无符号十进制整数。配置文件最多 64 KiB。旧 properties 和 `--log-config` 已移除，部署时改用 `--config vnapro.yml`。
 配置不存在或日志目标无法打开时，在创建设备前报错并以退出码 2 结束。
 
 ## 大小与保留边界
 
 原生 spdlog 阈值无法约束超长单条消息，所以本模块限制**整条格式化结果**，
-实际限值为 `min(file.max_record_bytes, file.max_bytes)`，包括时间、模块和行尾。
+实际限值为 `min(log.file.maxRecordBytes, log.file.maxSizeBytes)`，包括时间、模块和行尾。
 超过后在完整 UTF-8 字符边界截断，追加 `...[truncated]`，文件采用 LF 行尾。
 消息中的换行、制表符和控制字符转为可见转义，避免一条记录伪造多行。
 

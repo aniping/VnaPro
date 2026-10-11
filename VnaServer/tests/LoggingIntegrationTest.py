@@ -20,11 +20,11 @@ def environment(mode="golden"):
 
 
 def config_file(directory, extra=""):
-    path = directory / "logging.properties"
+    path = directory / "vnapro.yml"
     path.write_text(
-        "level=TRACE\nconsole.enabled=false\nfile.path=logs/service.log\n"
-        "file.max_bytes=1024\nfile.backups=2\nfile.max_record_bytes=512\n"
-        "flush.level=TRACE\n" + extra,
+        "log:\n  level: TRACE\n  console: {enabled: false}\n  file:\n"
+        "    path: logs/service.log\n    maxSizeBytes: 1024\n    maxFiles: 2\n"
+        "    maxRecordBytes: 512\n  flush: {level: TRACE}\n" + extra,
         encoding="utf-8",
     )
     return path
@@ -32,7 +32,7 @@ def config_file(directory, extra=""):
 
 def command(config):
     return [sys.argv[1], "--port", "0", "--no-web", "--driver",
-            os.path.abspath(sys.argv[2]), "--log-config", str(config)]
+            os.path.abspath(sys.argv[2]), "--config", str(config)]
 
 
 def logs(directory):
@@ -108,8 +108,8 @@ def exercise_logging(directory):
 
 
 def exercise_unicode_path(directory):
-    config = directory / "日志配置.properties"
-    config.write_text("console.enabled=false\nfile.path=日志/采集.log\n", encoding="utf-8")
+    config = directory / "服务配置.yml"
+    config.write_text("log:\n  console: {enabled: false}\n  file: {path: 日志/采集.log}\n", encoding="utf-8")
     failed = subprocess.run(command(config), capture_output=True, text=True,
                             encoding="utf-8", env=environment("invalid"), timeout=10)
     assert failed.returncode == 1, failed.stderr
@@ -118,19 +118,19 @@ def exercise_unicode_path(directory):
 
 
 def exercise_startup_failures(directory):
-    config = config_file(directory, "unknown.option=true\n")
+    config = config_file(directory, "unknown: true\n")
     invalid = subprocess.run(command(config), capture_output=True, text=True,
                              encoding="utf-8", env=environment(), timeout=10)
     assert invalid.returncode == 2, invalid
-    assert "unknown.option" in invalid.stderr, invalid.stderr
+    assert "unknown" in invalid.stderr, invalid.stderr
     assert not listening_ports(invalid.stdout + invalid.stderr)
     assert not logs(directory), "无效配置应在设备启动和创建日志目标前拒绝"
     if os.name == "nt":
         # Windows 原始命令行可以含孤立 UTF-16 代理，参数边界应拒绝而非崩溃。
-        invalid_unicode = subprocess.run(command("\ud800.properties"), capture_output=True, text=True,
+        invalid_unicode = subprocess.run(command("\ud800.yml"), capture_output=True, text=True,
                                          encoding="utf-8", env=environment(), timeout=10)
         assert invalid_unicode.returncode == 2, invalid_unicode
-        assert "Invalid option value: --log-config" in invalid_unicode.stderr, invalid_unicode.stderr
+        assert "Invalid option value: --config" in invalid_unicode.stderr, invalid_unicode.stderr
     config = config_file(directory)
     # 模拟设备 Init 返回非零，错误和退出日志应在进程结束前写出。
     failed = subprocess.run(command(config), capture_output=True, text=True,

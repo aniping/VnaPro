@@ -1,0 +1,33 @@
+# 仪器能力与启动默认值；默认扫描覆盖完整支持频段。
+instrument:
+  portCount: 4
+  frequency:
+    minHz: 10000000
+    maxHz: 8000000000
+  sweep:
+    defaultStartHz: 10000000
+    defaultStopHz: 8000000000
+    defaultPoints: 201
+    defaultIfBandwidthHz: 1000
+
+# 日志级别：TRACE、DEBUG、INFO、WARN、ERROR、CRITICAL、OFF。
+log:
+  level: INFO
+  # 时间、等级、线程、模块和消息；%K 为大写等级，其余沿用 spdlog。
+  pattern: '%Y-%m-%d %H:%M:%S.%e [%K] [%t] %n - %v'
+  console:
+    enabled: true
+  file:
+    enabled: true
+    # 相对路径以本配置文件所在目录为基准。
+    path: logs/vnapro.log
+    # 活动文件最多 10 MiB，另保留 5 个滚动备份。
+    maxSizeBytes: 10485760
+    maxFiles: 5
+    # 超长记录保留截断标记，防止单条记录突破文件大小上限。
+    maxRecordBytes: 65536
+    # 每次启动时是否把已有的非空活动文件滚动为备份。
+    rotateOnOpen: false
+  flush:
+    # 达到该级别立即刷盘；OFF 关闭按级别刷盘，退出时仍自动刷盘。
+    level: INFO

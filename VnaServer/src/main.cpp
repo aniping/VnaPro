@@ -7,8 +7,8 @@
 #include <iostream>
 #include <string>
 
-#include "log_config_loader.h"
 #include "scpi_tcp_server.h"
+#include "server_config_loader.h"
 #include "server_defaults.h"
 #include "utf8_argument.h"
 #include "vna_core/acquisition_core.h"
@@ -35,7 +35,7 @@ void PrintHelp()
     std::cout << "VnaPro mock SCPI and Web service\n"
                  "Usage: vna_server [--bind IPv4] [--port 0..65535] [--driver absolute-simulator-path]\n"
                  "                  [--web-bind IPv4] [--web-port 0..65535] [--web-root directory] [--no-web]\n"
-                 "                  [--log-config properties-file]\n"
+                 "                  [--config yaml-file]\n"
                  "Defaults: SCPI 127.0.0.1:5025, Web http://127.0.0.1:8080.\n"
                  "Port 0 selects an available port. Only the VnaPro mock profile is implemented.\n";
 }
@@ -53,7 +53,7 @@ bool ParsePort(const std::string &value, std::uint16_t &port)
 }
 
 bool ParseOption(const std::string &argument, const std::string &value, VnaServer::ListenOptions &options,
-    std::string &driver, std::string &logConfig)
+    std::string &driver, std::string &configPath)
 {
     if (argument == "--bind") {
         options.bindAddress = value;
@@ -63,8 +63,8 @@ bool ParseOption(const std::string &argument, const std::string &value, VnaServe
         options.web.staticRoot = value;
     } else if (argument == "--driver") {
         driver = value;
-    } else if (argument == "--log-config") {
-        logConfig = value;
+    } else if (argument == "--config") {
+        configPath = value;
     } else if (argument == "--port") {
         return ParsePort(value, options.port);
     } else if (argument == "--web-port") {
@@ -77,7 +77,7 @@ bool ParseOption(const std::string &argument, const std::string &value, VnaServe
 }
 
 ArgumentResult ParseArguments(
-    int argc, const char * const *argv, VnaServer::ListenOptions &options, std::string &driver, std::string &logConfig)
+    int argc, const char * const *argv, VnaServer::ListenOptions &options, std::string &driver, std::string &configPath)
 {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -95,8 +95,8 @@ ArgumentResult ParseArguments(
         ++index;
         try {
             const std::string value =
-                argument == "--log-config" ? VnaServer::Utf8Argument(index, argv[index]) : argv[index];
-            if (!ParseOption(argument, value, options, driver, logConfig)) {
+                argument == "--config" ? VnaServer::Utf8Argument(index, argv[index]) : argv[index];
+            if (!ParseOption(argument, value, options, driver, configPath)) {
                 return ArgumentResult::ERROR;
             }
         } catch (const std::exception &error) {
@@ -108,20 +108,22 @@ ArgumentResult ParseArguments(
     return ArgumentResult::READY;
 }
 
-bool ConfigureLogging(const std::string &path)
+bool LoadConfiguration(const std::string &path, VnaServer::ServerConfig &config)
 {
     try {
-        VnaLog::Logger::Instance().Configure(VnaServer::LoadLogConfig(path));
-        VnaLog::Info(VnaLog::Module::SERVER, "日志配置已加载，config={}", path);
+        config = VnaServer::LoadServerConfig(path);
+        VnaLog::Logger::Instance().Configure(config.log);
+        VnaLog::Info(VnaLog::Module::SERVER, "服务配置已加载，config={}", path);
         return true;
     } catch (const std::exception &error) {
         // 此时日志后端尚未就绪，启动诊断直接写终端。
-        std::cerr << "Logging configuration failed: " << error.what() << '\n';
+        std::cerr << "Service configuration failed: " << error.what() << '\n';
         return false;
     }
 }
 
-int StartService(const std::string &driver, const VnaServer::ListenOptions &options)
+int StartService(
+    const std::string &driver, const VnaServer::ListenOptions &options, const VnaService::InstrumentProfile &profile)
 {
     VnaLog::Info(VnaLog::Module::SERVER, "服务启动，driver={}", driver);
     VnaCore::AcquisitionCore core(driver);
@@ -135,7 +137,7 @@ int StartService(const std::string &driver, const VnaServer::ListenOptions &opti
         core.Close();
         return 1;
     }
-    VnaService::InstrumentService service(core);
+    VnaService::InstrumentService service(core, profile);
     std::string bootstrapError;
     if (!service.BootstrapMockProfile(bootstrapError)) {
         VnaLog::Error(VnaLog::Module::SERVER, "Mock configuration failed: {}", bootstrapError);
@@ -159,8 +161,8 @@ int main(int argc, char **argv)
     VnaServer::ListenOptions options;
     options.web.staticRoot = VnaServer::DEFAULT_WEB_ROOT_PATH;
     std::string driver = VnaServer::DEFAULT_DRIVER_PATH;
-    std::string logConfig = VnaServer::DEFAULT_LOG_CONFIG_PATH;
-    const ArgumentResult parsed = ParseArguments(argc, argv, options, driver, logConfig);
+    std::string configPath = VnaServer::DEFAULT_CONFIG_PATH;
+    const ArgumentResult parsed = ParseArguments(argc, argv, options, driver, configPath);
     if (parsed == ArgumentResult::HELP) {
         PrintHelp();
         return 0;
@@ -168,14 +170,15 @@ int main(int argc, char **argv)
     if (parsed == ArgumentResult::ERROR) {
         return 2;
     }
-    if (!ConfigureLogging(logConfig)) {
+    VnaServer::ServerConfig config;
+    if (!LoadConfiguration(configPath, config)) {
         return 2;
     }
     std::signal(SIGINT, HandleSignal);
     std::signal(SIGTERM, HandleSignal);
     int result = 1;
     try {
-        result = StartService(driver, options);
+        result = StartService(driver, options, config.instrument);
     } catch (const std::exception &error) {
         VnaLog::Error(VnaLog::Module::SERVER, "Service failed: {}", error.what());
     }

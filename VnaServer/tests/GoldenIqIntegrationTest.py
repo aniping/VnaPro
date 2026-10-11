@@ -45,7 +45,7 @@ def exercise(http_port, scpi_port, vectors):
     client = connect_scpi(scpi_port)
     try:
         assert int(client.query("*CLS;:SENS1:SWE:MODE HOLD;*OPC?")) == 1
-        # 服务配置的频率上限为 1 GHz；允许起止频率相同，不扩大正式代码的限制。
+        # 黄金向量使用独立测试能力配置；允许起止频率相同，正式默认能力另行验收。
         assert int(client.query("SENS1:FREQ:STOP 1GHz;STAR 1GHz;:SENS1:SWE:POIN 2;*OPC?")) == 1
         assert int(client.query('CALC1:PAR:DEL "DefaultA";*OPC?')) == 1
         client.query("FORM:DATA ASC,0;:TRIG:SOUR IMM;*OPC?")
@@ -95,10 +95,13 @@ def exercise(http_port, scpi_port, vectors):
 
 
 @contextmanager
-def running_server(server, driver, environment):
+def running_server(server, driver, environment, config=None):
     """返回新启动服务的监听端口；优雅关闭由生命周期测试验证。"""
+    arguments = [server, "--port", "0", "--web-port", "0", "--driver", os.path.abspath(driver)]
+    if config is not None:
+        arguments += ["--config", os.fspath(config)]
     process = subprocess.Popen(
-        [server, "--port", "0", "--web-port", "0", "--driver", os.path.abspath(driver)],
+        arguments,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=environment,
     )
     lines = queue.Queue()
@@ -142,7 +145,8 @@ def main():
     environment = os.environ.copy()
     environment["VNAPRO_SIM_MODE"] = "golden"
     environment.pop("VNAPRO_SIM_SEED", None)
-    with running_server(sys.argv[1], sys.argv[2], environment) as ports:
+    with running_server(sys.argv[1], sys.argv[2], environment,
+                        config=Path(__file__).with_name("golden_test.yml")) as ports:
         exercise(ports["http"], ports["scpi"], vectors)
     print("Golden IQ acceptance passed: 4 sources x 8 receivers x 2 points, HTTP + ASCII SCPI, 1e-12")
 

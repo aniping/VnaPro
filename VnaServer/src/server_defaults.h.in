@@ -8,7 +8,7 @@
 namespace VnaServer {
 constexpr const char *DEFAULT_DRIVER_PATH = "@DEFAULT_DRIVER_PATH@";
 constexpr const char *DEFAULT_WEB_ROOT_PATH = "@DEFAULT_WEB_ROOT_PATH@";
-constexpr const char *DEFAULT_LOG_CONFIG_PATH = "@DEFAULT_LOG_CONFIG_PATH@";
+constexpr const char *DEFAULT_CONFIG_PATH = "@DEFAULT_CONFIG_PATH@";
 }  // 命名空间 VnaServer
 
 #endif

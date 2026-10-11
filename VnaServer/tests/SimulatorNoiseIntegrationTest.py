@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+from pathlib import Path
 import sys
 import threading
 import time
@@ -15,7 +16,8 @@ from GoldenIqIntegrationTest import running_server
 
 def run_device(seed, exercise):
     env = dict(os.environ, VNAPRO_SIM_MODE="noise", VNAPRO_SIM_SEED=str(seed))
-    with running_server(sys.argv[1], sys.argv[2], env) as ports:
+    with running_server(sys.argv[1], sys.argv[2], env,
+                        config=Path(__file__).with_name("golden_test.yml")) as ports:
         return exercise(HttpClient(ports["http"]), ports["scpi"])
 
 
