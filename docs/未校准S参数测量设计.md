@@ -24,8 +24,11 @@
 
 启动时从 `config/vnapro.yml` 读取 `InstrumentProfile`，默认配置为 4 端口，支持频段为 10 MHz～8 GHz。默认扫描覆盖该频段，采用 201 点、IF BW 1 kHz；扫描点数可在 2～10001 之间配置。端口数量、频率上下限及默认扫描设置经过一致性检查后固定；HTTP `capabilities`、SCPI 频率 MIN/MAX 和服务写入校验使用同一份能力数据。
 
+全新服务默认只创建并选择 `Trc1/S21`，单端口配置回退为 `Trc1/S11`，初始 HOLD 且没有已完成帧。浏览器只读取实际服务目录，刷新不会重置已定义测量或发起采集。S21 是 [ZNB 官方 Preset 示例的默认测量，第 68 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=68)，本项目将它作为新服务初始测量，不据此假定每次打开浏览器都执行 Preset。
+
 | 配置 | 原始 a/b 波可用端口与激励源 | 本轮 S 参数 |
 | --- | --- | --- |
+| 1 端口 | 端口 1 | S11 |
 | 2 端口 | 端口 1～2 | S11、S21、S12、S22 |
 | 4 端口 | 端口 1～4 | 仍为端口 1/2 组成的四个 S 参数 |
 
@@ -151,6 +154,8 @@ flowchart TD
 
 结果按需计算，没有结果缓存，因此无需缓存淘汰、跨版本失效或写锁。反向参数复用已有多源完整帧机制，不引入额外采集线程。校准应作为明确的独立处理阶段增加，不能只修改标签。
 
+活动迹线通过 `UpdateMeasurement` 原位替换同名定义，保留目录数量、位置和选择，成功时 revision 只增加一次；配置失败、旧版本、错误控制者或非 HOLD 状态都不提交候选。满 32 项目录仍可修改已有测量，不采用先删后加。旧完整帧继续保留原身份，不能根据新定义把它解释为当前数据。
+
 ## 远程合同
 
 Keysight 官方 `CALCulate:PARameter[:DEFine]:EXTended` 支持 S 参数字符串，包括单数字端口的下划线形式。本项目开放 `S11`、`S21`、`S12`、`S22` 及 `S1_1`、`S2_1`、`S1_2`、`S2_2`，保持参数大小写规则；目录统一返回紧凑名称。a/b 原始波参数保持现有合同。[官方测量定义](https://helpfiles.keysight.com/csg/NA520xA/Programming/GP-IB_Command_Finder/Calculate/Parameter.htm)
@@ -186,6 +191,10 @@ HTTP 创建示例：
 
 `kind` 缺省仍按原始 `receiver` 处理。服务端响应对每条测量/曲线明确输出 `kind`、`unit`、`calibration`：原始波为 `receiver` / `a.u.` / `raw`，S 参数为 `sParameter` / `1` / `uncalibrated`。前端严格验证元数据与端口、参数一致。
 
+Meas 的测量按钮修改活动迹线，不创建新名称；这对应 [ZNB User Manual v74 第 289 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=289) 的活动 trace 合同。HTTP 使用 `PUT /api/v1/measurements/{name}`，名称只在编码后的路径中，正文必须给出 requestId、expectedRevision、kind、receiverKind、receiverPort、sourcePort，不能含 name。受理返回 202/operationId，须等待真实完成后读回；不存在的测量明确拒绝，不隐式新增。完整更新与重试合同见[服务设计](网分服务与远程控制设计.md#6-web-接口与仪器面板)。
+
+Add Trace 在 Trace Config 中复制活动测量定义并生成未使用的 `Trc<n>`，显示和删除也归该工具。Ratios 及原机 All S-Params 的完整 n×n 矩阵尚未实现，不将端口 1/2 的四参数选择器称为完整四端口 S 矩阵；RAW 的全部配置端口范围保持可用。
+
 测量目录最多 32 项，单个 HTTP frame 响应最多返回 4 条曲线、2001 个显示点；采集仍覆盖整个测量目录。显示集合与采集目录分别管理：
 
 ```text
@@ -194,7 +203,7 @@ GET /api/v1/frame?trace=ReverseReflect&trace=ReverseTransmit
 GET /api/v1/frame?display=none
 ```
 
-不带查询参数时保留前四条目录项的兼容行为。显式 `trace` 可重复最多四次，响应按请求顺序返回，因此 DefaultA 加四个 S 参数时也可以显示目录第五项 S22。轨迹名称按 UTF-8 百分号编码传递；未知名称、重复名称、超过四条或非法查询返回 400。`display=none` 在已有完整帧时返回 `traces=[]`，保留频轴、抽取点信息及 revision/runId/frameSeq；没有完整帧时仍返回明确的无帧状态。选择显示集合只读一个服务快照，不触发采集、不修改测量定义和配置版本。
+不带查询参数时保留前四条目录项的兼容行为。显式 `trace` 可重复最多四次，响应按请求顺序返回，因此显式创建原始波测量 DefaultA 并另建四个 S 参数时，也可以显示目录第五项 S22；此例中的 DefaultA 不是生产默认测量。轨迹名称按 UTF-8 百分号编码传递；未知名称、重复名称、超过四条或非法查询返回 400。`display=none` 在已有完整帧时返回 `traces=[]`，保留频轴、抽取点信息及 revision/runId/frameSeq；没有完整帧时仍返回明确的无帧状态。选择显示集合只读一个服务快照，不触发采集、不修改测量定义和配置版本。
 
 ## Smith 反射显示
 
