@@ -192,6 +192,66 @@
     "method": "PDF embedded image exported at native pixel dimensions, no resizing or retouching"
   },
   {
+    "file": "manual/um-v74-p288-meas-softtool.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
+    "manual": "ZNB_UserManual_en_74.pdf",
+    "pdfPage": 288,
+    "printedPage": 288,
+    "imageObject": "I1.png",
+    "width": 211,
+    "height": 453,
+    "sha256": "7ee9f0d38f8d717a3d1a0d83bd1b82a61c11faabe517513e7d886f7ec838ce62",
+    "method": "PDF embedded image exported at native pixel dimensions, no resizing or retouching"
+  },
+  {
+    "file": "manual/um-v74-p289-sparams-controls.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
+    "manual": "ZNB_UserManual_en_74.pdf",
+    "pdfPage": 289,
+    "printedPage": 289,
+    "imageObject": "I1.png",
+    "width": 211,
+    "height": 321,
+    "sha256": "31add195c09c517f381f5857ead476a852be26a70045c16d2a21c6a5b0462279",
+    "method": "PDF embedded image exported at native pixel dimensions, no resizing or retouching"
+  },
+  {
+    "file": "manual/um-v74-p299-ratios-softtool.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
+    "manual": "ZNB_UserManual_en_74.pdf",
+    "pdfPage": 299,
+    "printedPage": 299,
+    "imageObject": "I1.png",
+    "width": 211,
+    "height": 260,
+    "sha256": "2c62e42ac8a50eab9a9db35d913995d641c0eab7b33f17de1ed42b8fd0422363",
+    "method": "PDF embedded image exported at native pixel dimensions, no resizing or retouching"
+  },
+  {
+    "file": "manual/um-v74-p302-wave-softtool.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
+    "manual": "ZNB_UserManual_en_74.pdf",
+    "pdfPage": 302,
+    "printedPage": 302,
+    "imageObject": "I1.png",
+    "width": 212,
+    "height": 342,
+    "sha256": "32964c427033193c86a392d24aa27a262d902cec56716ae42149e44aa52457ac",
+    "method": "PDF embedded image exported at native pixel dimensions, no resizing or retouching"
+  },
+  {
+    "file": "manual/um-v74-p303-more-wave-dialog.png",
+    "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
+    "manual": "ZNB_UserManual_en_74.pdf",
+    "pdfPage": 303,
+    "printedPage": 303,
+    "imageObject": "I1.png",
+    "width": 410,
+    "height": 463,
+    "sha256": "983226974c6f406188933a1402b6c332d45adb419b394a4d0ba2f16fbe7e9e80",
+    "method": "PDF embedded image exported at native pixel dimensions, no resizing or retouching"
+  },
+  {
     "file": "manual/um-v74-p802-color-scheme-dialog.png",
     "source": "https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf",
     "manual": "ZNB_UserManual_en_74.pdf",

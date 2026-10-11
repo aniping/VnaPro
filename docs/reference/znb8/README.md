@@ -54,6 +54,11 @@
 | [um-v74-p094-marker-info-2.png](manual/um-v74-p094-marker-info-2.png) | 264×191 | Marker 信息字段变化 / UM 94 |
 | [um-v74-p095-marker-table.png](manual/um-v74-p095-marker-table.png) | 456×111 | Marker 表格 / UM 95 |
 | [um-v74-p099-channel-info.png](manual/um-v74-p099-channel-info.png) | 470×102 | 多 channel 信息条 / UM 99 |
+| [um-v74-p288-meas-softtool.png](manual/um-v74-p288-meas-softtool.png) | 211×453 | 完整 Meas 软工具：S 参数矩阵、右侧类别 / UM 288 |
+| [um-v74-p289-sparams-controls.png](manual/um-v74-p289-sparams-controls.png) | 211×321 | S-Params 控件局部 / UM 289 |
+| [um-v74-p299-ratios-softtool.png](manual/um-v74-p299-ratios-softtool.png) | 211×260 | Ratios 快捷测量与 More Ratios / UM 299 |
+| [um-v74-p302-wave-softtool.png](manual/um-v74-p302-wave-softtool.png) | 212×342 | Wave 快捷测量与 More Wave Quantities / UM 302 |
+| [um-v74-p303-more-wave-dialog.png](manual/um-v74-p303-more-wave-dialog.png) | 410×463 | 任意波量对话框：波类型、接收端口、源端口 / UM 303 |
 | [um-v74-p802-color-scheme-dialog.png](manual/um-v74-p802-color-scheme-dialog.png) | 485×525 | 颜色方案和 Trace Colors per Diagram 开关 / UM 802 |
 | [um-v74-p803-limit-trace-example.png](manual/um-v74-p803-limit-trace-example.png) | 395×346 | 限值失败曲线示例、刻度与 marker 排列 / UM 803 |
 
@@ -77,6 +82,23 @@
 6. **网格、曲线和字体要细。** 原图网格主要为 1 px 蓝灰线；文字约 11–12 px，trace strip 约 18–20 px 高。四窗只留细分隔，不额外留大块 padding。
 7. **颜色按配置解释。** UM 803 明确出厂启用 `Trace Colors per Diagram`：每窗第一条用色 1、第二条用色 2，依次循环；关闭后按全局创建顺序循环。GS 37 和 UM 90 的绿色测量量色块可读为 `#60e600`，UM 91 则出现 `#ffff26` 黄色。不能据此宣称第一至第四条永远是固定四种颜色。
 8. **外壳控件让位给主图。** GS 37 的工具栏约 39 px、状态/菜单底栏约 30 px；软工具标签位于内容右侧，文字正常横排。显示面积、细线和紧凑信息条的改进优先于装饰效果。
+
+2026-10-11 用户补充的单图窗截图与本目录 UM 90 原图对应。本轮实现按它调整：18 px 活动迹线条、20 px 底部通道行、`#0d75bf` 活动蓝底、`#4b5f6c` 普通刻度、`#dbe2e6` 参考刻度、实心 `#323f48` 标记读数框。普通刻度采用 `10dB` 连续格式；标题保留 `Trc1 S21 dB Mag 10 dB/ Ref 0 dB` 紧凑信息，未校准状态在全局状态及迹线提示中可见。字体选用 Tahoma/Arial 近似截图，手册没有确认原机字体名称，不将近似当作实机字体结论。通道行以真实 Start/Stop、扫频点数及 `Bw`（IFBW）替代原图示例数据；当前默认是 10 MHz–8 GHz、201 点、1 kHz，未实现源功率配置，因此不复制截图中的 `Pwr −10 dBm`。
+
+## Meas 交互依据
+
+2026-10-11 补充核对。下述交互来自上述官方 User Manual v74 和 Getting Started v70，参考图保留原生像素；不以其他项目实现替代原机依据。
+
+![官方 Meas 软工具](manual/um-v74-p288-meas-softtool.png)
+
+- **Meas 修改活动 trace 的测量量。** UM 289 明确说明 S11/S12/S21/S22 控件作用于活动 trace。GS 47 还区分“点击测量软键修改活动 trace”和“拖动测量软键创建新 trace”。选择 S 参数不要求输入新名称，也不要求先新增 trace。
+- **布局为左侧测量控件、右侧类别标签。** UM 288 原图上方为 `Measurement Menu` / `S-Parameters`；S 矩阵第一行为 S11、S12，第二行为 S21、S22。右侧可见 `S-Params`、`Ratios`、`Wave`，其余类别是原机已实现的更多能力。
+- **Wave 快捷选择与任意端口选择分开。** UM 302 提供 a1/source 1、b1/source 1、b2/source 1、a2/source 2、b2/source 2、b1/source 2 六个快捷选择；`More Wave Quantities` 在 UM 303 的对话框中指定 a/b、接收端口和源端口。任意波量端口范围覆盖仪器所有端口；这与当前实现的 RAW 能力相对应。
+- **新增、显示与删除 trace 属于 Trace Config。** UM 448 中 `Add Trace` 复制活动 trace，放在相同图窗并自动命名 `Trc<n>`；`Add Tr+Diag` 放入新图窗；`Show` 和 `Delete Trace` 也属于这个软工具。名称编辑不是 Meas 的常规前置步骤。
+- **原机的 All S-Params 表示完整矩阵。** UM 290 说明它创建完整 S 参数和 n×n 图窗；单个四端口 DUT 是 16 项，不能用四项 S11/S12/S21/S22 冒充四端口完整矩阵。当前产品只实现端口 1/2 的四项 S 参数，因此选择器须准确表达这个范围，不展示可执行的 S33/S44 等未实现项。
+- **标准 Preset 的默认测量为 S21。** GS 61、UM 68 明确给出 S21、dB Mag 和全仪器频段；UM 880 指出 Preset 后为单图窗、活动 trace `Trc1`。这些段落没有给两端口与四端口不同的默认 S 参数，因此不据此猜测型号差异。UM 810 / 1577 的 `Start in Preset` 还说明正常启动可以恢复上次保存状态，不能把 Preset 默认解释为每次打开浏览器都应覆盖正在使用的测量。
+
+本项目应以能力约束交互：支持的测量控件直接修改活动 trace；未实现的 Ratios、平衡端口、向导等能力不可呈现为可执行动作。波量 dBm 显示依赖绝对幅度/功率定义，当前 RAW 显示保持真实数据单位，不因复刻原机界面而增加未经实现的功率换算。
 
 ## 可复现与完整性
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DisplayFormat } from '../../domain/presentation'
 import type { Measurement } from '../../api/types'
-import { measurementFormatInfo, frequencyText, numberText } from '../../plot/formatting'
+import { measurementFormatInfo, frequencyText, markerFrequencyText, markerValueText, numberText } from '../../plot/formatting'
 import type { MarkerResult } from '../../plot/traceMath'
 import { smithReadout } from '../../plot/smithMath'
 
@@ -27,11 +27,11 @@ const emit = defineEmits<{ select: [name: string] }>()
       @click.stop="emit('select', marker.name)">
       <span class="active-dot" aria-hidden="true">{{ marker.active ? '•' : '' }}</span>
       <span class="marker-number">M1</span>
-      <span class="marker-frequency">{{ frequencyText(marker.result.frequencyHz, 10) }}</span>
+      <span class="marker-frequency">{{ markerFrequencyText(marker.result.frequencyHz) }}</span>
       <span v-if="marker.result.valid" class="marker-value">
         <template v-if="marker.format === 'smith'">{{ smithReadout(marker.result.real!, marker.result.imaginary!) }}</template>
         <template v-else>
-        {{ numberText(marker.result.value, 8) }} {{ measurementFormatInfo(marker.format, marker.measurement).shortUnit }}
+        {{ markerValueText(marker.result.value, marker.format) }} {{ measurementFormatInfo(marker.format, marker.measurement).shortUnit }}
         <template v-if="marker.format === 'realimag'"> / {{ numberText(marker.result.imaginary ?? NaN, 8) }} {{ marker.measurement.unit }}</template>
         </template>
       </span>
@@ -41,13 +41,68 @@ const emit = defineEmits<{ select: [name: string] }>()
 </template>
 
 <style scoped>
-.marker-readouts { position: absolute; z-index: 3; top: 2px; right: 3px; display: grid; gap: 0; max-width: calc(100% - 45px); padding: 1px 2px; background: #000b; border: 0; pointer-events: auto; }
-.marker-row { display: grid; grid-template-columns: 7px 18px 1fr auto; align-items: center; gap: 3px; min-height: 16px; padding: 0; border: 0; color: var(--marker-color); background: transparent; font: inherit; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }
-.active-dot { text-align: center; font-size: 12px; line-height: 12px; }
-.marker-number { font-weight: 600; text-align: left; }
-.marker-frequency { min-width: 85px; text-align: right; }
-.marker-value { min-width: 75px; text-align: right; }
-.invalid { color: #c6ced2; }
-.marker-row:focus-visible { outline: 1px solid #fff; outline-offset: 2px; }
-.marker-row:hover { background: #ffffff0c; }
+.marker-readouts {
+  position: absolute;
+  z-index: 3;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  gap: 0;
+  max-width: calc(100% - 45px);
+  padding: 1px 2px;
+  background: #323f48;
+  border: 1px solid #546a78;
+  pointer-events: auto;
+}
+
+.marker-row {
+  display: grid;
+  grid-template-columns: 5px 18px 1fr auto;
+  align-items: center;
+  gap: 3px;
+  min-height: 14px;
+  padding: 0;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  font: 11px/14px Tahoma, Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.active-dot {
+  color: var(--marker-color);
+  text-align: center;
+  font-size: 12px;
+  line-height: 12px;
+}
+
+.marker-number {
+  font-weight: 400;
+  text-align: left;
+}
+
+.marker-frequency {
+  min-width: 85px;
+  text-align: right;
+}
+
+.marker-value {
+  min-width: 75px;
+  text-align: right;
+}
+
+.invalid {
+  color: #c6ced2;
+}
+
+.marker-row:focus-visible {
+  outline: 1px solid #fff;
+  outline-offset: 2px;
+}
+
+.marker-row:hover {
+  background: #ffffff0c;
+}
 </style>

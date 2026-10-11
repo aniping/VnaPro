@@ -36,6 +36,23 @@ export function frequencyText(value: number, significantDigits = 7): string {
   return `${numberText(value, significantDigits)} Hz`
 }
 
+/** 标记读数以工程单位和六位小数对齐；实际采样位置与高精度提示保持原值。 */
+export function markerFrequencyText(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  const magnitude = Math.abs(value)
+  if (magnitude >= 1e9) return `${(value / 1e9).toFixed(6)} GHz`
+  if (magnitude >= 1e6) return `${(value / 1e6).toFixed(6)} MHz`
+  if (magnitude >= 1e3) return `${(value / 1e3).toFixed(6)} kHz`
+  return `${value.toFixed(6)} Hz`
+}
+
+/** 对数标记采用仪器常见的四位小数；高精度数值仍保留在提示和导出中。 */
+export function markerValueText(value: number, format: DisplayFormat): string {
+  if (!Number.isFinite(value) || format !== 'db') return numberText(value, 8)
+  const rounded = Number(value.toFixed(4))
+  return (Object.is(rounded, -0) ? 0 : rounded).toFixed(4)
+}
+
 /** 比值测量使用无量纲幅度；相位与对数值的显示单位保持度和 dB。 */
 export function measurementFormatInfo(format: DisplayFormat, measurement?: Measurement): FormatDefinition {
   const definition = FORMAT_INFO[format]

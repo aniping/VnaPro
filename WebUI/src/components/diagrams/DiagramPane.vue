@@ -117,7 +117,7 @@ const yTicks = computed(() => Array.from({ length: yTickDivisions + 1 }, (_, ind
   return {
     top: rect.value.top + rect.value.height * index / yTickDivisions,
     reference: Math.abs(tick - referenceLevel(axisScale.value)) <= span * 1e-9,
-    value: `${relativeAxis.value ? 'Δ ' : ''}${relativeAxis.value && value > 0 ? '+' : ''}${numberText(value, 4)} ${axisDefinition.value.shortUnit}`,
+    value: `${relativeAxis.value ? 'Δ ' : ''}${relativeAxis.value && value > 0 ? '+' : ''}${numberText(value, 4)}${axisDefinition.value.shortUnit}`,
   }
 }))
 
@@ -282,7 +282,7 @@ function plotKey(event: KeyboardEvent): void {
     <header class="trace-header">
       <div class="trace-list" aria-label="Traces">
         <TraceStrip v-for="trace in traces" :key="trace.measurement.name" :measurement="trace.measurement"
-          :index="trace.index" :presentation="trace.presentation" :scale="trace.scale" :color="trace.color"
+          :presentation="trace.presentation" :scale="trace.scale" :color="trace.color"
           :smith-radius="smithRadius"
           :active="trace.measurement.name === activeTraceName" @select="emit('selectTrace', $event)"
           @toggle-visibility="emit('toggleVisibility', $event)" />
@@ -329,7 +329,7 @@ function plotKey(event: KeyboardEvent): void {
       <span class="channel-start">Start <b>{{ frequencyText(xRange.min) }}</b></span>
       <span class="channel-middle">{{ frame?.originalPointCount ?? config.points }} pts
         <span :title="frame && frameCondition.kind !== 'current' ? 'The retained frame does not carry its acquisition IF bandwidth.' : 'Committed acquisition IF bandwidth'">
-          IF BW <b>{{ frame && frameCondition.kind !== 'current' ? '—' : frequencyText(config.ifBandwidthHz) }}</b>
+          Bw <b>{{ frame && frameCondition.kind !== 'current' ? '—' : frequencyText(config.ifBandwidthHz) }}</b>
         </span>
       </span>
       <span class="channel-stop">Stop <b>{{ frequencyText(xRange.max) }}</b></span>
@@ -338,19 +338,56 @@ function plotKey(event: KeyboardEvent): void {
 </template>
 
 <style scoped>
-.diagram-pane { display: grid; grid-template-rows: auto minmax(0, 1fr) 22px; min-width: 0; min-height: 0; border: 1px solid #526773; background: #000; color: #eff4f6; }
+.diagram-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) 20px;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #526773;
+  background: #000;
+  color: #eff4f6;
+  font-family: Tahoma, Arial, sans-serif;
+}
 .diagram-pane.active { border-color: #91a4af; }
-.trace-header { display: flex; min-height: 23px; gap: 2px; padding: 1px 2px; background: #000; }
+.trace-header {
+  display: flex;
+  min-height: 23px;
+  gap: 2px;
+  padding: 2px;
+  background: #111518;
+}
 .trace-list { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-content: flex-start; gap: 2px 4px; }
 .empty-header { align-self: center; padding-left: 5px; color: #a0b1bb; font-size: 12px; }
 .plot-area { position: relative; min-height: 0; overflow: hidden; background: #000; }
 .plot-area:focus-visible { outline: 2px solid #6fc5ea; outline-offset: -2px; }
 .diagram-canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform-origin: 0 0; }
-.y-tick { position: absolute; z-index: 2; left: 4px; padding: 0; transform: translateY(-50%); text-align: left; color: #8ca0a8; background: transparent; font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+.y-tick {
+  position: absolute;
+  z-index: 2;
+  left: 5px;
+  padding: 0;
+  transform: translateY(-50%);
+  text-align: left;
+  color: #4b5f6c;
+  background: transparent;
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .y-tick.edge-top { top: 3px !important; transform: none; }.y-tick.edge-bottom { top: auto !important; bottom: 3px; transform: none; }
 .y-tick.reference-tick { color: #dbe2e6; }
 .marker-handle { position: absolute; z-index: 4; width: 32px; height: 32px; padding: 0; border: 0; background: transparent; cursor: ew-resize; touch-action: none; }
-.marker-handle span { position: absolute; left: 0; width: 100%; font-size: 11px; font-weight: 600; line-height: 16px; color: inherit; text-align: center; text-shadow: 1px 1px #000; }
+.marker-handle span {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  color: inherit;
+  text-align: center;
+}
 .marker-handle svg { position: absolute; width: 10px; height: 9px; fill: currentColor; stroke: none; }
 .marker-handle:focus-visible { outline: 1px solid #fff; outline-offset: 2px; }
 .plot-empty { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 35px; box-sizing: border-box; pointer-events: none; text-align: center; color: #90a3af; background: transparent; }
@@ -359,8 +396,30 @@ function plotKey(event: KeyboardEvent): void {
 .frame-condition.disconnected, .frame-condition.fault { color: #ffb5ab; border-color: #ff7d6e; }
 .sample-note { position: absolute; right: 5px; bottom: 5px; font-size: 10px; color: #a6b4bc; background: #000c; }
 .smith-note { position: absolute; left: 5px; bottom: 5px; font-size: 10px; color: #8ca0a8; }
-.channel-row { display: grid; grid-template-columns: auto 1fr auto 1fr; align-items: center; min-width: 0; gap: 4px; padding: 0 2px; color: #eef4f6; background: #000; font-size: 11px; line-height: 20px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.channel-label { padding: 0 3px; font-weight: 400; background: transparent; }.channel-label.active { color: #fff; background: #008fda; }
+.channel-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  padding: 0 2px;
+  color: #fff;
+  background: #000;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.channel-label {
+  padding: 0 3px;
+  font-weight: 400;
+  background: transparent;
+}
+
+.channel-label.active {
+  color: #fff;
+  background: #0d75bf;
+}
 .channel-row b { margin-left: 4px; color: #f0f4f6; font-weight: 400; }
 .channel-middle { display: flex; gap: 7px; color: #eef4f6; }.channel-stop { justify-self: end; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
