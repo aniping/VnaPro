@@ -44,7 +44,10 @@ struct InstrumentSettings final {
     bool currentTriggerScope = false;
     std::vector<Measurement> measurements;
     std::string selectedMeasurement;
+    // 服务配置与测量目录的逻辑版本，用于写操作的预期版本校验。
     std::uint64_t revision = 0U;
+    // 核心实际下发的采集计划版本；纯测量目录更新不会改变此值。
+    std::uint64_t acquisitionRevision = 0U;
 };
 
 }  // 命名空间 VnaService

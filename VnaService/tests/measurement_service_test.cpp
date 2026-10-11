@@ -176,7 +176,7 @@ void ConfigurationChangeRejectsRetainedFrame()
     const auto frame = fixture.service.Snapshot().core.frame;
     Require(Finish(fixture, fixture.service.SetStopHz(110000000.0)).ok, "提交新的频率配置");
     const auto snapshot = fixture.service.Snapshot();
-    Require(snapshot.core.frame == frame && frame->configRevision != snapshot.settings.revision,
+    Require(snapshot.core.frame == frame && frame->configRevision != snapshot.settings.acquisitionRevision,
         "保留上一帧时明确标记其配置版本已经过期");
     const auto result = fixture.service.MeasurementData();
     Require(!result.ok && result.values.empty(), "新配置采集完成前禁止返回旧帧的 S 参数");
@@ -254,7 +254,7 @@ void MeasurementUpdatePreservesCatalogAndInvalidatesFrame()
                 settings.measurements[0].Parameter() == "S22" && settings.measurements[0].receiverKind == 'b' &&
                 settings.measurements[1].name == "OtherReflection",
         "更新仅增加一个版本，保留数量、名称、目录顺序和当前选择");
-    Require(service.Snapshot().core.frame == oldFrame && oldFrame->configRevision != settings.revision &&
+    Require(service.Snapshot().core.frame == oldFrame && oldFrame->configRevision != settings.acquisitionRevision &&
                 !service.MeasurementData().ok,
         "更新定义后保留旧快照但禁止将它作为当前测量读取");
     Require(Finish(fixture, service.RunSingle("SCPI")).ok, "新定义重新完成双源采集");
@@ -282,8 +282,8 @@ void RejectedMeasurementUpdatesAreAtomic()
     Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 1U), revision, "OTHER")).ok,
         "其他所有者不能修改测量定义");
     Require(Finish(fixture, service.RunContinuous("SCPI")).ok, "启动连续采集以验证模式约束");
-    Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 1U), revision)).ok,
-        "非 HOLD 模式不能修改测量定义");
+    Require(
+        !Finish(fixture, service.SetPoints(TEST_POINT_COUNT + 1U, revision)).ok, "非 HOLD 模式不能修改物理扫描点数");
     Require(Finish(fixture, service.SetSweepMode(VnaService::SweepMode::HOLD)).ok, "完成连续采集停止屏障");
     Require(service.Settings().revision == revision && service.Settings().measurements.size() == 1U &&
                 service.Settings().measurements.front().Parameter() == "S21" &&

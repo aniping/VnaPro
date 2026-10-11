@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "vna_core/acquisition_core.h"
+#include "vna_core/sweep_plan.h"
 #include "vna_service/data_result.h"
 #include "vna_service/instrument_error.h"
 #include "vna_service/instrument_profile.h"
@@ -75,13 +76,14 @@ public:
     Operation SetIfBandwidthHz(double value, std::uint64_t expectedRevision = 0U);
     // 将一个原子配置候选加入队列；改变设备状态前重新校验所有者及预期版本。
     Operation ApplyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string &owner);
-    // 添加唯一的 1～128 字节测量名称；端口必须在仪器能力内，S 参数支持未校准 S11/S21/S12/S22。
+    // 添加唯一的 1～128 字节测量名称；采集中允许更新目录，新增硬件需求在完整帧边界提交。
+    // 端口必须在仪器能力内；未校准 S 参数目前支持 S11、S21、S12、S22。
     Operation DefineMeasurement(
         Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
-    // 原位更新同名测量定义，保留目录顺序和当前选择；沿用 HOLD、能力及版本的原子校验。
+    // 原位更新同名测量并保留顺序和选择；已有采集需求即时生效，缺少的源或接收机在帧边界提交。
     Operation UpdateMeasurement(
         Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
-    // 按区分大小写的名称，将已有测量项的删除操作加入队列，并按需更新当前选择。
+    // 删除区分大小写的已有测量项并按需更新选择；保留已下发的采集需求，不中断当前运行。
     Operation DeleteMeasurement(
         const std::string &name, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
     // 将有限的触发源迁移操作加入队列；所有者必须持有有效的仪器控制权。
@@ -137,6 +139,8 @@ private:
     Operation Enqueue(Detail::ServiceTask task, const std::string &requester = "SCPI");
     Operation Configure(std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected,
         const std::string &requester = "SCPI");
+    Operation ConfigureMeasurements(std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected,
+        const std::string &requester);
     bool HasMeasurement() const noexcept;
     bool HasConfiguration() const noexcept;
     void Finish(OperationResult value);
@@ -144,6 +148,8 @@ private:
     void CommitMode(Detail::ServiceTask &task);
     void PollTask();
     void PollConfiguration(Detail::ServiceTask &task);
+    bool PrepareConfiguration(Detail::ServiceTask &task);
+    void CommitConfiguration(Detail::ServiceTask &task);
     void PollTrigger(Detail::ServiceTask &task);
     bool BeginMode(Detail::ServiceTask &task);
     void PollMode(Detail::ServiceTask &task);
@@ -152,6 +158,8 @@ private:
     VnaCore::AcquisitionCore &core_;
     const InstrumentProfile profile_;
     InstrumentSettings settings_;
+    // 缓存核心最后成功下发的真实计划，其源和接收需求可以覆盖当前目录的子集。
+    VnaCore::SweepPlan activePlan_;
     std::deque<Detail::ServiceTask> tasks_;
     std::deque<InstrumentError> errors_;
     bool mockReady_ = false;

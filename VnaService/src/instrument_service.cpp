@@ -10,6 +10,7 @@
 #include <cmath>
 #include <deque>
 #include <functional>
+#include <limits>
 #include <set>
 #include <utility>
 
@@ -25,6 +26,7 @@ constexpr std::size_t TASK_QUEUE_CAPACITY = 32U;
 constexpr std::size_t ERROR_QUEUE_CAPACITY = 32U;
 constexpr std::size_t MEASUREMENT_CAPACITY = 32U;
 constexpr std::size_t MAX_MEASUREMENT_NAME_LENGTH = 128U;
+constexpr std::uint64_t SETTINGS_REVISION_MAX = (std::numeric_limits<std::uint64_t>::max)();
 constexpr unsigned COMMAND_ERROR_EVENT = 32U;
 constexpr unsigned EXECUTION_ERROR_EVENT = 16U;
 constexpr unsigned DEVICE_ERROR_EVENT = 8U;
@@ -47,6 +49,8 @@ const char *TaskName(Detail::ServiceTaskKind kind) noexcept
     switch (kind) {
         case Detail::ServiceTaskKind::CONFIGURE:
             return "CONFIGURE";
+        case Detail::ServiceTaskKind::MEASUREMENTS:
+            return "MEASUREMENTS";
         case Detail::ServiceTaskKind::SOURCE:
             return "SOURCE";
         case Detail::ServiceTaskKind::MODE:
@@ -139,6 +143,16 @@ VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings)
     }
     plan.tableData.assign(static_cast<std::size_t>(settings.points) * VnaCore::TABLE_VALUES_PER_POINT, 0.0);
     return plan;
+}
+
+bool CoversPlan(const VnaCore::SweepPlan &active, const VnaCore::SweepPlan &requested)
+{
+    // 保留已下发的源和接收机；目录收缩不重启扫描，也不使已有完整 IQ 失效。
+    return active.frequencyRaw == requested.frequencyRaw && active.frequencyHz == requested.frequencyHz &&
+           active.ifBandwidthRaw == requested.ifBandwidthRaw && active.tableData == requested.tableData &&
+           (active.receiverMask & requested.receiverMask) == requested.receiverMask &&
+           std::includes(active.sourcePorts.begin(), active.sourcePorts.end(), requested.sourcePorts.begin(),
+               requested.sourcePorts.end());
 }
 
 OperationResult ApplyFrequencyPatch(
@@ -294,6 +308,22 @@ Operation InstrumentService::Configure(
     return Enqueue(std::move(task), requester);
 }
 
+Operation InstrumentService::ConfigureMeasurements(
+    std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected, const std::string &requester)
+{
+    const auto state = core_.ReadView().state;
+    if (state != VnaCore::CoreState::READY && state != VnaCore::CoreState::RUNNING) {
+        return Rejected(
+            Detail::SETTINGS_CONFLICT_ERROR, "Measurement configuration requires Ready or Running", requester);
+    }
+    Detail::ServiceTask task;
+    task.kind = Detail::ServiceTaskKind::MEASUREMENTS;
+    task.mutate = std::move(mutate);
+    task.expectedRevision = expected;
+    task.checkRevision = expected != 0U || requester != "SCPI";
+    return Enqueue(std::move(task), requester);
+}
+
 bool InstrumentService::HasMeasurement() const noexcept
 {
     for (const auto &task : tasks_) {
@@ -307,7 +337,7 @@ bool InstrumentService::HasMeasurement() const noexcept
 bool InstrumentService::HasConfiguration() const noexcept
 {
     for (const auto &task : tasks_) {
-        if (task.kind == Detail::ServiceTaskKind::CONFIGURE) {
+        if (task.kind == Detail::ServiceTaskKind::CONFIGURE || task.kind == Detail::ServiceTaskKind::MEASUREMENTS) {
             return true;
         }
     }
@@ -316,12 +346,11 @@ bool InstrumentService::HasConfiguration() const noexcept
 
 void InstrumentService::Finish(OperationResult value)
 {
+    const auto view = core_.ReadView();
+    if (view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED) {
+        settings_.sweepMode = SweepMode::HOLD;
+    }
     if (!value.ok) {
-        const auto view = core_.ReadView();
-        if (tasks_.front().measurement &&
-            (view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED)) {
-            settings_.sweepMode = SweepMode::HOLD;
-        }
         if (tasks_.front().owner == "SCPI" || view.state == VnaCore::CoreState::FAULTED) {
             Error(value.errorCode, value.message);
         }
@@ -371,7 +400,7 @@ void InstrumentService::PollTask()
         Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Instrument control generation changed"));
         return;
     }
-    if (task.kind == Detail::ServiceTaskKind::CONFIGURE) {
+    if (task.kind == Detail::ServiceTaskKind::CONFIGURE || task.kind == Detail::ServiceTaskKind::MEASUREMENTS) {
         PollConfiguration(task);
     } else if (task.kind == Detail::ServiceTaskKind::TRIGGER) {
         PollTrigger(task);
@@ -380,26 +409,60 @@ void InstrumentService::PollTask()
     }
 }
 
+bool InstrumentService::PrepareConfiguration(Detail::ServiceTask &task)
+{
+    const auto view = core_.ReadView();
+    if (view.state != VnaCore::CoreState::READY && view.state != VnaCore::CoreState::RUNNING) {
+        Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires Ready or Running"));
+        return false;
+    }
+    if (view.configRevision != settings_.acquisitionRevision) {
+        Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Acquisition plan changed outside instrument service"));
+        return false;
+    }
+    if (task.kind == Detail::ServiceTaskKind::CONFIGURE &&
+        (settings_.sweepMode != SweepMode::HOLD || view.state != VnaCore::CoreState::READY)) {
+        Finish(
+            Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement"));
+        return false;
+    }
+    if (task.checkRevision && task.expectedRevision != settings_.revision) {
+        Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration revision changed"));
+        return false;
+    }
+    if (settings_.revision == SETTINGS_REVISION_MAX) {
+        Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration revision exhausted"));
+        return false;
+    }
+    task.candidate = settings_;
+    const OperationResult prepared = task.mutate(task.candidate);
+    if (!prepared.ok) {
+        Finish(prepared);
+        return false;
+    }
+    task.candidate.revision = settings_.revision + 1U;
+    task.plan = MakePlan(task.candidate);
+    return true;
+}
+
+void InstrumentService::CommitConfiguration(Detail::ServiceTask &task)
+{
+    settings_ = std::move(task.candidate);
+    Finish(Result(true));
+}
+
 void InstrumentService::PollConfiguration(Detail::ServiceTask &task)
 {
     if (task.stage == Detail::ServiceTaskStage::PENDING) {
-        const auto view = core_.ReadView();
-        if (settings_.sweepMode != SweepMode::HOLD || view.state != VnaCore::CoreState::READY) {
-            Finish(Result(
-                false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement"));
+        if (!PrepareConfiguration(task)) {
             return;
         }
-        if (task.checkRevision && task.expectedRevision != settings_.revision) {
-            Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration revision changed"));
+        if (task.kind == Detail::ServiceTaskKind::MEASUREMENTS &&
+            (task.candidate.measurements.empty() || CoversPlan(activePlan_, task.plan))) {
+            CommitConfiguration(task);
             return;
         }
-        task.candidate = settings_;
-        const OperationResult prepared = task.mutate(task.candidate);
-        if (!prepared.ok) {
-            Finish(prepared);
-            return;
-        }
-        task.ticket = core_.Configure(MakePlan(task.candidate));
+        task.ticket = core_.Configure(task.plan);
         task.stage = Detail::ServiceTaskStage::WAITING_CONFIGURATION;
         return;
     }
@@ -411,10 +474,9 @@ void InstrumentService::PollConfiguration(Detail::ServiceTask &task)
         Finish(Result(false, Detail::DEVICE_SPECIFIC_ERROR, value.message));
         return;
     }
-    task.candidate.revision = value.configRevision;
-    settings_ = std::move(task.candidate);
-    Finish(Result(true));
-    return;
+    task.candidate.acquisitionRevision = value.configRevision;
+    activePlan_ = std::move(task.plan);
+    CommitConfiguration(task);
 }
 
 void InstrumentService::PollTrigger(Detail::ServiceTask &task)
@@ -566,12 +628,15 @@ bool InstrumentService::BootstrapMockProfile(std::string &error)
     InstrumentSettings candidate = settings_;
     candidate.measurements.push_back(initial);
     candidate.selectedMeasurement = initial.name;
-    const auto configured = core_.Configure(MakePlan(candidate)).get();
+    auto plan = MakePlan(candidate);
+    const auto configured = core_.Configure(plan).get();
     if (!configured.ok) {
         error = configured.message;
         return false;
     }
-    candidate.revision = configured.configRevision;
+    candidate.revision = 1U;
+    candidate.acquisitionRevision = configured.configRevision;
+    activePlan_ = std::move(plan);
     settings_ = std::move(candidate);
     mockReady_ = true;
     VnaLog::Info(
@@ -583,6 +648,9 @@ void InstrumentService::Poll()
 {
     PollTask();
     const auto view = core_.ReadView();
+    if (view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED) {
+        settings_.sweepMode = SweepMode::HOLD;
+    }
     if (tasks_.empty() && view.state == VnaCore::CoreState::FAULTED && view.error != observedFault_) {
         Error(Detail::DEVICE_SPECIFIC_ERROR, view.error);
         observedFault_ = view.error;
@@ -753,7 +821,7 @@ Operation InstrumentService::DefineMeasurement(
     Measurement measurement, std::uint64_t expected, const std::string &owner)
 {
     measurement.receiverKind = static_cast<char>(std::tolower(static_cast<unsigned char>(measurement.receiverKind)));
-    return Configure(
+    return ConfigureMeasurements(
         [this, measurement](InstrumentSettings &settings) {
             if (!ValidMeasurement(measurement, profile_)) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Unsupported measurement definition");
@@ -779,7 +847,7 @@ Operation InstrumentService::UpdateMeasurement(
     Measurement measurement, std::uint64_t expected, const std::string &owner)
 {
     measurement.receiverKind = static_cast<char>(std::tolower(static_cast<unsigned char>(measurement.receiverKind)));
-    return Configure(
+    return ConfigureMeasurements(
         [this, measurement](InstrumentSettings &settings) {
             if (!ValidMeasurement(measurement, profile_)) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Unsupported measurement definition");
@@ -800,7 +868,7 @@ Operation InstrumentService::UpdateMeasurement(
 Operation InstrumentService::DeleteMeasurement(
     const std::string &name, std::uint64_t expected, const std::string &owner)
 {
-    return Configure(
+    return ConfigureMeasurements(
         [name](InstrumentSettings &settings) {
             const auto found = std::find_if(
                 settings.measurements.begin(), settings.measurements.end(), [&name](const Measurement &measurement) {
@@ -910,7 +978,7 @@ DataResult InstrumentService::StimulusAxis() const
     DataResult value;
     const auto view = core_.ReadView();
     if (!mockReady_ || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
-        view.configRevision != settings_.revision) {
+        view.configRevision != settings_.acquisitionRevision) {
         value.error = "No valid committed stimulus configuration";
         return value;
     }
@@ -938,8 +1006,8 @@ DataResult InstrumentService::MeasurementData() const
     const Measurement measurement = *found;
     const auto view = core_.ReadView();
     if (!view.frame || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
-        view.frame->configRevision != settings_.revision || view.configRevision != settings_.revision ||
-        view.frame->runId != view.runId) {
+        view.frame->configRevision != settings_.acquisitionRevision ||
+        view.configRevision != settings_.acquisitionRevision || view.frame->runId != view.runId) {
         value.error = "No complete measurement for the current configuration";
         return value;
     }

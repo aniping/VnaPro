@@ -10,6 +10,7 @@
 #include <string>
 
 #include "vna_core/core_types.h"
+#include "vna_core/sweep_plan.h"
 #include "vna_service/instrument_settings.h"
 #include "vna_service/operation_result.h"
 
@@ -17,6 +18,7 @@ namespace VnaService {
 namespace Detail {
 enum class ServiceTaskKind {
     CONFIGURE,
+    MEASUREMENTS,
     SOURCE,
     MODE,
     TRIGGER
@@ -46,6 +48,7 @@ struct ServiceTask final {
     bool checkRevision = false;
     std::function<OperationResult(InstrumentSettings &)> mutate;
     InstrumentSettings candidate;
+    VnaCore::SweepPlan plan;
     VnaCore::Ticket ticket;
     std::promise<OperationResult> promise;
     Operation operation;
