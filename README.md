@@ -59,7 +59,7 @@ CSV 和网页显示最多 2001 个均匀选取的真实频点，超过时明确�
 
 需要观察采集变化时，在启动服务前设置 `$env:VNAPRO_SIM_MODE = 'noise'` 和 `$env:VNAPRO_SIM_SEED = '42'`；DLL 在每次成功采集时加入最多 0.2% 的可重放复数噪声。Continuous 配合 Autoscale 可查看细微变化，HOLD 后数据固定。默认 `golden` 保留固定数值用于验收，模式在设备 Init 时冻结。完整验收场景、结果与 ThreadSanitizer 复验命令见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
-从 CLion 启动时，在 `vna_server` 的运行配置中添加环境变量 `VNAPRO_SIM_MODE=noise` 和 `VNAPRO_SIM_SEED=42`，然后停止并重新运行服务。只在另一个 PowerShell 窗口设置变量，不会改变已经运行的 CLion 或服务进程。网页重新连接后按 Continuous，等新帧出现，再按 Autoscale；固定数据模式下得到的微小刻度不适合噪声模式。
+从 CLion 启动时，在 `vna_server` 的运行配置中，将 Environment variables 填为 `VNAPRO_SIM_MODE=noise;VNAPRO_SIM_SEED=42`，两项用分号分隔，值不带引号或前后空格；也可打开变量表格，分别填写名称和值。模式 `noise `（末尾含空格）会使模拟器初始化返回 `1`（参数无效）。设置完成后停止并重新运行服务。只在另一个 PowerShell 窗口设置变量，不会改变已经运行的 CLion 或服务进程。网页重新连接后按 Continuous，等新帧出现，再按 Autoscale；固定数据模式下得到的微小刻度不适合噪声模式。
 
 Sweep 面板的 Run 是本次运行编号，连续采集期间保持不变；底部状态栏的 `F` 是帧序号，完整帧发布后才递增。判断采集是否推进，应观察 `F`。在默认 `golden` 模式中，帧序号递增而曲线保持相同属于预期行为。
 
