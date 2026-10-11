@@ -84,6 +84,19 @@ bool ReceiverParameter(const std::string &text, VnaService::Measurement &measure
     return true;
 }
 
+bool MeasurementParameter(const std::string &text, VnaService::Measurement &measurement)
+{
+    // Keysight 扩展测量参数区分大小写；同时接受标准单数字端口下划线写法。
+    if (text == "S11" || text == "S1_1" || text == "S21" || text == "S2_1") {
+        measurement.kind = VnaService::MeasurementKind::S_PARAMETER;
+        measurement.receiverKind = 'b';
+        measurement.receiverPort = text[1] == '1' ? 1U : 2U;
+        measurement.sourcePort = 1U;
+        return true;
+    }
+    return ReceiverParameter(text, measurement);
+}
+
 bool Matches(const std::string &value, const char *shortName, const char *fullName)
 {
     return value == shortName || value == fullName;
@@ -614,9 +627,9 @@ void ScpiEngine::DispatchDefineMeasurement(const ParsedCommand &command)
         RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name and parameter require quoted strings");
         return;
     }
-    if (!ReceiverParameter(parameter, measurement)) {
+    if (!MeasurementParameter(parameter, measurement)) {
         RecordCommandError(
-            command, ILLEGAL_PARAMETER_VALUE, "Only logical a1..a4/b1..b4 non-ratio receivers are supported");
+            command, ILLEGAL_PARAMETER_VALUE, "Only S11, S21 and logical a1..a4/b1..b4 receivers are supported");
         return;
     }
     SetOperation(service_.DefineMeasurement(measurement));

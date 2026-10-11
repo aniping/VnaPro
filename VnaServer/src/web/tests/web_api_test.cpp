@@ -436,6 +436,50 @@ void JsonAndEndpoint()
     endpoint.Poll();
     Require(endpoint.Drained(), "Empty-root API endpoint shuts down");
 }
+
+std::string RatioBody(std::uint64_t revision, const std::string &kind, const std::string &name, unsigned port)
+{
+    return "{\"expectedRevision\":\"" + std::to_string(revision) + "\",\"requestId\":\"" + name + "\",\"name\":\"" +
+           name + "\",\"kind\":\"" + kind + "\",\"receiverKind\":\"b\",\"receiverPort\":" + std::to_string(port) +
+           ",\"sourcePort\":1}";
+}
+
+void RatioMetadataAndInvalidReference()
+{
+    Fixture fixture;
+    HttpApi api(fixture.service);
+    const auto token = Claim(api);
+    const auto revision = fixture.service.Settings().revision;
+    const auto bad = Request(api, "POST", "/api/v1/measurements", RatioBody(revision, "unknown", "bad", 1U), token);
+    Require(bad.status == 400U && fixture.service.Settings().revision == revision, "Unknown kind cannot mutate");
+    const auto definition =
+        Accepted(Request(api, "POST", "/api/v1/measurements", RatioBody(revision, "sParameter", "reflect", 1U), token));
+    Require(StringField(Finish(api, definition, token).json, "state") == "completed", "Define S11 via HTTP");
+    std::vector<double> samples(16U, 0.0);
+    samples[0] = 2.0;
+    samples[2] = 0.5;
+    fixture.device->SetSamples(samples);
+    const auto single = Accepted(
+        Request(api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"ratio-valid\"}", token));
+    Finish(api, single, token);
+    auto trace = Field(Request(api, "GET", "/api/v1/frame").json, "traces").array.at(1U);
+    Require(StringField(trace, "parameter") == "S11" && StringField(trace, "kind") == "sParameter" &&
+                StringField(trace, "unit") == "1" && StringField(trace, "calibration") == "uncalibrated",
+        "Ratio metadata does not imply calibration or receiver amplitude");
+    Require(Field(trace, "real").array.front().number == 0.25 && Field(trace, "valid").array.front().boolean,
+        "HTTP exports shared complex ratio");
+    samples[0] = 0.0;
+    fixture.device->SetSamples(samples);
+    const auto invalid = Accepted(
+        Request(api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"ratio-invalid\"}", token));
+    Finish(api, invalid, token);
+    trace = Field(Request(api, "GET", "/api/v1/frame").json, "traces").array.at(1U);
+    Require(Field(trace, "available").boolean && !Field(trace, "valid").array.front().boolean &&
+                Field(trace, "real").array.front().type == Json::Type::NULL_VALUE &&
+                Field(trace, "imag").array.front().type == Json::Type::NULL_VALUE,
+        "Zero reference stays explicit invalid instead of a fabricated zero S11");
+    Require(fixture.service.ErrorCount() == 0U, "HTTP invalid reference leaves SCPI errors alone");
+}
 }  // 匿名命名空间
 
 int main()
@@ -445,7 +489,8 @@ int main()
         {"release-expiry-shutdown", ReleasingAndLease}, {"snapshot-and-sampling", SnapshotAndSampling},
         {"operation-retention-budgets", OperationRetentionAndBudgets},
         {"long-operation-retention", LongOperationRetention},
-        {"invalid-points-remain-explicit", InvalidPointsRemainExplicit}, {"json-and-endpoint", JsonAndEndpoint}};
+        {"invalid-points-remain-explicit", InvalidPointsRemainExplicit}, {"json-and-endpoint", JsonAndEndpoint},
+        {"ratio-metadata-invalid-reference", RatioMetadataAndInvalidReference}};
     unsigned failures = 0;
     for (const auto &test : tests) {
         try {

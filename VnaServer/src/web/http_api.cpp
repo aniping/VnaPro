@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "vna_core/frame_layout.h"
+#include "vna_measurement/measurement_processor.h"
 #include "vna_service/instrument_service.h"
 #include "vna_service/service_error_code.h"
 #include "web/json_encoder.h"
@@ -140,6 +141,10 @@ Json MeasurementJson(const VnaService::Measurement &measurement)
     value["receiverPort"] = Json(measurement.receiverPort);
     value["sourcePort"] = Json(measurement.sourcePort);
     value["parameter"] = Json(measurement.Parameter());
+    const bool ratio = measurement.kind == VnaService::MeasurementKind::S_PARAMETER;
+    value["kind"] = Json(ratio ? "sParameter" : "receiver");
+    value["unit"] = Json(ratio ? "1" : "a.u.");
+    value["calibration"] = Json(ratio ? "uncalibrated" : "raw");
     return value;
 }
 
@@ -536,28 +541,18 @@ Json HttpApi::ControlJson(const VnaService::InstrumentSnapshot &snapshot, const 
 Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
     const std::vector<std::size_t> &indexes)
 {
-    const std::size_t count = frame.plan.frequencyHz.size();
     Json trace = MeasurementJson(measurement);
     Json real = Json::MakeArray();
     Json imaginary = Json::MakeArray();
     Json validity = Json::MakeArray();
-    const auto port =
-        std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const VnaCore::PortFrame &item) {
-            return item.sourcePort == measurement.sourcePort;
-        });
-    const bool available = port != frame.ports.end() && port->iq.size() == count * VnaCore::IQ_VALUES_PER_POINT &&
-                           (frame.plan.receiverMask & (1U << (measurement.receiverPort - 1U))) != 0U;
-    const unsigned component = (measurement.receiverPort - 1U) * VnaCore::IQ_VALUES_PER_RECEIVER +
-                               (measurement.receiverKind == 'b' ? VnaCore::COMPLEX_COMPONENT_COUNT : 0U);
+    const auto result = VnaMeasurement::MeasurementProcessor::Calculate(frame, measurement);
     for (auto index : indexes) {
-        const double re = available ? port->iq[index * VnaCore::IQ_VALUES_PER_POINT + component] : 0;
-        const double im = available ? port->iq[index * VnaCore::IQ_VALUES_PER_POINT + component + 1U] : 0;
-        const bool valid = available && std::isfinite(re) && std::isfinite(im);
-        real.array.push_back(valid ? Json(re) : Json());
-        imaginary.array.push_back(valid ? Json(im) : Json());
+        const bool valid = result.available && index < result.points.size() && result.points[index].valid;
+        real.array.push_back(valid ? Json(result.points[index].real) : Json());
+        imaginary.array.push_back(valid ? Json(result.points[index].imag) : Json());
         validity.array.emplace_back(valid);
     }
-    trace["available"] = Json(available);
+    trace["available"] = Json(result.available);
     trace["real"] = std::move(real);
     trace["imag"] = std::move(imaginary);
     trace["valid"] = std::move(validity);
@@ -581,7 +576,7 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
         Allowed(body, {"requestId", "action"});
         operationValue = StartAction(body, id);
     } else if (request.path == "/api/v1/measurements" && request.method == "POST") {
-        Allowed(body, {"requestId", "expectedRevision", "name", "receiverKind", "receiverPort", "sourcePort"});
+        Allowed(body, {"requestId", "expectedRevision", "name", "kind", "receiverKind", "receiverPort", "sourcePort"});
         const auto expected = Revision(body);
         if (expected != service_.Settings().revision) {
             result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
@@ -643,6 +638,14 @@ VnaService::Measurement HttpApi::MeasurementDefinition(const Json &body)
     measurement.receiverKind = kind.front();
     measurement.receiverPort = PositiveInteger(body, "receiverPort", VnaCore::PHYSICAL_PORT_COUNT);
     measurement.sourcePort = PositiveInteger(body, "sourcePort", VnaCore::PHYSICAL_PORT_COUNT);
+    if (body.Find("kind")) {
+        const auto measurementKind = Text(body, "kind");
+        if (measurementKind != "receiver" && measurementKind != "sParameter") {
+            throw std::runtime_error("Unsupported measurement kind");
+        }
+        measurement.kind = measurementKind == "sParameter" ? VnaService::MeasurementKind::S_PARAMETER
+                                                           : VnaService::MeasurementKind::RECEIVER;
+    }
     return measurement;
 }
 
