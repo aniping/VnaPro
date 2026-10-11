@@ -1,9 +1,11 @@
-"""用独立 IQ 字面量和 Python 复数运算验收未校准 S11/S21 的完整链路。"""
+"""用独立 IQ 字面量和 Python 复数运算验收未校准双端口四参数的完整链路。"""
 
 import math
 import os
+from pathlib import Path
 import sys
 import time
+from urllib.parse import quote
 
 from GoldenIqIntegrationTest import compare, golden_vectors, running_server
 from WebHttpIntegrationTest import HttpClient, connect_scpi
@@ -77,7 +79,7 @@ def held_frame(http, client, golden=None):
 
 def unsupported_and_stale(http, client):
     previous = http.status()["revision"]
-    for parameter in ("S12", "S22", "s11"):
+    for parameter in ("S13", "S31", "s11"):
         client.query(f'CALC1:PAR:DEF:EXT "Unsupported","{parameter}";*OPC?')
         assert client.query("SYST:ERR?").startswith("-224,"), parameter
         assert http.status()["revision"] == previous
@@ -117,11 +119,112 @@ def continuous_frames(http, client):
     held_frame(http, client)
 
 
+TWO_PORT_MEASUREMENTS = [
+    ("Reflect", "S11", 1, 1), ("Transmit", "S21", 2, 1),
+    ("ReverseTransmit", "S12", 1, 2), ("ReverseReflect", "S22", 2, 2),
+]
+
+
+def four_parameter_held_frame(http, client, golden=None):
+    query = "&".join("trace=" + quote(item[0], safe="") for item in TWO_PORT_MEASUREMENTS)
+    frame = http.request("GET", "/api/v1/frame?" + query)
+    assert frame["available"] and frame["current"]
+    traces = {trace["name"]: trace for trace in frame["traces"]}
+    assert list(traces) == [item[0] for item in TWO_PORT_MEASUREMENTS]
+    for name, parameter, receiver, source in TWO_PORT_MEASUREMENTS:
+        # HOLD 后的全部波量来自一个完整轮次；源 2 不能借用源 1 或本源 a1 的参考。
+        reference = read_complex(client, f"Reference{source}")
+        numerator = read_complex(client, f"Wave{receiver}{source}")
+        expected = [b / a for a, b in zip(reference, numerator)]
+        if golden is not None:
+            point = golden[source - 1][0]
+            component = (receiver - 1) * 4 + 2
+            a_source = complex(*point[(source - 1) * 4:(source - 1) * 4 + 2])
+            b_receiver = complex(*point[component:component + 2])
+            expected = [b_receiver / a_source] * 2
+            if source == 2:
+                wrong_same_source = b_receiver / complex(*point[0:2])
+                wrong_other_source = b_receiver / complex(*golden[0][0][4:6])
+                assert abs(expected[0] - wrong_same_source) > 1e-3
+                assert abs(expected[0] - wrong_other_source) > 1e-6
+        trace = traces[name]
+        assert (trace["parameter"], trace["receiverPort"], trace["sourcePort"]) == (parameter, receiver, source)
+        assert trace["kind"] == "sParameter" and trace["unit"] == "1"
+        assert trace["calibration"] == "uncalibrated"
+        compare_complex(trace_complex(trace), expected, parameter + " HTTP independent ratio")
+        compare_complex(read_complex(client, name), expected, parameter + " SCPI independent ratio")
+    later = http.frame()
+    assert all(frame[key] == later[key] for key in ("revision", "runId", "frameSeq"))
+    assert client.query("SYST:ERR?").startswith("0,")
+
+
+def selected_reverse_traces_preserve_identity(http, client):
+    ordinary = http.frame()
+    assert [trace["name"] for trace in ordinary["traces"]] == ["DefaultA", "Reflect", "Transmit", "ReverseTransmit"]
+    selected = http.request("GET", "/api/v1/frame?trace=ReverseReflect&trace=ReverseTransmit")
+    assert selected["available"] and selected["current"]
+    assert [trace["name"] for trace in selected["traces"]] == ["ReverseReflect", "ReverseTransmit"]
+    for trace in selected["traces"]:
+        compare_complex(trace_complex(trace), read_complex(client, trace["name"]), "Selected reverse trace")
+    hidden = http.request("GET", "/api/v1/frame?display=none")
+    assert hidden["traces"] == [] and hidden["frequencyHz"] == ordinary["frequencyHz"]
+    for key in ("revision", "runId", "frameSeq"):
+        assert ordinary[key] == selected[key] == hidden[key], "Display selection must preserve frame identity"
+
+
+def four_parameter_frames(http, client, golden=None):
+    for name in ("Reflect", "Transmit", "Reference", "Received", "Reflected"):
+        assert int(client.query(f'CALC1:PAR:DEL "{name}";*OPC?')) == 1
+    assert int(client.query('CALC1:PAR:DEF:EXT "DefaultA","a1,1";*OPC?')) == 1
+    for name, parameter, _, _ in TWO_PORT_MEASUREMENTS:
+        spelling = "S2_2" if parameter == "S22" else parameter
+        assert int(client.query(f'CALC1:PAR:DEF:EXT "{name}","{spelling}";*OPC?')) == 1
+    assert int(client.query("SENS1:SWE:MODE SING;*OPC?")) == 1
+    selected_reverse_traces_preserve_identity(http, client)
+    for source in (1, 2):
+        definitions = [(f"Reference{source}", f"a{source},{source}")]
+        definitions += [(f"Wave{receiver}{source}", f"b{receiver},{source}") for receiver in (1, 2)]
+        for name, parameter in definitions:
+            assert int(client.query(f'CALC1:PAR:DEF:EXT "{name}","{parameter}";*OPC?')) == 1
+    assert int(client.query("SENS1:SWE:MODE SING;*OPC?")) == 1
+    four_parameter_held_frame(http, client, golden)
+    original_points = 2 if golden is not None else 17
+    client.query(f"SENS1:SWE:POIN {original_points + 1};*OPC?")
+    assert not http.frame()["current"], "Reverse data cannot reuse a previous configuration"
+    client.socket.sendall(b'CALC1:PAR:SEL "ReverseTransmit";:CALC1:DATA? RDATA\n')
+    assert client.query("SYST:ERR?").startswith("-230,"), "Stale S12 must be rejected"
+    client.query(f"SENS1:SWE:POIN {original_points};MODE SING;*OPC?")
+    four_parameter_held_frame(http, client, golden)
+    if golden is not None:
+        return
+    client.query("SENS1:SWE:MODE CONT;*OPC?")
+    deadline, sequences = time.monotonic() + 8, set()
+    previous, changed = {}, set()
+    while len(sequences) < 12:
+        assert time.monotonic() < deadline, "Complete two-source frames stopped"
+        query = "&".join("trace=" + quote(item[0], safe="") for item in TWO_PORT_MEASUREMENTS)
+        frame = http.request("GET", "/api/v1/frame?" + query)
+        if not frame["available"] or not frame["current"]:
+            time.sleep(0.002)
+            continue
+        assert len(frame["traces"]) == 4
+        for trace in frame["traces"]:
+            values = trace_complex(trace)
+            name = trace["name"]
+            if name in previous and values != previous[name]:
+                changed.add(name)
+            previous[name] = values
+        sequences.add(frame["frameSeq"])
+    assert changed == {item[0] for item in TWO_PORT_MEASUREMENTS}, "Four noisy parameters must all update"
+    assert int(client.query("SENS1:SWE:MODE HOLD;*OPC?")) == 1
+    four_parameter_held_frame(http, client)
+
+
 def exercise(server, driver, vectors, mode):
     environment = os.environ.copy()
     environment["VNAPRO_SIM_MODE"] = mode
     environment["VNAPRO_SIM_SEED"] = "42"
-    with running_server(server, driver, environment) as ports:
+    with running_server(server, driver, environment, config=Path(__file__).with_name("golden_test.yml")) as ports:
         http = HttpClient(ports["http"])
         client = connect_scpi(ports["scpi"])
         try:
@@ -131,6 +234,10 @@ def exercise(server, driver, vectors, mode):
                 continuous_frames(http, client)
             else:
                 unsupported_and_stale(http, client)
+            # 单端旧验收保持完整，再切换四参数布局验证实际双源完整轮次。
+            if mode == "golden":
+                client.query("SENS1:SWE:POIN 2;*OPC?")
+            four_parameter_frames(http, client, vectors if mode == "golden" else None)
         finally:
             client.close()
 
@@ -140,7 +247,7 @@ def main():
     vectors = golden_vectors(sys.argv[3])
     for mode in ("golden", "noise"):
         exercise(sys.argv[1], sys.argv[2], vectors, mode)
-    print("S11/S21 acceptance passed: independent complex ratios, HTTP/SCPI, golden/noise, stale guards")
+    print("Two-port four-parameter acceptance passed: independent same-source ratios, HTTP/SCPI, golden/noise")
 
 
 if __name__ == "__main__":
