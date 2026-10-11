@@ -26,6 +26,16 @@ def configure(http):
     patch = {"expectedRevision": http.status()["revision"], "requestId": "configure-noise",
              "startHz": 2000000, "stopHz": 18000000, "points": 65, "ifBandwidthHz": 1000}
     wait_operation(http, accepted(http, "config", patch, token), token)
+    # 原始 IQ 验收显式建立入射波测量，不依赖生产默认 S21 迹线。
+    removed = http.request("DELETE", "/api/v1/measurements/Trc1", {
+        "expectedRevision": http.status()["revision"], "requestId": "remove-default-transmission",
+    }, token, expected=202)
+    wait_operation(http, removed["operationId"], token)
+    reference = {
+        "name": "NoiseA1", "receiverKind": "a", "receiverPort": 1, "sourcePort": 1,
+        "expectedRevision": http.status()["revision"], "requestId": "define-noise-reference",
+    }
+    wait_operation(http, accepted(http, "measurements", reference, token), token)
     for port in (2, 3, 4):
         measurement = {"name": "NoiseB" + str(port), "receiverKind": "b", "receiverPort": port,
                        "sourcePort": port, "expectedRevision": http.status()["revision"],
@@ -43,7 +53,9 @@ def check_frame(frame, revision, run=None):
     assert not frame["decimated"]
     assert frame["frequencyHz"] == [2000000 + point * 250000 for point in range(65)]
     assert [trace["sourcePort"] for trace in frame["traces"]] == [1, 2, 3, 4]
+    assert frame["traces"][0]["parameter"] == "a1,1"
     for trace in frame["traces"]:
+        assert trace["kind"] == "receiver" and trace["calibration"] == "raw", trace
         assert trace["available"] and len(trace["real"]) == len(trace["imag"]) == len(trace["valid"]) == 65
         assert all(trace["valid"])
         assert all(math.isfinite(value) for value in trace["real"] + trace["imag"])

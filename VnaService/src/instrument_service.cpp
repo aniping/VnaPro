@@ -91,6 +91,13 @@ bool ValidFrequency(double value, const InstrumentProfile &profile) noexcept
     return std::isfinite(value) && value >= profile.minFrequencyHz && value <= profile.maxFrequencyHz;
 }
 
+bool ValidMeasurement(const Measurement &measurement, const InstrumentProfile &profile) noexcept
+{
+    return !measurement.name.empty() && measurement.name.size() <= MAX_MEASUREMENT_NAME_LENGTH &&
+           measurement.IsSupported() && measurement.sourcePort <= profile.portCount &&
+           measurement.receiverPort <= profile.portCount;
+}
+
 double QuantizedBandwidth(double value) noexcept
 {
     const double values[] = {10.0, 100.0, 1000.0, 10000.0, 100000.0};
@@ -552,7 +559,10 @@ bool InstrumentService::BootstrapMockProfile(std::string &error)
         return false;
     }
     Measurement initial;
-    initial.name = "DefaultA";
+    initial.name = "Trc1";
+    initial.kind = MeasurementKind::S_PARAMETER;
+    initial.receiverKind = 'b';
+    initial.receiverPort = profile_.portCount >= 2U ? 2U : 1U;
     InstrumentSettings candidate = settings_;
     candidate.measurements.push_back(initial);
     candidate.selectedMeasurement = initial.name;
@@ -745,9 +755,7 @@ Operation InstrumentService::DefineMeasurement(
     measurement.receiverKind = static_cast<char>(std::tolower(static_cast<unsigned char>(measurement.receiverKind)));
     return Configure(
         [this, measurement](InstrumentSettings &settings) {
-            if (measurement.name.empty() || measurement.name.size() > MAX_MEASUREMENT_NAME_LENGTH ||
-                !measurement.IsSupported() || measurement.sourcePort > profile_.portCount ||
-                measurement.receiverPort > profile_.portCount) {
+            if (!ValidMeasurement(measurement, profile_)) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Unsupported measurement definition");
             }
             if (settings.measurements.size() >= MEASUREMENT_CAPACITY) {
@@ -762,6 +770,28 @@ Operation InstrumentService::DefineMeasurement(
             if (settings.selectedMeasurement.empty()) {
                 settings.selectedMeasurement = measurement.name;
             }
+            return Result(true);
+        },
+        expected, owner);
+}
+
+Operation InstrumentService::UpdateMeasurement(
+    Measurement measurement, std::uint64_t expected, const std::string &owner)
+{
+    measurement.receiverKind = static_cast<char>(std::tolower(static_cast<unsigned char>(measurement.receiverKind)));
+    return Configure(
+        [this, measurement](InstrumentSettings &settings) {
+            if (!ValidMeasurement(measurement, profile_)) {
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Unsupported measurement definition");
+            }
+            const auto found = std::find_if(settings.measurements.begin(), settings.measurements.end(),
+                [&measurement](const Measurement &existing) {
+                    return existing.name == measurement.name;
+                });
+            if (found == settings.measurements.end()) {
+                return Result(false, Detail::INVALID_PARAMETER_ERROR, "Measurement name does not exist");
+            }
+            *found = measurement;
             return Result(true);
         },
         expected, owner);

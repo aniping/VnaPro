@@ -3,6 +3,8 @@
  */
 
 #include <chrono>
+#include <cstddef>
+#include <initializer_list>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -37,6 +39,37 @@ VnaService::ConfigPatch Range(double start, double stop)
     patch.startHz = start;
     patch.stopHz = stop;
     return patch;
+}
+
+void DefaultMeasurementIsUncalibratedSParameter()
+{
+    for (unsigned portCount : {1U, 2U, 4U}) {
+        VnaService::InstrumentProfile profile;
+        profile.portCount = portCount;
+        VnaServiceTest::Fixture fixture(profile);
+        const auto snapshot = fixture.service.Snapshot();
+        const auto &settings = snapshot.settings;
+        Require(settings.measurements.size() == 1U && settings.selectedMeasurement == "Trc1",
+            "全新仪器应只创建并选择第一条标准 S 参数迹线");
+        const auto &measurement = settings.measurements.front();
+        const unsigned receiverPort = portCount >= 2U ? 2U : 1U;
+        const std::string parameter = portCount >= 2U ? "S21" : "S11";
+        Require(measurement.name == "Trc1" && measurement.kind == VnaService::MeasurementKind::S_PARAMETER &&
+                    measurement.Parameter() == parameter && measurement.receiverKind == 'b' &&
+                    measurement.receiverPort == receiverPort && measurement.sourcePort == 1U,
+            "二端口及以上默认 S21，单端口回退 S11，不能显示原始入射波 a1,1");
+        Require(settings.sweepMode == VnaService::SweepMode::HOLD && !snapshot.core.frame,
+            "默认迹线不应自动启动采集或构造初始数据");
+        Require(fixture.service.TryAcquireControl() && Finish(fixture, fixture.service.RunSingle("SCPI")).ok,
+            "取得控制权后采集默认 S 参数迹线");
+        const auto data = fixture.service.MeasurementData();
+        Require(data.ok && data.values.size() == profile.defaultPoints * 2U, "默认测量完整返回未校准复比值");
+        // 受控设备独立给出的 a1 与所有 b 波均为 1.11+1.11i，其比值必须是 1+0i。
+        for (std::size_t index = 0U; index < data.values.size(); index += 2U) {
+            Require(data.values[index] == 1.0 && data.values[index + 1U] == 0.0,
+                "默认 S 参数必须经过复比值计算，不能直接返回原始接收波");
+        }
+    }
 }
 
 void CoupledEndpointsAreAtomic()
@@ -93,6 +126,7 @@ void PortLimitsAndSinglePort()
 int main()
 {
     try {
+        DefaultMeasurementIsUncalibratedSParameter();
         CoupledEndpointsAreAtomic();
         PortLimitsAndSinglePort();
         std::cout << "PASS 仪器边界与原子配置\n";

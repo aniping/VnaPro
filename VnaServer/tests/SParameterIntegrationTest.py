@@ -30,7 +30,7 @@ def compare_complex(actual, expected, context):
 
 def prepare(client, noise):
     assert int(client.query("*CLS;:SENS1:SWE:MODE HOLD;*OPC?")) == 1
-    assert int(client.query('CALC1:PAR:DEL "DefaultA";*OPC?')) == 1
+    assert int(client.query('CALC1:PAR:DEL "Trc1";*OPC?')) == 1
     if noise:
         assert int(client.query("SENS1:SWE:POIN 17;*OPC?")) == 1
     else:

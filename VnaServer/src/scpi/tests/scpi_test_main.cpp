@@ -373,7 +373,7 @@ void InvalidReceiverCannotProduceCurve(const std::string &)
 {
     VnaServiceTest::Fixture fixture;
     VnaScpi::ScpiEngine engine(fixture.service);
-    Command(engine, "*CLS;CALC1:PAR:DEF:EXT 'HealthyB','b1,1'");
+    Command(engine, "*CLS;CALC1:PAR:DEF:EXT 'RawA','a1,1';:CALC1:PAR:DEF:EXT 'HealthyB','b1,1';:CALC1:PAR:SEL 'RawA'");
     fixture.device->SetInvalidSamples(true);
     Expect(Command(engine, "SENS1:SWE:MODE SING;*OPC?") == "+1\n", "Invalid-data scan still terminates");
     const auto held = fixture.core.ReadView().frame;
@@ -388,7 +388,7 @@ void InvalidReceiverCannotProduceCurve(const std::string &)
     Expect(Command(engine, "SYST:ERR?").find("0,") == 0U, "Healthy receiver adds no error");
     Expect(fixture.core.ReadView().frame == held, "Receiver selection cannot rewrite the held frame");
     fixture.device->SetInvalidSamples(false);
-    Command(engine, "CALC1:PAR:SEL 'DefaultA'");
+    Command(engine, "CALC1:PAR:SEL 'RawA'");
     Expect(Command(engine, "SENS1:SWE:MODE SING;*OPC?") == "+1\n", "Following valid scan completes");
     const auto restored = Numbers(Command(engine, "CALC1:DATA? RDATA"));
     Expect(restored.size() == 402U, "Valid scan restores a complete receiver curve");
@@ -420,7 +420,7 @@ void ConfigurationPreservesDirectSettings(const std::string &)
         Expect(std::chrono::steady_clock::now() < deadline, "configuration gate not entered");
         std::this_thread::yield();
     }
-    Expect(!service.SelectMeasurement("DefaultA"), "SEL must reject an in-flight candidate snapshot");
+    Expect(!service.SelectMeasurement("Trc1"), "SEL must reject an in-flight candidate snapshot");
     Expect(!service.SetCurrentTriggerScope(false), "scope must reject an in-flight candidate snapshot");
     Expect(service.PopError().code == -221 && service.PopError().code == -221, "direct setting conflicts");
     fixture.device->Release();
@@ -430,12 +430,11 @@ void ConfigurationPreservesDirectSettings(const std::string &)
     Expect(configured.get().ok, "configuration completion");
     Expect(service.Settings().selectedMeasurement == "Alternate" && service.Settings().currentTriggerScope,
         "successful prior settings cannot be overwritten by candidate commit");
-    Expect(
-        service.SelectMeasurement("DefaultA") && service.SetCurrentTriggerScope(false), "direct settings after commit");
+    Expect(service.SelectMeasurement("Trc1") && service.SetCurrentTriggerScope(false), "direct settings after commit");
     service.ReleaseControl();
     Expect(!service.SelectMeasurement("Alternate") && !service.SetCurrentTriggerScope(true),
         "direct writes require control");
-    Expect(service.Settings().selectedMeasurement == "DefaultA" && !service.Settings().currentTriggerScope,
+    Expect(service.Settings().selectedMeasurement == "Trc1" && !service.Settings().currentTriggerScope,
         "unauthorized direct settings must not change state");
 }
 
@@ -473,8 +472,9 @@ void BootstrapPreparationFailureCanRetry(const std::string &)
                service.Settings().revision == 0U,
         "failed bootstrap must not publish a partial default catalog");
     Expect(service.BootstrapMockProfile(error), "bootstrap retry must succeed");
-    Expect(service.Settings().measurements.size() == 1U && service.Settings().measurements.front().name == "DefaultA" &&
-               service.Settings().selectedMeasurement == "DefaultA" &&
+    Expect(service.Settings().measurements.size() == 1U && service.Settings().measurements.front().name == "Trc1" &&
+               service.Settings().measurements.front().Parameter() == "S21" &&
+               service.Settings().selectedMeasurement == "Trc1" &&
                service.Settings().revision == core.ReadView().configRevision,
         "retry must commit one default measurement and the successful revision");
     Expect(!service.BootstrapMockProfile(error) && service.Settings().measurements.size() == 1U,

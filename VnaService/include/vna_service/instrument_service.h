@@ -78,6 +78,9 @@ public:
     // 添加唯一的 1～128 字节测量名称；端口必须在仪器能力内，S 参数支持未校准 S11/S21/S12/S22。
     Operation DefineMeasurement(
         Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
+    // 原位更新同名测量定义，保留目录顺序和当前选择；沿用 HOLD、能力及版本的原子校验。
+    Operation UpdateMeasurement(
+        Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
     // 按区分大小写的名称，将已有测量项的删除操作加入队列，并按需更新当前选择。
     Operation DeleteMeasurement(
         const std::string &name, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");

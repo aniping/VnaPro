@@ -47,7 +47,7 @@ def exercise(http_port, scpi_port, vectors):
         assert int(client.query("*CLS;:SENS1:SWE:MODE HOLD;*OPC?")) == 1
         # 黄金向量使用独立测试能力配置；允许起止频率相同，正式默认能力另行验收。
         assert int(client.query("SENS1:FREQ:STOP 1GHz;STAR 1GHz;:SENS1:SWE:POIN 2;*OPC?")) == 1
-        assert int(client.query('CALC1:PAR:DEL "DefaultA";*OPC?')) == 1
+        assert int(client.query('CALC1:PAR:DEL "Trc1";*OPC?')) == 1
         client.query("FORM:DATA ASC,0;:TRIG:SOUR IMM;*OPC?")
         measurements = [(f"G{source}{kind}{receiver}", source, kind, receiver)
                         for source in range(1, 5) for kind in ("a", "b") for receiver in range(1, 5)]

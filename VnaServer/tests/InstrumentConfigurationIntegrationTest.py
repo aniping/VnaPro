@@ -27,6 +27,11 @@ def status_defaults(http, port_count):
     assert (config["startHz"], config["stopHz"], config["points"], config["ifBandwidthHz"]) == (
         MIN_HZ, MAX_HZ, DEFAULT_POINTS, 1000,
     ), config
+    assert status["measurements"] == [{
+        "name": "Trc1", "receiverKind": "b", "receiverPort": 2, "sourcePort": 1,
+        "parameter": "S21", "kind": "sParameter", "unit": "1", "calibration": "uncalibrated",
+    }], status["measurements"]
+    assert config["sweepMode"] == "HOLD", config
     assert not http.frame()["available"], "初始观察不能自动启动采集"
 
 
@@ -137,6 +142,9 @@ def exercise(config, port_count):
             assert int(client.query("SENS1:SWE:POIN?")) == DEFAULT_POINTS
             assert float(client.query("SENS1:FREQ:STAR?")) == MIN_HZ
             assert float(client.query("SENS1:FREQ:STOP?")) == MAX_HZ
+            assert client.query("CALC1:PAR:CAT:EXT?") == '"Trc1,S21"'
+            assert client.query("CALC1:PAR:SEL?") == '"Trc1"'
+            assert client.query("SENS1:SWE:MODE?") == "HOLD"
             assert_frame(http, client)
             scpi_rejections(http, client, port_count)
             define_supported(http, client, port_count)

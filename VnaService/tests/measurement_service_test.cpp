@@ -47,7 +47,7 @@ void Prepare(Fixture &fixture)
 {
     Require(fixture.service.TryAcquireControl(), "取得 SCPI 控制权");
     Require(Finish(fixture, fixture.service.SetPoints(TEST_POINT_COUNT)).ok, "提交三点扫描配置");
-    Require(Finish(fixture, fixture.service.DeleteMeasurement("DefaultA")).ok, "移除默认原始测量");
+    Require(Finish(fixture, fixture.service.DeleteMeasurement("Trc1")).ok, "移除默认 S21 迹线，独立准备测试目录");
 }
 
 VnaService::Measurement SParameter(const std::string &name, unsigned receiver, unsigned source = 1U)
@@ -233,6 +233,102 @@ void MeasurementDefinitionRespectsControlAndRevision()
         "拒绝的竞争请求不会遗留测量项");
 }
 
+void MeasurementUpdatePreservesCatalogAndInvalidatesFrame()
+{
+    Fixture fixture;
+    auto &service = fixture.service;
+    Require(
+        service.TryAcquireControl() && Finish(fixture, service.SetPoints(TEST_POINT_COUNT)).ok, "准备默认迹线更新测试");
+    fixture.device->SetSamples(KnownSamples());
+    Require(Finish(fixture, service.DefineMeasurement(SParameter("OtherReflection", 1U))).ok, "增加其他反射迹线");
+    Require(Finish(fixture, service.RunSingle("SCPI")).ok, "更新前发布完整帧");
+    ExpectRatio(fixture, "Trc1", 0.25, -0.5);
+    const auto oldFrame = service.Snapshot().core.frame;
+    const auto revision = service.Settings().revision;
+    auto updated = SParameter("Trc1", 2U, 2U);
+    updated.receiverKind = 'B';
+    Require(Finish(fixture, service.UpdateMeasurement(updated, revision)).ok, "原位将默认 S21 更新为 S22");
+    const auto &settings = service.Settings();
+    Require(settings.revision == revision + 1U && settings.measurements.size() == 2U &&
+                settings.selectedMeasurement == "Trc1" && settings.measurements[0].name == "Trc1" &&
+                settings.measurements[0].Parameter() == "S22" && settings.measurements[0].receiverKind == 'b' &&
+                settings.measurements[1].name == "OtherReflection",
+        "更新仅增加一个版本，保留数量、名称、目录顺序和当前选择");
+    Require(service.Snapshot().core.frame == oldFrame && oldFrame->configRevision != settings.revision &&
+                !service.MeasurementData().ok,
+        "更新定义后保留旧快照但禁止将它作为当前测量读取");
+    Require(Finish(fixture, service.RunSingle("SCPI")).ok, "新定义重新完成双源采集");
+    const auto frame = service.Snapshot().core.frame;
+    Require(frame && frame->plan.sourcePorts == std::vector<std::uint32_t>{1U, 2U} && frame->plan.receiverMask == 3U,
+        "新的 S22 计划包含源 2 的参考接收器和完整双源轮次");
+    ExpectRatio(fixture, "Trc1", 0.125, -0.25);
+}
+
+void RejectedMeasurementUpdatesAreAtomic()
+{
+    VnaService::InstrumentProfile profile;
+    profile.portCount = 2U;
+    Fixture fixture(profile);
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl() && Finish(fixture, service.SetPoints(TEST_POINT_COUNT)).ok, "准备原子拒绝测试");
+    const auto revision = service.Settings().revision;
+    auto invalid = SParameter("Trc1", 1U, 3U);
+    invalid.kind = VnaService::MeasurementKind::RECEIVER;
+    Require(!Finish(fixture, service.UpdateMeasurement(invalid, revision)).ok, "拒绝配置能力外的源端口");
+    Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Missing", 1U), revision)).ok,
+        "不存在的名称不能被更新隐式新增");
+    Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 1U), revision - 1U)).ok,
+        "旧版本不能覆盖当前迹线");
+    Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 1U), revision, "OTHER")).ok,
+        "其他所有者不能修改测量定义");
+    Require(Finish(fixture, service.RunContinuous("SCPI")).ok, "启动连续采集以验证模式约束");
+    Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 1U), revision)).ok,
+        "非 HOLD 模式不能修改测量定义");
+    Require(Finish(fixture, service.SetSweepMode(VnaService::SweepMode::HOLD)).ok, "完成连续采集停止屏障");
+    Require(service.Settings().revision == revision && service.Settings().measurements.size() == 1U &&
+                service.Settings().measurements.front().Parameter() == "S21" &&
+                service.Settings().selectedMeasurement == "Trc1",
+        "所有拒绝保持版本、目录和选择不变");
+    fixture.device->FailNextPlanPreparation();
+    Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 2U, 2U), revision)).ok,
+        "设备计划准备失败必须拒绝整个更新");
+    Require(service.Settings().revision == revision && service.Settings().measurements.front().Parameter() == "S21",
+        "计划准备失败不提交部分定义");
+}
+
+void FullCatalogSupportsInPlaceUpdates()
+{
+    constexpr unsigned TEST_CATALOG_CAPACITY = 32U;
+    Fixture fixture;
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得目录容量测试控制权");
+    for (unsigned index = 1U; index < TEST_CATALOG_CAPACITY; ++index) {
+        Require(Finish(fixture, service.DefineMeasurement(SParameter("Other" + std::to_string(index), 1U))).ok,
+            "填满测量目录");
+    }
+    const auto revision = service.Settings().revision;
+    Require(Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 2U, 2U), revision)).ok,
+        "满目录仍能原位切换已有测量");
+    Require(service.Settings().measurements.size() == TEST_CATALOG_CAPACITY &&
+                service.Settings().revision == revision + 1U && service.Settings().selectedMeasurement == "Trc1" &&
+                service.Settings().measurements.front().Parameter() == "S22",
+        "满目录更新没有先删后加的空窗或容量变化");
+}
+
+void MeasurementUpdatesRevalidateQueuedRevision()
+{
+    Fixture fixture;
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得队列版本测试控制权");
+    const auto revision = service.Settings().revision;
+    const auto first = service.UpdateMeasurement(SParameter("Trc1", 1U), revision);
+    const auto stale = service.UpdateMeasurement(SParameter("Trc1", 2U, 2U), revision);
+    Require(Finish(fixture, first).ok && !Finish(fixture, stale).ok, "执行时重新检查排队请求的预期版本");
+    Require(service.Settings().revision == revision + 1U && service.Settings().measurements.size() == 1U &&
+                service.Settings().measurements.front().Parameter() == "S11",
+        "旧版本排队请求不能覆盖已经提交的定义");
+}
+
 void Run(const std::string &name, void (*test)(), unsigned &failed)
 {
     try {
@@ -254,5 +350,9 @@ int main()
     Run("配置更新后的旧帧拒绝", ConfigurationChangeRejectsRetainedFrame, failed);
     Run("不支持的定义和原始接收机兼容", UnsupportedDefinitionAndRawCompatibility, failed);
     Run("测量目录控制权与版本竞争", MeasurementDefinitionRespectsControlAndRevision, failed);
+    Run("原位更新与旧帧失效", MeasurementUpdatePreservesCatalogAndInvalidatesFrame, failed);
+    Run("原位更新原子拒绝", RejectedMeasurementUpdatesAreAtomic, failed);
+    Run("满目录原位更新", FullCatalogSupportsInPlaceUpdates, failed);
+    Run("原位更新队列版本竞争", MeasurementUpdatesRevalidateQueuedRevision, failed);
     return failed == 0U ? 0 : 1;
 }

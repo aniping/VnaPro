@@ -18,12 +18,15 @@
 
 ## 当前模拟配置
 
-- InstrumentProfile 在启动时验证并冻结；默认 4 端口、频率 10 MHz–8 GHz，201 点，IFBW 1 kHz，测量 `DefaultA` 为 `a1,1`，初始 HOLD。
+- InstrumentProfile 在启动时验证并冻结；默认 4 端口、频率 10 MHz–8 GHz，201 点，IFBW 1 kHz。全新服务只创建并选择 `Trc1/S21`；单端口配置回退为 `Trc1/S11`，均为未校准测量，初始 HOLD 且没有已完成帧。
 - 仅模拟合同规定一个 frequencyRaw 计数等于 1 Hz，IFBW raw 采用相同整数；9N 表全零且为 opaque 数据，不代表真实功率、增益或校准表。
 - 默认支持频率范围 10 MHz–8 GHz，由 instrument.frequency 配置，端点按整数 Hz 回读；端点交叉保留旧 span，联动另一端点，联动后超范围则拒绝整个候选。
 - 点数 2–10001；IFBW 有效值为 10、100、1000、10000、100000 Hz，向上取适用值。配置只允许 HOLD 且无未完成有限测量；执行时再次校验状态和 expectedRevision。
 - 配置候选提交期间，服务的直接测量选择和触发范围修改报告状态冲突，防止整份候选提交覆盖已成功修改的字段；两者也必须持有控制权。有限测量期间仍允许选择已定义的曲线。
+- `UpdateMeasurement(measurement, expectedRevision, owner)` 原位替换已存在的同名定义，保留名称、目录顺序、数量和当前选择；目录满 32 项时也能更新。它与新增、删除共用 Configure 队列，在 HOLD 下重新校验控制权、预期版本及能力，核心准备成功后只提交一次 revision；不存在的名称不会被隐式创建，旧帧失去当前配置身份。
 - 接收器映射仅采用模拟器明确的 IQ 布局，每点四端口、每端口 A.real/A.imag/B.real/B.imag。非比值参数接受已配置能力内的 `a1..a4` 或 `b1..b4` 和源端口 1..portCount（最高 4）；接收器字母大小写不敏感，测量名称保留大小写。
+
+浏览器首次打开或刷新只读取已有服务目录，不调用启动初始化，也不把用户已设置的测量恢复成默认值。Meas 通过 `PUT /api/v1/measurements/{name}` 更新活动迹线，名称取自路径；新增、显示和删除归 Trace Config，Add Trace 复制活动测量定义并生成未使用的 `Trc<n>`。这不增加任何 SCPI 命令。
 
 以上范围与换算是软件测试 profile，不能推定为 Keysight 或真实板卡的能力。
 
@@ -42,3 +45,5 @@ SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC �
 顶层 CMake 开启 BUILD_TESTING 时，`vna_scpi_tests` / `service_scpi` 同时验证服务和协议。实际模拟 DLL 用于单位、接收器数据、消息边界及 10001 点输出；可控设备替身用同步门验证阻塞扫描、OPC 上限、断线收尾以及失败单次保留旧帧但拒绝作为当前数据。
 
 仪器能力类型和默认值在 `instrument_profile.h`，验证行为在 `instrument_profile.cpp`。YAML 由 Server 使用 yaml-cpp 解析，再传值给服务；服务不依赖配置文件或 YAML 类型。HTTP 返回能力只读视图，SCPI MIN/MAX 查询与设置从同一 Profile 取边界。2 端口配置禁止 RAW 第 3/4 端口的源和接收器，4 端口配置允许全部 RAW 波量；两者都支持 2×2 未校准 S 参数。
+
+`instrument_profile` 验证 1/2/4 端口的新服务默认测量、HOLD 和无初始帧，并独立检查默认 S 参数确实经过复比值计算。`service_measurement` 覆盖原位切换、源 2 参考波、旧帧失效、能力/控制权/状态/版本拒绝、设备准备失败回退、满目录更新及排队版本竞争；历史 RAW 和黄金向量用例显式准备自己的测量目录。
