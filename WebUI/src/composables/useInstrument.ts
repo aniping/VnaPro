@@ -2,8 +2,15 @@ import { computed, getCurrentScope, onScopeDispose, shallowRef } from 'vue'
 import { ApiError, InstrumentApi } from '../api/instrumentApi'
 import type { InstrumentGateway } from '../api/instrumentApi'
 import type {
-  AcceptedOperation, AcquiredFrame, FrameCondition, InstrumentNotice, InstrumentStatus,
-  MeasurementCandidate, PendingOperation, RunAction, SweepConfiguration,
+  AcceptedOperation,
+  AcquiredFrame,
+  FrameCondition,
+  InstrumentNotice,
+  InstrumentStatus,
+  MeasurementCandidate,
+  PendingOperation,
+  RunAction,
+  SweepConfiguration,
 } from '../api/types'
 
 interface InstrumentOptions {
@@ -15,7 +22,10 @@ interface InstrumentOptions {
 }
 
 const ACTION_LABEL: Record<RunAction, string> = {
-  single: 'Single sweep', continuous: 'Continuous sweep', hold: 'Hold', trigger: 'Manual trigger',
+  single: 'Single sweep',
+  continuous: 'Continuous sweep',
+  hold: 'Hold',
+  trigger: 'Manual trigger',
 }
 const INITIAL_NOTICE = '正在连接采集服务…'
 
@@ -35,7 +45,10 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const initialized = shallowRef(false)
   const pendingOperation = shallowRef<PendingOperation | null>(null)
   const error = shallowRef<string | null>(null)
-  const notice = shallowRef<InstrumentNotice | null>({ text: INITIAL_NOTICE, tone: 'info' })
+  const notice = shallowRef<InstrumentNotice | null>({
+    text: INITIAL_NOTICE,
+    tone: 'info',
+  })
   const controlBusy = shallowRef(false)
   const writeInFlight = shallowRef(false)
   const uncertainWrite = shallowRef(false)
@@ -54,34 +67,93 @@ export function useInstrument(options: InstrumentOptions = {}) {
   let lastRenewed = 0
   let resolveOperation: ((value: InstrumentStatus | null) => void) | null = null
 
-  const hasControl = computed(() => Boolean(connected.value && renewing.value
-    && status.value?.control.hasControl && !status.value.control.releasing))
-  const canWrite = computed(() => Boolean(hasControl.value && !controlBusy.value && !writeInFlight.value
-    && !uncertainWrite.value && !pendingOperation.value && !status.value?.pending
-    && status.value && !['Faulted', 'Closed', 'Uninitialized'].includes(status.value.state)))
-  const canConfigure = computed(() => canWrite.value && status.value?.state === 'Ready'
-    && status.value.config.sweepMode === 'HOLD')
+  const hasControl = computed(() =>
+    Boolean(
+      connected.value &&
+        renewing.value &&
+        status.value?.control.hasControl &&
+        !status.value.control.releasing,
+    ),
+  )
+  const canWrite = computed(() =>
+    Boolean(
+      hasControl.value &&
+        !controlBusy.value &&
+        !writeInFlight.value &&
+        !uncertainWrite.value &&
+        !pendingOperation.value &&
+        !status.value?.pending &&
+        status.value &&
+        !['Faulted', 'Closed', 'Uninitialized'].includes(status.value.state),
+    ),
+  )
+  const canConfigure = computed(
+    () =>
+      canWrite.value &&
+      status.value?.state === 'Ready' &&
+      status.value.config.sweepMode === 'HOLD',
+  )
+  const canChangeMeasurements = computed(
+    () =>
+      canWrite.value &&
+      ['Ready', 'Running'].includes(status.value?.state ?? ''),
+  )
 
   const frameCondition = computed<FrameCondition>(() => {
     const currentStatus = status.value
     const currentFrame = frame.value
     if (!currentFrame) {
-      if (currentStatus?.state === 'Faulted') return { kind: 'fault', label: 'FAULT', detail: currentStatus.error }
-      return { kind: 'empty', label: 'NO DATA', detail: 'Run a single or continuous sweep to acquire measurement data.' }
+      if (currentStatus?.state === 'Faulted')
+        return { kind: 'fault', label: 'FAULT', detail: currentStatus.error }
+      return {
+        kind: 'empty',
+        label: 'NO DATA',
+        detail: 'Run a single or continuous sweep to acquire measurement data.',
+      }
     }
-    if (!connected.value) return { kind: 'disconnected', label: 'DISCONNECTED', detail: 'Retained frame · connection unavailable' }
-    if (currentStatus?.state === 'Faulted') return { kind: 'fault', label: 'FAULT', detail: 'Retained frame · ' + currentStatus.error }
-    if (!currentStatus?.activeConfigValid || currentFrame.revision !== currentStatus.revision) {
-      return { kind: 'stale', label: 'PREVIOUS CONFIG', detail: 'Retained frame · acquire data for the applied configuration' }
+    if (!connected.value)
+      return {
+        kind: 'disconnected',
+        label: 'DISCONNECTED',
+        detail: 'Retained frame · connection unavailable',
+      }
+    if (currentStatus?.state === 'Faulted')
+      return {
+        kind: 'fault',
+        label: 'FAULT',
+        detail: 'Retained frame · ' + currentStatus.error,
+      }
+    if (
+      !currentStatus?.activeConfigValid ||
+      currentFrame.revision !== currentStatus.acquisitionRevision ||
+      currentFrame.measurementRevision !== currentStatus.revision
+    ) {
+      return {
+        kind: 'stale',
+        label: 'PREVIOUS CONFIG',
+        detail: 'Retained frame · acquire data for the applied configuration',
+      }
     }
     if (currentFrame.runId !== currentStatus.runId) {
-      return { kind: 'acquiring', label: 'PREVIOUS RUN', detail: 'Retained frame · waiting for current run' }
+      return {
+        kind: 'acquiring',
+        label: 'PREVIOUS RUN',
+        detail: 'Retained frame · waiting for current run',
+      }
     }
     if (!frameCurrent.value) {
       if (currentStatus.pending || pendingOperation.value) {
-        return { kind: 'acquiring', label: 'ACQUIRING', detail: 'Retained frame · operation in progress' }
+        return {
+          kind: 'acquiring',
+          label: 'ACQUIRING',
+          detail: 'Retained frame · operation in progress',
+        }
       }
-      return { kind: 'stale', label: 'RETAINED FRAME', detail: frameError.value || 'Current data unavailable' }
+      return {
+        kind: 'stale',
+        label: 'RETAINED FRAME',
+        detail: frameError.value || 'Current data unavailable',
+      }
     }
     return { kind: 'current', label: 'CURRENT FRAME', detail: '' }
   })
@@ -100,8 +172,14 @@ export function useInstrument(options: InstrumentOptions = {}) {
     if (!active) return
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
-    if (polling) { pollAgain = true; return }
-    timer = setTimeout(() => { timer = undefined; void refresh() }, delay)
+    if (polling) {
+      pollAgain = true
+      return
+    }
+    timer = setTimeout(() => {
+      timer = undefined
+      void refresh()
+    }, delay)
   }
 
   async function claim(automatic = false): Promise<boolean> {
@@ -119,8 +197,14 @@ export function useInstrument(options: InstrumentOptions = {}) {
       return true
     } catch (failure) {
       if (epoch !== generation) return false
-      const conflict = failure instanceof ApiError && [403, 409].includes(failure.status)
-      notify(automatic && conflict ? '另一客户端持有控制权，当前只读查看数据。' : message(failure), conflict ? 'warning' : 'error')
+      const conflict =
+        failure instanceof ApiError && [403, 409].includes(failure.status)
+      notify(
+        automatic && conflict
+          ? '另一客户端持有控制权，当前只读查看数据。'
+          : message(failure),
+        conflict ? 'warning' : 'error',
+      )
       return false
     } finally {
       if (epoch === generation) {
@@ -146,7 +230,10 @@ export function useInstrument(options: InstrumentOptions = {}) {
       if (epoch === generation) notify(message(failure), 'error')
       return false
     } finally {
-      if (epoch === generation) { controlBusy.value = false; schedule(0) }
+      if (epoch === generation) {
+        controlBusy.value = false
+        schedule(0)
+      }
     }
   }
 
@@ -156,17 +243,27 @@ export function useInstrument(options: InstrumentOptions = {}) {
     try {
       // 已受理操作的凭据始终属于原令牌，释放或重新获取控制租约后也不转移。
       const result = await api.operation(pending.id, pending.ownerSessionId)
-      if (epoch !== generation || pendingOperation.value?.id !== pending.id || result.state === 'pending') return
-      if (result.operationId !== pending.id) throw new ApiError('服务返回了不匹配的操作编号', 0, '', 'protocol')
+      if (
+        epoch !== generation ||
+        pendingOperation.value?.id !== pending.id ||
+        result.state === 'pending'
+      )
+        return
+      if (result.operationId !== pending.id)
+        throw new ApiError('服务返回了不匹配的操作编号', 0, '', 'protocol')
       if (result.state === 'failed') {
         pendingOperation.value = null
-        notify(result.result?.message || '设备操作失败，请检查读回状态。', 'error')
+        notify(
+          result.result?.message || '设备操作失败，请检查读回状态。',
+          'error',
+        )
         settleOperation(null)
         return
       }
       pendingOperation.value = { ...pending, readingBack: true }
       const readback = await api.status()
-      if (epoch !== generation || pendingOperation.value?.id !== pending.id) return
+      if (epoch !== generation || pendingOperation.value?.id !== pending.id)
+        return
       status.value = readback
       connected.value = true
       pendingOperation.value = null
@@ -177,7 +274,10 @@ export function useInstrument(options: InstrumentOptions = {}) {
       if (epoch !== generation) return
       if (failure instanceof ApiError && failure.status === 404) {
         pendingOperation.value = null
-        notify('操作结果已过期；请根据设备读回状态判断结果，未自动重发。', 'warning')
+        notify(
+          '操作结果已过期；请根据设备读回状态判断结果，未自动重发。',
+          'warning',
+        )
         settleOperation(null)
       }
       // 暂时无法查询状态时保留操作凭据；HTTP 202 只表示已受理，不表示操作完成。
@@ -189,15 +289,24 @@ export function useInstrument(options: InstrumentOptions = {}) {
     const epochAtRead = writeEpoch
     const displayAtRead = displayEpoch
     try {
-      const [statusResult, frameResult] = await Promise.allSettled([api.status(), api.frame(displayedNames.value)])
+      const [statusResult, frameResult] = await Promise.allSettled([
+        api.status(),
+        api.frame(displayedNames.value),
+      ])
       if (epoch !== generation || !active) return
       if (statusResult.status === 'fulfilled') {
         status.value = statusResult.value
         connected.value = true
-        if (epochAtRead === writeEpoch && !writeInFlight.value && !statusResult.value.pending) uncertainWrite.value = false
+        if (
+          epochAtRead === writeEpoch &&
+          !writeInFlight.value &&
+          !statusResult.value.pending
+        )
+          uncertainWrite.value = false
       } else {
         connected.value = false
-        if (wasConnected || !initialized.value) notify(message(statusResult.reason), 'error')
+        if (wasConnected || !initialized.value)
+          notify(message(statusResult.reason), 'error')
       }
       if (displayAtRead !== displayEpoch) {
         pollAgain = true
@@ -213,7 +322,11 @@ export function useInstrument(options: InstrumentOptions = {}) {
       } else {
         frameCurrent.value = false
         frameError.value = message(frameResult.reason)
-        if (frameResult.reason instanceof ApiError && frameResult.reason.status === 0) connected.value = false
+        if (
+          frameResult.reason instanceof ApiError &&
+          frameResult.reason.status === 0
+        )
+          connected.value = false
       }
       initialized.value = true
       if (connected.value) {
@@ -222,17 +335,30 @@ export function useInstrument(options: InstrumentOptions = {}) {
         const control = status.value?.control
         if (!initialClaimAttempted) {
           initialClaimAttempted = true
-          if (control?.hasControl || (control?.owner === 'none' && !control.releasing)) await claim(true)
+          if (
+            control?.hasControl ||
+            (control?.owner === 'none' && !control.releasing)
+          )
+            await claim(true)
           else notify('控制权已被其他客户端持有；当前只读查看数据。', 'warning')
-        } else if (renewing.value && control?.hasControl && !control.releasing && !controlBusy.value
-          && now() - lastRenewed >= (options.renewMs ?? 10000)) {
+        } else if (
+          renewing.value &&
+          control?.hasControl &&
+          !control.releasing &&
+          !controlBusy.value &&
+          now() - lastRenewed >= (options.renewMs ?? 10000)
+        ) {
           await claim(true)
         }
         if (epoch !== generation || !active) return
         if (!wasConnected && notice.value?.text === INITIAL_NOTICE) {
           notify('RAW 接收波与 S 参数 · 未校准')
         }
-        if (!wasConnected && notice.value?.tone === 'error' && !pendingOperation.value) {
+        if (
+          !wasConnected &&
+          notice.value?.tone === 'error' &&
+          !pendingOperation.value
+        ) {
           error.value = null
           notify('连接已恢复，显示设备读回状态。', 'success')
         }
@@ -244,7 +370,10 @@ export function useInstrument(options: InstrumentOptions = {}) {
 
   function refresh(): Promise<void> {
     if (!active) return Promise.resolve()
-    if (polling) { pollAgain = true; return runningPoll }
+    if (polling) {
+      pollAgain = true
+      return runningPoll
+    }
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
     polling = true
@@ -253,8 +382,17 @@ export function useInstrument(options: InstrumentOptions = {}) {
     runningPoll = pollCycle(epoch).finally(() => {
       polling = false
       if (!active) return
-      if (epoch !== generation) { schedule(0); return }
-      schedule(pollAgain ? 0 : connected.value ? (options.pollMs ?? 200) : (options.retryMs ?? 1000))
+      if (epoch !== generation) {
+        schedule(0)
+        return
+      }
+      schedule(
+        pollAgain
+          ? 0
+          : connected.value
+            ? (options.pollMs ?? 200)
+            : (options.retryMs ?? 1000),
+      )
     })
     return runningPoll
   }
@@ -263,10 +401,19 @@ export function useInstrument(options: InstrumentOptions = {}) {
     label: string,
     kind: PendingOperation['kind'],
     request: () => Promise<AcceptedOperation>,
-    configuration = false,
   ): Promise<InstrumentStatus | null> {
-    if (!(configuration ? canConfigure.value : canWrite.value)) {
-      notify(status.value?.control.readOnlyReason || '请取得控制权，并等待当前操作完成；修改配置前须先 Hold。', 'warning')
+    const allowed =
+      kind === 'config'
+        ? canConfigure.value
+        : kind === 'measurement'
+          ? canChangeMeasurements.value
+          : canWrite.value
+    if (!allowed) {
+      const reason =
+        kind === 'config'
+          ? '请取得控制权，并等待当前操作完成；修改扫频配置前须先 Hold。'
+          : '请取得控制权，并等待当前操作完成。'
+      notify(status.value?.control.readOnlyReason || reason, 'warning')
       return null
     }
     writeInFlight.value = true
@@ -276,19 +423,36 @@ export function useInstrument(options: InstrumentOptions = {}) {
     try {
       const accepted = await request()
       if (epoch !== generation) return null
-      const completion = new Promise<InstrumentStatus | null>((resolve) => { resolveOperation = resolve })
-      pendingOperation.value = { id: accepted.operationId, label, kind, ownerSessionId, readingBack: false }
+      const completion = new Promise<InstrumentStatus | null>((resolve) => {
+        resolveOperation = resolve
+      })
+      pendingOperation.value = {
+        id: accepted.operationId,
+        label,
+        kind,
+        ownerSessionId,
+        readingBack: false,
+      }
       notify(`${label} 已受理，等待设备完成。`)
       return completion
     } catch (failure) {
       if (epoch !== generation) return null
-      uncertainWrite.value = failure instanceof ApiError && failure.status === 0 && failure.kind !== 'cancelled'
-      notify(uncertainWrite.value
-        ? `${message(failure)}；受理结果暂无法确认，等待读回服务状态，未自动重发。`
-        : message(failure), 'error')
+      uncertainWrite.value =
+        failure instanceof ApiError &&
+        failure.status === 0 &&
+        failure.kind !== 'cancelled'
+      notify(
+        uncertainWrite.value
+          ? `${message(failure)}；受理结果暂无法确认，等待读回服务状态，未自动重发。`
+          : message(failure),
+        'error',
+      )
       return null
     } finally {
-      if (epoch === generation) { writeInFlight.value = false; schedule(0) }
+      if (epoch === generation) {
+        writeInFlight.value = false
+        schedule(0)
+      }
     }
   }
 
@@ -301,11 +465,18 @@ export function useInstrument(options: InstrumentOptions = {}) {
 
   /** 显示集合与测量目录分离；旧集合的迟到帧不能覆盖新选择。 */
   function setDisplayedMeasurements(names: readonly string[]): void {
-    if (names.length > 4 || new Set(names).size !== names.length) throw new Error('最多显示四条不同迹线')
+    if (names.length > 4 || new Set(names).size !== names.length)
+      throw new Error('最多显示四条不同迹线')
     if (JSON.stringify(names) === JSON.stringify(displayedNames.value)) return
     displayedNames.value = [...names]
     ++displayEpoch
-    if (frame.value) frame.value = { ...frame.value, traces: frame.value.traces.filter(trace => names.includes(trace.name)) }
+    if (frame.value)
+      frame.value = {
+        ...frame.value,
+        traces: frame.value.traces.filter((trace) =>
+          names.includes(trace.name),
+        ),
+      }
     frameCurrent.value = false
     schedule(0)
   }
@@ -328,19 +499,56 @@ export function useInstrument(options: InstrumentOptions = {}) {
   if (getCurrentScope()) onScopeDispose(stop)
 
   return {
-    status, frame, connected, initialized, frameCurrent, frameError, pendingOperation, error, notice,
-    controlBusy, writeInFlight, uncertainWrite, hasControl, canWrite, canConfigure, frameCondition,
-    start, stop, refresh, setDisplayedMeasurements, claim: () => claim(false), release,
-    dismissNotice: () => { notice.value = null },
+    status,
+    frame,
+    connected,
+    initialized,
+    frameCurrent,
+    frameError,
+    pendingOperation,
+    error,
+    notice,
+    controlBusy,
+    writeInFlight,
+    uncertainWrite,
+    hasControl,
+    canWrite,
+    canConfigure,
+    canChangeMeasurements,
+    frameCondition,
+    start,
+    stop,
+    refresh,
+    setDisplayedMeasurements,
+    claim: () => claim(false),
+    release,
+    dismissNotice: () => {
+      notice.value = null
+    },
     configure: (candidate: SweepConfiguration, expectedRevision: string) =>
-      submit('Apply configuration', 'config', () => api.configure(candidate, expectedRevision), true),
-    addMeasurement: (candidate: MeasurementCandidate, expectedRevision: string) =>
-      submit('Add measurement', 'measurement', () => api.addMeasurement(candidate, expectedRevision), true),
-    updateMeasurement: (candidate: MeasurementCandidate, expectedRevision: string) =>
-      submit('Change measurement', 'measurement', () => api.updateMeasurement(candidate, expectedRevision), true),
+      submit('Apply configuration', 'config', () =>
+        api.configure(candidate, expectedRevision),
+      ),
+    addMeasurement: (
+      candidate: MeasurementCandidate,
+      expectedRevision: string,
+    ) =>
+      submit('Add measurement', 'measurement', () =>
+        api.addMeasurement(candidate, expectedRevision),
+      ),
+    updateMeasurement: (
+      candidate: MeasurementCandidate,
+      expectedRevision: string,
+    ) =>
+      submit('Change measurement', 'measurement', () =>
+        api.updateMeasurement(candidate, expectedRevision),
+      ),
     deleteMeasurement: (name: string, expectedRevision: string) =>
-      submit('Delete measurement', 'measurement', () => api.deleteMeasurement(name, expectedRevision), true),
-    run: (action: RunAction) => submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)),
+      submit('Delete measurement', 'measurement', () =>
+        api.deleteMeasurement(name, expectedRevision),
+      ),
+    run: (action: RunAction) =>
+      submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)),
   }
 }
 

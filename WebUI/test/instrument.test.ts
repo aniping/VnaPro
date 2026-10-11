@@ -4,27 +4,72 @@ import { decodeFrame, decodeStatus } from '../src/api/decoders'
 import { ApiError, InstrumentApi } from '../src/api/instrumentApi'
 import type { InstrumentGateway } from '../src/api/instrumentApi'
 import type {
-  AcceptedOperation, ClaimResponse, FrameResponse, InstrumentStatus, MeasurementCandidate,
-  OperationSnapshot, RunAction, SweepConfiguration,
+  AcceptedOperation,
+  ClaimResponse,
+  FrameResponse,
+  InstrumentStatus,
+  MeasurementCandidate,
+  OperationSnapshot,
+  RunAction,
+  SweepConfiguration,
 } from '../src/api/types'
 import { useInstrument } from '../src/composables/useInstrument'
 
 function snapshot(revision = '1'): InstrumentStatus {
   return {
-    identity: 'VnaPro,NativeSimulator,0,0.2', backend: 'NativeSimulator', state: 'Ready', error: '', pending: false,
-    revision, acquisitionRevision: revision, runId: '1', activeConfigValid: true,
-    capabilities: { portCount: 4, minFrequencyHz: 1, maxFrequencyHz: 8e9, minSweepPoints: 2, maxSweepPoints: 10001 },
-    config: { startHz: 1e6, stopHz: 100e6, points: 201, ifBandwidthHz: 1000, triggerSource: 'IMM', sweepMode: 'HOLD' },
-    measurements: [{ name: 'DefaultA', kind: 'receiver', receiverKind: 'a', receiverPort: 1, sourcePort: 1,
-      parameter: 'a1,1', unit: 'a.u.', calibration: 'raw' }],
-    control: { owner: 'web', hasControl: true, releasing: false, leaseRemainingMs: 30000, readOnlyReason: '' },
+    identity: 'VnaPro,NativeSimulator,0,0.2',
+    backend: 'NativeSimulator',
+    state: 'Ready',
+    error: '',
+    pending: false,
+    revision,
+    acquisitionRevision: revision,
+    runId: '1',
+    activeConfigValid: true,
+    capabilities: {
+      portCount: 4,
+      minFrequencyHz: 1,
+      maxFrequencyHz: 8e9,
+      minSweepPoints: 2,
+      maxSweepPoints: 10001,
+    },
+    config: {
+      startHz: 1e6,
+      stopHz: 100e6,
+      points: 201,
+      ifBandwidthHz: 1000,
+      triggerSource: 'IMM',
+      sweepMode: 'HOLD',
+    },
+    measurements: [
+      {
+        name: 'DefaultA',
+        kind: 'receiver',
+        receiverKind: 'a',
+        receiverPort: 1,
+        sourcePort: 1,
+        parameter: 'a1,1',
+        unit: 'a.u.',
+        calibration: 'raw',
+      },
+    ],
+    control: {
+      owner: 'web',
+      hasControl: true,
+      releasing: false,
+      leaseRemainingMs: 30000,
+      readOnlyReason: '',
+    },
   }
 }
 
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: unknown) => void
-  const promise = new Promise<T>((accept, fail) => { resolve = accept; reject = fail })
+  const promise = new Promise<T>((accept, fail) => {
+    resolve = accept
+    reject = fail
+  })
   return { promise, resolve, reject }
 }
 
@@ -34,23 +79,60 @@ class FakeGateway implements InstrumentGateway {
   claims = 0
   aborts = 0
   operationOwners: string[] = []
-  statusLoader: () => Promise<InstrumentStatus> = async () => structuredClone(this.current)
-  operationLoader: () => Promise<OperationSnapshot> = async () => ({ operationId: 'op-1', state: 'pending', result: null })
-  submitter: () => Promise<AcceptedOperation> = async () => ({ operationId: 'op-1', state: 'pending' })
-  status() { return this.statusLoader() }
-  frame(): Promise<FrameResponse> { return Promise.resolve({ available: false, current: false, reason: 'No completed frame' }) }
+  statusLoader: () => Promise<InstrumentStatus> = async () =>
+    structuredClone(this.current)
+  operationLoader: () => Promise<OperationSnapshot> = async () => ({
+    operationId: 'op-1',
+    state: 'pending',
+    result: null,
+  })
+  submitter: () => Promise<AcceptedOperation> = async () => ({
+    operationId: 'op-1',
+    state: 'pending',
+  })
+  status() {
+    return this.statusLoader()
+  }
+  frame(): Promise<FrameResponse> {
+    return Promise.resolve({
+      available: false,
+      current: false,
+      reason: 'No completed frame',
+    })
+  }
   claim(): Promise<ClaimResponse> {
     this.claims++
-    return Promise.resolve({ sessionId: this.sessionId, hasControl: true, leaseSeconds: 30 })
+    return Promise.resolve({
+      sessionId: this.sessionId,
+      hasControl: true,
+      leaseSeconds: 30,
+    })
   }
-  release(): Promise<void> { return Promise.resolve() }
-  configure(_candidate: SweepConfiguration, _revision: string) { return this.submitter() }
-  operate(_action: RunAction) { return this.submitter() }
-  operation(_id: string, owner: string) { this.operationOwners.push(owner); return this.operationLoader() }
-  addMeasurement(_candidate: MeasurementCandidate, _revision: string) { return this.submitter() }
-  updateMeasurement(_candidate: MeasurementCandidate, _revision: string) { return this.submitter() }
-  deleteMeasurement(_name: string, _revision: string) { return this.submitter() }
-  abortRequests() { this.aborts++ }
+  release(): Promise<void> {
+    return Promise.resolve()
+  }
+  configure(_candidate: SweepConfiguration, _revision: string) {
+    return this.submitter()
+  }
+  operate(_action: RunAction) {
+    return this.submitter()
+  }
+  operation(_id: string, owner: string) {
+    this.operationOwners.push(owner)
+    return this.operationLoader()
+  }
+  addMeasurement(_candidate: MeasurementCandidate, _revision: string) {
+    return this.submitter()
+  }
+  updateMeasurement(_candidate: MeasurementCandidate, _revision: string) {
+    return this.submitter()
+  }
+  deleteMeasurement(_name: string, _revision: string) {
+    return this.submitter()
+  }
+  abortRequests() {
+    this.aborts++
+  }
 }
 
 async function ready(api: FakeGateway, options: { now?: () => number } = {}) {
@@ -61,7 +143,102 @@ async function ready(api: FakeGateway, options: { now?: () => number } = {}) {
   return model
 }
 
-async function microtasks() { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() }
+async function microtasks() {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+test('continuous sweep accepts measurement edits while physical sweep settings remain locked', async (context) => {
+  const api = new FakeGateway()
+  api.current.state = 'Running'
+  api.current.config.sweepMode = 'CONT'
+  const model = await ready(api)
+  context.after(() => model.stop())
+  assert.equal(model.canConfigure.value, false)
+  assert.equal(model.canChangeMeasurements.value, true)
+  const changing = model.updateMeasurement(
+    {
+      name: 'DefaultA',
+      kind: 'sParameter',
+      receiverKind: 'b',
+      receiverPort: 1,
+      sourcePort: 1,
+    },
+    '1',
+  )
+  await microtasks()
+  assert.equal(model.pendingOperation.value?.kind, 'measurement')
+  model.stop()
+  assert.equal(await changing, null)
+})
+
+test('measurement edits respect control ownership and pending operations in continuous mode', async (context) => {
+  const api = new FakeGateway()
+  api.current.state = 'Running'
+  api.current.config.sweepMode = 'CONT'
+  const model = await ready(api)
+  context.after(() => model.stop())
+  api.current.control.hasControl = false
+  await model.refresh()
+  assert.equal(model.canChangeMeasurements.value, false)
+  assert.equal(await model.deleteMeasurement('DefaultA', '1'), null)
+  api.current.control.hasControl = true
+  await model.refresh()
+  const adding = model.addMeasurement(
+    { ...api.current.measurements[0]!, name: 'Copy' },
+    '1',
+  )
+  await microtasks()
+  assert.equal(model.pendingOperation.value?.kind, 'measurement')
+  assert.equal(model.canChangeMeasurements.value, false)
+  assert.equal(await model.deleteMeasurement('DefaultA', '1'), null)
+  model.stop()
+  assert.equal(await adding, null)
+})
+
+test('frame freshness pairs acquisition and measurement revisions separately across late responses', async (context) => {
+  const api = new FakeGateway()
+  api.current = snapshot('9')
+  api.current.acquisitionRevision = '3'
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const acquired: FrameResponse = {
+    available: true,
+    current: true,
+    channelId: 1,
+    runId: '1',
+    revision: '3',
+    measurementRevision: '9',
+    frameSeq: '12',
+    originalPointCount: 2,
+    displayPointCount: 2,
+    decimated: false,
+    frequencyHz: [10e6, 20e6],
+    traces: [
+      {
+        ...api.current.measurements[0]!,
+        available: true,
+        real: [1, 1],
+        imag: [0, 0],
+        valid: [true, true],
+      },
+    ],
+  }
+  api.frame = async () => acquired
+  await model.refresh()
+  assert.equal(model.frameCondition.value.kind, 'current')
+  api.frame = async () => ({ ...acquired, measurementRevision: '8' })
+  await model.refresh()
+  assert.equal(model.frameCondition.value.kind, 'stale')
+  api.current.acquisitionRevision = '4'
+  api.frame = async () => acquired
+  await model.refresh()
+  assert.equal(model.frameCondition.value.kind, 'stale')
+  api.frame = async () => ({ ...acquired, revision: '4' })
+  await model.refresh()
+  assert.equal(model.frameCondition.value.kind, 'current')
+})
 
 test('initial successful connection clears connecting notice and lease renewal preserves later notices', async (context) => {
   const api = new FakeGateway()
@@ -71,7 +248,10 @@ test('initial successful connection clears connecting notice and lease renewal p
   assert.equal(model.connected.value, true)
   assert.equal(model.hasControl.value, true)
   assert.equal(model.notice.value?.text, 'RAW 接收波与 S 参数 · 未校准')
-  model.notice.value = { text: 'Preserve this operation warning', tone: 'warning' }
+  model.notice.value = {
+    text: 'Preserve this operation warning',
+    tone: 'warning',
+  }
   time += 12000
   await model.refresh()
   assert.equal(api.claims, 2)
@@ -83,14 +263,47 @@ test('transport keeps uint64 identities as strings and rejects malformed receive
   status.runId = '9007199254740993'
   assert.equal(decodeStatus(status).revision, '18446744073709551615')
   assert.equal(decodeStatus(status).runId, '9007199254740993')
+  assert.equal(decodeStatus(status).acquisitionRevision, '18446744073709551615')
+  assert.throws(() =>
+    decodeStatus({ ...status, acquisitionRevision: undefined }),
+  )
+  assert.throws(() =>
+    decodeStatus({ ...status, acquisitionRevision: 9007199254740992 }),
+  )
   assert.throws(() => decodeStatus({ ...status, revision: 9007199254740992 }))
   const frame = {
-    available: true, current: true, channelId: 1, runId: '9007199254740993', revision: '1', measurementRevision: '1', frameSeq: '18446744073709551615',
-    originalPointCount: 2, displayPointCount: 2, decimated: false, frequencyHz: [1e6, 2e6],
-    traces: [{ ...status.measurements[0], available: true, real: [1, null], imag: [0, 0], valid: [true, false] }],
+    available: true,
+    current: true,
+    channelId: 1,
+    runId: '9007199254740993',
+    revision: '1',
+    measurementRevision: '1',
+    frameSeq: '18446744073709551615',
+    originalPointCount: 2,
+    displayPointCount: 2,
+    decimated: false,
+    frequencyHz: [1e6, 2e6],
+    traces: [
+      {
+        ...status.measurements[0],
+        available: true,
+        real: [1, null],
+        imag: [0, 0],
+        valid: [true, false],
+      },
+    ],
   }
   assert.equal(decodeFrame(frame).available, true)
-  assert.throws(() => decodeFrame({ ...frame, traces: [{ ...frame.traces[0], valid: [true, true] }] }))
+  assert.throws(() => decodeFrame({ ...frame, measurementRevision: undefined }))
+  assert.throws(() =>
+    decodeFrame({ ...frame, measurementRevision: 9007199254740992 }),
+  )
+  assert.throws(() =>
+    decodeFrame({
+      ...frame,
+      traces: [{ ...frame.traces[0], valid: [true, true] }],
+    }),
+  )
   assert.throws(() => decodeFrame({ ...frame, frequencyHz: [2e6, 1e6] }))
 })
 
@@ -102,11 +315,19 @@ test('HTTP 202 stays pending until terminal operation and a fresh authoritative 
   let operationFinished = false
   api.operationLoader = async () => {
     operationFinished = true
-    return { operationId: 'op-1', state: 'completed', result: { ok: true, errorCode: 0, message: '' } }
+    return {
+      operationId: 'op-1',
+      state: 'completed',
+      result: { ok: true, errorCode: 0, message: '' },
+    }
   }
-  api.statusLoader = () => operationFinished ? readback.promise : Promise.resolve(snapshot())
+  api.statusLoader = () =>
+    operationFinished ? readback.promise : Promise.resolve(snapshot())
   let settled = false
-  const configured = model.configure(snapshot().config, '1').then((value) => { settled = true; return value })
+  const configured = model.configure(snapshot().config, '1').then((value) => {
+    settled = true
+    return value
+  })
   await microtasks()
   assert.equal(model.pendingOperation.value?.id, 'op-1')
   assert.equal(model.status.value?.revision, '1')
@@ -128,7 +349,9 @@ test('an older in-flight status response cannot clear an uncertain write gate', 
   const oldStatus = deferred<InstrumentStatus>()
   api.statusLoader = () => oldStatus.promise
   const olderRead = model.refresh()
-  api.submitter = async () => { throw new ApiError('network unavailable', 0, '', 'transport') }
+  api.submitter = async () => {
+    throw new ApiError('network unavailable', 0, '', 'transport')
+  }
   assert.equal(await model.run('single'), null)
   assert.equal(model.uncertainWrite.value, true)
   oldStatus.resolve(snapshot())
@@ -185,65 +408,138 @@ test('dispose aborts observation and ignores delayed responses without claiming 
 test('expired lease recovery accepts only a newly server-issued token; rejected writes never retry', async () => {
   const requests: { path: string; body: unknown; token: string | null }[] = []
   const storage = {
-    getItem: () => 'expired-token', setItem: (_key: string, _value: string) => {}, removeItem: (_key: string) => {},
+    getItem: () => 'expired-token',
+    setItem: (_key: string, _value: string) => {},
+    removeItem: (_key: string) => {},
   }
   const fetcher: typeof fetch = async (input, init) => {
     const path = String(input)
     const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
     const token = new Headers(init?.headers).get('X-Vna-Session')
     requests.push({ path, body, token })
-    if (requests.length === 1) return new Response(JSON.stringify({ error: { code: 'invalid_session', message: 'expired' } }), { status: 403 })
-    if (path.endsWith('/control/claim')) return new Response(JSON.stringify({ sessionId: 'server-token', hasControl: true, leaseSeconds: 30 }))
-    return new Response(JSON.stringify({ error: { code: 'revision_conflict', message: 'changed' } }), { status: 409 })
+    if (requests.length === 1)
+      return new Response(
+        JSON.stringify({
+          error: { code: 'invalid_session', message: 'expired' },
+        }),
+        { status: 403 },
+      )
+    if (path.endsWith('/control/claim'))
+      return new Response(
+        JSON.stringify({
+          sessionId: 'server-token',
+          hasControl: true,
+          leaseSeconds: 30,
+        }),
+      )
+    return new Response(
+      JSON.stringify({
+        error: { code: 'revision_conflict', message: 'changed' },
+      }),
+      { status: 409 },
+    )
   }
   const api = new InstrumentApi({ fetch: fetcher, storage })
   await api.claim()
   assert.equal(api.sessionId, 'server-token')
   assert.deepEqual(requests[1]?.body, {})
   assert.equal(requests[1]?.token, null)
-  await assert.rejects(api.configure(snapshot().config, '18446744073709551615'), (error: unknown) =>
-    error instanceof ApiError && error.status === 409)
+  await assert.rejects(
+    api.configure(snapshot().config, '18446744073709551615'),
+    (error: unknown) => error instanceof ApiError && error.status === 409,
+  )
   assert.equal(requests.length, 3)
-  assert.equal((requests[2]?.body as Record<string, unknown>).expectedRevision, '18446744073709551615')
-  assert.equal(Object.hasOwn(requests[2]?.body as Record<string, unknown>, 'triggerSource'), false)
+  assert.equal(
+    (requests[2]?.body as Record<string, unknown>).expectedRevision,
+    '18446744073709551615',
+  )
+  assert.equal(
+    Object.hasOwn(
+      requests[2]?.body as Record<string, unknown>,
+      'triggerSource',
+    ),
+    false,
+  )
   assert.equal(requests[2]?.token, 'server-token')
 })
 
 test('frame requests encode an explicit display set and an empty set separately from defaults', async () => {
   const paths: string[] = []
-  const api = new InstrumentApi({ storage: null, fetch: async input => {
-    paths.push(String(input))
-    return new Response(JSON.stringify({ available: false, current: false, reason: 'No frame' }))
-  } })
+  const api = new InstrumentApi({
+    storage: null,
+    fetch: async (input) => {
+      paths.push(String(input))
+      return new Response(
+        JSON.stringify({
+          available: false,
+          current: false,
+          reason: 'No frame',
+        }),
+      )
+    },
+  })
   await api.frame(['反射 A', 'S22'])
   await api.frame([])
   await api.frame()
-  assert.deepEqual(paths, ['/api/v1/frame?trace=%E5%8F%8D%E5%B0%84%20A&trace=S22', '/api/v1/frame?display=none', '/api/v1/frame'])
+  assert.deepEqual(paths, [
+    '/api/v1/frame?trace=%E5%8F%8D%E5%B0%84%20A&trace=S22',
+    '/api/v1/frame?display=none',
+    '/api/v1/frame',
+  ])
 })
 
-test('late responses from a previous display set cannot replace the newly selected frame', async context => {
+test('late responses from a previous display set cannot replace the newly selected frame', async (context) => {
   const api = new FakeGateway()
-  api.current.measurements.push({ ...api.current.measurements[0]!, name: 'Other' })
+  api.current.measurements.push({
+    ...api.current.measurements[0]!,
+    name: 'Other',
+  })
   const model = await ready(api)
   context.after(() => model.stop())
   const delayed = deferred<FrameResponse>()
   const requested: (readonly string[] | undefined)[] = []
-  api.frame = (names?: readonly string[]) => { requested.push(names); return delayed.promise }
+  api.frame = (names?: readonly string[]) => {
+    requested.push(names)
+    return delayed.promise
+  }
   const oldRead = model.refresh()
   model.setDisplayedMeasurements(['Other'])
   const acquired = {
-    available: true as const, current: true, channelId: 1, runId: '1', revision: '1', measurementRevision: '1', frameSeq: '1',
-    originalPointCount: 2, displayPointCount: 2, decimated: false, frequencyHz: [10e6, 20e6],
-    traces: [{ ...api.current.measurements[0]!, available: true, real: [1, 1], imag: [0, 0], valid: [true, true] }],
+    available: true as const,
+    current: true,
+    channelId: 1,
+    runId: '1',
+    revision: '1',
+    measurementRevision: '1',
+    frameSeq: '1',
+    originalPointCount: 2,
+    displayPointCount: 2,
+    decimated: false,
+    frequencyHz: [10e6, 20e6],
+    traces: [
+      {
+        ...api.current.measurements[0]!,
+        available: true,
+        real: [1, 1],
+        imag: [0, 0],
+        valid: [true, true],
+      },
+    ],
   }
   delayed.resolve(acquired)
   await oldRead
   assert.equal(model.frame.value, null)
   api.frame = (names?: readonly string[]) => {
     requested.push(names)
-    return Promise.resolve({ ...acquired, traces: [{ ...acquired.traces[0]!, name: 'Other' }] })
+    return Promise.resolve({
+      ...acquired,
+      traces: [{ ...acquired.traces[0]!, name: 'Other' }],
+    })
   }
   await model.refresh()
-  assert.deepEqual(model.frame.value, { ...acquired, traces: [{ ...acquired.traces[0]!, name: 'Other' }] })
+  assert.deepEqual(model.frame.value, {
+    ...acquired,
+    traces: [{ ...acquired.traces[0]!, name: 'Other' }],
+  })
   assert.deepEqual(requested, [undefined, ['Other']])
 })
