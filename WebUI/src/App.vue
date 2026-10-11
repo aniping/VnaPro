@@ -18,8 +18,8 @@ const instrument = useInstrument()
 const { status, frame, connected, hasControl, canWrite, canConfigure, pendingOperation, writeInFlight,
   controlBusy, frameCondition, notice, error } = instrument
 const measurements = computed(() => status.value?.measurements ?? [])
-const workspace = useWorkspace(() => measurements.value)
-const { presentations, activeTraceName, activeMeasurement, activePresentation, activeIndex, layout } = workspace
+const workspace = useWorkspace(() => measurements.value, () => frame.value)
+const { presentations, activeTraceName, activeMeasurement, activePresentation, activeIndex, layout, canAutoscale } = workspace
 const displayedMeasurement = computed(() => frame.value?.traces.find(trace => trace.name === activeTraceName.value) ?? activeMeasurement.value)
 const activeTool = ref('start')
 const softtoolVisible = ref(true)
@@ -91,8 +91,8 @@ onBeforeUnmount(() => {
       <div class="instrument-shell">
         <div class="instrument-workspace" :class="{ 'softtool-hidden': !softtoolVisible }">
           <section class="measurement-stage" aria-label="Measurement display">
-            <InstrumentToolbar :layout="layout" :has-trace="Boolean(activeMeasurement)" :marker-enabled="activePresentation?.marker.enabled ?? false" :can-export="Boolean(frame)" :can-write="canWrite" :busy="busy" :can-delete="canConfigure && measurements.length > 1"
-              @select-tool="selectTool" @toggle-layout="layout = layout === 'grid' ? 'maximized' : 'grid'" @autoscale="workspace.setScale(null)"
+            <InstrumentToolbar :layout="layout" :has-trace="Boolean(activeMeasurement)" :can-autoscale="canAutoscale" :marker-enabled="activePresentation?.marker.enabled ?? false" :can-export="Boolean(frame)" :can-write="canWrite" :busy="busy" :can-delete="canConfigure && measurements.length > 1"
+              @select-tool="selectTool" @toggle-layout="layout = layout === 'grid' ? 'maximized' : 'grid'" @autoscale="workspace.autoscale"
               @toggle-marker="workspace.setMarker({ enabled: !activePresentation?.marker.enabled })" @export-csv="exportCsv" @single="instrument.run('single')"
               @add-trace="selectTool('meas')" @delete-trace="deleteActive" />
             <DiagramWorkspace :frame="frame" :measurements="measurements" :presentations="presentations" :active-trace-name="activeTraceName" :layout="layout"
@@ -103,8 +103,8 @@ onBeforeUnmount(() => {
           <SofttoolHost v-show="softtoolVisible" :title="title" :tabs="tabs" :active-tab="activeTab" @select="selectTool" @close="softtoolVisible = false">
             <StimulusSofttool v-show="group === 'stimulus'" :status="status" :can-configure="canConfigure" :busy="busy" :focus-field="focusField" :apply="instrument.configure" />
             <MeasurementSofttool v-show="group === 'measurement'" :status="status" :can-configure="canConfigure" :busy="busy" :active-trace-name="activeTraceName" :add="instrument.addMeasurement" :remove="instrument.deleteMeasurement" @select-trace="workspace.selectTrace" />
-            <TraceSofttool v-if="group === 'trace'" :mode="activeTool as 'format' | 'scale' | 'marker' | 'trace-config'" :measurement="activeTool === 'trace-config' ? activeMeasurement : displayedMeasurement" :presentation="activePresentation" :frame="frame" :index="activeIndex" :layout="layout"
-              @format="workspace.setFormat" @scale="workspace.setScale" @marker="workspace.setMarker" @toggle-visibility="workspace.toggleVisibility()" />
+            <TraceSofttool v-if="group === 'trace'" :mode="activeTool as 'format' | 'scale' | 'marker' | 'trace-config'" :measurement="activeTool === 'trace-config' ? activeMeasurement : displayedMeasurement" :presentation="activePresentation" :frame="frame" :index="activeIndex" :layout="layout" :can-autoscale="canAutoscale"
+              @format="workspace.setFormat" @scale="workspace.setScale" @autoscale="workspace.autoscale" @marker="workspace.setMarker" @toggle-visibility="workspace.toggleVisibility()" />
             <SweepSofttool v-show="group === 'sweep'" :status="status" :can-write="canWrite" :busy="busy" :action="instrument.run" />
             <SystemSofttool v-if="group === 'system'" :mode="activeTool" :status="status" :frame="frame" :layout="layout" :connected="connected" :has-control="hasControl" :control-busy="controlBusy"
               @layout="layout = $event" @export="exportCsv" @acquire="instrument.claim()" @release="instrument.release()" />

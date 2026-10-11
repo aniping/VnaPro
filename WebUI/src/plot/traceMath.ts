@@ -74,6 +74,12 @@ export function traceScale(trace: FrameTrace | undefined, format: DisplayFormat,
   return { min, max: min + division * 10 }
 }
 
+/** 细微变化用相对参考值的刻度显示；该判断不触发自动缩放。 */
+export function usesRelativeAxis(scale: DisplayScale): boolean {
+  const span = scale.max - scale.min
+  return span < 0.001 || span < Math.abs(referenceLevel(scale)) * 0.0001
+}
+
 export function referenceLevel(scale: DisplayScale): number {
   const requested = scale.referencePosition ?? 8
   const position = Number.isFinite(requested) ? Math.max(0, Math.min(10, requested)) : 8

@@ -5,6 +5,7 @@ import type { LayoutMode } from '../../domain/presentation';
 const props = defineProps<{
   layout: LayoutMode;
   hasTrace: boolean;
+  canAutoscale: boolean;
   markerEnabled: boolean;
   canExport: boolean;
   canWrite: boolean;
@@ -49,7 +50,7 @@ function singleSweep() {
     <span class="toolbar-separator" aria-hidden="true" />
     <div class="toolbar-group" role="group" aria-label="Display actions">
       <button type="button" class="toolbar-button" :disabled="!canExport" title="Export displayed frame · CSV" aria-label="Export CSV" data-testid="toolbar-export" @click="emit('exportCsv')"><ToolbarGlyph name="export" /></button>
-      <button type="button" class="toolbar-button" :disabled="!hasTrace" title="Autoscale active diagram · 自动缩放当前图" aria-label="Autoscale" data-testid="toolbar-autoscale" @click="emit('autoscale')"><ToolbarGlyph name="autoscale" /></button>
+      <button type="button" class="toolbar-button" :disabled="!canAutoscale" title="Autoscale active trace once · 按当前数据适配一次刻度" aria-label="Autoscale" data-testid="toolbar-autoscale" @click="emit('autoscale')"><ToolbarGlyph name="autoscale" /></button>
     </div>
     <span class="toolbar-separator" aria-hidden="true" />
     <div class="toolbar-group" role="group" aria-label="Acquisition">

@@ -10,7 +10,7 @@ export interface DisplayScale {
 
 export interface TracePresentation {
   format: DisplayFormat
-  scale: DisplayScale | null
+  scale: DisplayScale
   visible: boolean
   marker: {
     enabled: boolean

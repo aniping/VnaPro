@@ -13,11 +13,13 @@ const props = defineProps<{
   frame: AcquiredFrame | null
   index: number
   layout: LayoutMode
+  canAutoscale: boolean
 }>()
 
 const emit = defineEmits<{
   format: [format: DisplayFormat]
-  scale: [range: DisplayScale | null]
+  scale: [range: DisplayScale]
+  autoscale: []
   marker: [update: { enabled?: boolean; frequencyHz?: number }]
   toggleVisibility: []
 }>()
@@ -134,9 +136,9 @@ function applyMarker() {
         <button class="softtool-button softtool-primary softtool-apply" type="submit" :disabled="!trace" data-testid="apply-scale">Apply Scale</button>
       </form>
       <p v-if="scaleError" class="softtool-note" role="alert">{{ scaleError }}</p>
-      <button class="softtool-button" type="button" :disabled="!trace" data-testid="autoscale-active" @click="emit('scale', null)">Autoscale · Active Trace</button>
-      <div class="softtool-readout"><span>{{ presentation?.scale ? 'Manual' : 'Auto' }}</span><span>{{ numberText(range.min) }} … {{ numberText(range.max) }}</span></div>
-      <p class="softtool-note">仅改变当前迹线的显示刻度。Autoscale 按实际数据缩放，不修改仪器配置。</p>
+      <button class="softtool-button" type="button" :disabled="!canAutoscale" data-testid="autoscale-active" @click="emit('autoscale')">Autoscale · Active Trace</button>
+      <div class="softtool-readout"><span>Range</span><span>{{ numberText(range.min) }} … {{ numberText(range.max) }}</span></div>
+      <p class="softtool-note">Autoscale 按当前显示数据适配一次并固定刻度；再次点击才重新适配。仅改变当前迹线的显示，不修改仪器配置。</p>
     </template>
 
     <template v-else-if="mode === 'marker'">

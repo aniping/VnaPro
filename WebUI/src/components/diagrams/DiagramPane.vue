@@ -4,7 +4,7 @@ import type { AcquiredFrame, FrameCondition, Measurement, SweepConfiguration } f
 import { defaultTracePresentation, diagramTraceColor, type LayoutMode, type TracePresentation } from '../../domain/presentation'
 import { FORMAT_INFO, measurementFormatInfo, frequencyText, numberText } from '../../plot/formatting'
 import { markerPlacement, paintDiagram, plotRect, type CanvasCurve } from '../../plot/canvasRenderer'
-import { displaySeries, markerResult, nearestIndex, normalizedX, normalizedY, referenceLevel, traceScale } from '../../plot/traceMath'
+import { displaySeries, markerResult, nearestIndex, normalizedX, normalizedY, referenceLevel, traceScale, usesRelativeAxis } from '../../plot/traceMath'
 import MarkerReadout from './MarkerReadout.vue'
 import TraceStrip from './TraceStrip.vue'
 import DiagramMenu from './DiagramMenu.vue'
@@ -52,12 +52,7 @@ const active = computed(() => props.measurements.some(item => item.name === prop
 const axisScale = computed(() => activeTrace.value?.scale ?? FORMAT_INFO.db.fallback)
 const axisFormat = computed(() => activeTrace.value?.presentation.format ?? 'db')
 const axisDefinition = computed(() => measurementFormatInfo(axisFormat.value, activeTrace.value?.measurement))
-const relativeAxis = computed(() => {
-  const span = axisScale.value.max - axisScale.value.min
-  const reference = referenceLevel(axisScale.value)
-  return activeTrace.value?.presentation.scale === null
-    && (span < 0.001 || span < Math.abs(reference) * 0.0001)
-})
+const relativeAxis = computed(() => usesRelativeAxis(axisScale.value))
 const rect = computed(() => plotRect(width.value, height.value))
 const xRange = computed(() => {
   const axis = props.frame?.frequencyHz
@@ -263,7 +258,7 @@ function plotKey(event: KeyboardEvent): void {
       <canvas ref="canvas" class="diagram-canvas" aria-hidden="true" />
       <span v-for="(tick, index) in yTicks" :key="`y-${index}`" class="y-tick"
         :class="{ 'edge-top': index === 0, 'edge-bottom': index === 10, 'reference-tick': tick.reference }" :style="{ top: `${tick.top}px` }"
-        :title="relativeAxis ? `Autoscale offset from Ref ${numberText(referenceLevel(axisScale), 10)} ${axisDefinition.unit}` : axisDefinition.unit">{{ tick.value }}</span>
+        :title="relativeAxis ? `相对 Ref ${numberText(referenceLevel(axisScale), 10)} ${axisDefinition.unit} 的偏移` : axisDefinition.unit">{{ tick.value }}</span>
       <MarkerReadout :markers="markerModels.map(marker => ({ name: marker.name, color: marker.color, format: marker.presentation.format, measurement: marker.measurement, result: marker.result, active: marker.active }))"
         @select="emit('selectTrace', $event)" />
       <button v-for="marker in plottedMarkers" :key="marker.name" type="button" class="marker-handle"

@@ -3,7 +3,7 @@ import type { Measurement } from '../../api/types'
 import type { DisplayScale, TracePresentation } from '../../domain/presentation'
 import { FORMAT_INFO, scaleValue } from '../../plot/formatting'
 import { measurementState } from '../../domain/measurements'
-import { referenceLevel } from '../../plot/traceMath'
+import { referenceLevel, usesRelativeAxis } from '../../plot/traceMath'
 
 defineProps<{
   measurement: Measurement
@@ -19,7 +19,7 @@ const emit = defineEmits<{ select: [name: string]; toggleVisibility: [name: stri
 <template>
   <div class="trace-strip" :class="{ active, hidden: !presentation.visible }" :style="{ '--trace-color': color }">
     <button class="trace-select" type="button" :aria-pressed="active"
-      :title="`${measurement.name} · ${measurement.parameter} · ${measurementState(measurement)} · ${scaleValue((scale.max - scale.min) / 10, presentation.format, 5, measurement)} per division · Ref ${scaleValue(referenceLevel(scale), presentation.format, 9, measurement)}${presentation.scale === null ? ' · Autoscale; any Δ axis ticks are offsets from this Ref' : ''}`"
+      :title="`${measurement.name} · ${measurement.parameter} · ${measurementState(measurement)} · ${scaleValue((scale.max - scale.min) / 10, presentation.format, 5, measurement)} per division · Ref ${scaleValue(referenceLevel(scale), presentation.format, 9, measurement)}${usesRelativeAxis(scale) ? ' · Δ 刻度为相对 Ref 的偏移' : ''}`"
       :aria-label="`Select ${measurement.name}, ${measurement.parameter}, ${measurementState(measurement)}`"
       @click="emit('select', measurement.name)">
       <span class="trace-number">Trc{{ index + 1 }}</span>
