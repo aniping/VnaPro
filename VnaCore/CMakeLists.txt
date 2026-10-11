@@ -30,6 +30,7 @@ if(BUILD_TESTING)
         tests/support/fixture.cpp
         tests/support/concurrency_assertions.cpp
         tests/support/concurrent_stress_scenario.cpp
+        tests/support/acquisition_core_test_peer.cpp
     )
     target_include_directories(vna_core_test_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(vna_core_test_support PUBLIC vna_core Threads::Threads)
@@ -38,6 +39,11 @@ if(BUILD_TESTING)
     target_link_libraries(vna_core_concurrency_tests PRIVATE vna_core_test_support)
     add_test(NAME core_concurrency COMMAND vna_core_concurrency_tests)
     set_tests_properties(core_concurrency PROPERTIES TIMEOUT 20)
+
+    add_executable(vna_core_identity_boundary_tests tests/identity_boundary_test.cpp)
+    target_link_libraries(vna_core_identity_boundary_tests PRIVATE vna_core_test_support)
+    add_test(NAME core_identity_boundaries COMMAND vna_core_identity_boundary_tests)
+    set_tests_properties(core_identity_boundaries PROPERTIES TIMEOUT 20)
 
     add_executable(vna_core_native_tests tests/native_integration_test.cpp)
     target_link_libraries(vna_core_native_tests PRIVATE vna_core)

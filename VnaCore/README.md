@@ -8,6 +8,10 @@ C++14 静态核心库。公开头位于 `include/vna_core`，AcquisitionCore 直
 
 `ReadView()` 一次取得状态、身份和只读帧。Ready 但 revision 为 0 表示尚未配置；Faulted 表示当前硬件配置无效，旧帧仍可供诊断。配置硬件下发失败进入 Faulted；尚未访问硬件的缓冲准备失败保留旧配置。Recover 重新初始化并应用最后成功配置，产生新 revision，不自动恢复运行。
 
+runId、configRevision 和 frameSeq 使用 `uint64_t`，最大值为 `18446744073709551615`。frameSeq 只在同一运行内递增；Start 成功取得新的 runId 后归零，下一完整帧从 1 开始。以每秒一百万帧估算，单次运行也需要约 58 万年才耗尽；HTTP 和 WebUI 将这些编号作为十进制字符串传递，避免 JavaScript 大整数精度丢失。
+
+所有身份计数在递增前检查上限，不循环归零。frameSeq 耗尽时在下一次端口采集前进入 Faulted，保留最后的完整帧；可 Recover 后启动新运行。runId 耗尽时拒绝 Start；configRevision 耗尽时拒绝 Configure，以及需要重新应用成功计划的 Recover。这些拒绝不调用设备，也不修改已有身份、配置或帧。运行或配置编号耗尽后需要重新创建核心实例。
+
 SweepPlan 自有频点和不透明 9N 表；frequencyHz 可以为空，表示尚未建立物理单位映射。核心不解释功率表，也不把 native A/B 自动称为 S 参数。sourcePorts 使用 1..4，设备适配转换为 native 0..3。每个 PortFrame 的 IQ 为逐点 16 个 double：接收端口 1..4 各占 `A.real,A.imag,B.real,B.imag` 四项。receiverMask 未激活端口的槽位不能作为有效测量。
 
 软件资源策略：普通命令队列最多 64 项，Close 有独立保留入口；每帧 IQ 最多 64 MiB，连续帧间至少等待 10 ms，命令可唤醒等待。所有 Drv 调用都在同一工作线程中完成。原生返回码以失败步骤和数值保留，不按模拟器枚举解释厂商码。ABI 没有取消/超时；若原生调用不返回，Stop 和 Close 也无法完成。
@@ -22,6 +26,6 @@ cmake --build build --target vna_core_concurrency_tests vna_core_native_tests
 cmake -E chdir build ctest -R "core_" --output-on-failure
 ```
 
-并发测试包含 11 组场景：门控 Stop FIFO 屏障、后置触发拒绝、配置失败与恢复、队列满时 Close 准入，且 64 个已接受触发必须全部成功；新增采集中成功配置切换、旧帧完整 plan/频轴/IQ 深比较、第二源短 IQ，以及三提交者/两读取者的 144 票据压力验证。集成测试动态加载模拟 DLL，四源、两频点及全部 IQ 分量逐值匹配固定 golden，并覆盖频率高 32 位、身份缓存及加载失败。全目标 ThreadSanitizer 与端到端数值验收见[验收记录](../docs/模拟设备采集验收.md)。
+并发测试包含 11 组场景：门控 Stop FIFO 屏障、后置触发拒绝、配置失败与恢复、队列满时 Close 准入，且 64 个已接受触发必须全部成功；新增采集中成功配置切换、旧帧完整 plan/频轴/IQ 深比较、第二源短 IQ，以及三提交者/两读取者的 144 票据压力验证。`core_identity_boundaries` 通过测试专用访问类注入计数上限，调用真实 Configure、Start、TriggerOnce 和 Recover，验证最后一个合法编号、拒绝回绕、完整帧保留及拒绝前没有新增设备调用。集成测试动态加载模拟 DLL，四源、两频点及全部 IQ 分量逐值匹配固定 golden，并覆盖频率高 32 位、身份缓存及加载失败。全目标 ThreadSanitizer 与端到端数值验收见[验收记录](../docs/模拟设备采集验收.md)。
 
 代码组织：生产类直接声明其职责和状态，不使用 Impl 转发层；CoreCommand 为值存储、promise 随命令移动。多态设备使用 unique_ptr 转移所有权，完成帧使用 shared_ptr<const MeasurementFrame> 支持读取者独立保留。枚举值采用全大写，公有方法采用大驼峰。

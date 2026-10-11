@@ -19,6 +19,7 @@ namespace {
 
 constexpr std::size_t QUEUE_CAPACITY = 64U;
 constexpr std::size_t FRAME_BUDGET = 64U * 1024U * 1024U;
+constexpr std::uint64_t CORE_IDENTITY_MAX = (std::numeric_limits<std::uint64_t>::max)();
 constexpr std::chrono::milliseconds g_continuousFrameInterval(10);
 
 std::string Validate(const SweepPlan &plan)
@@ -219,6 +220,9 @@ void AcquisitionCore::Fault(const std::string &error)
 
 void AcquisitionCore::AcquireFrame()
 {
+    if (frameSeq_ == CORE_IDENTITY_MAX) {
+        throw std::overflow_error("frame sequence exhausted");
+    }
     MeasurementFrame completed;
     completed.runId = runId_;
     completed.configRevision = revision_;
@@ -305,6 +309,9 @@ CommandResult AcquisitionCore::ExecuteConfigure(Detail::CoreCommand &command)
     if (state_ != CoreState::READY && state_ != CoreState::RUNNING) {
         return Result(false, "configure requires Ready or Running");
     }
+    if (revision_ == CORE_IDENTITY_MAX) {
+        return Result(false, "configuration revision exhausted");
+    }
     device_->ApplyPlan(command.plan);
     plan_ = std::move(command.plan);
     hasSuccessfulPlan_ = true;
@@ -320,6 +327,9 @@ CommandResult AcquisitionCore::ExecuteStart(const Detail::CoreCommand &command)
     }
     if (command.mode != RunMode::MANUAL && command.mode != RunMode::CONTINUOUS) {
         return Result(false, "unsupported run mode");
+    }
+    if (runId_ == CORE_IDENTITY_MAX) {
+        return Result(false, "run identity exhausted");
     }
     device_->EnableRf();
     mode_ = command.mode;
@@ -356,6 +366,9 @@ CommandResult AcquisitionCore::ExecuteRecover()
 {
     if (state_ != CoreState::FAULTED) {
         return Result(false, "recover requires Faulted");
+    }
+    if (hasSuccessfulPlan_ && revision_ == CORE_IDENTITY_MAX) {
+        return Result(false, "configuration revision exhausted");
     }
     deviceIdn_ = device_->Initialize();
     if (hasSuccessfulPlan_) {

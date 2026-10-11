@@ -17,6 +17,10 @@
 #include "vna_core/device_session.h"
 #include "vna_core/sweep_plan.h"
 
+namespace VnaCoreTest {
+class AcquisitionCoreTestPeer;
+}  // 命名空间 VnaCoreTest
+
 namespace VnaCore {
 
 class AcquisitionCore final {
@@ -51,6 +55,8 @@ public:
     CommandResult Close();
 
 private:
+    friend class VnaCoreTest::AcquisitionCoreTestPeer;
+
     Ticket Submit(Detail::CoreCommandKind kind, SweepPlan plan = SweepPlan(), RunMode mode = RunMode::MANUAL,
         std::uint64_t runId = 0U, std::uint64_t revision = 0U);
     void WorkerLoop();

@@ -10,6 +10,7 @@ std::string ControlledDevice::Initialize()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     RecordThread();
+    ++initializeCalls_;
     return "TestDevice";
 }
 
@@ -17,6 +18,7 @@ void ControlledDevice::ApplyPlan(const VnaCore::SweepPlan &plan)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     RecordThread();
+    ++applyPlanCalls_;
     if (failPrepare_) {
         failPrepare_ = false;
         throw VnaCore::Detail::PlanPreparationError();
@@ -32,6 +34,7 @@ void ControlledDevice::EnableRf()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     RecordThread();
+    ++enableRfCalls_;
     acquisitionFrame_ = 0U;
 }
 

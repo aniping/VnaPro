@@ -61,6 +61,9 @@ public:
     bool failShutdown_ = false;
     std::size_t failAcquireAt_ = 0U;
     std::size_t shortAcquireAt_ = 0U;
+    std::size_t initializeCalls_ = 0U;
+    std::size_t applyPlanCalls_ = 0U;
+    std::size_t enableRfCalls_ = 0U;
     std::size_t acquisitions_ = 0U;
     std::uint64_t acquisitionFrame_ = 0U;
     std::thread::id deviceThread_;
