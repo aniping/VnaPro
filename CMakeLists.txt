@@ -11,6 +11,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 add_subdirectory(VnaNativeSimulator)
+add_subdirectory(VnaLog)
 add_subdirectory(VnaCore)
 add_subdirectory(VnaService)
 add_subdirectory(VnaServer)
