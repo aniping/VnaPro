@@ -109,6 +109,12 @@ VnaLog::Trace(VnaLog::Module::CORE, "完整帧已发布，run={}，frame={}", ru
 cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_SPDLOG=I:/dependencies/spdlog-1.17.0
 ```
 
+统一配置还依赖 yaml-cpp 0.9.0；完全离线构建时同时指定其已解包源码目录：
+
+```powershell
+cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_SPDLOG=I:/dependencies/spdlog-1.17.0 -DFETCHCONTENT_SOURCE_DIR_YAML_CPP=I:/dependencies/yaml-cpp-0.9.0
+```
+
 显式源码覆盖不会下载或验证归档摘要，调用者应确认其版本；默认构建不依赖被忽略的 `third-part` 目录。
 测试覆盖格式与过滤、备份淘汰、零备份、UTF-8 截断、长记录硬上限、启动轮转、
 关闭刷新、旧缓冲重配、800 条多模块并发记录，以及实际服务的配置错误、驱动失败、

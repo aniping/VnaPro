@@ -4,7 +4,7 @@
 
 ## 构建和测试
 
-Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.13、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。首次 CMake 配置下载固定版本 spdlog 1.17.0 并校验摘要，离线源码覆盖方式见[日志模块说明](VnaLog/README.md)。Windows MinGW 的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
+Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.13、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。首次 CMake 配置下载固定版本 spdlog 1.17.0 和 yaml-cpp 0.9.0 并校验摘要，离线源码覆盖方式见[日志模块说明](VnaLog/README.md)。Windows MinGW 的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
 
 ```powershell
 Set-Location WebUI
@@ -49,19 +49,36 @@ clang-format --style=file --dry-run --Werror $cppFiles
 
 默认加载构建生成的模拟动态库，并启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。静态根目录为构建时指定的 `WebUI/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时显式传入 `--driver` 的模拟库绝对路径，并用 `--web-root` 指向部署后的 `WebUI/dist`；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，查看前应保证日志级别允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认仅绑定本机；`--no-web` 关闭 Web 入口。
 
-## 日志配置
+## 仪器与日志配置
+
+统一使用 UTF-8 YAML，仪器配置在 `instrument` 下，所有日志配置在 `log` 下。默认 **4 端口、支持 10 MHz–8 GHz，启动扫描覆盖相同频段，201 点、IFBW 1 kHz**。`instrument.portCount` 可配置为 1–4，正式验收覆盖 2 端口和 4 端口。配置值是本项目模拟器的运行能力，增加端口数配置不会自动扩展为完整 4×4 S 参数矩阵；本版 S 参数为 S11/S21/S12/S22，RAW 可以使用已配置的全部端口。
+
+```yaml
+instrument:
+  portCount: 4
+  frequency:
+    minHz: 10000000
+    maxHz: 8000000000
+  sweep:
+    defaultStartHz: 10000000
+    defaultStopHz: 8000000000
+    defaultPoints: 201
+    defaultIfBandwidthHz: 1000
+```
+
+频率配置使用不加引号的正十进制整数 Hz，点数支持 2–10001。默认频率必须落在支持范围内，IFBW 默认值必须为支持档位。配置在启动时验证并冻结，HTTP/SCPI 的设置和测量源/接收端口都受此能力约束；Web 输入范围从 `/api/v1/status` 的 `capabilities` 读取。错误配置在创建设备前退出，退出码为 2。省略配置项使用程序默认值；修改支持范围时应同时调整默认扫描范围。
 
 服务采用 spdlog，默认 INFO，同时输出终端 stderr 和构建目录 `bin/logs/vnapro.log`；日志包含毫秒时间、等级、线程、模块和消息。单文件 10 MiB，保留 5 个备份，单条完整记录最多 64 KiB；逐帧摘要只在 TRACE 打开时输出。
 
-默认配置为 [config/logging.properties](config/logging.properties)，CMake 将它复制到构建目录 `bin/logging.properties`。可用 `--log-config 配置文件` 指定部署配置，相对日志路径按配置文件目录解析；修改配置后重启生效。大小、备份、刷新、格式、中文路径及历史文件边界见[日志模块说明](VnaLog/README.md)，库的公开采用证据见[选型调研](docs/research/C++日志库选型.md)。
+默认配置为 [config/vnapro.yml](config/vnapro.yml)，CMake 将它复制到构建目录 `bin/vnapro.yml`。可用 `--config 配置文件` 指定部署配置，相对日志路径按配置文件目录解析；修改配置后重启生效。大小、备份、刷新、格式、中文路径及历史文件边界见[日志模块说明](VnaLog/README.md)，库的公开采用证据见[选型调研](docs/research/C++日志库选型.md)。
 
 ## 使用 Web 验证
 
-面板采用 ZNB8 的窄工具栏、黑色网格绘图区、右侧软工具与分组功能键、底部菜单状态栏。基准为 1280 × 800，绘图区/软工具/硬键宽度为 848/272/160 px；窗口按比例缩放，Esc 收起软工具并扩大绘图区。首次连接在控制权空闲时尝试取得租约。然后在 HOLD 下编辑 Start / Stop / Points / IFBW 并 Apply，等待设备完成且读回配置后，在 Sweep 中按 Single sweep。Continuous 启动连续扫描，Hold 等待当前完整帧收尾。在测量面板选择 S11 或 S21 并添加迹线，重新采集后即可查看未校准比值；也可选择 RAW 添加 a/b 原始接收波。
+面板采用 ZNB8 的窄工具栏、黑色网格绘图区、右侧软工具与分组功能键、底部菜单状态栏。基准为 1280 × 800，绘图区/软工具/硬键宽度为 848/272/160 px；窗口按比例缩放，Esc 收起软工具并扩大绘图区。首次连接在控制权空闲时尝试取得租约。然后在 HOLD 下编辑 Start / Stop / Points / IFBW 并 Apply，等待设备完成且读回配置后，在 Sweep 中按 Single sweep。Continuous 启动连续扫描，Hold 等待当前完整帧收尾。在测量面板选择 S11、S21、S12 或 S22 并添加迹线，重新采集后即可查看未校准比值；也可选择 RAW 添加 a/b 原始接收波。
 
-点击图内迹线条选择当前迹线，Format / Scale / Marker / Trace Config 的格式、刻度、M1 和可见性分别属于该迹线。显示支持对数幅度、线性幅度、相位、实部、虚部与实虚部叠加，以及标记点、缩放及 CSV 导出。初始对数刻度为 −90…10 dB、Ref 0 在第 9 格，Autoscale 才按实际数据放大。网格铺满图窗，纵轴刻度叠在网格内，Start/Stop 在底部黑色通道行；`▼ 图号` 菜单切换全部图窗、当前迹线最大化或同窗叠加，并添加 M1。手册原始界面图和网上实机照片见[参考图档案](docs/reference/znb8/README.md)。S11=b1/a1、S21=b2/a1，来自同一源端口 1 的完整帧；结果无量纲，图内明确标为“未校准”。原始 A/B 波仍标为 RAW，对数幅度相对于 `1 a.u.`，没有改成 S 参数或校准数据。
+点击图内迹线条选择当前迹线，Format / Scale / Marker / Trace Config 的格式、刻度、M1 和可见性分别属于该迹线。显示支持对数幅度、线性幅度、相位、实部、虚部与实虚部叠加，以及 S11/S22 的 Smith 图、标记点、缩放及 CSV 导出。初始对数刻度为 −90…10 dB、Ref 0 在第 9 格，Autoscale 才按实际数据放大。网格铺满图窗，纵轴刻度叠在网格内，Start/Stop 在底部黑色通道行；`▼ 图号` 菜单切换全部图窗、当前迹线最大化或同窗叠加，并添加 M1。手册原始界面图和网上实机照片见[参考图档案](docs/reference/znb8/README.md)。S11=b1/a1、S21=b2/a1 来自源端口 1，S12=b1/a2、S22=b2/a2 来自源端口 2；每个比值的分子与参考来自同一源帧；结果无量纲，图内明确标为“未校准”。原始 A/B 波仍标为 RAW，对数幅度相对于 `1 a.u.`，没有改成 S 参数或校准数据。
 
-CSV 和网页显示最多 2001 个均匀选取的真实频点，超过时明确显示原始点数与展示点数；SCPI 仍返回完整数组。无帧、旧配置帧、断线与故障均显示状态，不生成演示曲线。保留旧帧时频轴和点数来自该帧，IFBW 显示 `—`，避免将新配置值标在旧数据上。未实现的 Smith 图、校准、RF 开关、预设等入口禁用。
+测量目录最多 32 项，显示集合最多 4 条，可在测量面板切换 Display On/Off；选择目录后面的测量时按显示槽位替换，不删除测量定义。CSV 和网页显示最多 2001 个均匀选取的真实频点，超过时明确显示原始点数与展示点数；SCPI 仍返回完整数组。无帧、旧配置帧、断线与故障均显示状态，不生成演示曲线。保留旧帧时频轴和点数来自该帧，IFBW 显示 `—`，避免将新配置值标在旧数据上。校准、RF 开关、预设等未实现入口禁用。Smith 图只用于反射参数 S11/S22，直接以实际复数 Γ 投影；阻抗显示为归一化 z=(1+Γ)/(1−Γ)，不假定物理参考阻抗。|Γ|>1 不夹紧，Γ=1 显示开路状态，保留有效的原始 Γ。每条迹线独立保存格式与尺度，Smith 和直角坐标混合时分窗显示。
 
 需要观察采集变化时，在启动服务前设置 `$env:VNAPRO_SIM_MODE = 'noise'` 和 `$env:VNAPRO_SIM_SEED = '42'`；DLL 在每次成功采集时加入最多 0.2% 的可重放复数噪声。Continuous 配合 Autoscale 可查看细微变化，HOLD 后数据固定。默认 `golden` 保留固定数值用于验收，模式在设备 Init 时冻结。完整验收场景、结果与 ThreadSanitizer 复验命令见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
@@ -81,14 +98,16 @@ Web 与 SCPI 共用独占控制权：SCPI 控制连接存在时，网页只读�
 *IDN?
 *CLS
 SENS1:SWE:MODE HOLD;*OPC?
-SENS1:FREQ:STAR 1MHZ
-SENS1:FREQ:STOP 100MHZ
+SENS1:FREQ:STAR 10MHZ
+SENS1:FREQ:STOP 8GHZ
 SENS1:SWE:POIN 201
 SENS1:BAND 1KHZ
 CALC1:PAR:DEF:EXT "wave_a","a1,1"
 CALC1:PAR:DEF:EXT "wave_b","b1,1"
 CALC1:PAR:DEF:EXT "Reflect","S11"
 CALC1:PAR:DEF:EXT "Transmit","S21"
+CALC1:PAR:DEF:EXT "Reverse","S12"
+CALC1:PAR:DEF:EXT "Reflect2","S22"
 TRIG:SOUR IMM
 SENS1:SWE:MODE SING;*OPC?
 SYST:ERR?
@@ -103,7 +122,7 @@ CALC1:PAR:SEL "Transmit"
 CALC1:DATA? RDATA
 ```
 
-先等 `SING;*OPC?` 返回 `1` 并检查错误，再读频轴和曲线。`SENS1:X?` 返回 N 个 Hz；每条 RDATA 返回所选测量的 2N 个实部/虚部，可为原始接收波或未校准 S11/S21。单次完成后进入 HOLD；只切换选中测量不会改变完整帧。参考幅度 ≤ `1e-12 a.u.`、非有限样本或最终比值溢出时，Web 标记无效点，SCPI 拒绝整条数组并记录 `-230`。S 参数的单位、归一化、分层及验收见[测量设计](docs/未校准S参数测量设计.md)。
+先等 `SING;*OPC?` 返回 `1` 并检查错误，再读频轴和曲线。`SENS1:X?` 返回 N 个 Hz；每条 RDATA 返回所选测量的 2N 个实部/虚部，可为原始接收波或未校准 S11/S21/S12/S22。单次完成后进入 HOLD；只切换选中测量不会改变完整帧。参考幅度 ≤ `1e-12 a.u.`、非有限样本或最终比值溢出时，Web 标记无效点，SCPI 拒绝整条数组并记录 `-230`。S 参数的单位、归一化、分层及验收见[测量设计](docs/未校准S参数测量设计.md)。
 
 后台配置由值复制，采集按所有需求源端口完成一轮才发布不可变快照。配置成功后增加 revision；旧帧不会作为新配置的数据返回。HOLD 等待正在进行的一轮完成；断开 TCP 不撤销已接受操作，新控制连接须等待这些操作终结。
 
@@ -112,7 +131,7 @@ CALC1:DATA? RDATA
 | 目录 | 职责 |
 | --- | --- |
 | `VnaNativeSimulator` | 九个 Drv* ABI、确定性模拟信号、独立合同测试 |
-| `VnaLog` / `config/logging.properties` | spdlog 日志门面、线程安全滚动目标与启动配置 |
+| `VnaLog` / `config/vnapro.yml` | spdlog 日志门面、线程安全滚动目标与启动配置 |
 | `VnaCore/include/vna_core` | 配置、不可变完整帧、异步命令结果与状态视图 |
 | `VnaCore/src` | 命令 FIFO、单 worker 生命周期、Native 加载与帧转换 |
 | `VnaMeasurement` | 测量定义、同帧原始波提取、未校准复数比值及逐点有效性 |
@@ -130,7 +149,7 @@ CALC1:DATA? RDATA
 | `VnaServer/tests` | 实际 SCPI / HTTP 端到端验证与有序关闭 |
 | `docs` | 核心设计与服务设计，含结构图和活动图 |
 
-首期仅一个逻辑通道、一个控制者、线性扫描和 SCPI ASCII。配置和测量定义变更限定 HOLD；忙时 INIT 不提供 PNA 的中止重启语义。`INIT:CONT OFF` 仅选择 MAN 触发源，不能代替 HOLD。S 参数现开放未校准 S11/S21；`ABOR`、`*RST`、`SYST:PRES`、S12/S22、SDATA、校准及二进制块尚未实现，收到不支持的命令进入标准错误队列。Web 的界面布局参考 ZNB8，远程 SCPI 仍保持 Keysight 命令子集，不因此改为罗德命令。
+首期仅一个逻辑通道、一个控制者、线性扫描和 SCPI ASCII。配置和测量定义变更限定 HOLD；忙时 INIT 不提供 PNA 的中止重启语义。`INIT:CONT OFF` 仅选择 MAN 触发源，不能代替 HOLD。S 参数现开放未校准 S11/S21/S12/S22，Smith 用于反射参数；`ABOR`、`*RST`、`SYST:PRES`、SDATA、校准及二进制块尚未实现，收到不支持的命令进入标准错误队列。Web 的界面布局参考 ZNB8，远程 SCPI 仍保持 Keysight 命令子集，不因此改为罗德命令。
 
 网络预算为每消息 16 KiB、每连接待发数据 1 MiB，慢发送超过 10 秒关闭连接；模拟点数上限 10001。错误 FIFO 和命令队列有界。驱动 ABI 没有取消入口，因此无法对阻塞的真实 I/O 承诺限时退出；核心始终等到 worker 收尾后释放缓冲区和动态库。
 
