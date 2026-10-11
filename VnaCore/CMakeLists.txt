@@ -6,6 +6,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 
 find_package(Threads REQUIRED)
+if(NOT TARGET vna_log)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../VnaLog" "${CMAKE_CURRENT_BINARY_DIR}/vna_log")
+endif()
 add_library(vna_core STATIC
     src/acquisition_core.cpp
     src/device/plan_preparation_error.cpp
@@ -19,7 +22,7 @@ target_include_directories(vna_core
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/../VnaNativeSimulator/include
 )
-target_link_libraries(vna_core PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(vna_core PRIVATE Threads::Threads ${CMAKE_DL_LIBS} vna_log)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(vna_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()

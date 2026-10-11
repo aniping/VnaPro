@@ -15,6 +15,7 @@
 
 #include "vna_core/acquisition_core.h"
 #include "vna_core/frame_layout.h"
+#include "vna_log/logger.h"
 #include "vna_service/service_error_code.h"
 
 namespace VnaService {
@@ -43,6 +44,36 @@ constexpr int EXECUTION_ERROR_RANGE_BEGIN = -200;
 constexpr int DEVICE_ERROR_RANGE_BEGIN = -300;
 constexpr int QUERY_ERROR_RANGE_BEGIN = -400;
 constexpr int RESERVED_ERROR_RANGE_BEGIN = -500;
+
+const char *TaskName(Detail::ServiceTaskKind kind) noexcept
+{
+    switch (kind) {
+        case Detail::ServiceTaskKind::CONFIGURE:
+            return "CONFIGURE";
+        case Detail::ServiceTaskKind::SOURCE:
+            return "SOURCE";
+        case Detail::ServiceTaskKind::MODE:
+            return "MODE";
+        case Detail::ServiceTaskKind::TRIGGER:
+            return "TRIGGER";
+        default:
+            return "UNKNOWN";
+    }
+}
+
+const char *ModeName(SweepMode mode) noexcept
+{
+    switch (mode) {
+        case SweepMode::HOLD:
+            return "HOLD";
+        case SweepMode::SINGLE:
+            return "SINGLE";
+        case SweepMode::CONTINUOUS:
+            return "CONTINUOUS";
+        default:
+            return "UNKNOWN";
+    }
+}
 
 OperationResult Result(bool ok, int code = 0, const std::string &message = std::string())
 {
@@ -229,6 +260,7 @@ Operation InstrumentService::Rejected(int code, const std::string &message, cons
     std::promise<OperationResult> promise;
     Operation operation = promise.get_future().share();
     promise.set_value(Result(false, code, message));
+    VnaLog::Debug(VnaLog::Module::SERVICE, "控制请求被拒绝，code={}，原因={}", code, message);
     return operation;
 }
 
@@ -297,6 +329,11 @@ void InstrumentService::Finish(OperationResult value)
             Error(value.errorCode, value.message);
         }
         observedFault_ = view.error;
+        VnaLog::Error(VnaLog::Module::SERVICE, "控制操作失败，operation={}，code={}，原因={}",
+            TaskName(tasks_.front().kind), value.errorCode, value.message);
+    } else {
+        VnaLog::Debug(VnaLog::Module::SERVICE, "控制操作完成，operation={}，revision={}", TaskName(tasks_.front().kind),
+            settings_.revision);
     }
     tasks_.front().promise.set_value(std::move(value));
     tasks_.pop_front();
@@ -320,6 +357,9 @@ void InstrumentService::CommitMode(Detail::ServiceTask &task)
 {
     settings_.triggerSource = task.candidate.triggerSource;
     settings_.sweepMode = task.candidate.sweepMode;
+    VnaLog::Info(VnaLog::Module::SERVICE, "扫描模式已提交，mode={}，trigger={}，revision={}",
+        ModeName(settings_.sweepMode), settings_.triggerSource == TriggerSource::IMMEDIATE ? "IMMEDIATE" : "MANUAL",
+        settings_.revision);
     Finish(Result(true));
 }
 
@@ -528,6 +568,8 @@ bool InstrumentService::BootstrapMockProfile(std::string &error)
     candidate.revision = configured.configRevision;
     settings_ = std::move(candidate);
     mockReady_ = true;
+    VnaLog::Info(
+        VnaLog::Module::SERVICE, "模拟设备配置已就绪，revision={}，points={}", settings_.revision, settings_.points);
     return true;
 }
 
@@ -563,6 +605,7 @@ bool InstrumentService::TryAcquireControl(const std::string &owner)
     owner_ = owner;
     releasing_ = false;
     ++controlGeneration_;
+    VnaLog::Debug(VnaLog::Module::SERVICE, "仪器控制权已取得，generation={}", controlGeneration_);
     return true;
 }
 
@@ -579,6 +622,7 @@ void InstrumentService::ReleaseControl(const std::string &owner) noexcept
         owner_.clear();
         releasing_ = false;
         ++controlGeneration_;
+        VnaLog::Debug(VnaLog::Module::SERVICE, "仪器控制权已释放，generation={}", controlGeneration_);
     }
 }
 

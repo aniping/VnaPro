@@ -13,6 +13,7 @@
 #include "device/native/native_device_session.h"
 #include "device/plan_preparation_error.h"
 #include "vna_core/frame_layout.h"
+#include "vna_log/logger.h"
 
 namespace VnaCore {
 namespace {
@@ -64,6 +65,35 @@ std::unique_ptr<Detail::DeviceSession> ValidateDevice(std::unique_ptr<Detail::De
         throw std::invalid_argument("core requires an owned device session");
     }
     return device;
+}
+
+void LogCompletedCommand(Detail::CoreCommandKind kind, const CommandResult &result, const SweepPlan &plan, RunMode mode,
+    const std::string &deviceIdn) noexcept
+{
+    switch (kind) {
+        case Detail::CoreCommandKind::INITIALIZE:
+            VnaLog::Info(VnaLog::Module::CORE, "设备初始化成功，标识={}", deviceIdn);
+            break;
+        case Detail::CoreCommandKind::CONFIGURE:
+            VnaLog::Info(VnaLog::Module::CORE, "采集配置已提交，revision={}，points={}", result.configRevision,
+                plan.frequencyRaw.size());
+            break;
+        case Detail::CoreCommandKind::START:
+            VnaLog::Info(VnaLog::Module::CORE, "采集已启动，run={}，revision={}，mode={}", result.runId,
+                result.configRevision, mode == RunMode::CONTINUOUS ? "CONTINUOUS" : "MANUAL");
+            break;
+        case Detail::CoreCommandKind::STOP:
+            VnaLog::Info(VnaLog::Module::CORE, "采集停止命令已完成，run={}，frame={}", result.runId, result.frameSeq);
+            break;
+        case Detail::CoreCommandKind::RECOVER:
+            VnaLog::Info(VnaLog::Module::CORE, "采集核心已恢复，revision={}", result.configRevision);
+            break;
+        case Detail::CoreCommandKind::CLOSE:
+            VnaLog::Info(VnaLog::Module::CORE, "采集核心已关闭，run={}，frame={}", result.runId, result.frameSeq);
+            break;
+        default:
+            break;
+    }
 }
 
 }  // 匿名命名空间
@@ -216,6 +246,8 @@ void AcquisitionCore::Fault(const std::string &error)
     configured_ = false;
     error_ = error;
     PublishView();
+    VnaLog::Error(VnaLog::Module::CORE, "采集核心进入故障，run={}，frame={}，revision={}，原因={}", runId_, frameSeq_,
+        revision_, error_);
 }
 
 void AcquisitionCore::AcquireFrame()
@@ -243,6 +275,8 @@ void AcquisitionCore::AcquireFrame()
     frameSeq_ = immutable->frameSeq;
     frame_ = std::move(immutable);
     PublishView();
+    VnaLog::Trace(VnaLog::Module::CORE, "完整采集帧已发布，run={}，frame={}，revision={}，points={}，ports={}", runId_,
+        frameSeq_, revision_, plan_.frequencyRaw.size(), frame_->ports.size());
 }
 
 CommandResult AcquisitionCore::Execute(Detail::CoreCommand &command)
@@ -251,6 +285,10 @@ CommandResult AcquisitionCore::Execute(Detail::CoreCommand &command)
         const CommandResult answer = ExecuteCommand(command);
         if (answer.ok) {
             PublishView();
+            LogCompletedCommand(command.kind, answer, plan_, mode_, deviceIdn_);
+        } else {
+            VnaLog::Debug(VnaLog::Module::CORE, "采集命令未成功，command={}，run={}，revision={}，原因={}",
+                static_cast<unsigned>(command.kind), answer.runId, answer.configRevision, answer.message);
         }
         return answer;
     } catch (const Detail::PlanPreparationError &error) {
@@ -390,6 +428,7 @@ CommandResult AcquisitionCore::ExecuteClose()
         configured_ = false;
         error_ = error.what();
         PublishView();
+        VnaLog::Error(VnaLog::Module::CORE, "设备关闭失败，原因={}", error_);
         return Result(false, error_);
     }
     state_ = CoreState::CLOSED;

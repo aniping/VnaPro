@@ -4,6 +4,7 @@ add_library(vna_service STATIC
 )
 target_include_directories(vna_service PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(vna_service PUBLIC vna_core)
+target_link_libraries(vna_service PRIVATE vna_log)
 target_compile_features(vna_service PUBLIC cxx_std_14)
 target_compile_options(vna_service PRIVATE -Wall -Wextra -Wpedantic)
 
