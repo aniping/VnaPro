@@ -72,7 +72,7 @@ public:
     Operation SetIfBandwidthHz(double value, std::uint64_t expectedRevision = 0U);
     // 将一个原子配置候选加入队列；改变设备状态前重新校验所有者及预期版本。
     Operation ApplyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string &owner);
-    // 将唯一的 1～128 字节接收机名称加入队列；物理源端口和接收端口均为 1～4。
+    // 添加唯一的 1～128 字节测量名称；支持 1～4 端口的原始波量和端口 1 激励的未校准 S11/S21。
     Operation DefineMeasurement(
         Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
     // 按区分大小写的名称，将已有测量项的删除操作加入队列，并按需更新当前选择。
@@ -94,7 +94,7 @@ public:
     bool SetCurrentTriggerScope(bool current);
     // 返回已提交的 Hz 频率轴；核心故障或版本尚未提交时返回错误。
     DataResult StimulusAxis() const;
-    // 仅从当前扫描轮次和版本的完整帧中返回实部、虚部交错排列的数据。
+    // 仅从当前扫描轮次和版本的完整帧计算交错复数数据；任一点无效时整条读取失败。
     DataResult MeasurementData() const;
 
     // 追加 IEEE 488.2/SCPI 错误，并更新对应的事件寄存器位。

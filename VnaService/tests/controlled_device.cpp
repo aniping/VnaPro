@@ -4,7 +4,10 @@
 
 #include "controlled_device.h"
 
+#include <utility>
+
 #include "../../VnaCore/src/device/plan_preparation_error.h"
+#include "vna_core/frame_layout.h"
 
 namespace VnaServiceTest {
 
@@ -50,10 +53,19 @@ std::vector<double> ControlledDevice::AcquirePort(const VnaCore::SweepPlan &plan
     if (failAcquire_) {
         throw std::runtime_error("controlled acquisition failure");
     }
-    std::vector<double> iq(plan.frequencyRaw.size() * 16U, 1.11);
-    if (invalidSamples_ && plan.frequencyRaw.size() >= 3U) {
-        iq[16U] = std::numeric_limits<double>::quiet_NaN();
-        iq[33U] = std::numeric_limits<double>::infinity();
+    std::vector<double> iq = samples_.empty()
+                                 ? std::vector<double>(plan.frequencyRaw.size() * VnaCore::IQ_VALUES_PER_POINT, 1.11)
+                                 : samples_;
+    if (samples_.size() == VnaCore::IQ_VALUES_PER_POINT) {
+        iq.clear();
+        iq.reserve(plan.frequencyRaw.size() * VnaCore::IQ_VALUES_PER_POINT);
+        for (std::size_t point = 0; point < plan.frequencyRaw.size(); ++point) {
+            iq.insert(iq.end(), samples_.begin(), samples_.end());
+        }
+    }
+    if (invalidSamples_ && iq.size() >= 3U * VnaCore::IQ_VALUES_PER_POINT) {
+        iq[VnaCore::IQ_VALUES_PER_POINT] = std::numeric_limits<double>::quiet_NaN();
+        iq[2U * VnaCore::IQ_VALUES_PER_POINT + 1U] = std::numeric_limits<double>::infinity();
     }
     return iq;
 }
@@ -62,6 +74,12 @@ void ControlledDevice::SetInvalidSamples(bool value)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     invalidSamples_ = value;
+}
+
+void ControlledDevice::SetSamples(std::vector<double> samples)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    samples_ = std::move(samples);
 }
 
 void ControlledDevice::FailNextPlanPreparation()

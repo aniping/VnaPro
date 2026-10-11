@@ -16,6 +16,7 @@
 #include "vna_core/acquisition_core.h"
 #include "vna_core/frame_layout.h"
 #include "vna_log/logger.h"
+#include "vna_measurement/measurement_processor.h"
 #include "vna_service/service_error_code.h"
 
 namespace VnaService {
@@ -113,6 +114,10 @@ VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings)
     for (const Measurement &measurement : settings.measurements) {
         sources.insert(measurement.sourcePort);
         plan.receiverMask |= 1U << (measurement.receiverPort - 1U);
+        if (measurement.kind == MeasurementKind::S_PARAMETER) {
+            // S11/S21 都使用激励端口 1 的 a1 作为同帧参考波。
+            plan.receiverMask |= 1U;
+        }
     }
     if (sources.empty()) {
         sources.insert(1U);
@@ -195,33 +200,20 @@ OperationResult ApplySettingsPatch(const ConfigPatch &patch, InstrumentSettings 
 DataResult ExtractMeasurement(const VnaCore::MeasurementFrame &frame, const Measurement &measurement)
 {
     DataResult value;
-
-    if ((frame.plan.receiverMask & (1U << (measurement.receiverPort - 1U))) == 0U) {
-        value.error = "Receiver was not active";
+    const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(frame, measurement);
+    if (!trace.available) {
+        value.error = trace.error;
         return value;
     }
-    const auto port =
-        std::find_if(frame.ports.begin(), frame.ports.end(), [&measurement](const VnaCore::PortFrame &source) {
-            return source.sourcePort == measurement.sourcePort;
-        });
-    const std::size_t points = frame.plan.frequencyHz.size();
-    if (port == frame.ports.end() || port->iq.size() != points * VnaCore::IQ_VALUES_PER_POINT) {
-        value.error = "Receiver source frame is unavailable";
-        return value;
-    }
-    value.values.reserve(points * VnaCore::COMPLEX_COMPONENT_COUNT);
-    const std::size_t component = (measurement.receiverPort - 1U) * VnaCore::IQ_VALUES_PER_RECEIVER +
-                                  (measurement.receiverKind == 'b' ? VnaCore::COMPLEX_COMPONENT_COUNT : 0U);
-    for (std::size_t point = 0; point < points; ++point) {
-        const double real = port->iq[point * VnaCore::IQ_VALUES_PER_POINT + component];
-        const double imaginary = port->iq[point * VnaCore::IQ_VALUES_PER_POINT + component + 1U];
-        if (!std::isfinite(real) || !std::isfinite(imaginary)) {
+    value.values.reserve(trace.points.size() * VnaCore::COMPLEX_COMPONENT_COUNT);
+    for (const auto &point : trace.points) {
+        if (!point.valid) {
             value.values.clear();
-            value.error = "Receiver frame contains invalid values";
+            value.error = "Measurement frame contains invalid points";
             return value;
         }
-        value.values.push_back(real);
-        value.values.push_back(imaginary);
+        value.values.push_back(point.real);
+        value.values.push_back(point.imag);
     }
     value.ok = true;
     return value;
@@ -744,10 +736,8 @@ Operation InstrumentService::DefineMeasurement(
     return Configure(
         [measurement](InstrumentSettings &settings) {
             if (measurement.name.empty() || measurement.name.size() > MAX_MEASUREMENT_NAME_LENGTH ||
-                (measurement.receiverKind != 'a' && measurement.receiverKind != 'b') || measurement.receiverPort < 1U ||
-                measurement.receiverPort > VnaCore::PHYSICAL_PORT_COUNT || measurement.sourcePort < 1U ||
-                measurement.sourcePort > VnaCore::PHYSICAL_PORT_COUNT) {
-                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Invalid non-ratio receiver measurement");
+                !measurement.IsSupported()) {
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Unsupported measurement definition");
             }
             if (settings.measurements.size() >= MEASUREMENT_CAPACITY) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Measurement catalog is full");

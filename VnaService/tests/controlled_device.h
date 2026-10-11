@@ -42,6 +42,9 @@ public:
     // 持有设备互斥锁时，切换用于测试的 NaN 或无穷值注入开关。
     void SetInvalidSamples(bool value);
 
+    // 持有设备互斥锁时，设置完整 IQ 数组；单点的 16 个分量重复所有频点，空数组恢复默认样本。
+    void SetSamples(std::vector<double> samples);
+
     // 在设备状态改变前拒绝下一次计划准备，使初始化尝试可以重试。
     void FailNextPlanPreparation();
 
@@ -66,6 +69,7 @@ public:
     bool released_ = false;
     bool failAcquire_ = false;
     bool invalidSamples_ = false;
+    std::vector<double> samples_;
     bool blockPlan_ = false;
     bool planEntered_ = false;
     bool planReleased_ = false;

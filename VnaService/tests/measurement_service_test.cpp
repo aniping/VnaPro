@@ -1,0 +1,224 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
+#include <chrono>
+#include <cmath>
+#include <iostream>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "fixture.h"
+#include "vna_core/frame_layout.h"
+
+namespace {
+using VnaServiceTest::Fixture;
+constexpr unsigned TEST_POINT_COUNT = 3U;
+constexpr std::chrono::seconds TEST_TIMEOUT(3);
+
+void Require(bool condition, const std::string &message)
+{
+    if (!condition) {
+        throw std::runtime_error(message);
+    }
+}
+
+void Near(double value, double expected)
+{
+    Require(std::isfinite(value) && std::fabs(value - expected) < 1e-12, "复数分量不符合独立期望值");
+}
+
+VnaService::OperationResult Finish(Fixture &fixture, const VnaService::Operation &operation)
+{
+    const auto deadline = std::chrono::steady_clock::now() + TEST_TIMEOUT;
+    while (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        Require(std::chrono::steady_clock::now() < deadline, "等待服务操作超时");
+        fixture.service.Poll();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return operation.get();
+}
+
+void Prepare(Fixture &fixture)
+{
+    Require(fixture.service.TryAcquireControl(), "取得 SCPI 控制权");
+    Require(Finish(fixture, fixture.service.SetPoints(TEST_POINT_COUNT)).ok, "提交三点扫描配置");
+    Require(Finish(fixture, fixture.service.DeleteMeasurement("DefaultA")).ok, "移除默认原始测量");
+}
+
+VnaService::Measurement SParameter(const std::string &name, unsigned receiver, unsigned source = 1U)
+{
+    VnaService::Measurement measurement;
+    measurement.kind = VnaService::MeasurementKind::S_PARAMETER;
+    measurement.name = name;
+    measurement.receiverKind = 'b';
+    measurement.receiverPort = receiver;
+    measurement.sourcePort = source;
+    return measurement;
+}
+
+std::vector<double> KnownSamples()
+{
+    std::vector<double> iq(TEST_POINT_COUNT * VnaCore::IQ_VALUES_PER_POINT, 7.0);
+    // 独立给出三组波量；逐点 a1 不同，而 b1/a1=0.5+0.25i、b2/a1=0.25-0.5i。
+    const double referenceReal[] = {2.0, -3.0, 4.0};
+    const double referenceImag[] = {4.0, 1.0, -2.0};
+    const double reflectionReal[] = {0.0, -1.75, 2.5};
+    const double reflectionImag[] = {2.5, -0.25, 0.0};
+    const double transmissionReal[] = {2.5, -0.25, 0.0};
+    const double transmissionImag[] = {0.0, 1.75, -2.5};
+    for (unsigned point = 0; point < TEST_POINT_COUNT; ++point) {
+        const std::size_t offset = point * VnaCore::IQ_VALUES_PER_POINT;
+        iq[offset] = referenceReal[point];
+        iq[offset + 1U] = referenceImag[point];
+        iq[offset + 2U] = reflectionReal[point];
+        iq[offset + 3U] = reflectionImag[point];
+        iq[offset + 6U] = transmissionReal[point];
+        iq[offset + 7U] = transmissionImag[point];
+    }
+    return iq;
+}
+
+void ExpectRatio(Fixture &fixture, const std::string &name, double real, double imag)
+{
+    Require(fixture.service.SelectMeasurement(name), "选择已有 S 参数测量");
+    const auto result = fixture.service.MeasurementData();
+    Require(result.ok && result.values.size() == TEST_POINT_COUNT * 2U, "完整返回三点复数数据");
+    for (unsigned point = 0; point < TEST_POINT_COUNT; ++point) {
+        Near(result.values[point * 2U], real);
+        Near(result.values[point * 2U + 1U], imag);
+    }
+}
+
+void KnownRatiosAndReferenceDemand()
+{
+    Fixture fixture;
+    Prepare(fixture);
+    fixture.device->SetSamples(KnownSamples());
+    Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter("Transmission", 2U))).ok, "仅定义 S21 测量");
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "完成 S21 扫描");
+    const auto first = fixture.service.Snapshot().core.frame;
+    Require(first && first->plan.receiverMask == 3U, "S21 计划同时启用目标接收机与 a1 参考接收机");
+    ExpectRatio(fixture, "Transmission", 0.25, -0.5);
+    Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter("Reflection", 1U))).ok, "增加 S11 测量");
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "完成包含两个测量的单帧扫描");
+    const auto frame = fixture.service.Snapshot().core.frame;
+    Require(frame && frame->ports.size() == 1U && frame->ports.front().sourcePort == 1U,
+        "两个 S 参数共同使用唯一的源端口 1 完整帧");
+    ExpectRatio(fixture, "Transmission", 0.25, -0.5);
+    ExpectRatio(fixture, "Reflection", 0.5, 0.25);
+    Require(fixture.service.Snapshot().core.frame == frame, "读取和选择测量不会重新采集或拼接帧");
+}
+
+void InvalidReferenceAndSampleRejectWholeArray()
+{
+    Fixture fixture;
+    Prepare(fixture);
+    Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter("Reflection", 1U))).ok, "定义 S11 测量");
+    auto samples = KnownSamples();
+    samples[VnaCore::IQ_VALUES_PER_POINT] = 1e-13;
+    samples[VnaCore::IQ_VALUES_PER_POINT + 1U] = 0.0;
+    fixture.device->SetSamples(samples);
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "完成含弱参考波的扫描");
+    const auto smallReference = fixture.service.MeasurementData();
+    Require(!smallReference.ok && smallReference.values.empty() && !smallReference.error.empty(),
+        "中间点参考波过小时拒绝整个数组，不泄露之前的部分点");
+    samples = KnownSamples();
+    samples[2U] = std::numeric_limits<double>::quiet_NaN();
+    fixture.device->SetSamples(samples);
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "完成含无效接收波的扫描");
+    const auto invalid = fixture.service.MeasurementData();
+    Require(!invalid.ok && invalid.values.empty() && !invalid.error.empty(), "无效接收波不能成为有效 S 参数");
+}
+
+void ConfigurationChangeRejectsRetainedFrame()
+{
+    Fixture fixture;
+    Prepare(fixture);
+    fixture.device->SetSamples(KnownSamples());
+    Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter("Reflection", 1U))).ok, "定义 S11 测量");
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "发布当前配置的完整帧");
+    ExpectRatio(fixture, "Reflection", 0.5, 0.25);
+    const auto frame = fixture.service.Snapshot().core.frame;
+    Require(Finish(fixture, fixture.service.SetStopHz(110000000.0)).ok, "提交新的频率配置");
+    const auto snapshot = fixture.service.Snapshot();
+    Require(snapshot.core.frame == frame && frame->configRevision != snapshot.settings.revision,
+        "保留上一帧时明确标记其配置版本已经过期");
+    const auto result = fixture.service.MeasurementData();
+    Require(!result.ok && result.values.empty(), "新配置采集完成前禁止返回旧帧的 S 参数");
+}
+
+void UnsupportedDefinitionAndRawCompatibility()
+{
+    Fixture fixture;
+    Prepare(fixture);
+    const auto revision = fixture.service.Settings().revision;
+    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("S12", 1U, 2U))).ok, "拒绝未实现的反向 S12");
+    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("S22", 2U, 2U))).ok, "拒绝未实现的反向 S22");
+    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("S31", 3U))).ok, "拒绝超出首发范围的 S31");
+    auto unknown = SParameter("Unknown", 1U);
+    unknown.kind = static_cast<VnaService::MeasurementKind>(99);
+    Require(!Finish(fixture, fixture.service.DefineMeasurement(unknown)).ok, "拒绝未知测量种类");
+    Require(fixture.service.Settings().revision == revision && fixture.service.Settings().measurements.empty(),
+        "拒绝的定义不改变配置版本或目录");
+    VnaService::Measurement raw;
+    raw.name = "RawB4";
+    raw.receiverKind = 'B';
+    raw.receiverPort = 4U;
+    raw.sourcePort = 4U;
+    Require(Finish(fixture, fixture.service.DefineMeasurement(raw)).ok, "原始接收机保留大小写兼容和四端口范围");
+    Require(fixture.service.Settings().measurements.front().Parameter() == "b4,4", "规范化原始测量参数");
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "采集原始 b4,4 波量");
+    const auto rawData = fixture.service.MeasurementData();
+    Require(rawData.ok && rawData.values.size() == TEST_POINT_COUNT * 2U, "原始接收机交错复数读取保持兼容");
+    for (double value : rawData.values) {
+        Near(value, 1.11);
+    }
+}
+
+void MeasurementDefinitionRespectsControlAndRevision()
+{
+    Fixture fixture;
+    Prepare(fixture);
+    const auto revision = fixture.service.Settings().revision;
+    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("WrongRevision", 1U), revision - 1U)).ok,
+        "旧版本的 S 参数定义被拒绝");
+    fixture.service.ReleaseControl();
+    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("NoOwner", 1U), revision)).ok,
+        "没有控制权时不能添加 S 参数");
+    Require(fixture.service.TryAcquireControl("HTTP_TEST"), "另一协议取得控制权");
+    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("OtherOwner", 1U), revision)).ok,
+        "SCPI 不能覆盖另一协议的测量目录");
+    Require(
+        Finish(fixture, fixture.service.DefineMeasurement(SParameter("OwnedReflection", 1U), revision, "HTTP_TEST")).ok,
+        "当前所有者与正确版本共同满足才提交测量定义");
+    Require(fixture.service.Settings().measurements.size() == 1U &&
+                fixture.service.Settings().measurements.front().name == "OwnedReflection",
+        "拒绝的竞争请求不会遗留测量项");
+}
+
+void Run(const std::string &name, void (*test)(), unsigned &failed)
+{
+    try {
+        test();
+        std::cout << "PASS " << name << '\n';
+    } catch (const std::exception &error) {
+        ++failed;
+        std::cerr << "FAIL " << name << ": " << error.what() << '\n';
+    }
+}
+}  // 匿名命名空间
+
+int main()
+{
+    unsigned failed = 0U;
+    Run("已知复比值和参考接收需求", KnownRatiosAndReferenceDemand, failed);
+    Run("无效参考和接收样本", InvalidReferenceAndSampleRejectWholeArray, failed);
+    Run("配置更新后的旧帧拒绝", ConfigurationChangeRejectsRetainedFrame, failed);
+    Run("不支持的定义和原始接收机兼容", UnsupportedDefinitionAndRawCompatibility, failed);
+    Run("测量目录控制权与版本竞争", MeasurementDefinitionRespectsControlAndRevision, failed);
+    return failed == 0U ? 0 : 1;
+}
