@@ -14,7 +14,8 @@ function snapshot(revision = '1'): InstrumentStatus {
     identity: 'VnaPro,NativeSimulator,0,0.2', backend: 'NativeSimulator', state: 'Ready', error: '', pending: false,
     revision, runId: '1', activeConfigValid: true,
     config: { startHz: 1e6, stopHz: 100e6, points: 201, ifBandwidthHz: 1000, triggerSource: 'IMM', sweepMode: 'HOLD' },
-    measurements: [{ name: 'DefaultA', receiverKind: 'a', receiverPort: 1, sourcePort: 1, parameter: 'a1,1' }],
+    measurements: [{ name: 'DefaultA', kind: 'receiver', receiverKind: 'a', receiverPort: 1, sourcePort: 1,
+      parameter: 'a1,1', unit: 'a.u.', calibration: 'raw' }],
     control: { owner: 'web', hasControl: true, releasing: false, leaseRemainingMs: 30000, readOnlyReason: '' },
   }
 }
@@ -67,7 +68,7 @@ test('initial successful connection clears connecting notice and lease renewal p
   context.after(() => model.stop())
   assert.equal(model.connected.value, true)
   assert.equal(model.hasControl.value, true)
-  assert.equal(model.notice.value?.text, '原始接收波 · 未校准')
+  assert.equal(model.notice.value?.text, 'RAW 接收波与 S 参数 · 未校准')
   model.notice.value = { text: 'Preserve this operation warning', tone: 'warning' }
   time += 12000
   await model.refresh()

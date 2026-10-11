@@ -42,7 +42,7 @@ function singleSweep() {
     </div>
     <span class="toolbar-separator" aria-hidden="true" />
     <div class="toolbar-group" role="group" aria-label="Trace and marker">
-      <button type="button" class="toolbar-button glyph-accent" :disabled="!canWrite || busy" title="Add receiver measurement · 添加接收波测量" aria-label="Add trace" data-testid="toolbar-add-trace" @click="emit('addTrace')"><ToolbarGlyph name="add-trace" /></button>
+      <button type="button" class="toolbar-button glyph-accent" :disabled="!canWrite || busy" title="Add measurement · 添加测量" aria-label="Add trace" data-testid="toolbar-add-trace" @click="emit('addTrace')"><ToolbarGlyph name="add-trace" /></button>
       <button type="button" class="toolbar-button" :disabled="!hasTrace" :aria-pressed="markerEnabled" title="Marker M1 · 显示或隐藏标记" aria-label="Toggle marker" data-testid="toolbar-marker" @click="emit('toggleMarker')"><ToolbarGlyph name="marker" /></button>
       <button type="button" class="toolbar-button" :disabled="!canWrite || busy || !canDelete" title="Delete active measurement · 删除当前测量" aria-label="Delete active trace" data-testid="toolbar-delete-trace" @click="emit('deleteTrace')"><ToolbarGlyph name="delete" /></button>
     </div>
@@ -57,7 +57,7 @@ function singleSweep() {
       <button type="button" class="toolbar-button" title="Sweep settings · 打开扫描控制" aria-label="Sweep settings" @click="emit('selectTool', 'sweep')"><ToolbarGlyph name="settings" /></button>
     </div>
     <span class="toolbar-flex-spacer" />
-    <span class="toolbar-identity" title="VnaPro · NativeSimulator · 原始接收波">Vna<span>Pro</span><small>RAW</small></span>
+    <span class="toolbar-identity" title="VnaPro · NativeSimulator · RAW 接收波与未校准 S 参数">Vna<span>Pro</span><small>未校准</small></span>
     <button type="button" class="toolbar-button toolbar-rf" disabled title="RF on/off — 尚无可验证的 RF 开关状态" aria-label="RF switch, unavailable"><ToolbarGlyph name="rf" /></button>
   </header>
 </template>

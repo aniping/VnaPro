@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { AcquiredFrame, Measurement } from '../../api/types'
 import { diagramTraceColor, type DisplayFormat, type DisplayScale, type LayoutMode, type TracePresentation } from '../../domain/presentation'
 import { displayUnit, frequencyText, getMarkerReadout, getTraceScale, numberText } from '../../plot'
+import { measurementState } from '../../domain/measurements'
 import FrequencyField from '../shared/FrequencyField.vue'
 
 const props = defineProps<{
@@ -21,18 +22,18 @@ const emit = defineEmits<{
   toggleVisibility: []
 }>()
 
-const formats: { id: DisplayFormat; label: string; description: string }[] = [
-  { id: 'db', label: 'dB Mag', description: '20 log₁₀ |z| · dB re 1 a.u.' },
-  { id: 'magnitude', label: 'Lin Mag', description: '|z| · a.u.' },
+const formats = computed<{ id: DisplayFormat; label: string; description: string }[]>(() => [
+  { id: 'db', label: 'dB Mag', description: `20 log₁₀ |z| · ${displayUnit('db', props.measurement)}` },
+  { id: 'magnitude', label: 'Lin Mag', description: `|z| · ${props.measurement?.unit ?? 'a.u.'}` },
   { id: 'phase', label: 'Phase', description: 'arg(z) · deg' },
-  { id: 'real', label: 'Real', description: 'Re(z) · a.u.' },
-  { id: 'imag', label: 'Imag', description: 'Im(z) · a.u.' },
-  { id: 'realimag', label: 'Real / Imag', description: 'Re(z) + Im(z) · a.u.' },
-]
+  { id: 'real', label: 'Real', description: `Re(z) · ${props.measurement?.unit ?? 'a.u.'}` },
+  { id: 'imag', label: 'Imag', description: `Im(z) · ${props.measurement?.unit ?? 'a.u.'}` },
+  { id: 'realimag', label: 'Real / Imag', description: `Re(z) + Im(z) · ${props.measurement?.unit ?? 'a.u.'}` },
+])
 
 const trace = computed(() => props.measurement && props.presentation)
 const color = computed(() => diagramTraceColor(props.index, props.layout))
-const unit = computed(() => displayUnit(props.presentation?.format ?? 'db'))
+const unit = computed(() => displayUnit(props.presentation?.format ?? 'db', props.measurement))
 const range = computed(() => getTraceScale(props.frame, props.measurement, props.presentation))
 const marker = computed(() => getMarkerReadout(props.frame, props.measurement, props.presentation))
 const perDivision = ref(10)
@@ -89,12 +90,12 @@ function applyMarker() {
   <section class="softtool-section" :aria-label="mode">
     <div class="softtool-readout" :style="{ borderLeft: `3px solid ${color}`, paddingLeft: '7px' }">
       <strong>{{ measurement?.name ?? 'No active trace' }}</strong>
-      <span>{{ measurement?.parameter ?? '请选择接收波测量' }}</span>
+      <span>{{ measurement?.parameter ?? '请选择测量' }}{{ measurement ? ` · ${measurementState(measurement)}` : '' }}</span>
     </div>
 
     <template v-if="mode === 'format'">
       <h3 class="softtool-section-title">Trace Format</h3>
-      <div class="softtool-grid" aria-label="Receiver wave display format">
+      <div class="softtool-grid" aria-label="Measurement display format">
         <button
           v-for="format in formats" :key="format.id" type="button"
           class="softtool-choice" :class="{ 'is-active': presentation?.format === format.id }"
@@ -106,10 +107,10 @@ function applyMarker() {
       <div class="softtool-divider" aria-hidden="true" />
       <h3 class="softtool-section-title">Complex Formats</h3>
       <div class="softtool-grid">
-        <button class="softtool-choice" type="button" disabled title="尚未实现归一化反射系数">Smith</button>
-        <button class="softtool-choice" type="button" disabled title="尚未实现归一化网络参数">Polar</button>
+        <button class="softtool-choice" type="button" disabled title="尚未实现 Smith 坐标绘图">Smith</button>
+        <button class="softtool-choice" type="button" disabled title="尚未实现极坐标绘图">Polar</button>
       </div>
-      <p class="softtool-note">仅转换当前接收波的显示格式。幅度未经功率或电压标定；dB 参考 1 a.u.。</p>
+      <p class="softtool-note">{{ measurement?.kind === 'sParameter' ? '显示同帧波量的比值，幅度无量纲，dB = 20 log₁₀ |S|；未应用误差校准。' : '仅转换当前接收波的显示格式。幅度未经功率或电压标定；dB 参考 1 a.u.。' }}</p>
     </template>
 
     <template v-else-if="mode === 'scale'">
@@ -160,8 +161,8 @@ function applyMarker() {
         <template v-if="marker">
           <span>{{ frequencyText(marker.frequencyHz, 9) }}</span>
           <strong :style="{ color }">{{ marker.valueText }}</strong>
-          <span>Re {{ marker.real === null ? '—' : numberText(marker.real, 8) }} a.u.</span>
-          <span>Im {{ marker.imag === null ? '—' : numberText(marker.imag, 8) }} a.u.</span>
+          <span>Re {{ marker.real === null ? '—' : numberText(marker.real, 8) }} {{ measurement?.unit }}</span>
+          <span>Im {{ marker.imag === null ? '—' : numberText(marker.imag, 8) }} {{ measurement?.unit }}</span>
           <span>Sample {{ marker.index + 1 }}</span>
         </template>
         <span v-else>{{ presentation?.marker.enabled ? 'Waiting for data' : 'Marker off' }}</span>
@@ -175,6 +176,8 @@ function applyMarker() {
         <span>Trace Name</span><strong>{{ measurement?.name ?? '—' }}</strong>
       </div>
       <div class="softtool-readout"><span>Receiver Wave</span><strong>{{ measurement ? `${measurement.receiverKind}${measurement.receiverPort}` : '—' }}</strong></div>
+      <div class="softtool-readout"><span>Measurement</span><strong>{{ measurement?.parameter ?? '—' }}</strong></div>
+      <div class="softtool-readout"><span>Calibration</span><strong>{{ measurement ? measurementState(measurement) : '—' }}</strong></div>
       <div class="softtool-readout"><span>Source Port</span><strong>{{ measurement?.sourcePort ?? '—' }}</strong></div>
       <button class="softtool-button" type="button" :disabled="!trace" :aria-pressed="presentation?.visible" data-testid="trace-visibility" @click="emit('toggleVisibility')">Trace Display <strong>{{ presentation?.visible ? 'On' : 'Off' }}</strong></button>
       <p class="softtool-note">显示开关仅影响当前迹线。测量定义与删除在 Meas 中操作。</p>

@@ -65,7 +65,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
     const currentFrame = frame.value
     if (!currentFrame) {
       if (currentStatus?.state === 'Faulted') return { kind: 'fault', label: 'FAULT', detail: currentStatus.error }
-      return { kind: 'empty', label: 'NO DATA', detail: 'Run a single or continuous sweep to acquire receiver data.' }
+      return { kind: 'empty', label: 'NO DATA', detail: 'Run a single or continuous sweep to acquire measurement data.' }
     }
     if (!connected.value) return { kind: 'disconnected', label: 'DISCONNECTED', detail: 'Retained frame · connection unavailable' }
     if (currentStatus?.state === 'Faulted') return { kind: 'fault', label: 'FAULT', detail: 'Retained frame · ' + currentStatus.error }
@@ -225,7 +225,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
         }
         if (epoch !== generation || !active) return
         if (!wasConnected && notice.value?.text === INITIAL_NOTICE) {
-          notify('原始接收波 · 未校准')
+          notify('RAW 接收波与 S 参数 · 未校准')
         }
         if (!wasConnected && notice.value?.tone === 'error' && !pendingOperation.value) {
           error.value = null
@@ -319,9 +319,9 @@ export function useInstrument(options: InstrumentOptions = {}) {
     configure: (candidate: SweepConfiguration, expectedRevision: string) =>
       submit('Apply configuration', 'config', () => api.configure(candidate, expectedRevision), true),
     addMeasurement: (candidate: MeasurementCandidate, expectedRevision: string) =>
-      submit('Add receiver', 'measurement', () => api.addMeasurement(candidate, expectedRevision), true),
+      submit('Add measurement', 'measurement', () => api.addMeasurement(candidate, expectedRevision), true),
     deleteMeasurement: (name: string, expectedRevision: string) =>
-      submit('Delete receiver', 'measurement', () => api.deleteMeasurement(name, expectedRevision), true),
+      submit('Delete measurement', 'measurement', () => api.deleteMeasurement(name, expectedRevision), true),
     run: (action: RunAction) => submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)),
   }
 }

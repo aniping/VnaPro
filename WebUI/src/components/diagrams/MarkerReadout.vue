@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { DisplayFormat } from '../../domain/presentation'
-import { FORMAT_INFO, frequencyText, numberText } from '../../plot/formatting'
+import type { Measurement } from '../../api/types'
+import { measurementFormatInfo, frequencyText, numberText } from '../../plot/formatting'
 import type { MarkerResult } from '../../plot/traceMath'
 
 interface MarkerReadoutItem {
   name: string
   color: string
   format: DisplayFormat
+  measurement: Measurement
   result: MarkerResult
   active: boolean
 }
@@ -19,15 +21,15 @@ const emit = defineEmits<{ select: [name: string] }>()
     <button v-for="marker in markers" :key="marker.name" type="button" class="marker-row"
       :class="{ active: marker.active }" :style="{ '--marker-color': marker.color }"
       :aria-current="marker.active ? 'true' : undefined"
-      :aria-label="`${marker.name} M1, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? numberText(marker.result.value, 8) + ' ' + FORMAT_INFO[marker.format].unit : 'invalid point'}`"
-      :title="`${marker.name}: real ${numberText(marker.result.real ?? NaN, 10)}, imaginary ${numberText(marker.result.imaginary ?? NaN, 10)} a.u.`"
+      :aria-label="`${marker.name} M1, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit : 'invalid point'}`"
+      :title="`${marker.name}: real ${numberText(marker.result.real ?? NaN, 10)}, imaginary ${numberText(marker.result.imaginary ?? NaN, 10)} ${marker.measurement.unit}`"
       @click.stop="emit('select', marker.name)">
       <span class="active-dot" aria-hidden="true">{{ marker.active ? '•' : '' }}</span>
       <span class="marker-number">M1</span>
       <span class="marker-frequency">{{ frequencyText(marker.result.frequencyHz, 10) }}</span>
       <span v-if="marker.result.valid" class="marker-value">
-        {{ numberText(marker.result.value, 8) }} {{ FORMAT_INFO[marker.format].shortUnit }}
-        <template v-if="marker.format === 'realimag'"> / {{ numberText(marker.result.imaginary ?? NaN, 8) }} a.u.</template>
+        {{ numberText(marker.result.value, 8) }} {{ measurementFormatInfo(marker.format, marker.measurement).shortUnit }}
+        <template v-if="marker.format === 'realimag'"> / {{ numberText(marker.result.imaginary ?? NaN, 8) }} {{ marker.measurement.unit }}</template>
       </span>
       <span v-else class="marker-value invalid">Invalid point</span>
     </button>

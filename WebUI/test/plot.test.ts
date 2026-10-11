@@ -7,7 +7,8 @@ import { markerPlacement, plotRect } from '../src/plot/canvasRenderer'
 import { displaySeries, displayValue, markerResult, nearestIndex, normalizedY, referenceLevel, traceScale } from '../src/plot/traceMath'
 
 function receiver(real: (number | null)[], imaginary = real.map(() => 0)): ReceiverTrace {
-  return { name: 'Receiver A', receiverKind: 'a', receiverPort: 1, sourcePort: 1, parameter: 'a1,1',
+  return { name: 'Receiver A', kind: 'receiver', receiverKind: 'a', receiverPort: 1, sourcePort: 1,
+    parameter: 'a1,1', unit: 'a.u.', calibration: 'raw',
     available: true, real, imag: imaginary, valid: real.map(() => true) }
 }
 

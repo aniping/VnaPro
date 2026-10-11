@@ -80,9 +80,9 @@ async function commit() {
   const candidate = { ...draft }
   const expectedRevision = editRevision.value
   if (![candidate.startHz, candidate.stopHz, candidate.points, candidate.ifBandwidthHz].every(Number.isFinite)
-    || candidate.startHz < 1 || candidate.stopHz > 1e9 || candidate.startHz >= candidate.stopHz
+    || candidate.startHz < 1 || candidate.stopHz > 1e9 || candidate.startHz > candidate.stopHz
     || !Number.isInteger(candidate.points) || candidate.points < 2 || candidate.points > 10001) {
-    validation.value = 'Start < Stop · 1 Hz–1 GHz · 2–10001 points'
+    validation.value = 'Start ≤ Stop · 1 Hz–1 GHz · 2–10001 points · Span 0 = CW'
     return
   }
   const submitted = signature(candidate)

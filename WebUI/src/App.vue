@@ -32,7 +32,7 @@ const group = computed(() => ['start', 'stop', 'center', 'span', 'bandwidth'].in
 const focusField = computed(() => group.value === 'stimulus' ? activeTool.value as 'start' | 'stop' | 'center' | 'span' | 'bandwidth' : undefined)
 const title = computed(() => ({ stimulus: 'Stimulus', measurement: 'Measurement', trace: 'Trace', sweep: 'Sweep', system: 'System' }[group.value]))
 const tabs = computed(() => group.value === 'stimulus' ? [{ id: 'start', label: 'Frequency' }, { id: 'bandwidth', label: 'Bandwidth' }]
-  : group.value === 'measurement' ? [{ id: 'meas', label: 'Receiver' }]
+  : group.value === 'measurement' ? [{ id: 'meas', label: 'Measure' }]
     : group.value === 'trace' ? [{ id: 'format', label: 'Format' }, { id: 'scale', label: 'Scale' }, { id: 'marker', label: 'Marker' }, { id: 'trace-config', label: 'Config' }]
       : group.value === 'sweep' ? [{ id: 'sweep', label: 'Sweep' }, { id: 'trigger', label: 'Trigger' }]
         : [{ id: 'setup', label: 'State' }, { id: 'display', label: 'Display' }, { id: 'file', label: 'File' }, { id: 'help', label: 'Help' }])

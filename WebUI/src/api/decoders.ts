@@ -57,13 +57,29 @@ function measurement(value: unknown): Measurement {
   const item = object(value, 'measurement')
   const name = text(item.name, 'measurement.name')
   if (!name || name.length > 128) invalid('measurement.name')
-  return {
+  const result: Measurement = {
     name,
+    kind: choice(item.kind, 'measurement.kind', ['receiver', 'sParameter']),
     receiverKind: choice(item.receiverKind, 'measurement.receiverKind', ['a', 'b']),
     receiverPort: integer(item.receiverPort, 'measurement.receiverPort', 1, 4),
     sourcePort: integer(item.sourcePort, 'measurement.sourcePort', 1, 4),
     parameter: text(item.parameter, 'measurement.parameter'),
+    unit: choice(item.unit, 'measurement.unit', ['a.u.', '1']),
+    calibration: choice(item.calibration, 'measurement.calibration', ['raw', 'uncalibrated']),
   }
+  if (result.kind === 'receiver') {
+    const parameter = `${result.receiverKind}${result.receiverPort},${result.sourcePort}`
+    if (result.parameter !== parameter || result.unit !== 'a.u.' || result.calibration !== 'raw') {
+      invalid('receiver metadata')
+    }
+  } else {
+    const parameter = `S${result.receiverPort}${result.sourcePort}`
+    if (result.receiverKind !== 'b' || result.sourcePort !== 1 || result.receiverPort > 2
+      || result.parameter !== parameter || result.unit !== '1' || result.calibration !== 'uncalibrated') {
+      invalid('S-parameter metadata')
+    }
+  }
+  return result
 }
 
 export function decodeStatus(value: unknown): InstrumentStatus {
@@ -72,7 +88,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
   const control = object(item.control, 'control')
   const startHz = number(config.startHz, 'config.startHz', 1, 1e9)
   const stopHz = number(config.stopHz, 'config.stopHz', 1, 1e9)
-  if (startHz >= stopHz) invalid('config.startHz / stopHz')
+  if (startHz > stopHz) invalid('config.startHz / stopHz')
   const measurements = array(item.measurements, 'measurements', 32).map(measurement)
   if (new Set(measurements.map((entry) => entry.name)).size !== measurements.length) invalid('measurement names')
   return {
@@ -122,7 +138,7 @@ export function decodeFrame(value: unknown): FrameResponse {
   const originalCount = integer(item.originalPointCount, 'frame.originalPointCount', count, 10001)
   const axis = array(item.frequencyHz, 'frame.frequencyHz', 2001)
     .map((entry) => number(entry, 'frame.frequencyHz', 1, 1e9))
-  if (axis.length !== count || axis.some((entry, index) => index > 0 && entry <= axis[index - 1]!)) invalid('frame axis')
+  if (axis.length !== count || axis.some((entry, index) => index > 0 && entry < axis[index - 1]!)) invalid('frame axis')
   const decimated = flag(item.decimated, 'frame.decimated')
   if (decimated !== (originalCount > count)) invalid('frame.decimated')
   const traces = array(item.traces, 'frame.traces', 4).map((entry) => trace(entry, count))

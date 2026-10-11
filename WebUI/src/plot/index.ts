@@ -1,14 +1,14 @@
 import type { AcquiredFrame, Measurement } from '../api/types'
 import type { DisplayFormat, DisplayScale, TracePresentation } from '../domain/presentation'
-import { FORMAT_INFO, numberText } from './formatting'
+import { FORMAT_INFO, measurementFormatInfo, numberText } from './formatting'
 import { markerResult, traceScale } from './traceMath'
 
 export { exportVisibleFrameCsv } from './exportCsv'
-export { FORMAT_INFO, frequencyText, numberText, scaleValue } from './formatting'
+export { FORMAT_INFO, measurementFormatInfo, frequencyText, numberText, scaleValue } from './formatting'
 export { referenceLevel, traceScale } from './traceMath'
 
-export function displayUnit(format: DisplayFormat): string {
-  return FORMAT_INFO[format].unit
+export function displayUnit(format: DisplayFormat, measurement?: Measurement): string {
+  return measurementFormatInfo(format, measurement).unit
 }
 
 export function getTraceScale(frame: AcquiredFrame | null, measurement: Measurement | undefined,
@@ -25,8 +25,9 @@ export function getMarkerReadout(frame: AcquiredFrame | null, measurement: Measu
   const trace = frame?.traces.find(item => item.name === measurement.name)
   const result = markerResult(frame, trace, presentation.marker.frequencyHz, presentation.format)
   if (!result) return null
-  const suffix = presentation.format === 'realimag' ? ` / ${numberText(result.imaginary ?? NaN, 8)} a.u.` : ''
+  const displayed = trace ?? measurement
+  const suffix = presentation.format === 'realimag' ? ` / ${numberText(result.imaginary ?? NaN, 8)} ${displayed.unit}` : ''
   return { frequencyHz: result.frequencyHz, index: result.index, value: result.value,
-    valueText: result.valid ? `${numberText(result.value, 8)} ${FORMAT_INFO[presentation.format].shortUnit}${suffix}` : 'Invalid point',
+    valueText: result.valid ? `${numberText(result.value, 8)} ${measurementFormatInfo(presentation.format, displayed).shortUnit}${suffix}` : 'Invalid point',
     real: result.real, imag: result.imaginary, valid: result.valid }
 }

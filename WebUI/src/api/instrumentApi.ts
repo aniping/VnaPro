@@ -183,7 +183,7 @@ export class InstrumentApi implements InstrumentGateway {
 
   addMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation> {
     return this.request('/measurements', decodeAccepted, 'POST',
-      { name: candidate.name, receiverKind: candidate.receiverKind, receiverPort: candidate.receiverPort,
+      { name: candidate.name, kind: candidate.kind, receiverKind: candidate.receiverKind, receiverPort: candidate.receiverPort,
         sourcePort: candidate.sourcePort, expectedRevision, requestId: requestId() }, this.token, 202)
   }
 

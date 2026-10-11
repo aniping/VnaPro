@@ -14,9 +14,16 @@ export function validAt(trace: FrameTrace | undefined, index: number): boolean {
 export function displayValue(real: number, imaginary: number, format: DisplayFormat): number {
   if (!Number.isFinite(real) || !Number.isFinite(imaginary)) return NaN
   switch (format) {
-    case 'db': return 20 * Math.log10(Math.hypot(real, imaginary))
+    case 'db': {
+      // 先缩放复数分量，避免可表示的 dB 因中间线性幅度溢出而丢失。
+      const maximum = Math.max(Math.abs(real), Math.abs(imaginary))
+      if (maximum === 0) return -Infinity
+      const scaledReal = real / maximum
+      const scaledImaginary = imaginary / maximum
+      return 20 * (Math.log10(maximum) + 0.5 * Math.log10(scaledReal ** 2 + scaledImaginary ** 2))
+    }
     case 'magnitude': return Math.hypot(real, imaginary)
-    case 'phase': return Math.atan2(imaginary, real) * 180 / Math.PI
+    case 'phase': return real === 0 && imaginary === 0 ? NaN : Math.atan2(imaginary, real) * 180 / Math.PI
     case 'imag': return imaginary
     default: return real
   }

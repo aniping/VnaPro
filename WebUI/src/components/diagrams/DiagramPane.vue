@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { AcquiredFrame, FrameCondition, Measurement, SweepConfiguration } from '../../api/types'
 import { defaultTracePresentation, diagramTraceColor, type LayoutMode, type TracePresentation } from '../../domain/presentation'
-import { FORMAT_INFO, frequencyText, numberText } from '../../plot/formatting'
+import { FORMAT_INFO, measurementFormatInfo, frequencyText, numberText } from '../../plot/formatting'
 import { markerPlacement, paintDiagram, plotRect, type CanvasCurve } from '../../plot/canvasRenderer'
 import { displaySeries, markerResult, nearestIndex, normalizedX, normalizedY, referenceLevel, traceScale } from '../../plot/traceMath'
 import MarkerReadout from './MarkerReadout.vue'
@@ -51,6 +51,7 @@ const activeTrace = computed(() => traces.value.find(item => item.measurement.na
 const active = computed(() => props.measurements.some(item => item.name === props.activeTraceName))
 const axisScale = computed(() => activeTrace.value?.scale ?? FORMAT_INFO.db.fallback)
 const axisFormat = computed(() => activeTrace.value?.presentation.format ?? 'db')
+const axisDefinition = computed(() => measurementFormatInfo(axisFormat.value, activeTrace.value?.measurement))
 const relativeAxis = computed(() => {
   const span = axisScale.value.max - axisScale.value.min
   const reference = referenceLevel(axisScale.value)
@@ -85,12 +86,16 @@ const plottedMarkers = computed(() => markerModels.value.flatMap(marker => {
 const hasDrawable = computed(() => traces.value.some(item => item.presentation.visible
   && displaySeries(item.frameTrace, item.presentation.format).some(series => series.values.some(Number.isFinite))))
 const noDrawableMessage = computed(() => {
-  if (!props.measurements.length) return 'No receiver assigned'
+  if (!props.measurements.length) return 'No measurement assigned'
   if (traces.value.every(item => !item.presentation.visible)) return 'All traces hidden'
   if (!props.frame) return 'No acquired frame'
+  const undefinedPhase = traces.value.some(item => item.presentation.visible && item.presentation.format === 'phase'
+    && item.frameTrace?.real.some((real, index) => real === 0 && item.frameTrace?.imag[index] === 0
+      && item.frameTrace?.valid[index] === true))
   const zeroDb = traces.value.some(item => item.presentation.visible && item.presentation.format === 'db'
     && displaySeries(item.frameTrace, 'db')[0]?.values.some(value => value === -Infinity))
-  return zeroDb ? 'Zero amplitude · dB = −∞' : 'No valid receiver points'
+  if (undefinedPhase) return 'Zero amplitude · phase undefined'
+  return zeroDb ? 'Zero amplitude · dB = −∞' : 'No valid measurement points'
 })
 const yTickDivisions = 10
 const yTicks = computed(() => Array.from({ length: yTickDivisions + 1 }, (_, index) => {
@@ -101,7 +106,7 @@ const yTicks = computed(() => Array.from({ length: yTickDivisions + 1 }, (_, ind
   return {
     top: rect.value.top + rect.value.height * index / yTickDivisions,
     reference: Math.abs(tick - referenceLevel(axisScale.value)) <= span * 1e-9,
-    value: `${relativeAxis.value ? 'Δ ' : ''}${relativeAxis.value && value > 0 ? '+' : ''}${numberText(value, 4)} ${FORMAT_INFO[axisFormat.value].shortUnit}`,
+    value: `${relativeAxis.value ? 'Δ ' : ''}${relativeAxis.value && value > 0 ? '+' : ''}${numberText(value, 4)} ${axisDefinition.value.shortUnit}`,
   }
 }))
 
@@ -258,12 +263,12 @@ function plotKey(event: KeyboardEvent): void {
       <canvas ref="canvas" class="diagram-canvas" aria-hidden="true" />
       <span v-for="(tick, index) in yTicks" :key="`y-${index}`" class="y-tick"
         :class="{ 'edge-top': index === 0, 'edge-bottom': index === 10, 'reference-tick': tick.reference }" :style="{ top: `${tick.top}px` }"
-        :title="relativeAxis ? `Autoscale offset from Ref ${numberText(referenceLevel(axisScale), 10)} ${FORMAT_INFO[axisFormat].unit}` : FORMAT_INFO[axisFormat].unit">{{ tick.value }}</span>
-      <MarkerReadout :markers="markerModels.map(marker => ({ name: marker.name, color: marker.color, format: marker.presentation.format, result: marker.result, active: marker.active }))"
+        :title="relativeAxis ? `Autoscale offset from Ref ${numberText(referenceLevel(axisScale), 10)} ${axisDefinition.unit}` : axisDefinition.unit">{{ tick.value }}</span>
+      <MarkerReadout :markers="markerModels.map(marker => ({ name: marker.name, color: marker.color, format: marker.presentation.format, measurement: marker.measurement, result: marker.result, active: marker.active }))"
         @select="emit('selectTrace', $event)" />
       <button v-for="marker in plottedMarkers" :key="marker.name" type="button" class="marker-handle"
         :class="{ active: marker.active }" :style="{ left: `${marker.placement.left}px`, top: `${marker.placement.top}px`, width: `${marker.placement.width}px`, height: `${marker.placement.height}px`, color: marker.color }"
-        :aria-label="`M1 ${marker.name}, ${frequencyText(marker.result.frequencyHz, 10)}, ${numberText(marker.result.value, 8)} ${FORMAT_INFO[marker.presentation.format].unit}. Arrow keys move between measured frequency points.`"
+        :aria-label="`M1 ${marker.name}, ${frequencyText(marker.result.frequencyHz, 10)}, ${numberText(marker.result.value, 8)} ${measurementFormatInfo(marker.presentation.format, marker.measurement).unit}. Arrow keys move between measured frequency points.`"
         @pointerdown="beginDrag($event, marker.name)" @pointermove="dragMarker" @pointerup="endDrag" @pointercancel="endDrag"
         @keydown="markerKey($event, marker.name, marker.result.index)" @click.stop="emit('selectTrace', marker.name)">
         <span :style="{ top: `${marker.placement.labelTop}px` }">M1</span>
@@ -271,7 +276,7 @@ function plotKey(event: KeyboardEvent): void {
       </button>
       <div v-if="!hasDrawable" class="plot-empty" :style="{ left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` }">
         <strong>{{ noDrawableMessage }}</strong>
-        <span>{{ measurements.length ? frameCondition.detail : 'Select a receiver in Meas to populate this diagram.' }}</span>
+        <span>{{ measurements.length ? frameCondition.detail : 'Select a measurement in Meas to populate this diagram.' }}</span>
       </div>
       <span v-if="frame && frameCondition.kind !== 'current'" class="frame-condition" :class="frameCondition.kind"
         :style="{ left: `${rect.left + 5}px`, bottom: '5px' }" :title="frameCondition.detail">{{ frameCondition.label }}</span>
@@ -279,7 +284,7 @@ function plotKey(event: KeyboardEvent): void {
         Display {{ frame.displayPointCount }} / {{ frame.originalPointCount }} pts
       </span>
       <span class="sr-only">{{ activeTrace?.measurement.name ?? 'Empty diagram' }}. Format {{ FORMAT_INFO[axisFormat].label }}.
-        {{ hasDrawable ? 'Real acquired receiver samples displayed.' : noDrawableMessage }} {{ frameCondition.detail }}</span>
+        {{ hasDrawable ? 'Acquired measurement samples displayed.' : noDrawableMessage }} {{ frameCondition.detail }}</span>
     </div>
 
     <footer class="channel-row" aria-label="Channel configuration">

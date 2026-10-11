@@ -1,6 +1,6 @@
 import type { AcquiredFrame } from '../api/types'
 import { defaultTracePresentation, type TracePresentation } from '../domain/presentation'
-import { FORMAT_INFO } from './formatting'
+import { measurementFormatInfo } from './formatting'
 import { displayValue, validAt } from './traceMath'
 
 function csvCell(value: unknown): string {
@@ -10,12 +10,12 @@ function csvCell(value: unknown): string {
 /** 只导出实际显示的快照，不补造完整扫描中的其他采样点。 */
 export function exportVisibleFrameCsv(frame: AcquiredFrame, presentations: Record<string, TracePresentation>): string {
   const lines = [
-    '# VnaPro raw receiver display snapshot',
+    '# VnaPro measurement display snapshot; CSV schema 2',
     `# frameSeq=${frame.frameSeq},runId=${frame.runId},revision=${frame.revision},channelId=${frame.channelId}`,
     `# originalPointCount=${frame.originalPointCount},displayPointCount=${frame.displayPointCount},decimated=${frame.decimated}`,
     '# Source sample indices are not supplied by this API; display_index addresses the supplied display arrays.',
-    '# dB reference is 1 arbitrary amplitude unit. This is not a calibrated S-parameter export.',
-    'measurement,receiver,receiver_port,source_port,display_index,frequency_hz,real,imaginary,valid,format,unit,display_value,display_imaginary',
+    '# RAW dB reference is 1 a.u.; S-parameter dB is 20 log10 magnitude of the dimensionless ratio. S-parameters are uncalibrated.',
+    'measurement,receiver,receiver_port,source_port,display_index,frequency_hz,real,imaginary,valid,format,unit,display_value,display_imaginary,kind,parameter,raw_unit,calibration',
   ]
   for (const trace of frame.traces) {
     const presentation = presentations[trace.name] ?? defaultTracePresentation()
@@ -27,8 +27,9 @@ export function exportVisibleFrameCsv(frame: AcquiredFrame, presentations: Recor
       lines.push([
         csvCell(trace.name), trace.receiverKind, trace.receiverPort, trace.sourcePort, index, frame.frequencyHz[index],
         valid ? trace.real[index] : '', valid ? trace.imag[index] : '', valid,
-        presentation.format, csvCell(FORMAT_INFO[presentation.format].unit), cell,
+        presentation.format, csvCell(measurementFormatInfo(presentation.format, trace).unit), cell,
         presentation.format === 'realimag' && valid ? trace.imag[index] : '',
+        trace.kind, csvCell(trace.parameter), csvCell(trace.unit), trace.calibration,
       ].join(','))
     }
   }

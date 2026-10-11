@@ -32,7 +32,7 @@ const emit = defineEmits<{ layout: [value: LayoutMode]; export: []; acquire: [];
     <h2 class="softtool-section-title">Marker M1</h2>
     <p class="softtool-note">在曲线图点击或拖动选择真实频点。聚焦绘图区，← / → 移动一频点，Shift 移动十点，Home / End 到两端。</p>
     <div class="softtool-divider" />
-    <p class="softtool-note">目前为 NativeSimulator 原始接收波。未实现校准、S 参数、Smith 图与 RF 控制；相关按键禁用。界面参考 ZNB，远程 SCPI 保持已有 Keysight 命令子集。</p>
+    <p class="softtool-note">NativeSimulator 支持 RAW 接收波与未校准 S11/S21。未实现误差校准、S12/S22、Smith 图与 RF 控制；相关入口禁用。界面参考 ZNB，远程 SCPI 使用已有 Keysight 命令子集。</p>
   </section>
   <section v-else class="softtool-section">
     <h2 class="softtool-section-title">Instrument</h2>

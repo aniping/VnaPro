@@ -11,13 +11,16 @@ export interface SweepConfiguration {
 
 export interface Measurement {
   name: string
+  kind: 'receiver' | 'sParameter'
   receiverKind: 'a' | 'b'
   receiverPort: number
   sourcePort: number
   parameter: string
+  unit: 'a.u.' | '1'
+  calibration: 'raw' | 'uncalibrated'
 }
 
-export type MeasurementCandidate = Omit<Measurement, 'parameter'>
+export type MeasurementCandidate = Pick<Measurement, 'name' | 'kind' | 'receiverKind' | 'receiverPort' | 'sourcePort'>
 
 export interface InstrumentStatus {
   identity: string

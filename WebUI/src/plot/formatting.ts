@@ -1,4 +1,5 @@
 import type { DisplayFormat, DisplayScale } from '../domain/presentation'
+import type { Measurement } from '../api/types'
 
 export interface FormatDefinition {
   label: string
@@ -34,10 +35,15 @@ export function frequencyText(value: number, significantDigits = 7): string {
   return `${numberText(value, significantDigits)} Hz`
 }
 
-export function scaleValue(value: number, format: DisplayFormat, significantDigits = 5): string {
-  return `${numberText(value, significantDigits)} ${FORMAT_INFO[format].shortUnit}`
+/** 比值测量使用无量纲幅度；相位与对数值的显示单位保持度和 dB。 */
+export function measurementFormatInfo(format: DisplayFormat, measurement?: Measurement): FormatDefinition {
+  const definition = FORMAT_INFO[format]
+  if (measurement?.kind !== 'sParameter') return definition
+  if (format === 'db') return { ...definition, unit: 'dB', shortUnit: 'dB' }
+  if (format === 'phase') return definition
+  return { ...definition, unit: '1', shortUnit: '1' }
 }
 
-export function measurementLabel(receiverKind: string, receiverPort: number, sourcePort: number): string {
-  return `${receiverKind}${receiverPort},${sourcePort}`
+export function scaleValue(value: number, format: DisplayFormat, significantDigits = 5, measurement?: Measurement): string {
+  return `${numberText(value, significantDigits)} ${measurementFormatInfo(format, measurement).shortUnit}`
 }
