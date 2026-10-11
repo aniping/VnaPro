@@ -99,10 +99,17 @@ std::string DecodePath(const std::string &target)
             character = static_cast<unsigned char>((HexDigit(raw[index + 1U]) * HEX_RADIX) + HexDigit(raw[index + 2U]));
             index += 2U;
         }
-        if (character < ASCII_CONTROL_LIMIT || character == ASCII_DELETE || character == '\\' || character == ':') {
+        if (character < ASCII_CONTROL_LIMIT || character == ASCII_DELETE || character == '\\') {
             throw std::runtime_error("Unsafe request path");
         }
         result.push_back(static_cast<char>(character));
+    }
+    const std::string measurementPrefix = "/api/v1/measurements/";
+    const bool measurementName = result.find(measurementPrefix) == 0U && result.size() > measurementPrefix.size() &&
+                                 result.find('/', measurementPrefix.size()) == std::string::npos;
+    // 冒号是合法测量名称字符；仅单个测量 API 路径允许它，静态文件仍禁止 Windows 盘符路径。
+    if (result.find(':') != std::string::npos && !measurementName) {
+        throw std::runtime_error("Unsafe request path");
     }
     std::istringstream segments(result);
     std::string segment;
@@ -340,7 +347,7 @@ bool WebEndpoint::ParseContentLength(HttpConnection &client)
             }
         }
     }
-    if ((client.request.method == "POST" || client.request.method == "DELETE") &&
+    if ((client.request.method == "POST" || client.request.method == "DELETE" || client.request.method == "PUT") &&
         length == client.request.headers.end()) {
         throw std::runtime_error("Content-Length is required for writes");
     }

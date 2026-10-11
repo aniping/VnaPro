@@ -445,8 +445,11 @@ HttpResponse HttpApi::Route(const HttpRequest &request)
     if (shuttingDown_) {
         return HttpError(503, "shutting_down", "Server is shutting down");
     }
-    if (request.method != "POST" && request.method != "DELETE") {
+    if (request.method != "POST" && request.method != "DELETE" && request.method != "PUT") {
         return HttpError(405, "method_not_allowed", "Unsupported API method");
+    }
+    if (request.method == "PUT" && request.path.find("/api/v1/measurements/") != 0U) {
+        return HttpError(405, "method_not_allowed", "PUT requires an individual measurement route");
     }
     if (request.method != "POST" &&
         (request.path == "/api/v1/config" || request.path == "/api/v1/operations" ||
@@ -454,8 +457,8 @@ HttpResponse HttpApi::Route(const HttpRequest &request)
             request.path == "/api/v1/control/release")) {
         return HttpError(405, "method_not_allowed", "This API route requires POST");
     }
-    if (request.method != "DELETE" && request.path.find("/api/v1/measurements/") == 0U) {
-        return HttpError(405, "method_not_allowed", "Measurement deletion requires DELETE");
+    if (request.method != "DELETE" && request.method != "PUT" && request.path.find("/api/v1/measurements/") == 0U) {
+        return HttpError(405, "method_not_allowed", "Measurement update or deletion requires PUT or DELETE");
     }
     Json body = request.body.empty() ? Json::MakeObject() : ParseJson(request.body);
     if (body.type != Json::Type::OBJECT) {
@@ -590,21 +593,42 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
         }
         const auto measurement = MeasurementDefinition(body);
         operationValue = service_.DefineMeasurement(measurement, expected, id);
-    } else if (request.path.find("/api/v1/measurements/") == 0U && request.method == "DELETE") {
-        Allowed(body, {"requestId", "expectedRevision"});
-        const auto expected = Revision(body);
-        if (expected != service_.Settings().revision) {
-            result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
-            return result;
-        }
-        const std::string name = request.path.substr(std::string("/api/v1/measurements/").size());
-        if (!SafeName(name)) {
-            throw std::runtime_error("Invalid measurement name");
-        }
-        operationValue = service_.DeleteMeasurement(name, expected, id);
+    } else if (request.path.find("/api/v1/measurements/") == 0U &&
+               (request.method == "DELETE" || request.method == "PUT")) {
+        return StartMeasurementWrite(request, body, id);
     } else {
         result.response = HttpError(404, "route_not_found", "Unknown API route");
         return result;
+    }
+    result.admitted = true;
+    return result;
+}
+
+HttpApi::HttpWriteResult HttpApi::StartMeasurementWrite(
+    const HttpRequest &request, const Json &body, const std::string &id)
+{
+    HttpWriteResult result;
+    const bool update = request.method == "PUT";
+    Allowed(body, update ? std::vector<std::string>{"requestId", "expectedRevision", "kind", "receiverKind",
+                               "receiverPort", "sourcePort"}
+                         : std::vector<std::string>{"requestId", "expectedRevision"});
+    const auto expected = Revision(body);
+    if (expected != service_.Settings().revision) {
+        result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
+        return result;
+    }
+    const std::string name = request.path.substr(std::string("/api/v1/measurements/").size());
+    if (!SafeName(name)) {
+        throw std::runtime_error("Invalid measurement name");
+    }
+    if (update) {
+        Text(body, "kind");
+        // 名称只取自路径，正文不能把更新变成重命名或新增测量。
+        Json definition = body;
+        definition["name"] = Json(name);
+        result.operation = service_.UpdateMeasurement(MeasurementDefinition(definition), expected, id);
+    } else {
+        result.operation = service_.DeleteMeasurement(name, expected, id);
     }
     result.admitted = true;
     return result;

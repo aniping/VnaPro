@@ -388,6 +388,13 @@ void InvalidPointsRemainExplicit()
     Fixture fixture;
     HttpApi api(fixture.service);
     const auto token = Claim(api);
+    // 此测试验证原始接收机样本，不依赖仪器上电时默认的 S21 比值测量。
+    const auto rawBody = "{\"requestId\":\"raw-invalid-test\",\"expectedRevision\":\"" +
+                         std::to_string(fixture.service.Settings().revision) +
+                         "\",\"kind\":\"receiver\",\"receiverKind\":\"a\",\"receiverPort\":1,\"sourcePort\":1}";
+    const auto raw = Accepted(Request(
+        api, "PUT", "/api/v1/measurements/" + fixture.service.Settings().measurements.front().name, rawBody, token));
+    Require(StringField(Finish(api, raw, token).json, "state") == "completed", "Explicit raw measurement completes");
     fixture.device->SetInvalidSamples(true);
     const auto id = Accepted(
         Request(api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"invalid-samples\"}", token));

@@ -87,6 +87,7 @@ private:
     HttpResponse Claim(const Json &body);
     HttpResponse Release(const std::string &id);
     HttpWriteResult StartWrite(const HttpRequest &request, const Json &body, const std::string &id);
+    HttpWriteResult StartMeasurementWrite(const HttpRequest &request, const Json &body, const std::string &id);
     static VnaService::ConfigPatch ConfigurationPatch(const Json &body);
     static VnaService::Measurement MeasurementDefinition(const Json &body);
     VnaService::Operation StartAction(const Json &body, const std::string &id);

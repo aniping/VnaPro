@@ -190,6 +190,39 @@ def check_frame(frame, status, points):
     return traces
 
 
+def exercise_colon_measurement(http, token):
+    """通过真实端点验证测量名称中的冒号，同时保持静态文件路径防护。"""
+    initial_names = [item["name"] for item in http.status()["measurements"]]
+    name = "Port:1"
+    path = "/api/v1/measurements/" + quote(name, safe="")
+    definition = {
+        "name": name, "kind": "receiver", "receiverKind": "a", "receiverPort": 1, "sourcePort": 1,
+        "expectedRevision": http.status()["revision"], "requestId": "define-colon-name",
+    }
+    wait_operation(http, accepted(http, "measurements", definition, token), token)
+    before = http.status()
+    names = [item["name"] for item in before["measurements"]]
+    update = {
+        "kind": "sParameter", "receiverKind": "b", "receiverPort": 2, "sourcePort": 2,
+        "expectedRevision": before["revision"], "requestId": "update-colon-name",
+    }
+    response = http.request("PUT", path, update, token, expected=202)
+    wait_operation(http, response["operationId"], token)
+    updated = http.status()
+    assert [item["name"] for item in updated["measurements"]] == names, updated
+    assert identity_number(updated["revision"]) == identity_number(before["revision"]) + 1, updated
+    measurement = next(item for item in updated["measurements"] if item["name"] == name)
+    assert measurement["parameter"] == "S22" and measurement["kind"] == "sParameter", measurement
+    response = http.request("DELETE", path, {
+        "expectedRevision": updated["revision"], "requestId": "delete-colon-name",
+    }, token, expected=202)
+    wait_operation(http, response["operationId"], token)
+    assert [item["name"] for item in http.status()["measurements"]] == initial_names
+    for path in ("/assets/Port%3A1.js", "/assets/Port:1.js", "/api/v1/unknown%3Apath",
+                 "/api/v1/measurements/Port%3A1/file"):
+        http.request("GET", path, expected=400)
+
+
 def exercise(http_port, scpi_port):
     http = HttpClient(http_port)
     page, media = http.request("GET", "/", raw=True)
@@ -267,6 +300,7 @@ def exercise(http_port, scpi_port):
             "expectedRevision": http.status()["revision"], "requestId": "define-" + kind,
         }
         wait_operation(http, accepted(http, "measurements", measurement, token), token)
+    exercise_colon_measurement(http, token)
     temporary = {
         "name": "Temporary curve", "receiverKind": "a", "receiverPort": 1, "sourcePort": 1,
         "expectedRevision": http.status()["revision"], "requestId": "temporary-measurement",
