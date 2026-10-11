@@ -46,3 +46,11 @@ if(BUILD_TESTING)
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>)
     set_tests_properties(noise_iq_integration PROPERTIES TIMEOUT 60)
 endif()
+
+if(BUILD_TESTING)
+    add_executable(vna_log_config_tests tests/log_config_loader_test.cpp src/log_config_loader.cpp)
+    target_include_directories(vna_log_config_tests PRIVATE src)
+    target_link_libraries(vna_log_config_tests PRIVATE vna_log)
+    add_test(NAME log_config
+        COMMAND vna_log_config_tests "${CMAKE_CURRENT_BINARY_DIR}/log-config-test")
+endif()
