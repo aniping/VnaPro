@@ -59,6 +59,10 @@ CSV 和网页显示最多 2001 个均匀选取的真实频点，超过时明确�
 
 需要观察采集变化时，在启动服务前设置 `$env:VNAPRO_SIM_MODE = 'noise'` 和 `$env:VNAPRO_SIM_SEED = '42'`；DLL 在每次成功采集时加入最多 0.2% 的可重放复数噪声。Continuous 配合 Autoscale 可查看细微变化，HOLD 后数据固定。默认 `golden` 保留固定数值用于验收，模式在设备 Init 时冻结。完整验收场景、结果与 ThreadSanitizer 复验命令见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
+从 CLion 启动时，在 `vna_server` 的运行配置中添加环境变量 `VNAPRO_SIM_MODE=noise` 和 `VNAPRO_SIM_SEED=42`，然后停止并重新运行服务。只在另一个 PowerShell 窗口设置变量，不会改变已经运行的 CLion 或服务进程。网页重新连接后按 Continuous，等新帧出现，再按 Autoscale；固定数据模式下得到的微小刻度不适合噪声模式。
+
+Sweep 面板的 Run 是本次运行编号，连续采集期间保持不变；底部状态栏的 `F` 是帧序号，完整帧发布后才递增。判断采集是否推进，应观察 `F`。在默认 `golden` 模式中，帧序号递增而曲线保持相同属于预期行为。
+
 Web 与 SCPI 共用独占控制权：SCPI 控制连接存在时，网页只读；网页持权时，新 SCPI 连接会被拒绝。Web token 的 30 秒租约由页面每 10 秒续租，释放或到期后先排空已接受有限操作，再允许接管。接管者继承实际扫描状态，需要改配置时先 HOLD。Web 观察不消费 SCPI 错误队列。开发时运行 `frontend` 中的 `npm run dev`，访问 `127.0.0.1:5173`，Vite 将 `/api` 代理到 `127.0.0.1:8080`。详细分层、使用与限制见 [前端说明](frontend/README.md) 和 [服务设计](docs/网分服务与远程控制设计.md)。
 
 ## 使用 TCP SCPI 验证
