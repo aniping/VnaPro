@@ -57,6 +57,7 @@ export interface InstrumentGateway {
   operate(action: RunAction): Promise<AcceptedOperation>
   operation(id: string, ownerSessionId: string): Promise<OperationSnapshot>
   addMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation>
+  updateMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation>
   deleteMeasurement(name: string, expectedRevision: string): Promise<AcceptedOperation>
   abortRequests(): void
 }
@@ -188,6 +189,12 @@ export class InstrumentApi implements InstrumentGateway {
   addMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation> {
     return this.request('/measurements', decodeAccepted, 'POST',
       { name: candidate.name, kind: candidate.kind, receiverKind: candidate.receiverKind, receiverPort: candidate.receiverPort,
+        sourcePort: candidate.sourcePort, expectedRevision, requestId: requestId() }, this.token, 202)
+  }
+
+  updateMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation> {
+    return this.request(`/measurements/${encodeURIComponent(candidate.name)}`, decodeAccepted, 'PUT',
+      { kind: candidate.kind, receiverKind: candidate.receiverKind, receiverPort: candidate.receiverPort,
         sourcePort: candidate.sourcePort, expectedRevision, requestId: requestId() }, this.token, 202)
   }
 

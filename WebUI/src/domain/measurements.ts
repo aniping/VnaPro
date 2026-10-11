@@ -17,3 +17,14 @@ export function measurementCandidate(choice: MeasurementChoice, draft: Measureme
 export function measurementState(measurement: Measurement): string {
   return measurement.calibration === 'uncalibrated' ? '未校准' : 'RAW'
 }
+
+/** 新迹线复制活动测量，名称取目录内尚未使用的 Trc<n>。 */
+export function cloneMeasurementCandidate(active: Measurement, catalog: Measurement[]): MeasurementCandidate | null {
+  if (catalog.length >= 32) return null
+  let index = 1
+  while (catalog.some(measurement => measurement.name === `Trc${index}`)) ++index
+  return {
+    name: `Trc${index}`, kind: active.kind, receiverKind: active.receiverKind,
+    receiverPort: active.receiverPort, sourcePort: active.sourcePort,
+  }
+}

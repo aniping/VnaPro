@@ -336,6 +336,8 @@ export function useInstrument(options: InstrumentOptions = {}) {
       submit('Apply configuration', 'config', () => api.configure(candidate, expectedRevision), true),
     addMeasurement: (candidate: MeasurementCandidate, expectedRevision: string) =>
       submit('Add measurement', 'measurement', () => api.addMeasurement(candidate, expectedRevision), true),
+    updateMeasurement: (candidate: MeasurementCandidate, expectedRevision: string) =>
+      submit('Change measurement', 'measurement', () => api.updateMeasurement(candidate, expectedRevision), true),
     deleteMeasurement: (name: string, expectedRevision: string) =>
       submit('Delete measurement', 'measurement', () => api.deleteMeasurement(name, expectedRevision), true),
     run: (action: RunAction) => submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)),

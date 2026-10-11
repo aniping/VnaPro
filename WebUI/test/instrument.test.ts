@@ -48,6 +48,7 @@ class FakeGateway implements InstrumentGateway {
   operate(_action: RunAction) { return this.submitter() }
   operation(_id: string, owner: string) { this.operationOwners.push(owner); return this.operationLoader() }
   addMeasurement(_candidate: MeasurementCandidate, _revision: string) { return this.submitter() }
+  updateMeasurement(_candidate: MeasurementCandidate, _revision: string) { return this.submitter() }
   deleteMeasurement(_name: string, _revision: string) { return this.submitter() }
   abortRequests() { this.aborts++ }
 }
