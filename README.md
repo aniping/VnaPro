@@ -7,7 +7,7 @@
 Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.13、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。Windows MinGW 的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
 
 ```powershell
-Set-Location frontend
+Set-Location WebUI
 npm.cmd ci
 npm.cmd test
 npm.cmd run build
@@ -19,7 +19,7 @@ cmake -E chdir build ctest --output-on-failure
 
 替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立模拟器构建仍见 [VnaNativeSimulator/README.md](VnaNativeSimulator/README.md)。本轮已验证 Windows MinGW/GCC 10.3 和 WSL/Linux GCC 13.3 的全目标 ThreadSanitizer；macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
 
-`npm run build` 包含 Vue/TypeScript 类型检查，产物在 `frontend/dist`。只构建或运行 SCPI 服务可跳过 Node/npm 步骤，并以 `--no-web` 启动；Web HTTP 集成测试需要先生成前端产物。前端开发与目录说明见 [frontend/README.md](frontend/README.md)。
+`npm run build` 包含 Vue/TypeScript 类型检查，产物在 `WebUI/dist`。只构建或运行 SCPI 服务可跳过 Node/npm 步骤，并以 `--no-web` 启动；Web HTTP 集成测试需要先生成前端产物。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
 
 ## C++ 文件组织与格式
 
@@ -47,7 +47,7 @@ clang-format --style=file --dry-run --Werror $cppFiles
 .\build\bin\vna_server.exe --bind 127.0.0.1 --port 5025
 ```
 
-默认加载构建生成的模拟动态库，并启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。静态根目录为构建时指定的 `frontend/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时显式传入 `--driver` 的模拟库绝对路径，并用 `--web-root` 指向部署后的 `frontend/dist`；不能把未构建的 `frontend/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，启动输出 `LISTENING 地址:端口` / `WEB_LISTENING URL`。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认仅绑定本机；`--no-web` 关闭 Web 入口。
+默认加载构建生成的模拟动态库，并启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。静态根目录为构建时指定的 `WebUI/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时显式传入 `--driver` 的模拟库绝对路径，并用 `--web-root` 指向部署后的 `WebUI/dist`；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，启动输出 `LISTENING 地址:端口` / `WEB_LISTENING URL`。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认仅绑定本机；`--no-web` 关闭 Web 入口。
 
 ## 使用 Web 验证
 
@@ -63,7 +63,7 @@ CSV 和网页显示最多 2001 个均匀选取的真实频点，超过时明确�
 
 Sweep 面板的 Run 是本次运行编号，连续采集期间保持不变；底部状态栏的 `F` 是帧序号，完整帧发布后才递增。判断采集是否推进，应观察 `F`。在默认 `golden` 模式中，帧序号递增而曲线保持相同属于预期行为。
 
-Web 与 SCPI 共用独占控制权：SCPI 控制连接存在时，网页只读；网页持权时，新 SCPI 连接会被拒绝。Web token 的 30 秒租约由页面每 10 秒续租，释放或到期后先排空已接受有限操作，再允许接管。接管者继承实际扫描状态，需要改配置时先 HOLD。Web 观察不消费 SCPI 错误队列。开发时运行 `frontend` 中的 `npm run dev`，访问 `127.0.0.1:5173`，Vite 将 `/api` 代理到 `127.0.0.1:8080`。详细分层、使用与限制见 [前端说明](frontend/README.md) 和 [服务设计](docs/网分服务与远程控制设计.md)。
+Web 与 SCPI 共用独占控制权：SCPI 控制连接存在时，网页只读；网页持权时，新 SCPI 连接会被拒绝。Web token 的 30 秒租约由页面每 10 秒续租，释放或到期后先排空已接受有限操作，再允许接管。接管者继承实际扫描状态，需要改配置时先 HOLD。Web 观察不消费 SCPI 错误队列。开发时运行 `WebUI` 中的 `npm run dev`，访问 `127.0.0.1:5173`，Vite 将 `/api` 代理到 `127.0.0.1:8080`。详细分层、使用与限制见 [前端说明](WebUI/README.md) 和 [服务设计](docs/网分服务与远程控制设计.md)。
 
 ## 使用 TCP SCPI 验证
 
@@ -105,12 +105,12 @@ CALC1:DATA? RDATA
 | `VnaServer/src/scpi_tcp_server.*` | TCP 分包/粘包、连接准入、部分发送和网络预算 |
 | `VnaServer/src/network` | SCPI/Web 共用的平台 Socket 操作、网络初始化与句柄生命周期 |
 | `VnaServer/src/web` | 有界 HTTP、静态资源、类型化 API、租约与操作结果 |
-| `frontend/src/api` | 类型化 HTTP、严格响应解码、服务签发的会话 token |
-| `frontend/src/composables` | 设备读回/有限操作与逐迹线显示状态，各自维护一份真值 |
-| `frontend/src/components` | 仪器外壳、软工具、绘图组件与共享输入 |
-| `frontend/src/plot` | 纯显示换算、Canvas 投影、真实频点标记和 CSV |
-| `frontend/src/styles` / `frontend/test` | 视觉变量、外壳/软工具样式与数据、并发、绘图合同测试 |
-| `frontend/dist` | Vite 构建的静态部署产物，服务默认从这里加载 |
+| `WebUI/src/api` | 类型化 HTTP、严格响应解码、服务签发的会话 token |
+| `WebUI/src/composables` | 设备读回/有限操作与逐迹线显示状态，各自维护一份真值 |
+| `WebUI/src/components` | 仪器外壳、软工具、绘图组件与共享输入 |
+| `WebUI/src/plot` | 纯显示换算、Canvas 投影、真实频点标记和 CSV |
+| `WebUI/src/styles` / `WebUI/test` | 视觉变量、外壳/软工具样式与数据、并发、绘图合同测试 |
+| `WebUI/dist` | Vite 构建的静态部署产物，服务默认从这里加载 |
 | `VnaServer/tests` | 实际 SCPI / HTTP 端到端验证与有序关闭 |
 | `docs` | 核心设计与服务设计，含结构图和活动图 |
 

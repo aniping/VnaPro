@@ -4,7 +4,7 @@ add_subdirectory(src/web)
 add_executable(vna_server src/main.cpp src/scpi_tcp_server.cpp src/scpi_connection.cpp)
 target_link_libraries(vna_server PRIVATE vna_scpi vna_web)
 set(DEFAULT_DRIVER_PATH "$<TARGET_FILE:vnb_drv_sim>")
-set(DEFAULT_WEB_ROOT_PATH "${CMAKE_SOURCE_DIR}/frontend/dist")
+set(DEFAULT_WEB_ROOT_PATH "${CMAKE_SOURCE_DIR}/WebUI/dist")
 configure_file(src/server_defaults.h.in generated/server_defaults.h.in @ONLY)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>/server_defaults.h"
     INPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/server_defaults.h.in")
@@ -34,7 +34,7 @@ if(BUILD_TESTING)
     set_tests_properties(scpi_network_shutdown PROPERTIES TIMEOUT 15)
     add_test(NAME web_http_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/WebHttpIntegrationTest.py
-            $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim> ${CMAKE_SOURCE_DIR}/frontend/dist)
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim> ${CMAKE_SOURCE_DIR}/WebUI/dist)
     set_tests_properties(web_http_integration PROPERTIES TIMEOUT 60)
     add_test(NAME golden_iq_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/GoldenIqIntegrationTest.py

@@ -4,7 +4,7 @@
 /cmake-build-*/
 .DS_Store
 /third-part/
-/frontend/node_modules/
-/frontend/dist/
-/frontend/.test-build/
+/WebUI/node_modules/
+/WebUI/dist/
+/WebUI/.test-build/
 /VnaServer/tests/__pycache__/

@@ -25,7 +25,7 @@ npm.cmd run dev
 ## 目录与依赖
 
 ```text
-frontend/
+WebUI/
 ├─ package.json / package-lock.json  依赖与开发、测试、构建脚本
 ├─ vite.config.ts                   开发代理及 ES2022 构建
 ├─ tsconfig*.json                   产品与测试的类型检查配置
