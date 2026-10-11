@@ -17,6 +17,7 @@ import threading
 import time
 
 from WebHttpIntegrationTest import HttpClient, connect_scpi, identity_number
+from server_startup import listening_port
 
 
 def golden_vectors(path):
@@ -115,10 +116,9 @@ def running_server(server, driver, environment):
             line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
             assert line is not None, "Server exited before both listeners became ready"
             startup.append(line)
-            if line.startswith("LISTENING "):
-                ports["scpi"] = int(line.rsplit(":", 1)[1])
-            elif line.startswith("WEB_LISTENING "):
-                ports["http"] = int(line.rsplit(":", 1)[1])
+            listener = listening_port(line)
+            if listener is not None:
+                ports[listener[0]] = listener[1]
             assert time.monotonic() < deadline, "Both listeners did not start"
         yield ports
         assert process.poll() is None, "Server exited during acceptance"

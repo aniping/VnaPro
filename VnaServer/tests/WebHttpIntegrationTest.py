@@ -14,6 +14,8 @@ import threading
 import time
 from urllib.parse import quote
 
+from server_startup import listening_port
+
 
 def reject_constant(value):
     raise AssertionError("Non-finite JSON number: " + value)
@@ -358,6 +360,7 @@ def main():
     def collect():
         for line in process.stdout:
             lines.put(line.rstrip())
+        lines.put(None)
 
     threading.Thread(target=collect, daemon=True).start()
     startup = []
@@ -366,11 +369,11 @@ def main():
         ports = {}
         while len(ports) != 2:
             line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
+            assert line is not None, "Server exited before both listeners became ready"
             startup.append(line)
-            if line.startswith("LISTENING "):
-                ports["scpi"] = int(line.rsplit(":", 1)[1])
-            elif line.startswith("WEB_LISTENING "):
-                ports["http"] = int(line.rsplit(":", 1)[1])
+            listener = listening_port(line)
+            if listener is not None:
+                ports[listener[0]] = listener[1]
             assert time.monotonic() < deadline, "Both listeners did not start"
         exercise(ports["http"], ports["scpi"])
         assert process.poll() is None, "Server exited during integration checks"

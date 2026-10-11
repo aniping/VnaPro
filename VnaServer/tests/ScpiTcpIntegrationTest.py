@@ -8,6 +8,8 @@ import sys
 import threading
 import time
 
+from server_startup import listening_port
+
 
 class Client:
     def __init__(self, port):
@@ -151,6 +153,7 @@ def main():
     def collect():
         for line in process.stdout:
             lines.put(line.rstrip())
+        lines.put(None)
 
     collector = threading.Thread(target=collect, daemon=True)
     collector.start()
@@ -159,9 +162,11 @@ def main():
         deadline = time.monotonic() + 10
         while True:
             line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
+            assert line is not None, "Server exited before the SCPI listener became ready"
             startup.append(line)
-            if line.startswith("LISTENING "):
-                port = int(line.rsplit(":", 1)[1])
+            listener = listening_port(line)
+            if listener is not None and listener[0] == "scpi":
+                port = listener[1]
                 break
             if time.monotonic() >= deadline:
                 raise AssertionError("Server did not start")

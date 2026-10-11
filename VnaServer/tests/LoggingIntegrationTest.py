@@ -3,14 +3,14 @@
 from contextlib import contextmanager
 import os
 from pathlib import Path
-import queue
 import re
 import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
+
+from server_startup import listening_ports
 
 
 def environment(mode="golden"):
@@ -47,23 +47,17 @@ def contents(directory):
 def running(config):
     process = subprocess.Popen(command(config), stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True, encoding="utf-8", env=environment())
-    lines = queue.Queue()
-
-    def collect():
-        for line in process.stdout:
-            lines.put(line.rstrip())
-        lines.put(None)
-
-    collector = threading.Thread(target=collect, daemon=True)
-    collector.start()
     try:
         deadline = time.monotonic() + 10
         while True:
-            line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
-            assert line is not None, "服务在完成监听前退出"
-            if line.startswith("LISTENING "):
-                yield int(line.rsplit(":", 1)[1])
+            assert process.poll() is None, "服务在完成监听前退出"
+            # 控制台关闭时从实际文件判断就绪，不能临时打开控制台绕过配置验收。
+            ports = listening_ports(contents(config.parent))
+            if "scpi" in ports:
+                yield ports["scpi"]
                 break
+            assert time.monotonic() < deadline, "日志中未找到就绪的 SCPI 监听端口"
+            time.sleep(0.01)
     finally:
         process.terminate()
         try:
@@ -71,7 +65,6 @@ def running(config):
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-        collector.join(timeout=2)
         errors = process.stderr.read()
         process.stdout.close()
         process.stderr.close()
@@ -130,7 +123,7 @@ def exercise_startup_failures(directory):
                              encoding="utf-8", env=environment(), timeout=10)
     assert invalid.returncode == 2, invalid
     assert "unknown.option" in invalid.stderr, invalid.stderr
-    assert "LISTENING " not in invalid.stdout
+    assert not listening_ports(invalid.stdout + invalid.stderr)
     assert not logs(directory), "无效配置应在设备启动和创建日志目标前拒绝"
     if os.name == "nt":
         # Windows 原始命令行可以含孤立 UTF-16 代理，参数边界应拒绝而非崩溃。
@@ -146,7 +139,7 @@ def exercise_startup_failures(directory):
     output = contents(directory)
     assert "[ERROR]" in output and "DrvHwInit returned 1" in output, output
     assert "服务退出，exit_code=1" in output, output
-    assert "LISTENING " not in failed.stdout
+    assert not listening_ports(failed.stdout + output)
 
 
 def main():
