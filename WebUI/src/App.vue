@@ -7,12 +7,14 @@ import DiagramWorkspace from './components/diagrams/DiagramWorkspace.vue'
 import SofttoolHost from './components/softtools/SofttoolHost.vue'
 import StimulusSofttool from './components/softtools/StimulusSofttool.vue'
 import MeasurementSofttool from './components/softtools/MeasurementSofttool.vue'
+import TraceCatalogSofttool from './components/softtools/TraceCatalogSofttool.vue'
 import SweepSofttool from './components/softtools/SweepSofttool.vue'
 import TraceSofttool from './components/softtools/TraceSofttool.vue'
 import SystemSofttool from './components/softtools/SystemSofttool.vue'
 import { useInstrument } from './composables/useInstrument'
 import { useWorkspace } from './composables/useWorkspace'
 import { exportVisibleFrameCsv } from './plot'
+import { cloneMeasurementCandidate } from './domain/measurements'
 
 const instrument = useInstrument()
 const { status, frame, connected, hasControl, canWrite, canConfigure, pendingOperation, writeInFlight,
@@ -28,13 +30,17 @@ const softtoolVisible = ref(true)
 const canvasStyle = ref({ left: '0px', top: '0px', transform: 'scale(1)' })
 const busy = computed(() => Boolean(pendingOperation.value || writeInFlight.value || status.value?.pending))
 const group = computed(() => ['start', 'stop', 'center', 'span', 'bandwidth'].includes(activeTool.value) ? 'stimulus'
-  : activeTool.value === 'meas' ? 'measurement'
+  : ['meas', 'meas-wave'].includes(activeTool.value) ? 'measurement'
     : ['format', 'scale', 'marker', 'trace-config'].includes(activeTool.value) ? 'trace'
       : ['sweep', 'trigger'].includes(activeTool.value) ? 'sweep' : 'system')
 const focusField = computed(() => group.value === 'stimulus' ? activeTool.value as 'start' | 'stop' | 'center' | 'span' | 'bandwidth' : undefined)
-const title = computed(() => ({ stimulus: 'Stimulus', measurement: 'Measurement', trace: 'Trace', sweep: 'Sweep', system: 'System' }[group.value]))
+const title = computed(() => ({ stimulus: 'Stimulus', measurement: 'Measurement Menu', trace: 'Trace', sweep: 'Sweep', system: 'System' }[group.value]))
 const tabs = computed(() => group.value === 'stimulus' ? [{ id: 'start', label: 'Frequency' }, { id: 'bandwidth', label: 'Bandwidth' }]
-  : group.value === 'measurement' ? [{ id: 'meas', label: 'Measure' }]
+  : group.value === 'measurement' ? [
+    { id: 'meas', label: 'S-Params' },
+    { id: 'meas-ratios', label: 'Ratios', disabled: true, reason: '尚未实现任意接收波比值' },
+    { id: 'meas-wave', label: 'Wave' },
+  ]
     : group.value === 'trace' ? [{ id: 'format', label: 'Format' }, { id: 'scale', label: 'Scale' }, { id: 'marker', label: 'Marker' }, { id: 'trace-config', label: 'Config' }]
       : group.value === 'sweep' ? [{ id: 'sweep', label: 'Sweep' }, { id: 'trigger', label: 'Trigger' }]
         : [{ id: 'setup', label: 'State' }, { id: 'display', label: 'Display' }, { id: 'file', label: 'File' }, { id: 'help', label: 'Help' }])
@@ -57,7 +63,7 @@ function fitCanvas() {
   canvasStyle.value = { left: `${(window.innerWidth - 1280 * scale) / 2}px`, top: `${(window.innerHeight - 800 * scale) / 2}px`, transform: `scale(${scale})` }
 }
 function keydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') softtoolVisible.value = false
+  if (event.key === 'Escape' && !document.querySelector('dialog[open]')) softtoolVisible.value = false
 }
 function exportCsv() {
   if (!frame.value) return
@@ -72,6 +78,13 @@ function exportCsv() {
 async function deleteActive() {
   if (canConfigure.value && status.value && activeMeasurement.value && measurements.value.length > 1) {
     await instrument.deleteMeasurement(activeMeasurement.value.name, status.value.revision)
+  }
+}
+async function addTrace() {
+  if (!canConfigure.value || !status.value || !activeMeasurement.value) return
+  const candidate = cloneMeasurementCandidate(activeMeasurement.value, measurements.value)
+  if (candidate && await instrument.addMeasurement(candidate, status.value.revision)) {
+    workspace.selectTrace(candidate.name)
   }
 }
 onMounted(() => {
@@ -93,10 +106,10 @@ onBeforeUnmount(() => {
       <div class="instrument-shell">
         <div class="instrument-workspace" :class="{ 'softtool-hidden': !softtoolVisible }">
           <section class="measurement-stage" aria-label="Measurement display">
-            <InstrumentToolbar :layout="layout" :has-trace="Boolean(activeMeasurement)" :can-autoscale="canAutoscale" :marker-enabled="activePresentation?.marker.enabled ?? false" :can-export="Boolean(frame)" :can-write="canWrite" :busy="busy" :can-delete="canConfigure && measurements.length > 1"
+            <InstrumentToolbar :layout="layout" :has-trace="Boolean(activeMeasurement)" :can-autoscale="canAutoscale" :marker-enabled="activePresentation?.marker.enabled ?? false" :can-export="Boolean(frame)" :can-write="canWrite" :busy="busy" :can-delete="canConfigure && measurements.length > 1" :can-add-trace="canConfigure && measurements.length < 32"
               @select-tool="selectTool" @toggle-layout="layout = layout === 'grid' ? 'maximized' : 'grid'" @autoscale="workspace.autoscale"
               @toggle-marker="workspace.setMarker({ enabled: !activePresentation?.marker.enabled })" @export-csv="exportCsv" @single="instrument.run('single')"
-              @add-trace="selectTool('meas')" @delete-trace="deleteActive" />
+              @add-trace="addTrace" @delete-trace="deleteActive" />
             <DiagramWorkspace :frame="frame" :measurements="displayedMeasurements" :presentations="presentations" :active-trace-name="activeTraceName" :layout="layout"
               :config="status?.config ?? emptyConfig" :frame-condition="frameCondition" @select-trace="workspace.selectTrace" @toggle-visibility="workspace.toggleVisibility"
               @set-layout="layout = $event" @add-marker="workspace.setMarker({ enabled: true })"
@@ -104,8 +117,9 @@ onBeforeUnmount(() => {
           </section>
           <SofttoolHost v-show="softtoolVisible" :title="title" :tabs="tabs" :active-tab="activeTab" @select="selectTool" @close="softtoolVisible = false">
             <StimulusSofttool v-show="group === 'stimulus'" :status="status" :can-configure="canConfigure" :busy="busy" :focus-field="focusField" :apply="instrument.configure" />
-            <MeasurementSofttool v-show="group === 'measurement'" :status="status" :can-configure="canConfigure" :busy="busy" :active-trace-name="activeTraceName" :displayed-names="displayedNames" :add="instrument.addMeasurement" :remove="instrument.deleteMeasurement" @select-trace="workspace.selectTrace" @display="workspace.setDisplayed($event.name, $event.enabled)" />
-            <TraceSofttool v-if="group === 'trace'" :mode="activeTool as 'format' | 'scale' | 'marker' | 'trace-config'" :measurement="activeTool === 'trace-config' ? activeMeasurement : displayedMeasurement" :presentation="activePresentation" :frame="frame" :index="activeIndex" :layout="layout" :can-autoscale="canAutoscale"
+            <MeasurementSofttool v-if="group === 'measurement'" :status="status" :can-configure="canConfigure" :busy="busy" :active-trace-name="activeTraceName" :mode="activeTool as 'meas' | 'meas-wave'" :update="instrument.updateMeasurement" />
+            <TraceCatalogSofttool v-if="activeTool === 'trace-config'" :status="status" :can-configure="canConfigure" :busy="busy" :active-trace-name="activeTraceName" :displayed-names="displayedNames" :add="instrument.addMeasurement" :remove="instrument.deleteMeasurement" @select-trace="workspace.selectTrace" @display="workspace.setDisplayed($event.name, $event.enabled)" />
+            <TraceSofttool v-if="group === 'trace' && activeTool !== 'trace-config'" :mode="activeTool as 'format' | 'scale' | 'marker'" :measurement="displayedMeasurement" :presentation="activePresentation" :frame="frame" :index="activeIndex" :layout="layout" :can-autoscale="canAutoscale"
               @format="workspace.setFormat" @scale="workspace.setScale" @smith-radius="workspace.setSmithRadius" @autoscale="workspace.autoscale" @marker="workspace.setMarker" @toggle-visibility="workspace.toggleVisibility()" />
             <SweepSofttool v-show="group === 'sweep'" :status="status" :can-write="canWrite" :busy="busy" :action="instrument.run" />
             <SystemSofttool v-if="group === 'system'" :mode="activeTool" :status="status" :frame="frame" :layout="layout" :connected="connected" :has-control="hasControl" :control-busy="controlBusy"

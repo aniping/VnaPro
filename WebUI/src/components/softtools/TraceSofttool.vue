@@ -8,7 +8,7 @@ import { MIN_SMITH_RADIUS, supportsSmith, validSmithRadius } from '../../plot/sm
 import FrequencyField from '../shared/FrequencyField.vue'
 
 const props = defineProps<{
-  mode: 'format' | 'scale' | 'marker' | 'trace-config'
+  mode: 'format' | 'scale' | 'marker'
   measurement: Measurement | undefined
   presentation: TracePresentation | undefined
   frame: AcquiredFrame | null
@@ -195,18 +195,6 @@ function applyMarker() {
       <p class="softtool-note">标记对齐真实频点；可拖动图上 M1，或使用方向键移动。抽样帧不插值补造数据。</p>
     </template>
 
-    <template v-else>
-      <h3 class="softtool-section-title">Trace Configuration</h3>
-      <div class="softtool-readout">
-        <span>Trace Name</span><strong>{{ measurement?.name ?? '—' }}</strong>
-      </div>
-      <div class="softtool-readout"><span>Receiver Wave</span><strong>{{ measurement ? `${measurement.receiverKind}${measurement.receiverPort}` : '—' }}</strong></div>
-      <div class="softtool-readout"><span>Measurement</span><strong>{{ measurement?.parameter ?? '—' }}</strong></div>
-      <div class="softtool-readout"><span>Calibration</span><strong>{{ measurement ? measurementState(measurement) : '—' }}</strong></div>
-      <div class="softtool-readout"><span>Source Port</span><strong>{{ measurement?.sourcePort ?? '—' }}</strong></div>
-      <button class="softtool-button" type="button" :disabled="!trace" :aria-pressed="presentation?.visible" data-testid="trace-visibility" @click="emit('toggleVisibility')">Trace Display <strong>{{ presentation?.visible ? 'On' : 'Off' }}</strong></button>
-      <p class="softtool-note">显示开关仅影响当前迹线。测量定义与删除在 Meas 中操作。</p>
-    </template>
   </section>
 </template>
 

@@ -11,6 +11,7 @@ const props = defineProps<{
   canWrite: boolean;
   busy: boolean;
   canDelete: boolean;
+  canAddTrace: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -43,7 +44,7 @@ function singleSweep() {
     </div>
     <span class="toolbar-separator" aria-hidden="true" />
     <div class="toolbar-group" role="group" aria-label="Trace and marker">
-      <button type="button" class="toolbar-button glyph-accent" :disabled="!canWrite || busy" title="Add measurement · 添加测量" aria-label="Add trace" data-testid="toolbar-add-trace" @click="emit('addTrace')"><ToolbarGlyph name="add-trace" /></button>
+      <button type="button" class="toolbar-button glyph-accent" :disabled="!canAddTrace || busy" title="Add Trace · 复制活动迹线" aria-label="Add trace" data-testid="toolbar-add-trace" @click="emit('addTrace')"><ToolbarGlyph name="add-trace" /></button>
       <button type="button" class="toolbar-button" :disabled="!hasTrace" :aria-pressed="markerEnabled" title="Marker M1 · 显示或隐藏标记" aria-label="Toggle marker" data-testid="toolbar-marker" @click="emit('toggleMarker')"><ToolbarGlyph name="marker" /></button>
       <button type="button" class="toolbar-button" :disabled="!canWrite || busy || !canDelete" title="Delete active measurement · 删除当前测量" aria-label="Delete active trace" data-testid="toolbar-delete-trace" @click="emit('deleteTrace')"><ToolbarGlyph name="delete" /></button>
     </div>

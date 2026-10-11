@@ -6,6 +6,7 @@
 .softtool-tabs { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 3px; padding: 5px 3px; background: #101a20; border-left: 1px solid #060d10; }
 .softtool-tabs button { min-height: 43px; padding: 8px 3px; border: 1px solid #51616b; border-radius: 1px; color: #d1dce2; background: #33454f; font-size: 11px; text-align: left; white-space: nowrap; }
 .softtool-tabs button.is-active { color: #fff; background: #0b83bc; border-color: #47b2df; }
+.softtool-tabs button:disabled { color: var(--color-disabled); background: #29383f; border-color: #40515b; cursor: default; }
 .softtool-content { grid-column: 1; grid-row: 1; min-width: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #647985 #1c282e; }
 .softtool-section { display: flex; flex-direction: column; gap: 9px; padding: 12px 11px; }
 .softtool-section-title { margin: 2px 0 3px; color: #f0f4f6; font-size: 13px; font-weight: 500; }
