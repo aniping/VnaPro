@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import type { InstrumentStatus, SweepConfiguration } from '../../api/types'
+import { sweepWithinCapabilities } from '../../domain/sweep'
+import { frequencyText } from '../../plot/formatting'
 import FrequencyField from '../shared/FrequencyField.vue'
 
 const props = defineProps<{
@@ -11,7 +13,7 @@ const props = defineProps<{
   apply: (candidate: SweepConfiguration, expectedRevision: string) => Promise<InstrumentStatus | null>
 }>()
 
-const draft = reactive<SweepConfiguration>({ startHz: 1e6, stopHz: 100e6, points: 201, ifBandwidthHz: 1000 })
+const draft = reactive<SweepConfiguration>({ startHz: 0, stopHz: 0, points: 0, ifBandwidthHz: 0 })
 const dirty = ref(false)
 const applying = ref(false)
 const editRevision = ref('')
@@ -79,10 +81,9 @@ async function commit() {
   if (!dirty.value || !props.canConfigure || locked.value || !props.status) return
   const candidate = { ...draft }
   const expectedRevision = editRevision.value
-  if (![candidate.startHz, candidate.stopHz, candidate.points, candidate.ifBandwidthHz].every(Number.isFinite)
-    || candidate.startHz < 1 || candidate.stopHz > 1e9 || candidate.startHz > candidate.stopHz
-    || !Number.isInteger(candidate.points) || candidate.points < 2 || candidate.points > 10001) {
-    validation.value = 'Start ≤ Stop · 1 Hz–1 GHz · 2–10001 points · Span 0 = CW'
+  const limits = props.status.capabilities
+  if (!sweepWithinCapabilities(candidate, limits)) {
+    validation.value = `Start ≤ Stop · ${frequencyText(limits.minFrequencyHz)}–${frequencyText(limits.maxFrequencyHz)} · ${limits.minSweepPoints}–${limits.maxSweepPoints} points · Span 0 = CW`
     return
   }
   const submitted = signature(candidate)
@@ -125,7 +126,7 @@ function applyFromKeyboard(event: KeyboardEvent) {
       <label class="field-row" for="stimulus-points">
         <span class="softtool-label">Points</span>
         <input id="stimulus-points" v-model.number="draft.points" data-testid="points" class="field-input"
-          type="number" min="2" max="10001" step="1" @input="update" />
+          type="number" :min="status.capabilities.minSweepPoints" :max="status.capabilities.maxSweepPoints" step="1" @input="update" />
       </label>
       <label class="field-row" for="stimulus-bandwidth">
         <span class="softtool-label">IF bandwidth</span>
@@ -145,6 +146,7 @@ function applyFromKeyboard(event: KeyboardEvent) {
       <p v-else-if="dirty" class="softtool-note">Draft · revision {{ editRevision }}</p>
       <p v-else class="softtool-note">Applied · revision {{ status.revision }}</p>
       <p v-if="!canConfigure && !busy" class="softtool-note">Hold the sweep and acquire control to apply.</p>
+      <p class="softtool-note">{{ status.capabilities.portCount }} ports · {{ frequencyText(status.capabilities.minFrequencyHz) }}–{{ frequencyText(status.capabilities.maxFrequencyHz) }}</p>
     </template>
     <p v-else class="softtool-note">Waiting for instrument settings…</p>
   </section>

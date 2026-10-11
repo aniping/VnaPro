@@ -13,6 +13,7 @@ function snapshot(revision = '1'): InstrumentStatus {
   return {
     identity: 'VnaPro,NativeSimulator,0,0.2', backend: 'NativeSimulator', state: 'Ready', error: '', pending: false,
     revision, runId: '1', activeConfigValid: true,
+    capabilities: { portCount: 4, minFrequencyHz: 1, maxFrequencyHz: 8e9, minSweepPoints: 2, maxSweepPoints: 10001 },
     config: { startHz: 1e6, stopHz: 100e6, points: 201, ifBandwidthHz: 1000, triggerSource: 'IMM', sweepMode: 'HOLD' },
     measurements: [{ name: 'DefaultA', kind: 'receiver', receiverKind: 'a', receiverPort: 1, sourcePort: 1,
       parameter: 'a1,1', unit: 'a.u.', calibration: 'raw' }],
@@ -205,4 +206,43 @@ test('expired lease recovery accepts only a newly server-issued token; rejected 
   assert.equal((requests[2]?.body as Record<string, unknown>).expectedRevision, '18446744073709551615')
   assert.equal(Object.hasOwn(requests[2]?.body as Record<string, unknown>, 'triggerSource'), false)
   assert.equal(requests[2]?.token, 'server-token')
+})
+
+test('frame requests encode an explicit display set and an empty set separately from defaults', async () => {
+  const paths: string[] = []
+  const api = new InstrumentApi({ storage: null, fetch: async input => {
+    paths.push(String(input))
+    return new Response(JSON.stringify({ available: false, current: false, reason: 'No frame' }))
+  } })
+  await api.frame(['反射 A', 'S22'])
+  await api.frame([])
+  await api.frame()
+  assert.deepEqual(paths, ['/api/v1/frame?trace=%E5%8F%8D%E5%B0%84%20A&trace=S22', '/api/v1/frame?display=none', '/api/v1/frame'])
+})
+
+test('late responses from a previous display set cannot replace the newly selected frame', async context => {
+  const api = new FakeGateway()
+  api.current.measurements.push({ ...api.current.measurements[0]!, name: 'Other' })
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const delayed = deferred<FrameResponse>()
+  const requested: (readonly string[] | undefined)[] = []
+  api.frame = (names?: readonly string[]) => { requested.push(names); return delayed.promise }
+  const oldRead = model.refresh()
+  model.setDisplayedMeasurements(['Other'])
+  const acquired = {
+    available: true as const, current: true, channelId: 1, runId: '1', revision: '1', frameSeq: '1',
+    originalPointCount: 2, displayPointCount: 2, decimated: false, frequencyHz: [10e6, 20e6],
+    traces: [{ ...api.current.measurements[0]!, available: true, real: [1, 1], imag: [0, 0], valid: [true, true] }],
+  }
+  delayed.resolve(acquired)
+  await oldRead
+  assert.equal(model.frame.value, null)
+  api.frame = (names?: readonly string[]) => {
+    requested.push(names)
+    return Promise.resolve({ ...acquired, traces: [{ ...acquired.traces[0]!, name: 'Other' }] })
+  }
+  await model.refresh()
+  assert.deepEqual(model.frame.value, { ...acquired, traces: [{ ...acquired.traces[0]!, name: 'Other' }] })
+  assert.deepEqual(requested, [undefined, ['Other']])
 })

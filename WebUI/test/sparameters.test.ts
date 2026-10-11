@@ -21,6 +21,7 @@ function snapshot(measurement: Measurement) {
   return {
     identity: 'VnaPro,NativeSimulator,0,0.2', backend: 'NativeSimulator', state: 'Ready', error: '', pending: false,
     revision: '2', runId: '1', activeConfigValid: true,
+    capabilities: { portCount: 4, minFrequencyHz: 1, maxFrequencyHz: 8e9, minSweepPoints: 2, maxSweepPoints: 10001 },
     config: { startHz: 1e6, stopHz: 100e6, points: 201, ifBandwidthHz: 1000, triggerSource: 'IMM', sweepMode: 'HOLD' },
     measurements: [measurement],
     control: { owner: 'web', hasControl: true, releasing: false, leaseRemainingMs: 30000, readOnlyReason: '' },
@@ -101,7 +102,7 @@ test('S-parameter formats, markers and CSV retain ratios, phase, invalid gaps an
     marker: { enabled: true, frequencyHz: 2e6 } }
   assert.equal(getMarkerReadout(acquired, trace, presentation)?.valueText, '0 1 / 0.25 1')
   const csv = exportVisibleFrameCsv(acquired, { [trace.name]: presentation })
-  assert.match(csv, /CSV schema 2/)
+  assert.match(csv, /CSV schema 3/)
   assert.match(csv, /kind,parameter,raw_unit,calibration/)
   assert.match(csv, /true,realimag,"1",0,0.25,sParameter,"S21","1",uncalibrated/)
   assert.match(csv, /false,realimag,"1",,,sParameter,"S21","1",uncalibrated/)

@@ -4,6 +4,7 @@ import type { AcquiredFrame, Measurement } from '../../api/types'
 import { diagramTraceColor, type DisplayFormat, type DisplayScale, type LayoutMode, type TracePresentation } from '../../domain/presentation'
 import { displayUnit, frequencyText, getMarkerReadout, getTraceScale, numberText } from '../../plot'
 import { measurementState } from '../../domain/measurements'
+import { MIN_SMITH_RADIUS, supportsSmith, validSmithRadius } from '../../plot/smithMath'
 import FrequencyField from '../shared/FrequencyField.vue'
 
 const props = defineProps<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   format: [format: DisplayFormat]
   scale: [range: DisplayScale]
   autoscale: []
+  smithRadius: [radius: number]
   marker: [update: { enabled?: boolean; frequencyHz?: number }]
   toggleVisibility: []
 }>()
@@ -44,6 +46,8 @@ const position = ref(8)
 const scaleError = ref('')
 const markerFrequency = ref(0)
 const markerError = ref('')
+const smithRadius = ref(1)
+watch(() => props.presentation?.smithRadius, value => { smithRadius.value = value ?? 1 }, { immediate: true })
 
 watch([() => props.measurement?.name, () => props.presentation?.format, () => props.presentation?.scale], () => {
   const { min, max } = range.value
@@ -62,6 +66,15 @@ watch([() => props.measurement?.name, () => props.presentation?.marker.frequency
 
 function applyScale() {
   if (!trace.value) return
+  if (props.presentation?.format === 'smith') {
+    if (!validSmithRadius(smithRadius.value)) {
+      scaleError.value = `请输入有效的外圈幅度：|Γ| ≥ ${MIN_SMITH_RADIUS}。`
+      return
+    }
+    scaleError.value = ''
+    emit('smithRadius', smithRadius.value)
+    return
+  }
   const perDiv = Number(perDivision.value)
   const ref = Number(reference.value)
   const pos = Number(position.value)
@@ -109,7 +122,9 @@ function applyMarker() {
       <div class="softtool-divider" aria-hidden="true" />
       <h3 class="softtool-section-title">Complex Formats</h3>
       <div class="softtool-grid">
-        <button class="softtool-choice" type="button" disabled title="尚未实现 Smith 坐标绘图">Smith</button>
+        <button class="softtool-choice" type="button" :disabled="!supportsSmith(measurement)"
+          :class="{ 'is-active': presentation?.format === 'smith' }" :aria-pressed="presentation?.format === 'smith'"
+          title="仅反射 S11/S22：Γ 与归一化阻抗；未校准" data-format="smith" @click="emit('format', 'smith')">Smith</button>
         <button class="softtool-choice" type="button" disabled title="尚未实现极坐标绘图">Polar</button>
       </div>
       <p class="softtool-note">{{ measurement?.kind === 'sParameter' ? '显示同帧波量的比值，幅度无量纲，dB = 20 log₁₀ |S|；未应用误差校准。' : '仅转换当前接收波的显示格式。幅度未经功率或电压标定；dB 参考 1 a.u.。' }}</p>
@@ -118,6 +133,13 @@ function applyMarker() {
     <template v-else-if="mode === 'scale'">
       <h3 class="softtool-section-title">Scale Values</h3>
       <form @submit.prevent="applyScale">
+        <template v-if="presentation?.format === 'smith'">
+          <label class="softtool-label" for="trace-smith-radius">Outer Magnitude |Γ|</label>
+          <input id="trace-smith-radius" v-model.number="smithRadius" class="field-input" type="number"
+            :min="MIN_SMITH_RADIUS" step="any" :disabled="!trace" required data-testid="smith-radius" />
+          <p class="softtool-note">圆心保持 Γ = 0；外圈幅度只改变显示，单位圆与阻抗网格按相同投影绘制。</p>
+        </template>
+        <template v-else>
         <label class="softtool-label" for="trace-scale-division">Per Div</label>
         <div class="field-row trace-scale-field">
           <input id="trace-scale-division" v-model.number="perDivision" class="field-input" type="number" step="any" :disabled="!trace" required data-testid="scale-per-division" />
@@ -133,11 +155,12 @@ function applyMarker() {
           <input id="trace-scale-position" v-model.number="position" class="field-input" type="number" min="0" max="10" step="1" :disabled="!trace" title="0 = 下边缘，10 = 上边缘" data-testid="scale-position" />
           <span>div</span>
         </div>
+        </template>
         <button class="softtool-button softtool-primary softtool-apply" type="submit" :disabled="!trace" data-testid="apply-scale">Apply Scale</button>
       </form>
       <p v-if="scaleError" class="softtool-note" role="alert">{{ scaleError }}</p>
       <button class="softtool-button" type="button" :disabled="!canAutoscale" data-testid="autoscale-active" @click="emit('autoscale')">Autoscale · Active Trace</button>
-      <div class="softtool-readout"><span>Range</span><span>{{ numberText(range.min) }} … {{ numberText(range.max) }}</span></div>
+      <div class="softtool-readout"><span>{{ presentation?.format === 'smith' ? 'Outer |Γ|' : 'Range' }}</span><span>{{ presentation?.format === 'smith' ? numberText(presentation.smithRadius) : `${numberText(range.min)} … ${numberText(range.max)}` }}</span></div>
       <p class="softtool-note">Autoscale 按当前显示数据适配一次并固定刻度；再次点击才重新适配。仅改变当前迹线的显示，不修改仪器配置。</p>
     </template>
 

@@ -22,6 +22,14 @@ export interface Measurement {
 
 export type MeasurementCandidate = Pick<Measurement, 'name' | 'kind' | 'receiverKind' | 'receiverPort' | 'sourcePort'>
 
+export interface InstrumentCapabilities {
+  portCount: number
+  minFrequencyHz: number
+  maxFrequencyHz: number
+  minSweepPoints: number
+  maxSweepPoints: number
+}
+
 export interface InstrumentStatus {
   identity: string
   backend: string
@@ -31,6 +39,7 @@ export interface InstrumentStatus {
   revision: string
   runId: string
   activeConfigValid: boolean
+  capabilities: InstrumentCapabilities
   config: SweepConfiguration & {
     triggerSource: 'IMM' | 'MAN'
     sweepMode: 'HOLD' | 'SING' | 'CONT'

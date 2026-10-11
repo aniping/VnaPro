@@ -5,6 +5,8 @@ import { defaultTracePresentation, diagramTraceColor, type LayoutMode, type Trac
 import { FORMAT_INFO, measurementFormatInfo, frequencyText, numberText } from '../../plot/formatting'
 import { markerPlacement, paintDiagram, plotRect, type CanvasCurve } from '../../plot/canvasRenderer'
 import { displaySeries, markerResult, nearestIndex, normalizedX, normalizedY, referenceLevel, traceScale, usesRelativeAxis } from '../../plot/traceMath'
+import { nearestSmithIndex, smithPoint, smithReadout, smithSeries, smithViewport } from '../../plot/smithMath'
+import { paintSmithDiagram } from '../../plot/smithRenderer'
 import MarkerReadout from './MarkerReadout.vue'
 import TraceStrip from './TraceStrip.vue'
 import DiagramMenu from './DiagramMenu.vue'
@@ -22,7 +24,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   selectTrace: [name: string]
-  moveMarker: [value: { name: string; frequencyHz: number }]
+  moveMarker: [value: { name: string; frequencyHz: number; sampleIndex: number }]
   toggleVisibility: [name: string]
   setLayout: [mode: LayoutMode]
   addMarker: []
@@ -31,12 +33,14 @@ const plotArea = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const width = ref(700)
 const height = ref(500)
+const screenScale = ref({ x: 1, y: 1 })
 let observer: ResizeObserver | undefined
 let resolutionQuery: MediaQueryList | undefined
 let paintRequest = 0
 let dragPointer: number | null = null
 let draggingName = ''
 let dragOffsetX = 0
+let dragOffsetY = 0
 
 const traces = computed(() => props.measurements.map(measurement => {
   const presentation = props.presentations[measurement.name] ?? defaultTracePresentation()
@@ -51,6 +55,9 @@ const activeTrace = computed(() => traces.value.find(item => item.measurement.na
 const active = computed(() => props.measurements.some(item => item.name === props.activeTraceName))
 const axisScale = computed(() => activeTrace.value?.scale ?? FORMAT_INFO.db.fallback)
 const axisFormat = computed(() => activeTrace.value?.presentation.format ?? 'db')
+const isSmith = computed(() => axisFormat.value === 'smith')
+const smithRadius = computed(() => activeTrace.value?.presentation.smithRadius ?? 1)
+const smithArea = computed(() => smithViewport(width.value, height.value, screenScale.value.x, screenScale.value.y))
 const axisDefinition = computed(() => measurementFormatInfo(axisFormat.value, activeTrace.value?.measurement))
 const relativeAxis = computed(() => usesRelativeAxis(axisScale.value))
 const rect = computed(() => plotRect(width.value, height.value))
@@ -62,12 +69,20 @@ const xRange = computed(() => {
 })
 const markerModels = computed(() => traces.value.flatMap(item => {
   if (!item.presentation.visible || !item.presentation.marker.enabled) return []
-  const result = markerResult(props.frame, item.frameTrace, item.presentation.marker.frequencyHz, item.presentation.format)
+  const result = markerResult(props.frame, item.frameTrace, item.presentation.marker.frequencyHz, item.presentation.format, item.presentation.marker.sampleIndex)
   if (!result) return []
   return [{ ...item, name: item.measurement.name, result, active: item.measurement.name === props.activeTraceName }]
 }))
 const plottedMarkers = computed(() => markerModels.value.flatMap(marker => {
-  if (!marker.result.valid || !Number.isFinite(marker.result.value)) return []
+  if (!marker.result.valid) return []
+  if (isSmith.value) {
+    const point = smithPoint({ real: marker.result.real!, imaginary: marker.result.imaginary! }, smithArea.value, smithRadius.value)
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < rect.value.left
+      || point.x > rect.value.left + rect.value.width || point.y < rect.value.top
+      || point.y > rect.value.top + rect.value.height) return []
+    return [{ ...marker, placement: markerPlacement(point, rect.value) }]
+  }
+  if (!Number.isFinite(marker.result.value)) return []
   const y = normalizedY(marker.result.value, marker.scale)
   if (y < 0 || y > 1) return []
   const point = {
@@ -79,7 +94,8 @@ const plottedMarkers = computed(() => markerModels.value.flatMap(marker => {
   }]
 }))
 const hasDrawable = computed(() => traces.value.some(item => item.presentation.visible
-  && displaySeries(item.frameTrace, item.presentation.format).some(series => series.values.some(Number.isFinite))))
+  && (isSmith.value ? smithSeries(item.frameTrace).some(point => point !== null)
+    : displaySeries(item.frameTrace, item.presentation.format).some(series => series.values.some(Number.isFinite)))))
 const noDrawableMessage = computed(() => {
   if (!props.measurements.length) return 'No measurement assigned'
   if (traces.value.every(item => !item.presentation.visible)) return 'All traces hidden'
@@ -109,6 +125,17 @@ function schedulePaint(): void {
   cancelAnimationFrame(paintRequest)
   paintRequest = requestAnimationFrame(() => {
     if (!canvas.value || !plotArea.value || width.value <= 0 || height.value <= 0) return
+    const bounds = plotArea.value.getBoundingClientRect()
+    screenScale.value = { x: bounds.width / width.value, y: bounds.height / height.value }
+    if (isSmith.value) {
+      paintSmithDiagram(canvas.value, { width: width.value, height: height.value,
+        radius: smithRadius.value,
+        curves: traces.value.filter(item => item.presentation.visible).map(item => ({
+          points: smithSeries(item.frameTrace),
+          color: item.color, active: item.measurement.name === props.activeTraceName,
+        })) }, bounds)
+      return
+    }
     const curves: CanvasCurve[] = traces.value.flatMap(item => item.presentation.visible
       ? displaySeries(item.frameTrace, item.presentation.format).map(series => ({
         frequencyHz: props.frame?.frequencyHz ?? [], values: series.values, scale: item.scale,
@@ -118,7 +145,7 @@ function schedulePaint(): void {
       scale: item.scale, color: item.color, active: item.measurement.name === activeTrace.value?.measurement.name,
     }))
     paintDiagram(canvas.value, { width: width.value, height: height.value, rect: rect.value,
-      xMin: xRange.value.min, xMax: xRange.value.max, references, curves }, plotArea.value.getBoundingClientRect())
+      xMin: xRange.value.min, xMax: xRange.value.max, references, curves }, bounds)
   })
 }
 
@@ -157,14 +184,22 @@ function selectPane(): void {
   if (!active.value && activeTrace.value) emit('selectTrace', activeTrace.value.measurement.name)
 }
 
-function moveMarkerAt(name: string, clientX: number): void {
+function moveMarkerAt(name: string, clientX: number, clientY: number): void {
   const bounds = plotArea.value?.getBoundingClientRect()
   const axis = props.frame?.frequencyHz
   if (!bounds || !axis?.length) return
   const logicalX = (clientX - bounds.left) * width.value / bounds.width
+  if (isSmith.value) {
+    const logicalY = (clientY - bounds.top) * height.value / bounds.height
+    const item = traces.value.find(trace => trace.measurement.name === name)
+    const index = nearestSmithIndex(item?.frameTrace, smithArea.value, smithRadius.value,
+      logicalX, logicalY, screenScale.value.x, screenScale.value.y)
+    if (index >= 0) emit('moveMarker', { name, frequencyHz: axis[index]!, sampleIndex: index })
+    return
+  }
   const fraction = Math.max(0, Math.min(1, (logicalX - rect.value.left) / rect.value.width))
   const index = nearestIndex(axis, xRange.value.min + fraction * (xRange.value.max - xRange.value.min))
-  if (index >= 0) emit('moveMarker', { name, frequencyHz: axis[index]! })
+  if (index >= 0) emit('moveMarker', { name, frequencyHz: axis[index]!, sampleIndex: index })
 }
 
 function beginDrag(event: PointerEvent, name: string): void {
@@ -179,6 +214,9 @@ function beginDrag(event: PointerEvent, name: string): void {
   dragOffsetX = marker && bounds && width.value > 0
     ? event.clientX - (bounds.left + (marker.placement.left + marker.placement.tipX) * bounds.width / width.value)
     : 0
+  dragOffsetY = marker && bounds && height.value > 0
+    ? event.clientY - (bounds.top + (marker.placement.top + marker.placement.tipY) * bounds.height / height.value)
+    : 0
   const target = event.currentTarget as HTMLElement
   target.setPointerCapture(event.pointerId)
 }
@@ -186,17 +224,18 @@ function beginDrag(event: PointerEvent, name: string): void {
 function dragMarker(event: PointerEvent): void {
   if (event.pointerId !== dragPointer) return
   event.preventDefault()
-  moveMarkerAt(draggingName, event.clientX - dragOffsetX)
+  moveMarkerAt(draggingName, event.clientX - dragOffsetX, event.clientY - dragOffsetY)
 }
 
 function endDrag(event: PointerEvent): void {
   if (event.pointerId !== dragPointer) return
-  if (event.type !== 'pointercancel') moveMarkerAt(draggingName, event.clientX - dragOffsetX)
+  if (event.type !== 'pointercancel') moveMarkerAt(draggingName, event.clientX - dragOffsetX, event.clientY - dragOffsetY)
   const target = event.currentTarget as HTMLElement
   if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId)
   dragPointer = null
   draggingName = ''
   dragOffsetX = 0
+  dragOffsetY = 0
 }
 
 function markerKey(event: KeyboardEvent, name: string, currentIndex: number): void {
@@ -213,12 +252,13 @@ function markerKey(event: KeyboardEvent, name: string, currentIndex: number): vo
   event.preventDefault()
   event.stopPropagation()
   emit('selectTrace', name)
-  emit('moveMarker', { name, frequencyHz: axis[Math.max(0, Math.min(axis.length - 1, target))]! })
+  const index = Math.max(0, Math.min(axis.length - 1, target))
+  emit('moveMarker', { name, frequencyHz: axis[index]!, sampleIndex: index })
 }
 
 function placeMarker(event: MouseEvent): void {
   const item = activeTrace.value
-  if (item?.presentation.marker.enabled) moveMarkerAt(item.measurement.name, event.clientX)
+  if (item?.presentation.marker.enabled) moveMarkerAt(item.measurement.name, event.clientX, event.clientY)
 }
 
 function clickPlot(event: MouseEvent): void {
@@ -231,7 +271,7 @@ function plotKey(event: KeyboardEvent): void {
   if (event.target !== event.currentTarget) return
   const trace = activeTrace.value
   if (!trace?.presentation.marker.enabled || !props.frame) return
-  const result = markerResult(props.frame, trace.frameTrace, trace.presentation.marker.frequencyHz, trace.presentation.format)
+  const result = markerResult(props.frame, trace.frameTrace, trace.presentation.marker.frequencyHz, trace.presentation.format, trace.presentation.marker.sampleIndex)
   if (result) markerKey(event, trace.measurement.name, result.index)
 }
 </script>
@@ -243,6 +283,7 @@ function plotKey(event: KeyboardEvent): void {
       <div class="trace-list" aria-label="Traces">
         <TraceStrip v-for="trace in traces" :key="trace.measurement.name" :measurement="trace.measurement"
           :index="trace.index" :presentation="trace.presentation" :scale="trace.scale" :color="trace.color"
+          :smith-radius="smithRadius"
           :active="trace.measurement.name === activeTraceName" @select="emit('selectTrace', $event)"
           @toggle-visibility="emit('toggleVisibility', $event)" />
         <span v-if="!traces.length" class="empty-header">Diagram {{ number }}</span>
@@ -256,14 +297,14 @@ function plotKey(event: KeyboardEvent): void {
       :aria-label="`Diagram ${number} plot. When M1 is enabled, click a measured frequency or use Left, Right, Home and End to move the marker.`"
       @click="clickPlot" @keydown="plotKey">
       <canvas ref="canvas" class="diagram-canvas" aria-hidden="true" />
-      <span v-for="(tick, index) in yTicks" :key="`y-${index}`" class="y-tick"
+      <span v-for="(tick, index) in (isSmith ? [] : yTicks)" :key="`y-${index}`" class="y-tick"
         :class="{ 'edge-top': index === 0, 'edge-bottom': index === 10, 'reference-tick': tick.reference }" :style="{ top: `${tick.top}px` }"
         :title="relativeAxis ? `相对 Ref ${numberText(referenceLevel(axisScale), 10)} ${axisDefinition.unit} 的偏移` : axisDefinition.unit">{{ tick.value }}</span>
       <MarkerReadout :markers="markerModels.map(marker => ({ name: marker.name, color: marker.color, format: marker.presentation.format, measurement: marker.measurement, result: marker.result, active: marker.active }))"
         @select="emit('selectTrace', $event)" />
       <button v-for="marker in plottedMarkers" :key="marker.name" type="button" class="marker-handle"
         :class="{ active: marker.active }" :style="{ left: `${marker.placement.left}px`, top: `${marker.placement.top}px`, width: `${marker.placement.width}px`, height: `${marker.placement.height}px`, color: marker.color }"
-        :aria-label="`M1 ${marker.name}, ${frequencyText(marker.result.frequencyHz, 10)}, ${numberText(marker.result.value, 8)} ${measurementFormatInfo(marker.presentation.format, marker.measurement).unit}. Arrow keys move between measured frequency points.`"
+        :aria-label="`M1 ${marker.name}, ${frequencyText(marker.result.frequencyHz, 10)}, ${isSmith ? smithReadout(marker.result.real!, marker.result.imaginary!) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.presentation.format, marker.measurement).unit}. Arrow keys move between measured frequency points.`"
         @pointerdown="beginDrag($event, marker.name)" @pointermove="dragMarker" @pointerup="endDrag" @pointercancel="endDrag"
         @keydown="markerKey($event, marker.name, marker.result.index)" @click.stop="emit('selectTrace', marker.name)">
         <span :style="{ top: `${marker.placement.labelTop}px` }">M1</span>
@@ -278,6 +319,7 @@ function plotKey(event: KeyboardEvent): void {
       <span v-if="frame?.decimated" class="sample-note" :title="`${frame.originalPointCount} source points; ${frame.displayPointCount} supplied display points. Marker and CSV use these actual display samples.`">
         Display {{ frame.displayPointCount }} / {{ frame.originalPointCount }} pts
       </span>
+      <span v-if="isSmith" class="smith-note">Γ · 归一化阻抗 z · 未校准</span>
       <span class="sr-only">{{ activeTrace?.measurement.name ?? 'Empty diagram' }}. Format {{ FORMAT_INFO[axisFormat].label }}.
         {{ hasDrawable ? 'Acquired measurement samples displayed.' : noDrawableMessage }} {{ frameCondition.detail }}</span>
     </div>
@@ -316,6 +358,7 @@ function plotKey(event: KeyboardEvent): void {
 .frame-condition { position: absolute; z-index: 2; padding: 1px 4px; color: #d2b887; background: #171915dc; border-left: 1px solid #bea66e; font-size: 11px; }
 .frame-condition.disconnected, .frame-condition.fault { color: #ffb5ab; border-color: #ff7d6e; }
 .sample-note { position: absolute; right: 5px; bottom: 5px; font-size: 10px; color: #a6b4bc; background: #000c; }
+.smith-note { position: absolute; left: 5px; bottom: 5px; font-size: 10px; color: #8ca0a8; }
 .channel-row { display: grid; grid-template-columns: auto 1fr auto 1fr; align-items: center; min-width: 0; gap: 4px; padding: 0 2px; color: #eef4f6; background: #000; font-size: 11px; line-height: 20px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .channel-label { padding: 0 3px; font-weight: 400; background: transparent; }.channel-label.active { color: #fff; background: #008fda; }
 .channel-row b { margin-left: 4px; color: #f0f4f6; font-weight: 400; }

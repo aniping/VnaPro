@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { InstrumentStatus, MeasurementCandidate } from '../../api/types'
 import { measurementCandidate, measurementState, type MeasurementChoice } from '../../domain/measurements'
 
@@ -8,10 +8,14 @@ const props = defineProps<{
   canConfigure: boolean
   busy: boolean
   activeTraceName: string
+  displayedNames: string[]
   add: (candidate: MeasurementCandidate, expectedRevision: string) => Promise<InstrumentStatus | null>
   remove: (name: string, expectedRevision: string) => Promise<InstrumentStatus | null>
 }>()
-const emit = defineEmits<{ selectTrace: [name: string] }>()
+const emit = defineEmits<{
+  selectTrace: [name: string]
+  display: [value: { name: string; enabled: boolean }]
+}>()
 const draft = reactive<MeasurementCandidate>({ name: '', kind: 'receiver', receiverKind: 'b', receiverPort: 1, sourcePort: 1 })
 const choice = ref<MeasurementChoice>('S11')
 const working = ref(false)
@@ -19,6 +23,14 @@ const validation = ref('')
 const catalog = computed(() => props.status?.measurements ?? [])
 const active = computed(() => catalog.value.find((measurement) => measurement.name === props.activeTraceName))
 const disabled = computed(() => !props.canConfigure || props.busy || working.value)
+const portCount = computed(() => props.status?.capabilities.portCount ?? 0)
+const choices = computed<MeasurementChoice[]>(() => portCount.value >= 2
+  ? ['S11', 'S21', 'S12', 'S22', 'RAW'] : ['S11', 'RAW'])
+watch(portCount, count => {
+  if (draft.receiverPort > count) draft.receiverPort = 1
+  if (draft.sourcePort > count) draft.sourcePort = 1
+  if (!choices.value.includes(choice.value)) choice.value = 'S11'
+})
 
 async function create() {
   if (disabled.value || !props.status) return
@@ -60,20 +72,29 @@ async function removeActive() {
   <section class="softtool-section" aria-label="Measurements">
     <h3 class="softtool-section-title">Measurement traces</h3>
     <div class="softtool-grid" role="group" aria-label="Select active measurement">
-      <button v-for="(measurement, index) in catalog" :key="measurement.name" class="softtool-button"
-        :class="{ 'is-active': measurement.name === activeTraceName }" type="button"
-        :disabled="index > 3" :title="index > 3 ? 'Only the first four measurements have display frames' : `${measurement.parameter} · ${measurementState(measurement)}`"
-        :aria-pressed="measurement.name === activeTraceName" @click="emit('selectTrace', measurement.name)">
-        <span>{{ measurement.name }}</span>
-        <small>{{ measurement.parameter }} · {{ measurementState(measurement) }}{{ index > 3 ? ' · catalog' : '' }}</small>
-      </button>
+      <div v-for="measurement in catalog" :key="measurement.name" class="measurement-entry">
+        <button class="softtool-button"
+          :class="{ 'is-active': measurement.name === activeTraceName }" type="button"
+          :title="`${measurement.parameter} · ${measurementState(measurement)}`"
+          :aria-pressed="measurement.name === activeTraceName" @click="emit('selectTrace', measurement.name)">
+          <span>{{ measurement.name }}</span>
+          <small>{{ measurement.parameter }} · {{ measurementState(measurement) }}</small>
+        </button>
+        <label class="measurement-display">
+          <input type="checkbox" :checked="displayedNames.includes(measurement.name)"
+            :disabled="!displayedNames.includes(measurement.name) && displayedNames.length >= 4"
+            :aria-label="`Display ${measurement.name}`"
+            @change="emit('display', { name: measurement.name, enabled: !displayedNames.includes(measurement.name) })" />
+          Display
+        </label>
+      </div>
     </div>
     <p v-if="!catalog.length" class="softtool-note">No measurements.</p>
-    <p v-if="catalog.length > 4" class="softtool-note">The first four measurements are displayed.</p>
+    <p class="softtool-note">显示 {{ displayedNames.length }} / 4 条。选择目录迹线会加入显示；满四条时替换当前显示槽位，保留测量定义。</p>
     <div class="softtool-divider" />
     <h3 class="softtool-section-title">Add measurement</h3>
     <div class="softtool-grid" role="group" aria-label="Measurement type">
-      <button v-for="parameter in (['S11', 'S21', 'RAW'] as const)" :key="parameter"
+      <button v-for="parameter in choices" :key="parameter"
         class="softtool-choice" type="button" :class="{ 'is-active': choice === parameter }"
         :aria-pressed="choice === parameter" :disabled="disabled" @click="choice = parameter">
         {{ parameter }}
@@ -98,17 +119,17 @@ async function removeActive() {
       <label class="field-row" for="receiver-port">
         <span class="softtool-label">Receiver port</span>
         <select id="receiver-port" v-model.number="draft.receiverPort" class="field-input" :disabled="disabled">
-          <option v-for="port in 4" :key="port" :value="port">Port {{ port }}</option>
+          <option v-for="port in portCount" :key="port" :value="port">Port {{ port }}</option>
         </select>
       </label>
       <label class="field-row" for="source-port">
         <span class="softtool-label">Source port</span>
         <select id="source-port" v-model.number="draft.sourcePort" class="field-input" :disabled="disabled">
-          <option v-for="port in 4" :key="port" :value="port">Port {{ port }}</option>
+          <option v-for="port in portCount" :key="port" :value="port">Port {{ port }}</option>
         </select>
       </label>
     </template>
-    <p v-else class="softtool-note">{{ choice }} = {{ choice === 'S11' ? 'b1/a1' : 'b2/a1' }} · 激励端口 1 · 未校准</p>
+    <p v-else class="softtool-note">{{ choice }} = b{{ choice[1] }}/a{{ choice[2] }} · 激励端口 {{ choice[2] }} · 未校准</p>
     <div class="softtool-apply">
       <button class="softtool-button softtool-primary" type="button" :disabled="disabled || catalog.length >= 32" @click="create">Add trace</button>
       <button class="softtool-button" type="button" :disabled="disabled || !active || catalog.length <= 1" @click="removeActive">Delete active</button>
@@ -117,3 +138,8 @@ async function removeActive() {
     <p class="softtool-note">HOLD 下添加测量，再执行扫描。S 参数为同帧波量比值、无量纲；未应用误差校准。</p>
   </section>
 </template>
+
+<style scoped>
+.measurement-entry { display: grid; gap: 3px; }
+.measurement-display { display: flex; align-items: center; gap: 4px; color: #afc0c9; font-size: 11px; }
+</style>

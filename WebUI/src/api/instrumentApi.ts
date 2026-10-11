@@ -50,7 +50,7 @@ function requestId(): string {
 export interface InstrumentGateway {
   readonly sessionId: string
   status(): Promise<InstrumentStatus>
-  frame(): Promise<FrameResponse>
+  frame(names?: readonly string[]): Promise<FrameResponse>
   claim(): Promise<ClaimResponse>
   release(): Promise<void>
   configure(candidate: SweepConfiguration, expectedRevision: string): Promise<AcceptedOperation>
@@ -143,7 +143,11 @@ export class InstrumentApi implements InstrumentGateway {
   }
 
   status(): Promise<InstrumentStatus> { return this.request('/status', decodeStatus) }
-  frame(): Promise<FrameResponse> { return this.request('/frame', decodeFrame) }
+  frame(names?: readonly string[]): Promise<FrameResponse> {
+    const query = names === undefined ? '' : names.length === 0 ? '?display=none'
+      : `?${names.map(name => `trace=${encodeURIComponent(name)}`).join('&')}`
+    return this.request(`/frame${query}`, decodeFrame)
+  }
 
   async claim(): Promise<ClaimResponse> {
     let result: ClaimResponse

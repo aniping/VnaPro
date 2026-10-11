@@ -40,6 +40,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const writeInFlight = shallowRef(false)
   const uncertainWrite = shallowRef(false)
   const renewing = shallowRef(false)
+  const displayedNames = shallowRef<readonly string[] | undefined>(undefined)
 
   let active = false
   let generation = 0
@@ -48,6 +49,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   let pollAgain = false
   let runningPoll = Promise.resolve()
   let writeEpoch = 0
+  let displayEpoch = 0
   let initialClaimAttempted = false
   let lastRenewed = 0
   let resolveOperation: ((value: InstrumentStatus | null) => void) | null = null
@@ -185,8 +187,9 @@ export function useInstrument(options: InstrumentOptions = {}) {
   async function pollCycle(epoch: number): Promise<void> {
     const wasConnected = connected.value
     const epochAtRead = writeEpoch
+    const displayAtRead = displayEpoch
     try {
-      const [statusResult, frameResult] = await Promise.allSettled([api.status(), api.frame()])
+      const [statusResult, frameResult] = await Promise.allSettled([api.status(), api.frame(displayedNames.value)])
       if (epoch !== generation || !active) return
       if (statusResult.status === 'fulfilled') {
         status.value = statusResult.value
@@ -196,7 +199,9 @@ export function useInstrument(options: InstrumentOptions = {}) {
         connected.value = false
         if (wasConnected || !initialized.value) notify(message(statusResult.reason), 'error')
       }
-      if (frameResult.status === 'fulfilled') {
+      if (displayAtRead !== displayEpoch) {
+        pollAgain = true
+      } else if (frameResult.status === 'fulfilled') {
         if (frameResult.value.available) {
           frame.value = frameResult.value
           frameCurrent.value = frameResult.value.current
@@ -294,6 +299,17 @@ export function useInstrument(options: InstrumentOptions = {}) {
     schedule(0)
   }
 
+  /** 显示集合与测量目录分离；旧集合的迟到帧不能覆盖新选择。 */
+  function setDisplayedMeasurements(names: readonly string[]): void {
+    if (names.length > 4 || new Set(names).size !== names.length) throw new Error('最多显示四条不同迹线')
+    if (JSON.stringify(names) === JSON.stringify(displayedNames.value)) return
+    displayedNames.value = [...names]
+    ++displayEpoch
+    if (frame.value) frame.value = { ...frame.value, traces: frame.value.traces.filter(trace => names.includes(trace.name)) }
+    frameCurrent.value = false
+    schedule(0)
+  }
+
   function stop(): void {
     if (!active) return
     active = false
@@ -314,7 +330,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   return {
     status, frame, connected, initialized, frameCurrent, frameError, pendingOperation, error, notice,
     controlBusy, writeInFlight, uncertainWrite, hasControl, canWrite, canConfigure, frameCondition,
-    start, stop, refresh, claim: () => claim(false), release,
+    start, stop, refresh, setDisplayedMeasurements, claim: () => claim(false), release,
     dismissNotice: () => { notice.value = null },
     configure: (candidate: SweepConfiguration, expectedRevision: string) =>
       submit('Apply configuration', 'config', () => api.configure(candidate, expectedRevision), true),

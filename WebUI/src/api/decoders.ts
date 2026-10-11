@@ -1,6 +1,6 @@
 import type {
   AcceptedOperation, AcquiredFrame, ClaimResponse, CoreState, FrameResponse,
-  InstrumentStatus, Measurement, OperationSnapshot, ReceiverTrace,
+  InstrumentCapabilities, InstrumentStatus, Measurement, OperationSnapshot, ReceiverTrace,
 } from './types'
 
 type ObjectValue = Record<string, unknown>
@@ -74,7 +74,7 @@ function measurement(value: unknown): Measurement {
     }
   } else {
     const parameter = `S${result.receiverPort}${result.sourcePort}`
-    if (result.receiverKind !== 'b' || result.sourcePort !== 1 || result.receiverPort > 2
+    if (result.receiverKind !== 'b' || result.sourcePort > 2 || result.receiverPort > 2
       || result.parameter !== parameter || result.unit !== '1' || result.calibration !== 'uncalibrated') {
       invalid('S-parameter metadata')
     }
@@ -86,11 +86,23 @@ export function decodeStatus(value: unknown): InstrumentStatus {
   const item = object(value, 'status')
   const config = object(item.config, 'config')
   const control = object(item.control, 'control')
-  const startHz = number(config.startHz, 'config.startHz', 1, 1e9)
-  const stopHz = number(config.stopHz, 'config.stopHz', 1, 1e9)
+  const limits = object(item.capabilities, 'capabilities')
+  const portCount = integer(limits.portCount, 'capabilities.portCount', 1, 4)
+  const capabilities: InstrumentCapabilities = {
+    portCount,
+    minFrequencyHz: number(limits.minFrequencyHz, 'capabilities.minFrequencyHz', Number.MIN_VALUE),
+    maxFrequencyHz: number(limits.maxFrequencyHz, 'capabilities.maxFrequencyHz', Number.MIN_VALUE),
+    minSweepPoints: integer(limits.minSweepPoints, 'capabilities.minSweepPoints', 2, 10001),
+    maxSweepPoints: integer(limits.maxSweepPoints, 'capabilities.maxSweepPoints', 2, 10001),
+  }
+  if (capabilities.minFrequencyHz > capabilities.maxFrequencyHz
+    || capabilities.minSweepPoints > capabilities.maxSweepPoints) invalid('capabilities bounds')
+  const startHz = number(config.startHz, 'config.startHz', capabilities.minFrequencyHz, capabilities.maxFrequencyHz)
+  const stopHz = number(config.stopHz, 'config.stopHz', capabilities.minFrequencyHz, capabilities.maxFrequencyHz)
   if (startHz > stopHz) invalid('config.startHz / stopHz')
   const measurements = array(item.measurements, 'measurements', 32).map(measurement)
   if (new Set(measurements.map((entry) => entry.name)).size !== measurements.length) invalid('measurement names')
+  if (measurements.some(entry => entry.receiverPort > portCount || entry.sourcePort > portCount)) invalid('measurement port capability')
   return {
     identity: text(item.identity, 'identity'),
     backend: text(item.backend, 'backend'),
@@ -100,9 +112,10 @@ export function decodeStatus(value: unknown): InstrumentStatus {
     revision: identity(item.revision, 'revision'),
     runId: identity(item.runId, 'runId'),
     activeConfigValid: flag(item.activeConfigValid, 'activeConfigValid'),
+    capabilities,
     config: {
       startHz, stopHz,
-      points: integer(config.points, 'config.points', 2, 10001),
+      points: integer(config.points, 'config.points', capabilities.minSweepPoints, capabilities.maxSweepPoints),
       ifBandwidthHz: number(config.ifBandwidthHz, 'config.ifBandwidthHz', 10),
       triggerSource: choice(config.triggerSource, 'config.triggerSource', ['IMM', 'MAN']),
       sweepMode: choice(config.sweepMode, 'config.sweepMode', ['HOLD', 'SING', 'CONT']),
@@ -137,7 +150,7 @@ export function decodeFrame(value: unknown): FrameResponse {
   const count = integer(item.displayPointCount, 'frame.displayPointCount', 1, 2001)
   const originalCount = integer(item.originalPointCount, 'frame.originalPointCount', count, 10001)
   const axis = array(item.frequencyHz, 'frame.frequencyHz', 2001)
-    .map((entry) => number(entry, 'frame.frequencyHz', 1, 1e9))
+    .map((entry) => number(entry, 'frame.frequencyHz', Number.MIN_VALUE))
   if (axis.length !== count || axis.some((entry, index) => index > 0 && entry < axis[index - 1]!)) invalid('frame axis')
   const decimated = flag(item.decimated, 'frame.decimated')
   if (decimated !== (originalCount > count)) invalid('frame.decimated')

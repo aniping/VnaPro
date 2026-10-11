@@ -145,3 +145,26 @@ test('unrepresentable Autoscale ranges cannot replace a fixed scale or reactivat
     assert.equal(workspace.canAutoscale.value, false)
   }
 })
+
+test('display selection keeps a larger catalog, replaces only the active slot and permits an empty display', async context => {
+  const scope = effectScope()
+  context.after(() => scope.stop())
+  const catalog = ref(Array.from({ length: 5 }, (_, index) => ({ ...reflect, name: `Trace ${index + 1}` })))
+  const workspace = scope.run(() => useWorkspace(() => catalog.value, () => null))!
+  assert.deepEqual(workspace.displayedNames.value, ['Trace 1', 'Trace 2', 'Trace 3', 'Trace 4'])
+  workspace.selectTrace('Trace 2')
+  workspace.selectTrace('Trace 5')
+  assert.deepEqual(workspace.displayedNames.value, ['Trace 1', 'Trace 5', 'Trace 3', 'Trace 4'])
+  assert.equal(catalog.value.length, 5)
+  assert.ok(workspace.presentations['Trace 2'])
+  for (const name of [...workspace.displayedNames.value]) workspace.setDisplayed(name, false)
+  catalog.value = catalog.value.map(item => ({ ...item }))
+  await nextTick()
+  assert.deepEqual(workspace.displayedNames.value, [])
+  assert.equal(workspace.activeTraceName.value, '')
+  workspace.setDisplayed('Trace 5', true)
+  assert.deepEqual(workspace.displayedMeasurements.value.map(item => item.name), ['Trace 5'])
+  catalog.value = catalog.value.filter(item => item.name !== 'Trace 5')
+  await nextTick()
+  assert.deepEqual(workspace.displayedNames.value, [])
+})

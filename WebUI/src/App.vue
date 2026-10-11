@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import InstrumentToolbar from './components/instrument/InstrumentToolbar.vue'
 import HardkeyPanel from './components/instrument/HardkeyPanel.vue'
 import InstrumentStatusBar from './components/instrument/InstrumentStatusBar.vue'
@@ -20,6 +20,8 @@ const { status, frame, connected, hasControl, canWrite, canConfigure, pendingOpe
 const measurements = computed(() => status.value?.measurements ?? [])
 const workspace = useWorkspace(() => measurements.value, () => frame.value)
 const { presentations, activeTraceName, activeMeasurement, activePresentation, activeIndex, layout, canAutoscale } = workspace
+const { displayedNames, displayedMeasurements } = workspace
+watch(displayedNames, names => instrument.setDisplayedMeasurements(names), { flush: 'sync' })
 const displayedMeasurement = computed(() => frame.value?.traces.find(trace => trace.name === activeTraceName.value) ?? activeMeasurement.value)
 const activeTool = ref('start')
 const softtoolVisible = ref(true)
@@ -95,16 +97,16 @@ onBeforeUnmount(() => {
               @select-tool="selectTool" @toggle-layout="layout = layout === 'grid' ? 'maximized' : 'grid'" @autoscale="workspace.autoscale"
               @toggle-marker="workspace.setMarker({ enabled: !activePresentation?.marker.enabled })" @export-csv="exportCsv" @single="instrument.run('single')"
               @add-trace="selectTool('meas')" @delete-trace="deleteActive" />
-            <DiagramWorkspace :frame="frame" :measurements="measurements" :presentations="presentations" :active-trace-name="activeTraceName" :layout="layout"
+            <DiagramWorkspace :frame="frame" :measurements="displayedMeasurements" :presentations="presentations" :active-trace-name="activeTraceName" :layout="layout"
               :config="status?.config ?? emptyConfig" :frame-condition="frameCondition" @select-trace="workspace.selectTrace" @toggle-visibility="workspace.toggleVisibility"
               @set-layout="layout = $event" @add-marker="workspace.setMarker({ enabled: true })"
-              @move-marker="workspace.setMarker({ enabled: true, frequencyHz: $event.frequencyHz }, $event.name)" />
+              @move-marker="workspace.setMarker({ enabled: true, frequencyHz: $event.frequencyHz, sampleIndex: $event.sampleIndex }, $event.name)" />
           </section>
           <SofttoolHost v-show="softtoolVisible" :title="title" :tabs="tabs" :active-tab="activeTab" @select="selectTool" @close="softtoolVisible = false">
             <StimulusSofttool v-show="group === 'stimulus'" :status="status" :can-configure="canConfigure" :busy="busy" :focus-field="focusField" :apply="instrument.configure" />
-            <MeasurementSofttool v-show="group === 'measurement'" :status="status" :can-configure="canConfigure" :busy="busy" :active-trace-name="activeTraceName" :add="instrument.addMeasurement" :remove="instrument.deleteMeasurement" @select-trace="workspace.selectTrace" />
+            <MeasurementSofttool v-show="group === 'measurement'" :status="status" :can-configure="canConfigure" :busy="busy" :active-trace-name="activeTraceName" :displayed-names="displayedNames" :add="instrument.addMeasurement" :remove="instrument.deleteMeasurement" @select-trace="workspace.selectTrace" @display="workspace.setDisplayed($event.name, $event.enabled)" />
             <TraceSofttool v-if="group === 'trace'" :mode="activeTool as 'format' | 'scale' | 'marker' | 'trace-config'" :measurement="activeTool === 'trace-config' ? activeMeasurement : displayedMeasurement" :presentation="activePresentation" :frame="frame" :index="activeIndex" :layout="layout" :can-autoscale="canAutoscale"
-              @format="workspace.setFormat" @scale="workspace.setScale" @autoscale="workspace.autoscale" @marker="workspace.setMarker" @toggle-visibility="workspace.toggleVisibility()" />
+              @format="workspace.setFormat" @scale="workspace.setScale" @smith-radius="workspace.setSmithRadius" @autoscale="workspace.autoscale" @marker="workspace.setMarker" @toggle-visibility="workspace.toggleVisibility()" />
             <SweepSofttool v-show="group === 'sweep'" :status="status" :can-write="canWrite" :busy="busy" :action="instrument.run" />
             <SystemSofttool v-if="group === 'system'" :mode="activeTool" :status="status" :frame="frame" :layout="layout" :connected="connected" :has-control="hasControl" :control-busy="controlBusy"
               @layout="layout = $event" @export="exportCsv" @acquire="instrument.claim()" @release="instrument.release()" />

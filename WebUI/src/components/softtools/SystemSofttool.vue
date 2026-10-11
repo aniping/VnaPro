@@ -11,7 +11,7 @@ const emit = defineEmits<{ layout: [value: LayoutMode]; export: []; acquire: [];
     <button class="softtool-choice" :class="{ 'is-active': layout === 'grid' }" :aria-pressed="layout === 'grid'" @click="emit('layout', 'grid')">All Diagrams</button>
     <button class="softtool-choice" :class="{ 'is-active': layout === 'maximized' }" :aria-pressed="layout === 'maximized'" @click="emit('layout', 'maximized')">Maximized · Active</button>
     <button class="softtool-choice" :class="{ 'is-active': layout === 'single' }" :aria-pressed="layout === 'single'" @click="emit('layout', 'single')">Overlay All</button>
-    <p class="softtool-note">最多显示前四条接收波。Maximized 仅显示当前迹线；Overlay 共用当前迹线的纵轴。</p>
+    <p class="softtool-note">Meas 中选择最多四条显示迹线。Maximized 仅显示当前迹线；Overlay 按矩形与 Smith 坐标分窗，避免混画。</p>
     <div class="softtool-divider" />
     <h2 class="softtool-section-title">Instrument Workspace</h2>
     <div class="softtool-readout"><span>Reference canvas</span><strong>1280 × 800</strong></div>
@@ -27,12 +27,12 @@ const emit = defineEmits<{ layout: [value: LayoutMode]; export: []; acquire: [];
   </section>
   <section v-else-if="mode === 'help'" class="softtool-section">
     <h2 class="softtool-section-title">Quick Start</h2>
-    <ol class="softtool-help"><li>Stimulus：填写频率、点数和 IF 带宽，再 Apply。</li><li>Meas：添加 a / b 接收波，指定接收端口和激励端口。</li><li>Sweep：Single 采一帧；Continuous 连续采集；Hold 停止。</li><li>点击图内迹线条，Format / Scale / Marker 只调整该迹线显示。</li></ol>
+    <ol class="softtool-help"><li>Stimulus：在仪器能力范围内填写频率、点数和 IF 带宽，再 Apply。</li><li>Meas：添加 S11/S21/S12/S22 或 RAW，选择最多四条显示迹线。</li><li>Sweep：Single 采一帧；Continuous 连续采集；Hold 停止。</li><li>点击图内迹线条，Format / Scale / Marker 只调整该迹线显示。</li></ol>
     <div class="softtool-divider" />
     <h2 class="softtool-section-title">Marker M1</h2>
     <p class="softtool-note">在曲线图点击或拖动选择真实频点。聚焦绘图区，← / → 移动一频点，Shift 移动十点，Home / End 到两端。</p>
     <div class="softtool-divider" />
-    <p class="softtool-note">NativeSimulator 支持 RAW 接收波与未校准 S11/S21。未实现误差校准、S12/S22、Smith 图与 RF 控制；相关入口禁用。界面参考 ZNB，远程 SCPI 使用已有 Keysight 命令子集。</p>
+    <p class="softtool-note">NativeSimulator 支持 RAW 与未校准 S11/S21/S12/S22；S11/S22 可显示 Smith 的 Γ 与归一化阻抗。校准与 RF 控制尚未实现。界面参考 ZNB，远程 SCPI 使用已有 Keysight 命令子集。</p>
   </section>
   <section v-else class="softtool-section">
     <h2 class="softtool-section-title">Instrument</h2>
