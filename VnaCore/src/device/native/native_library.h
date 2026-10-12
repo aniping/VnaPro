@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "device/dynamic_library.h"
 #include "device/native/native_functions.h"
 
 namespace VnaCore {
@@ -34,7 +35,7 @@ public:
     }
 
 private:
-    void *handle_ = nullptr;
+    DynamicLibrary library_;
     NativeFunctions functions_;
 };
 

@@ -12,6 +12,7 @@ endif()
 add_library(vna_core STATIC
     src/acquisition_core.cpp
     src/device/plan_preparation_error.cpp
+    src/device/dynamic_library.cpp
     src/device/native/native_library.cpp
     src/device/native/native_device_session.cpp
 )
