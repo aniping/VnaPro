@@ -14,6 +14,7 @@ add_subdirectory(VnaNativeSimulator)
 add_subdirectory(VnaLog)
 add_subdirectory(VnaCore)
 add_subdirectory(VnaMeasurement)
+add_subdirectory(VnaDisplay)
 add_subdirectory(VnaService)
 add_subdirectory(VnaServer)
 
