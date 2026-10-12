@@ -76,23 +76,23 @@ instrument:
 
 面板采用 ZNB8 的窄工具栏、黑色网格绘图区、右侧软工具与分组功能键、底部菜单状态栏。基准为 1280 × 800，绘图区/软工具/硬键宽度为 848/272/160 px；窗口按比例缩放，Esc 收起软工具并扩大绘图区。首次连接在控制权空闲时尝试取得租约。然后在 HOLD 下编辑 Start / Stop / Points / IFBW 并 Apply，等待设备完成且读回配置后，在 Sweep 中按 Single sweep。Continuous 启动连续扫描，Hold 等待当前完整帧收尾。Meas 的 S-Params 矩阵直接修改活动迹线的 S11/S12/S21/S22，保留名称和目录位置；Wave 提供六个快捷波量及 More Wave Quantities 的任意支持端口选择。新增/复制、删除和显示集合放在 Trace Config；Add Trace 复制活动测量并自动命名 Trc<n>。CONT 中可修改活动测量、复制或删除迹线，无需手动 HOLD。已有采集计划覆盖所需波量时直接复算当前完整帧；缺少源端口或接收机时，后台在完整帧边界提交新计划，等待匹配的新帧。
 
-点击图内迹线条选择当前迹线，Format / Scale / Marker / Trace Config 的格式、刻度、M1 和可见性分别属于该迹线。显示支持对数幅度、线性幅度、相位、实部、虚部与实虚部叠加，以及 S11/S22 的 Smith 图、标记点、缩放及 CSV 导出。初始对数刻度为 −90…10 dB、Ref 0 在第 9 格，Autoscale 才按实际数据放大。网格铺满图窗，纵轴刻度叠在网格内，Start/Stop 在底部黑色通道行；`▼ 图号` 菜单切换全部图窗、当前迹线最大化或同窗叠加，并添加 M1。手册原始界面图和网上实机照片见[参考图档案](docs/reference/znb8/README.md)。S11=b1/a1、S21=b2/a1 来自源端口 1，S12=b1/a2、S22=b2/a2 来自源端口 2；每个比值的分子与参考来自同一源帧；结果无量纲，仪器状态与迹线提示明确标为“未校准”。原始 A/B 波仍标为 RAW，对数幅度相对于 `1 a.u.`，没有改成 S 参数或校准数据。
+选中、显示集合、布局、格式、刻度和 Marker 由 C++ 统一保存，另一观察窗口和刷新后可见；前端只持有只读快照和未提交草稿。点击图内迹线条选择当前迹线，Format / Scale / Marker / Trace Config 的格式、刻度、M1 和可见性分别属于该迹线。显示支持对数幅度、线性幅度、相位、实部、虚部与实虚部叠加，以及 S11/S22 的 Smith 图、标记点、缩放及 CSV 导出。初始对数刻度为 −90…10 dB、Ref 0 在第 9 格，Autoscale 才按实际数据放大。网格铺满图窗，纵轴刻度叠在网格内，Start/Stop 在底部黑色通道行；`▼ 图号` 菜单切换全部图窗、当前迹线最大化或同窗叠加，并添加 M1。手册原始界面图和网上实机照片见[参考图档案](docs/reference/znb8/README.md)。S11=b1/a1、S21=b2/a1 来自源端口 1，S12=b1/a2、S22=b2/a2 来自源端口 2；每个比值的分子与参考来自同一源帧；结果无量纲，仪器状态与迹线提示明确标为“未校准”。原始 A/B 波仍标为 RAW，对数幅度相对于 `1 a.u.`，没有改成 S 参数或校准数据。
 
 测量目录最多 32 项，显示集合最多 4 条，可在 Trace Config 切换 Display On/Off；选择目录后面的测量时按显示槽位替换，不删除测量定义。CSV 和网页显示最多 2001 个均匀选取的真实频点，超过时明确显示原始点数与展示点数；SCPI 仍返回完整数组。无帧、旧配置帧、断线与故障均显示状态，不生成演示曲线。保留旧帧时频轴和点数来自该帧，IFBW 显示 `—`，避免将新配置值标在旧数据上。校准、RF 开关、预设等未实现入口禁用。Smith 图只用于反射参数 S11/S22，直接以实际复数 Γ 投影；阻抗显示为归一化 z=(1+Γ)/(1−Γ)，不假定物理参考阻抗。|Γ|>1 不夹紧，Γ=1 显示开路状态，保留有效的原始 Γ。每条迹线独立保存格式与尺度，Smith 和直角坐标混合时分窗显示。
 
 需要观察采集变化时，在启动服务前设置 `$env:VNAPRO_SIM_MODE = 'noise'` 和 `$env:VNAPRO_SIM_SEED = '42'`；DLL 在每次成功采集时加入最多 0.2% 的可重放复数噪声。Continuous 配合 Autoscale 可查看细微变化，HOLD 后数据固定。默认 `golden` 保留固定数值用于验收，模式在设备 Init 时冻结。完整验收场景、结果与 ThreadSanitizer 复验命令见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
-Autoscale 按点击时当前迹线的显示数据适配一次并固定刻度；Continuous 后续帧只更新曲线，不改变每格刻度、参考值或纵轴标签。再次点击才重新适配，其他迹线保持各自刻度；无有效显示点或无法得到有限、非零范围时禁用 Autoscale，保留原刻度。
+Autoscale 由 C++ 按执行时当前迹线的完整原始帧适配一次并固定刻度；Continuous 后续帧只更新曲线，不改变每格刻度、参考值或纵轴标签。再次点击才重新适配，其他迹线保持各自刻度；无有效显示点或无法得到有限、非零范围时禁用 Autoscale，保留原刻度。
 
 从 CLion 启动时，在 `vna_server` 的运行配置中，将 Environment variables 填为 `VNAPRO_SIM_MODE=noise;VNAPRO_SIM_SEED=42`，两项用分号分隔，值不带引号或前后空格；也可打开变量表格，分别填写名称和值。模式 `noise `（末尾含空格）会使模拟器初始化返回 `1`（参数无效）。设置完成后停止并重新运行服务。只在另一个 PowerShell 窗口设置变量，不会改变已经运行的 CLion 或服务进程。网页重新连接后按 Continuous，等新帧出现，再按 Autoscale；固定数据模式下得到的微小刻度不适合噪声模式。
 
 Sweep 面板的 Run 是本次运行编号，连续采集期间保持不变；底部状态栏的 `F` 是帧序号，完整帧发布后才递增。判断采集是否推进，应观察 `F`。在默认 `golden` 模式中，帧序号递增而曲线保持相同属于预期行为。
 
-Web 与 SCPI 共用独占控制权：SCPI 控制连接存在时，网页只读；网页持权时，新 SCPI 连接会被拒绝。Web token 的 30 秒租约由页面每 10 秒续租，释放或到期后先排空已接受有限操作，再允许接管。接管者继承实际扫描状态；修改频率、点数和 IFBW 时先 HOLD，修改测量目录可保持 CONT。Web 观察不消费 SCPI 错误队列。开发时运行 `WebUI` 中的 `npm run dev`，访问 `127.0.0.1:5173`，Vite 将 `/api` 代理到 `127.0.0.1:8080`。详细分层、使用与限制见 [前端说明](WebUI/README.md) 和 [服务设计](docs/网分服务与远程控制设计.md)。
+Web 与 SCPI 共用唯一写控制权：其他网页及 SCPI 连接可只读观察。SCPI 最多 8 个连接，已有控制者时新连接固定为观察者；写请求或读清查询会关闭观察连接，不执行混合消息的前缀。Web token 的 30 秒租约由页面每 10 秒续租，释放或到期后先排空已接受有限操作，再允许接管。接管者继承实际扫描状态；修改频率、点数和 IFBW 时先 HOLD，修改测量目录可保持 CONT。Web 观察不消费 SCPI 错误队列。开发时运行 `WebUI` 中的 `npm run dev`，访问 `127.0.0.1:5173`，Vite 将 `/api` 代理到 `127.0.0.1:8080`。详细分层、使用与限制见 [前端说明](WebUI/README.md) 和 [服务设计](docs/网分服务与远程控制设计.md)。
 
 ## 使用 TCP SCPI 验证
 
-一个 TCP 连接取得仪器控制权，第二个连接被关闭。每条程序消息以 LF 或 CRLF 结束；设置命令无确认响应，多条查询响应以分号分隔并以 LF 结束。可以用 socket 或 VISA TCPIP SOCKET 客户端发送：
+控制权空闲时，一个 TCP 连接取得写控制权，其余连接只读；观察连接不会自动升级，可重新连接取得空闲控制权。每条程序消息以 LF 或 CRLF 结束；设置命令无确认响应，多条查询响应以分号分隔并以 LF 结束。可以用 socket 或 VISA TCPIP SOCKET 客户端发送：
 
 ```text
 *IDN?
@@ -135,13 +135,14 @@ CALC1:DATA? RDATA
 | `VnaCore/include/vna_core` | 配置、不可变完整帧、异步命令结果与状态视图 |
 | `VnaCore/src` | 命令 FIFO、单 worker 生命周期、Native 加载与帧转换 |
 | `VnaMeasurement` | 测量定义、同帧原始波提取、未校准复数比值及逐点有效性 |
-| `VnaService` | 物理配置、测量目录、控制权、有限操作及仪器错误状态 |
+| `VnaDisplay` | 共享显示状态、格式投影、一次 Autoscale、原始点及插值 Marker |
+| `VnaService` | 物理配置、测量目录、显示命令、控制权、有限操作及仪器错误状态 |
 | `VnaServer/src/scpi` | 标准命令解析、命令映射、同步屏障、ASCII 响应 |
 | `VnaServer/src/scpi_tcp_server.*` | TCP 分包/粘包、连接准入、部分发送和网络预算 |
 | `VnaServer/src/network` | SCPI/Web 共用的平台 Socket 操作、网络初始化与句柄生命周期 |
 | `VnaServer/src/web` | 有界 HTTP、静态资源、类型化 API、租约与操作结果 |
 | `WebUI/src/api` | 类型化 HTTP、严格响应解码、服务签发的会话 token |
-| `WebUI/src/composables` | 设备读回/有限操作与逐迹线显示状态，各自维护一份真值 |
+| `WebUI/src/composables` | 后端只读快照、命令完成读回与控制租约，不维护仪器真值 |
 | `WebUI/src/components` | 仪器外壳、软工具、绘图组件与共享输入 |
 | `WebUI/src/plot` | 纯显示换算、Canvas 投影、真实频点标记和 CSV |
 | `WebUI/src/styles` / `WebUI/test` | 视觉变量、外壳/软工具样式与数据、并发、绘图合同测试 |
@@ -160,3 +161,5 @@ Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头
 模拟 profile 明确采用整数 Hz → raw frequency、逻辑 aN/bN → Native A/B、9N 零值 opaque 表。真实驱动的单位、接收器及功率表合同尚未确认，服务启动会拒绝非 VnaPro 模拟器身份，避免误用该约定。
 
 设计见 [核心采数更新软件设计](docs/网分核心采数更新软件设计.md) 和 [服务与远程控制设计](docs/网分服务与远程控制设计.md)。命令参照 [Keysight 官方 SCPI 文档](https://helpfiles.keysight.com/csg/N52xxB/Programming/GP-IB_Command_Finder/Common_Commands.htm)，具体白名单与兼容限制见服务设计。
+
+共享仪器显示状态、完整帧投影、跨协议同步和显示写入活动图见[共享显示域设计](docs/共享显示域设计.md)。

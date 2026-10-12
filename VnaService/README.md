@@ -1,6 +1,6 @@
 # 仪器服务与 SCPI 引擎
 
-`vna_service` 只使用 `vna_core` 公开接口；`vna_scpi` 将已登记的 Keysight N52xxB 命令转换为服务操作，不访问驱动。当前实现单通道，SCPI 与 Web 共用服务及独占控制权，兼容范围为已登记的 PNA 命令子集。
+`vna_service` 使用 `vna_core`、`vna_measurement` 与 `vna_display` 的公开接口；`vna_scpi` 将已登记的 Keysight N52xxB 命令转换为服务操作，不访问驱动。当前实现单通道，SCPI 与 Web 共用服务及独占控制权，兼容范围为已登记的 PNA 命令子集。
 
 按职责组织类型：instrument_settings.h 放置 InstrumentSettings、ConfigPatch 与配置关联的 TriggerSource/SweepMode；service_task.h 将内部 ServiceTask 与 Kind/Stage 放在一起。Measurement、OperationResult、InstrumentError、DataResult、InstrumentSnapshot 各自有独立的测量定义、异步结果、错误队列、查询数据和状态快照职责，保留独立头文件。instrument_service.h 声明服务入口并包含所需类型。Measurement::Parameter 的行为在 VnaMeasurement/src/measurement.cpp，InstrumentService 直接管理控制归属、设置、错误寄存器和任务 FIFO。ServiceTask 按值存储，Kind 区分物理配置 CONFIGURE 与测量目录 MEASUREMENTS，Stage 标明配置、触发和停止屏障；每个状态推进函数独立可读。测试受控设备和 Fixture 各自独立，通过 Core 的公开所有权注入构造函数接入；长实现位于对应 cpp，由 vna_service_test_support 链接到测试目标。
 
@@ -22,11 +22,11 @@
 - 仅模拟合同规定一个 frequencyRaw 计数等于 1 Hz，IFBW raw 采用相同整数；9N 表全零且为 opaque 数据，不代表真实功率、增益或校准表。
 - 默认支持频率范围 10 MHz–8 GHz，由 instrument.frequency 配置，端点按整数 Hz 回读；端点交叉保留旧 span，联动另一端点，联动后超范围则拒绝整个候选。
 - 点数 2–10001；IFBW 有效值为 10、100、1000、10000、100000 Hz，向上取适用值。频率、点数及 IFBW 等物理扫描配置仍只允许 HOLD 且无未完成有限测量；执行时再次校验状态和逻辑 expectedRevision。
-- 配置候选提交期间，服务的直接测量选择和触发范围修改报告状态冲突，防止整份候选提交覆盖已成功修改的字段；两者也必须持有控制权。有限测量期间仍允许选择已定义的曲线。
+- 协议测量选择走 DISPLAY FIFO，不覆盖正在提交的配置候选；有限采集期间可受理并在先前完整帧终结后执行。保留的原生同步选择入口仅在 SCPI 持权且 FIFO 为空时使用；触发范围修改仍须持权且无待处理配置。
 - `UpdateMeasurement(measurement, expectedRevision, owner)` 原位替换已存在的同名定义，保留名称、目录顺序、数量和当前选择；目录满 32 项时也能更新。它与新增、删除使用独立的 MEASUREMENTS 任务，Ready 和 Running 都可受理，不要求 HOLD；执行时重新校验控制权、逻辑版本及能力，不存在的名称不会被隐式创建。
 - 接收器映射仅采用模拟器明确的 IQ 布局，每点四端口、每端口 A.real/A.imag/B.real/B.imag。非比值参数接受已配置能力内的 `a1..a4` 或 `b1..b4` 和源端口 1..portCount（最高 4）；接收器字母大小写不敏感，测量名称保留大小写。
 
-浏览器首次打开或刷新只读取已有服务目录，不调用启动初始化，也不把用户已设置的测量恢复成默认值。Meas 通过 `PUT /api/v1/measurements/{name}` 更新活动迹线，名称取自路径；新增、显示和删除归 Trace Config，Add Trace 复制活动测量定义并生成未使用的 `Trc<n>`。这不增加任何 SCPI 命令。
+浏览器首次打开或刷新只读取已有服务目录，不调用启动初始化，也不把用户已设置的测量恢复成默认值。Meas 通过 `PUT /api/v1/measurements/{name}` 更新活动迹线，名称取自路径；新增、显示和删除归 Trace Config，Add Trace 通过后端 Clone 事务复制活动测量定义、分配未使用的 `Trc<n>` 并选中。这不增加任何 SCPI 命令。
 
 ## 测量目录与采集版本
 
@@ -40,7 +40,7 @@ SING 或手动 Trigger 的有限任务尚未完成时，目录写请求仍可受
 
 准备缓冲失败未触碰设备，保留原目录、两个版本、计划及 CONT/MAN 状态。设备部分下发失败进入 Faulted，服务归一为 HOLD，不能把旧计划标为有效；Closed 同样归一 HOLD。执行时也核对核心物理版本与 acquisitionRevision，禁止绕过服务的 Core 配置更改破坏覆盖缓存。
 
-状态 API 的 `revision` 用于写请求 CAS，`acquisitionRevision` 用于原始帧身份校验。帧 API 的 `revision` 保持物理版本，`measurementRevision` 标识此次计算所用目录的逻辑版本；浏览器同时配对这两个版本，避免并行读取时将旧参数曲线套用新标题。格式、刻度、标记和显示集合仍是独立显示操作，不进入服务配置队列。
+状态 API 的 `revision` 用于写请求 CAS，`acquisitionRevision` 用于原始帧身份校验。帧 API 的 `revision` 保持物理版本，`measurementRevision` 标识此次计算所用目录的逻辑版本；浏览器同时配对这两个版本，避免并行读取时将旧参数曲线套用新标题。格式、刻度、标记和显示集合由 VnaDisplay 统一管理，进入服务 DISPLAY FIFO，独立显示版本不修改采集版本。
 
 职责划分依据 [ZNB User Manual v74 第 77～79 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=77) 的迹线设置、硬件通道设置及改测量后的准备过程，以及[第 87～88 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=87) 的逐迹线数据流。本项目的双版本与完整帧边界是自身实现合同，不推定为厂商内部机制。
 
@@ -48,7 +48,7 @@ SING 或手动 Trigger 的有限任务尚未完成时，目录写请求仍可受
 
 ## 已实现范围
 
-支持设计白名单中的身份、错误、ESE/ESR/SRE/STB、OPC/WAI、线性频率/点数/IFBW、触发源/范围、CONT/SING/HOLD、INIT:CONT、空闲 MAN 下 INIT、测量定义/选择/目录/删除、ASCii,0、SENS:X? 和 CALC:DATA? RDATA。支持正式短名/全名、通道 1 后缀、分号消息、相对路径、单/双引号、指数数值与 Hz/kHz/MHz/GHz。测量名称保留大小写。
+支持共享显示域的标准格式、尺度、M1 与有界只读观察连接；以及设计白名单中的身份、错误、ESE/ESR/SRE/STB、OPC/WAI、线性频率/点数/IFBW、触发源/范围、CONT/SING/HOLD、INIT:CONT、空闲 MAN 下 INIT、测量定义/选择/目录/删除、ASCii,0、SENS:X? 和 CALC:DATA? RDATA。支持正式短名/全名、通道 1 后缀、分号消息、相对路径、单/双引号、指数数值与 Hz/kHz/MHz/GHz。测量名称保留大小写。
 
 SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC 响应前通道进入 HOLD。MAN+CONT 等待 INIT；INIT:CONT OFF 选择手动源，不等同 HOLD。忙时 INIT、中止 ABOR、复位 RST、外触发、组数、校准及二进制格式尚未开放；未校准 S11/S21/S12/S22 已开放。
 
@@ -65,3 +65,7 @@ SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC �
 `instrument_profile` 验证 1/2/4 端口的新服务默认测量、HOLD 和无初始帧，并独立检查默认 S 参数确实经过复比值计算。`service_measurement` 覆盖原位切换、源 2 参考波、旧帧失效、能力/控制权/状态/版本拒绝、设备准备失败回退、满目录更新及排队版本竞争；历史 RAW 和黄金向量用例显式准备自己的测量目录。
 
 `live_measurement` 使用阻塞关卡核对 CONT 中同帧重算、新增源的完整帧边界、旧帧计划与 IQ 深不可变、准备失败仍运行、目录新增/删除不重复下发、CAS/控制者/2 端口能力、MAN armed 无隐式触发，以及物理扫描配置仍要求 HOLD。
+
+共享仪器显示状态、完整帧投影、跨协议同步和显示写入活动图见[共享显示域设计](../docs/共享显示域设计.md)。
+
+显示域接口采用独立 displayRevision CAS；控制者与观察者读取同一 DisplayState。观察连接不自动升级，写命令、事件读清及错误出队整条拒绝并关闭；不会释放其他控制者，也不会修改全局错误队列。
