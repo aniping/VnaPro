@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "fixture.h"
+#include "vna_display/trace_projection.h"
 
 namespace {
 using VnaDisplay::DisplayChange;
@@ -274,7 +275,7 @@ void CloneCopiesDisplaySettingsAndIndependentMarkers()
     DisplayChange format;
     format.kind = DisplayChangeKind::FORMAT;
     format.format = VnaDisplay::DisplayFormat::PHASE;
-    Require(Finish(fixture, service.ApplyDisplay(format)).ok, "设置供 Smith 恢复的矩形格式");
+    Require(Finish(fixture, service.ApplyDisplay(format)).ok, "设置源矩形格式，格式改变时采用目标默认刻度");
     DisplayChange scale;
     scale.kind = DisplayChangeKind::SCALE;
     scale.scale.hasMin = true;
@@ -302,6 +303,11 @@ void CloneCopiesDisplaySettingsAndIndependentMarkers()
     marker.marker.sampleIndex = 71U;
     Require(Finish(fixture, service.ApplyDisplay(marker)).ok, "设置源 M2 并选中");
     const auto source = service.Display().traces.front();
+    const auto sameFormatRevision = service.Display().revision;
+    Require(Finish(fixture, service.ApplyDisplay(format)).ok && service.Display().revision == sameFormatRevision &&
+                service.Display().traces.front().smithRadius == source.smithRadius &&
+                service.Display().traces.front().markers.SameSettings(source.markers),
+        "重复设置当前格式必须保持自定义半径、标记与显示版本，不得重置默认尺度");
     Require(
         Finish(fixture, service.CloneMeasurement("", service.Settings().revision, service.Display().revision, "SCPI"))
             .ok,
@@ -322,12 +328,19 @@ void CloneCopiesDisplaySettingsAndIndependentMarkers()
                 service.Display().traces.back().markers.Find(1U)->sampleIndex == 33U &&
                 service.Display().traces.back().markers.Find(2U)->sampleIndex == 71U,
         "目标标记集合与活动编号必须独立，不能移动源标记或目标的另一个标记");
+    const auto movedMarkers = service.Display().traces.back().markers;
     format.format = VnaDisplay::DisplayFormat::PHASE;
+    // ZNB 切换格式采用目标默认尺度，不恢复切到 Smith 前的历史矩形范围。
+    const auto phaseDefault = VnaDisplay::TraceProjection::DefaultScale(format.format);
     Require(Finish(fixture, service.ApplyDisplay(format)).ok &&
-                service.Display().traces.back().scale.min == source.scale.min &&
-                service.Display().traces.back().scale.max == source.scale.max &&
-                service.Display().traces.front().format == VnaDisplay::DisplayFormat::SMITH,
-        "目标从 Smith 恢复原矩形格式时保留复制尺度，源格式保持独立");
+                service.Display().traces.back().scale.min == phaseDefault.min &&
+                service.Display().traces.back().scale.max == phaseDefault.max &&
+                service.Display().traces.back().scale.referencePosition == phaseDefault.referencePosition &&
+                service.Display().traces.back().markers.SameSettings(movedMarkers) &&
+                service.Display().traces.front().format == VnaDisplay::DisplayFormat::SMITH &&
+                service.Display().traces.front().smithRadius == source.smithRadius &&
+                service.Display().traces.front().markers.SameSettings(source.markers),
+        "目标切回 Phase 应采用默认尺度并保留本标记集合，不得修改源格式、半径或标记");
 }
 }  // 匿名命名空间
 

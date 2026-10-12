@@ -91,6 +91,7 @@ struct FrameContext final {
 
 enum class DisplayChangeKind {
     SELECT,
+    MEASUREMENT_SELECT,
     DISPLAYED,
     LAYOUT,
     FORMAT,
@@ -98,7 +99,12 @@ enum class DisplayChangeKind {
     AUTOSCALE,
     SMITH_RADIUS,
     VISIBLE,
-    MARKER
+    MARKER,
+    DIAGRAM_ADD,
+    DIAGRAM_REMOVE,
+    DIAGRAM_SELECT,
+    OVERLAY,
+    SPLIT
 };
 
 struct ScaleChange final {
@@ -116,8 +122,10 @@ struct ScaleChange final {
 
 struct DisplayChange final {
     DisplayChangeKind kind = DisplayChangeKind::SELECT;
-    // 名称为空时使用执行时选中项；槽号是从 1 开始的全局显示槽。
+    // 名称为空时使用执行时选中项；槽号是从 1 开始的图窗内显示槽。
     std::string name;
+    // 零表示使用执行时活动图窗，显式编号避免多个窗口操作互相覆盖。
+    unsigned diagram = 0U;
     bool hasSlot = false;
     unsigned slot = 0U;
     bool hasDisplayedNames = false;
@@ -155,13 +163,18 @@ public:
     const DisplayState &State() const noexcept;
     // 返回独立快照；客户端断开或浏览器刷新不改变已应用的状态。
     DisplayState Snapshot() const;
-    // 只读派生图窗分组、原图号和主迹线；输出不改变状态或扩展 SCPI 窗口合同。
+    // 返回全部已保存图窗；最大化只是显示方式，不删除其他图窗或迹线。
     static std::vector<DisplayDiagram> ArrangeDiagrams(const DisplayState &state);
     // 目录提交后保留同名设置，并原子移除无效项和不再适用的显示格式。
     DisplayResult Reconcile(const std::vector<VnaMeasurement::Measurement> &catalog);
     // 复制已协调源迹线的全部显示设置并选择目标；失败不改变任何状态，标记集合独立持有。
     DisplayResult ClonePresentation(const std::string &sourceName, const std::string &targetName,
-        const std::vector<VnaMeasurement::Measurement> &catalog);
+        const std::vector<VnaMeasurement::Measurement> &catalog, unsigned diagram = 0U, bool newDiagram = false);
+    // 新测量使用默认显示设置，归属与选择在一个候选中完成。
+    DisplayResult AddPresentation(const std::string &name, const std::vector<VnaMeasurement::Measurement> &catalog,
+        unsigned diagram = 0U, bool newDiagram = false);
+    // 原生删除图窗时连续重编号；SCPI 删除显示窗口不删除测量定义。
+    DisplayResult RemoveDiagram(unsigned diagram, bool renumber);
     // 按候选真实刺激轴协调标记；轴未改变时保留合法离散下标，否则按保存的频率重新吸附。
     DisplayResult ReconcileAxis(const std::vector<double> &frequencyHz, bool preserveSampleIndexes);
     // 核心成功提交后，仅绑定已验证下标的隐藏版本，不改变显示版本或可见设置。

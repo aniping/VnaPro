@@ -109,7 +109,7 @@ void TestCatalogReconcilePreservesAndRemoves()
     Require(workspace.Apply(smith, catalog, {}).ok, "反射 Smith 失败");
     catalog[0] = Measurement("Trc1", 2U);
     Require(workspace.Reconcile(catalog).ok, "测量改变未重新协调显示状态");
-    Require(workspace.Snapshot().traces.front().format == DisplayFormat::DB, "传输参数保留不适用的 Smith");
+    Require(workspace.Snapshot().traces.front().format == DisplayFormat::SMITH, "目录协调不能按反射量限制 Smith");
     auto visible = Change(DisplayChangeKind::VISIBLE, "Trc2");
     visible.visible = false;
     Require(workspace.Apply(visible, catalog, {}).ok, "隐藏曲线失败");
@@ -316,22 +316,12 @@ void TestMixedFormatsUseBackendDiagramGroups()
     Require(workspace.Apply(smith, catalog, {}).ok, "第二条 Smith 格式设置失败");
     Require(workspace.Apply(Change(DisplayChangeKind::SELECT, "Trc3"), catalog, {}).ok, "选择 Smith 主迹线失败");
     const auto diagrams = DisplayWorkspace::ArrangeDiagrams(workspace.State());
-    Require(
-        diagrams.size() == 2U && diagrams[0].number == 1U && diagrams[1].number == 2U, "混合格式没有稳定分为两个图窗");
-    Require(diagrams[0].measurementNames == std::vector<std::string>{"Trc2", "Trc4"} &&
-                diagrams[0].primaryMeasurement == "Trc2",
-        "矩形格式组未保留顺序或组首主迹线");
-    Require(diagrams[1].measurementNames == std::vector<std::string>{"Trc1", "Trc3"} &&
-                diagrams[1].primaryMeasurement == "Trc3",
-        "Smith 组没有采用全局选中项");
-    auto state = workspace.Snapshot();
-    for (auto &trace : state.traces) {
-        trace.format = DisplayFormat::SMITH;
-        trace.visible = false;
-    }
-    const auto allSmith = DisplayWorkspace::ArrangeDiagrams(state);
-    Require(allSmith.size() == 1U && allSmith.front().measurementNames == state.displayedNames,
-        "同为 Smith 的显示槽或隐藏曲线错误拆分图窗");
+    Require(diagrams.size() == 1U && diagrams.front().measurementNames == workspace.State().displayedNames &&
+                diagrams.front().primaryMeasurement == "Trc3",
+        "混合格式必须保留原图窗和有序目录");
+    const auto revision = workspace.State().revision;
+    Require(DisplayWorkspace::ArrangeDiagrams(workspace.State()).size() == 1U && workspace.State().revision == revision,
+        "读取图窗不能重写显示状态");
 }
 
 void TestGridAndMaximizedRetainOriginalDiagramNumber()
@@ -343,27 +333,21 @@ void TestGridAndMaximizedRetainOriginalDiagramNumber()
     Require(workspace.Apply(Change(DisplayChangeKind::SELECT, "Trc3"), catalog, {}).ok, "选择第三条迹线失败");
     auto layout = Change(DisplayChangeKind::LAYOUT);
     layout.layout = LayoutMode::GRID;
-    Require(workspace.Apply(layout, catalog, {}).ok, "网格布局设置失败");
+    Require(workspace.Apply(layout, catalog, {}).ok && workspace.State().diagrams.size() == 1U,
+        "All Diagrams 不能偷偷拆分已有图窗");
+    Require(workspace.Apply(Change(DisplayChangeKind::SPLIT), catalog, {}).ok, "Split All 失败");
     const auto grid = DisplayWorkspace::ArrangeDiagrams(workspace.State());
-    Require(grid.size() == 4U, "网格没有按四个有序显示槽安排");
+    Require(grid.size() == 4U, "Split All 没有按有序目录生成图窗");
     for (std::size_t index = 0U; index < grid.size(); ++index) {
         Require(grid[index].number == index + 1U && grid[index].measurementNames.size() == 1U &&
                     grid[index].primaryMeasurement == catalog[index].name,
-            "网格图号或主迹线不对应原槽位");
+            "图号或主迹线不对应目录");
     }
     layout.layout = LayoutMode::MAXIMIZED;
-    Require(workspace.Apply(layout, catalog, {}).ok, "最大化设置失败");
-    const auto maximized = DisplayWorkspace::ArrangeDiagrams(workspace.State());
-    Require(maximized.size() == 1U && maximized.front().number == 3U &&
-                maximized.front().measurementNames == std::vector<std::string>{"Trc3"} &&
-                maximized.front().primaryMeasurement == "Trc3",
-        "最大化未保留选中槽的原图号");
-    auto state = workspace.Snapshot();
-    state.selectedMeasurement = "HiddenSelection";
-    const auto fallback = DisplayWorkspace::ArrangeDiagrams(state);
-    Require(fallback.front().number == 1U && fallback.front().primaryMeasurement == "Trc1",
-        "无组内选中项时没有采用首槽，或修改了共享选择");
-    Require(state.selectedMeasurement == "HiddenSelection", "纯派生图窗改变全局选中项");
+    Require(workspace.Apply(layout, catalog, {}).ok && workspace.State().selectedDiagram == 3U, "最大化未保留当前图号");
+    Require(DisplayWorkspace::ArrangeDiagrams(workspace.State()).size() == 4U &&
+                workspace.State().diagrams[2U].primaryMeasurement == "Trc3",
+        "最大化不能删除其他图窗");
 }
 
 void TestManyTracesUseBoundedFormatSafeDiagrams()
@@ -375,45 +359,20 @@ void TestManyTracesUseBoundedFormatSafeDiagrams()
     }
     Require(workspace.Reconcile(catalog).ok && workspace.State().displayedNames.size() == MAX_DISPLAY_TRACES,
         "目录预算内所有迹线均应进入显示集");
-    auto format = Change(DisplayChangeKind::FORMAT);
-    format.format = DisplayFormat::SMITH;
-    for (std::size_t index = 1U; index < catalog.size(); index += 2U) {
-        format.name = catalog[index].name;
-        Require(workspace.Apply(format, catalog, {}).ok, "配置交错坐标格式");
-    }
-    auto layout = Change(DisplayChangeKind::LAYOUT);
-    layout.layout = LayoutMode::GRID;
-    Require(workspace.Apply(layout, catalog, {}).ok, "配置多迹线网格布局");
-    const auto grid = DisplayWorkspace::ArrangeDiagrams(workspace.State());
-    Require(grid.size() == MAX_DISPLAY_DIAGRAMS, "图窗数量与迹线容量必须独立");
-    std::vector<std::string> grouped;
-    for (const auto &diagram : grid) {
-        Require(diagram.measurementNames.size() == MAX_DISPLAY_TRACES / MAX_DISPLAY_DIAGRAMS,
-            "同格式迹线应均匀分组，不能遗漏第五条及后续迹线");
-        const bool smith = std::stoul(diagram.measurementNames.front().substr(3U)) % 2U == 0U;
-        for (const auto &name : diagram.measurementNames) {
-            Require((std::stoul(name.substr(3U)) % 2U == 0U) == smith, "一个图窗不能混用矩形和 Smith 坐标");
-            grouped.push_back(name);
-        }
-    }
-    std::sort(grouped.begin(), grouped.end());
-    auto displayed = workspace.State().displayedNames;
-    std::sort(displayed.begin(), displayed.end());
-    Require(grouped == displayed, "分组必须恰好覆盖全部显示迹线");
+    Require(workspace.Apply(Change(DisplayChangeKind::SPLIT), catalog, {}).ok &&
+                workspace.State().diagrams.size() == MAX_DISPLAY_TRACES,
+        "Split All 不能静默限制为四个图窗");
     const auto lastName = "Trc" + std::to_string(MAX_DISPLAY_TRACES);
-    Require(workspace.Apply(Change(DisplayChangeKind::SELECT, lastName), catalog, {}).ok, "选择末尾迹线");
-    layout.layout = LayoutMode::MAXIMIZED;
-    Require(workspace.Apply(layout, catalog, {}).ok, "最大化末尾迹线所在图窗");
-    const auto maximized = DisplayWorkspace::ArrangeDiagrams(workspace.State());
-    Require(maximized.size() == 1U && maximized.front().number == 4U &&
-                maximized.front().primaryMeasurement == lastName &&
-                maximized.front().measurementNames.size() == MAX_DISPLAY_TRACES / MAX_DISPLAY_DIAGRAMS,
-        "最大化必须保留选中组、原图号及同窗叠加迹线");
+    Require(workspace.Apply(Change(DisplayChangeKind::SELECT, lastName), catalog, {}).ok &&
+                workspace.State().selectedDiagram == MAX_DISPLAY_TRACES,
+        "选择末尾迹线应选择所属图窗");
+    Require(workspace.Apply(Change(DisplayChangeKind::OVERLAY), catalog, {}).ok &&
+                workspace.State().diagrams.size() == 1U &&
+                workspace.State().displayedNames.size() == MAX_DISPLAY_TRACES,
+        "Overlay All 必须完整保留全部迹线");
     const auto revision = workspace.State().revision;
     catalog.push_back(Measurement("Overflow"));
-    Require(!workspace.Reconcile(catalog).ok && workspace.State().revision == revision &&
-                workspace.State().traces.size() == MAX_DISPLAY_TRACES,
-        "超过迹线预算必须原子拒绝，不能产生不显示的目录项");
+    Require(!workspace.Reconcile(catalog).ok && workspace.State().revision == revision, "超出仪器预算必须原子拒绝");
 }
 
 void TestPresentationCloneIsAtomicAndOwnsMarkers()
@@ -438,13 +397,12 @@ void TestPresentationCloneIsAtomicAndOwnsMarkers()
                 workspace.State().traces[1U].markers.SameSettings(before.traces[0U].markers),
         "显示设置与选择必须在同一次显示域提交中完成");
     const auto revision = workspace.State().revision;
-    Require(!workspace.ClonePresentation("Trc1", "Trc3", catalog).ok &&
-                !workspace.ClonePresentation("Missing", "Trc2", catalog).ok &&
+    Require(!workspace.ClonePresentation("Missing", "Trc2", catalog).ok &&
                 !workspace.ClonePresentation("Trc1", "Missing", catalog).ok &&
                 !workspace.ClonePresentation("Trc1", "Trc1", catalog).ok && workspace.State().revision == revision &&
                 workspace.State().selectedMeasurement == "Trc2" &&
                 workspace.State().traces[2U].format == DisplayFormat::DB,
-        "格式不兼容、名称不存在或同名复制必须原子拒绝");
+        "名称不存在或同名复制必须原子拒绝");
     marker.name = "Trc2";
     marker.marker.sampleIndex = 2U;
     Require(workspace.Apply(marker, catalog, Frame()).ok &&
