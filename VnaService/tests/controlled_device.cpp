@@ -40,7 +40,19 @@ void ControlledDevice::Shutdown() noexcept
 {
 }
 
-std::vector<double> ControlledDevice::AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t)
+std::vector<VnaCore::PortFrame> ControlledDevice::AcquireSweep(const VnaCore::SweepPlan &plan)
+{
+    std::vector<VnaCore::PortFrame> ports;
+    for (const auto source : plan.sourcePorts) {
+        VnaCore::PortFrame port;
+        port.sourcePort = source;
+        port.iq = AcquirePort(plan);
+        ports.push_back(std::move(port));
+    }
+    return ports;
+}
+
+std::vector<double> ControlledDevice::AcquirePort(const VnaCore::SweepPlan &plan)
 {
     std::unique_lock<std::mutex> lock(mutex_);
     if (blocked_) {

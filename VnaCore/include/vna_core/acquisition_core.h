@@ -27,6 +27,8 @@ class AcquisitionCore final {
 public:
     // 驱动路径必须为绝对路径；设备初始化仍通过异步操作执行。
     explicit AcquisitionCore(const std::string &nativeLibraryPath);
+    // 同名原生函数存在不兼容签名，按明确指定的板卡接口选择加载器和整帧采集适配器。
+    AcquisitionCore(const std::string &nativeLibraryPath, DriverApi api);
     // 接管设备所有权；设备调用仅在核心工作线程执行。
     explicit AcquisitionCore(std::unique_ptr<Detail::DeviceSession> device);
     // 所有者必须先结束其他调用者的访问；析构时处理完已接受任务，并等待工作线程结束。

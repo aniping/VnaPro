@@ -26,8 +26,8 @@ public:
     void ApplyPlan(const SweepPlan &plan) override;
     // 在已初始化的原生会话中启用射频。
     void EnableRf() override;
-    // 将物理源端口转换为 ABI 索引，并返回独立持有的完整 IQ 缓冲区。
-    std::vector<double> AcquirePort(const SweepPlan &plan, std::uint32_t sourcePort) override;
+    // 将物理源端口转换为旧 ABI 索引，逐源扫描后返回全部独立持有的 IQ 缓冲区。
+    std::vector<PortFrame> AcquireSweep(const SweepPlan &plan) override;
     // 尝试关闭射频，随后始终释放动态库，再报告关闭错误。
     void Shutdown() override;
 

@@ -10,7 +10,7 @@
 #include <stdexcept>
 #include <utility>
 
-#include "device/native/native_device_session.h"
+#include "device/device_session_factory.h"
 #include "device/plan_preparation_error.h"
 #include "vna_core/frame_layout.h"
 #include "vna_log/logger.h"
@@ -31,6 +31,9 @@ std::string Validate(const SweepPlan &plan)
     }
     if (!plan.frequencyHz.empty() && plan.frequencyHz.size() != count) {
         return "Hz axis length differs from raw axis";
+    }
+    if (!plan.powerRaw.empty() && plan.powerRaw.size() != count) {
+        return "raw power list length differs from raw frequency axis";
     }
     for (const double value : plan.frequencyHz) {
         if (!std::isfinite(value)) {
@@ -53,7 +56,7 @@ std::string Validate(const SweepPlan &plan)
     if (count > FRAME_BUDGET / (IQ_VALUES_PER_POINT * sizeof(double) * plan.sourcePorts.size())) {
         return "IQ frame exceeds the core software memory budget";
     }
-    if (plan.tableData.size() != count * TABLE_VALUES_PER_POINT) {
+    if (!plan.tableData.empty() && plan.tableData.size() != count * TABLE_VALUES_PER_POINT) {
         return "opaque table must contain exactly 9N values";
     }
     return std::string();
@@ -65,6 +68,18 @@ std::unique_ptr<Detail::DeviceSession> ValidateDevice(std::unique_ptr<Detail::De
         throw std::invalid_argument("core requires an owned device session");
     }
     return device;
+}
+
+std::unique_ptr<Detail::DeviceSession> CreateDevice(const std::string &path, DriverApi api)
+{
+    switch (api) {
+        case DriverApi::TDC1VN08:
+            return Detail::CreateNativeDevice(path);
+        case DriverApi::TDC1VN10:
+            return Detail::CreateBoardDevice(path);
+        default:
+            throw std::invalid_argument("unsupported driver API version");
+    }
 }
 
 void LogCompletedCommand(Detail::CoreCommandKind kind, const CommandResult &result, const SweepPlan &plan, RunMode mode,
@@ -98,8 +113,11 @@ void LogCompletedCommand(Detail::CoreCommandKind kind, const CommandResult &resu
 
 }  // 匿名命名空间
 
-AcquisitionCore::AcquisitionCore(const std::string &path)
-    : AcquisitionCore(std::make_unique<Detail::NativeDeviceSession>(path))
+AcquisitionCore::AcquisitionCore(const std::string &path) : AcquisitionCore(path, DriverApi::TDC1VN08)
+{
+}
+
+AcquisitionCore::AcquisitionCore(const std::string &path, DriverApi api) : AcquisitionCore(CreateDevice(path, api))
 {
 }
 
@@ -260,15 +278,18 @@ void AcquisitionCore::AcquireFrame()
     completed.configRevision = revision_;
     completed.frameSeq = frameSeq_ + 1U;
     completed.plan = plan_;
-    completed.ports.reserve(plan_.sourcePorts.size());
-    for (const auto source : plan_.sourcePorts) {
-        PortFrame port;
-        port.sourcePort = source;
-        port.iq = device_->AcquirePort(plan_, source);
+    completed.ports = device_->AcquireSweep(plan_);
+    if (completed.ports.size() != plan_.sourcePorts.size()) {
+        throw std::runtime_error("device returned an incomplete multi-source sweep");
+    }
+    for (std::size_t index = 0U; index < completed.ports.size(); ++index) {
+        const auto &port = completed.ports[index];
+        if (port.sourcePort != plan_.sourcePorts[index]) {
+            throw std::runtime_error("device returned mismatched or reordered source ports");
+        }
         if (port.iq.size() != IQ_VALUES_PER_POINT * plan_.frequencyRaw.size()) {
             throw std::runtime_error("device returned an incomplete IQ port frame");
         }
-        completed.ports.push_back(std::move(port));
     }
     // 发布后不保留可变别名；后续端口采集失败时，不替换 frame_。
     FramePtr immutable = std::make_shared<const MeasurementFrame>(std::move(completed));

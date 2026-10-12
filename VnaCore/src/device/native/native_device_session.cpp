@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "device/device_session_factory.h"
 #include "device/native/download_frame.h"
 #include "device/plan_preparation_error.h"
 #include "vna_core/frame_layout.h"
@@ -82,6 +83,9 @@ std::string NativeDeviceSession::Initialize()
 
 void NativeDeviceSession::ApplyPlan(const SweepPlan &plan)
 {
+    if (plan.tableData.size() != plan.frequencyRaw.size() * TABLE_VALUES_PER_POINT) {
+        throw PlanPreparationError("VN08 opaque table must contain exactly 9N values");
+    }
     // 在首次变更设备状态前，准备好全部独立持有的 ABI 缓冲区。
     std::vector<DownloadFrame> downloads;
     try {
@@ -109,14 +113,23 @@ void NativeDeviceSession::EnableRf()
     Check(library_.Functions().setRfPowerOn(RF_ON), "DrvSetRfPowerOn(1)");
 }
 
-std::vector<double> NativeDeviceSession::AcquirePort(const SweepPlan &plan, std::uint32_t sourcePort)
+std::vector<PortFrame> NativeDeviceSession::AcquireSweep(const SweepPlan &plan)
 {
     const auto count = static_cast<std::uint32_t>(plan.frequencyRaw.size());
-    std::vector<double> iq(IQ_VALUES_PER_POINT * plan.frequencyRaw.size());
+    std::vector<PortFrame> ports;
+    ports.reserve(plan.sourcePorts.size());
+    for (const auto source : plan.sourcePorts) {
+        PortFrame port;
+        port.sourcePort = source;
+        port.iq.resize(IQ_VALUES_PER_POINT * plan.frequencyRaw.size());
+        ports.push_back(std::move(port));
+    }
     const auto &functions = library_.Functions();
-    Check(functions.startSweep(count, sourcePort - FIRST_PHYSICAL_PORT), "DrvStartSweep");
-    Check(functions.getSweepData(count, iq.data()), "DrvGetSweepData");
-    return iq;
+    for (auto &port : ports) {
+        Check(functions.startSweep(count, port.sourcePort - FIRST_PHYSICAL_PORT), "DrvStartSweep");
+        Check(functions.getSweepData(count, port.iq.data()), "DrvGetSweepData");
+    }
+    return ports;
 }
 
 void NativeDeviceSession::Shutdown()
@@ -128,6 +141,11 @@ void NativeDeviceSession::Shutdown()
     initialized_ = false;
     library_.Close();
     Check(status, "DrvSetRfPowerOn(0)");
+}
+
+std::unique_ptr<DeviceSession> CreateNativeDevice(const std::string &path)
+{
+    return std::make_unique<NativeDeviceSession>(path);
 }
 
 }  // 命名空间 Detail

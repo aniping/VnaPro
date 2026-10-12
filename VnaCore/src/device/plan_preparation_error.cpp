@@ -7,9 +7,13 @@
 namespace VnaCore {
 namespace Detail {
 
+PlanPreparationError::PlanPreparationError(const char *message) noexcept : message_(message)
+{
+}
+
 const char *PlanPreparationError::what() const noexcept
 {
-    return "device plan buffer preparation failed";
+    return message_;
 }
 
 }  // 命名空间 Detail

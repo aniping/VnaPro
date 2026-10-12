@@ -13,6 +13,8 @@ add_library(vna_core STATIC
     src/acquisition_core.cpp
     src/device/plan_preparation_error.cpp
     src/device/dynamic_library.cpp
+    src/device/board/board_library.cpp
+    src/device/board/board_device_session.cpp
     src/device/native/native_library.cpp
     src/device/native/native_device_session.cpp
 )
@@ -22,6 +24,7 @@ target_include_directories(vna_core
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/../VnaNativeSimulator/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../VnaBoardSimulator/include
 )
 target_link_libraries(vna_core PRIVATE Threads::Threads ${CMAKE_DL_LIBS} vna_log)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

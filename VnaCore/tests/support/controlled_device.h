@@ -37,7 +37,7 @@ public:
     void EnableRf() override;
 
     // 等待已设置的屏障释放后，返回完整且可复现的 IQ 向量。
-    std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t source) override;
+    std::vector<VnaCore::PortFrame> AcquireSweep(const VnaCore::SweepPlan &plan) override;
 
     // 记录或完成受控清理操作；注入的失败仍可被观察。
     void Shutdown() override;
@@ -61,6 +61,8 @@ public:
     bool failShutdown_ = false;
     std::size_t failAcquireAt_ = 0U;
     std::size_t shortAcquireAt_ = 0U;
+    bool omitLastSource_ = false;
+    bool wrongFirstSource_ = false;
     std::size_t initializeCalls_ = 0U;
     std::size_t applyPlanCalls_ = 0U;
     std::size_t enableRfCalls_ = 0U;
@@ -72,6 +74,7 @@ public:
     VnaCore::SweepPlan applied_;
 
 private:
+    std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t source);
     void RecordThread();
 };
 

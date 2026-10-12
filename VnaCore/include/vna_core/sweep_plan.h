@@ -13,10 +13,11 @@ namespace VnaCore {
 struct SweepPlan final {
     std::vector<std::uint64_t> frequencyRaw;
     std::vector<double> frequencyHz;
+    std::vector<std::uint64_t> powerRaw;  // 新接口的逐点原始功率值；空数组表示使用模拟器默认值 0。
     std::uint32_t ifBandwidthRaw = 0U;
     std::uint32_t receiverMask = 0U;
     std::vector<std::uint32_t> sourcePorts;  // 物理端口编号为 1～4。
-    std::vector<double> tableData;           // 独立持有的 9N 个表值，其内容不在此处解释。
+    std::vector<double> tableData;  // 旧 VN08 接口需要的 9N 个不透明表值；新 VN10 接口可为空。
 };
 
 }  // 命名空间 VnaCore

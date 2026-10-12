@@ -37,7 +37,7 @@ public:
     void Shutdown() noexcept override;
 
     // 已启用的阻塞关卡释放后，返回完整且确定的 IQ 数据向量。
-    std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t) override;
+    std::vector<VnaCore::PortFrame> AcquireSweep(const VnaCore::SweepPlan &plan) override;
 
     // 持有设备互斥锁时，切换用于测试的 NaN 或无穷值注入开关。
     void SetInvalidSamples(bool value);
@@ -74,6 +74,9 @@ public:
     bool planEntered_ = false;
     bool planReleased_ = false;
     bool failPlanPreparation_ = false;
+
+private:
+    std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan);
 };
 }  // 命名空间 VnaServiceTest
 #endif

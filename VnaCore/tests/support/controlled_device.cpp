@@ -38,6 +38,25 @@ void ControlledDevice::EnableRf()
     acquisitionFrame_ = 0U;
 }
 
+std::vector<VnaCore::PortFrame> ControlledDevice::AcquireSweep(const VnaCore::SweepPlan &plan)
+{
+    std::vector<VnaCore::PortFrame> ports;
+    for (const auto source : plan.sourcePorts) {
+        VnaCore::PortFrame port;
+        port.sourcePort = source;
+        port.iq = AcquirePort(plan, source);
+        ports.push_back(std::move(port));
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (omitLastSource_ && !ports.empty()) {
+        ports.pop_back();
+    }
+    if (wrongFirstSource_ && ports.size() > 1U) {
+        ports.front().sourcePort = ports.back().sourcePort;
+    }
+    return ports;
+}
+
 std::vector<double> ControlledDevice::AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t source)
 {
     std::unique_lock<std::mutex> lock(mutex_);
