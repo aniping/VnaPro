@@ -135,6 +135,45 @@ test('marker keyboard commands use original source steps instead of display arra
   ])
 })
 
+test('marker collection commands delegate slot allocation and selection to C++ without local saved state changes', () => {
+  const { status, workspace, commands } = workspaceFixture()
+  const before = JSON.parse(JSON.stringify(status.value.display))
+  workspace.addMarker()
+  workspace.selectMarker(reflection.name, 10)
+  workspace.setMarker({ markerId: 10, frequencyHz: 20e6, discrete: true })
+  workspace.setMarker({ markerAction: 'allOff' })
+  assert.deepEqual(commands, [
+    {
+      action: 'marker',
+      traceName: reflection.name,
+      markerAction: 'add',
+      acquisitionRevision: '1',
+    },
+    {
+      action: 'marker',
+      traceName: reflection.name,
+      markerAction: 'select',
+      markerId: 10,
+      acquisitionRevision: '1',
+    },
+    {
+      action: 'marker',
+      traceName: reflection.name,
+      markerId: 10,
+      frequencyHz: 20e6,
+      discrete: true,
+      acquisitionRevision: '1',
+    },
+    {
+      action: 'marker',
+      traceName: reflection.name,
+      markerAction: 'allOff',
+      acquisitionRevision: '1',
+    },
+  ])
+  assert.deepEqual(status.value.display, before)
+})
+
 test('empty display and catalog changes are rendered exactly as the backend reports', () => {
   const { status, workspace } = workspaceFixture()
   status.value.display.displayedNames = []
@@ -151,6 +190,24 @@ test('empty display and catalog changes are rendered exactly as the backend repo
     workspace.displayedMeasurements.value.map((trace) => trace.name),
     [transmission.name],
   )
+})
+
+test('softtool trace colors use the active backend diagram order instead of a global catalog index', () => {
+  const { status, workspace } = workspaceFixture()
+  status.value.display.selectedMeasurement = transmission.name
+  status.value.display.diagrams = [
+    {
+      number: 1,
+      measurementNames: [transmission.name],
+      primaryMeasurement: transmission.name,
+    },
+  ]
+  assert.equal(workspace.activeIndex.value, 0)
+  status.value.display.diagrams[0]!.measurementNames = [
+    reflection.name,
+    transmission.name,
+  ]
+  assert.equal(workspace.activeIndex.value, 1)
 })
 
 test('relative-axis labels depend only on the authoritative fixed scale', () => {

@@ -11,6 +11,7 @@ import type {
   ReceiverTrace,
 } from './types'
 
+import { MAX_TRACES } from '../domain/presentation'
 import {
   array,
   choice,
@@ -118,7 +119,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
     capabilities.maxFrequencyHz,
   )
   if (startHz > stopHz) invalid('config.startHz / stopHz')
-  const measurements = array(item.measurements, 'measurements', 32).map(
+  const measurements = array(item.measurements, 'measurements', MAX_TRACES).map(
     measurement,
   )
   if (
@@ -252,7 +253,7 @@ export function decodeFrame(value: unknown): FrameResponse {
     invalid('frame axis')
   const decimated = flag(item.decimated, 'frame.decimated')
   if (decimated !== originalCount > count) invalid('frame.decimated')
-  const traces = array(item.traces, 'frame.traces', 4).map((entry) =>
+  const traces = array(item.traces, 'frame.traces', MAX_TRACES).map((entry) =>
     trace(entry, count),
   )
   if (new Set(traces.map((entry) => entry.name)).size !== traces.length)

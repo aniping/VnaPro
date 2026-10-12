@@ -1,3 +1,8 @@
+import type { MarkerDefinition, MarkerState } from './markers'
+
+/** 本项目的共享迹线资源上限，与物理端口数、图窗数相互独立。 */
+export const MAX_TRACES = 128
+
 export type CartesianFormat =
   | 'db'
   | 'magnitude'
@@ -28,13 +33,10 @@ export interface TracePresentation {
   cartesianFormat: CartesianFormat
   smithRadius: number
   visible: boolean
-  marker: {
-    enabled: boolean
-    frequencyHz: number | null
-    /** 同频采样时保留实际展示数组索引；频率改变后重新吸附。 */
-    sampleIndex?: number | null
-    discrete: boolean
-  }
+  /** 后端派生的活动标记只读别名，仅用于兼容旧协议。 */
+  marker: MarkerState
+  markers?: MarkerDefinition[]
+  activeMarkerId?: number
 }
 
 export const TRACE_COLORS = [
@@ -51,6 +53,6 @@ export function traceColor(index: number): string {
 }
 
 /** 每个图窗独立排列显示颜色，仅属于渲染样式。 */
-export function diagramTraceColor(index: number, layout: LayoutMode): string {
-  return traceColor(layout === 'single' ? index : 0)
+export function diagramTraceColor(index: number, _layout: LayoutMode): string {
+  return traceColor(index)
 }

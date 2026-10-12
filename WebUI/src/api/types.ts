@@ -81,6 +81,8 @@ export type DisplayCommand =
   | {
       action: 'marker'
       traceName: string
+      markerId?: number
+      markerAction?: 'update' | 'add' | 'select' | 'allOff'
       enabled?: boolean
       frequencyHz?: number
       sampleIndex?: number
@@ -121,6 +123,9 @@ export interface TraceProjection {
   impedanceImagValues: (number | null)[]
   impedanceStates: ImpedanceState[]
   marker: MarkerProjection
+  /** 完整缺省表示旧服务；新版响应始终包含全部十个标记投影。 */
+  markers?: (MarkerProjection & { id: number })[]
+  activeMarkerId?: number
 }
 
 export interface InstrumentCapabilities {

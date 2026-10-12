@@ -1,3 +1,4 @@
+import { legacyProtocolFields } from './displayFixtures'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { decodeFrame, decodeStatus } from '../src/api/decoders'
@@ -94,7 +95,7 @@ test('S11 and S21 metadata decode only as uncalibrated dimensionless port-1 rati
       measurement,
     )
   }
-  assert.deepEqual(decodeFrame(frame()), frame())
+  assert.deepEqual(legacyProtocolFields(decodeFrame(frame())), frame())
   const malformed: Partial<Measurement>[] = [
     { receiverKind: 'a' },
     { sourcePort: 2 },
@@ -170,9 +171,9 @@ test('CW status and repeated acquired frequencies decode without allowing a desc
   )
   const acquired = frame()
   acquired.frequencyHz = [1e9, 1e9, 1e9]
-  assert.deepEqual(decodeFrame(acquired), acquired)
+  assert.deepEqual(legacyProtocolFields(decodeFrame(acquired)), acquired)
   acquired.frequencyHz = [1e6, 1e6, 2e6]
-  assert.deepEqual(decodeFrame(acquired), acquired)
+  assert.deepEqual(legacyProtocolFields(decodeFrame(acquired)), acquired)
   acquired.frequencyHz = [1e6, 1e6 - 1, 2e6]
   assert.throws(() => decodeFrame(acquired))
 })

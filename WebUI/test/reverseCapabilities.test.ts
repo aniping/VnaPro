@@ -1,3 +1,4 @@
+import { legacyProtocolFields } from './displayFixtures'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { decodeFrame, decodeStatus } from '../src/api/decoders'
@@ -94,7 +95,7 @@ test('reverse S12 and S22 ratios decode with the source-2 reference', () => {
         },
       ],
     }
-    assert.deepEqual(decodeFrame(frame), frame)
+    assert.deepEqual(legacyProtocolFields(decodeFrame(frame)), frame)
   }
 })
 
@@ -123,12 +124,12 @@ test('input drafts use server capability bounds without writing derived measurem
 })
 
 test('status capabilities govern frequency, point and port bounds for two and four ports', () => {
-  assert.deepEqual(decodeStatus(status()), status())
+  assert.deepEqual(legacyProtocolFields(decodeStatus(status())), status())
   const twoPort = {
     ...status(),
     capabilities: { ...capabilities, portCount: 2 },
   }
-  assert.deepEqual(decodeStatus(twoPort), twoPort)
+  assert.deepEqual(legacyProtocolFields(decodeStatus(twoPort)), twoPort)
   const missing = { ...status() } as Record<string, unknown>
   delete missing.capabilities
   assert.throws(() => decodeStatus(missing))

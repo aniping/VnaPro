@@ -1,4 +1,10 @@
 import type { DisplayFormat, TracePresentation } from '../domain/presentation'
+import { MAX_TRACES } from '../domain/presentation'
+import {
+  decodeMarkerCollection,
+  decodeMarkerProjections,
+  decodeMarkerState,
+} from './markerDecoders'
 import type {
   DisplaySnapshot,
   DiagramDefinition,
@@ -48,7 +54,7 @@ function nullableNumber(value: unknown, field: string): number | null {
 function presentation(value: unknown): TracePresentation {
   const item = object(value, 'display.presentation')
   const scale = object(item.scale, 'display.scale')
-  const marker = object(item.marker, 'display.marker')
+  const marker = decodeMarkerState(item.marker)
   const format = choice(item.format, 'display.format', FORMATS)
   const allowedFormats = array(
     item.allowedFormats,
@@ -87,18 +93,8 @@ function presentation(value: unknown): TracePresentation {
     },
     smithRadius: number(item.smithRadius, 'display.smithRadius', 0.01),
     visible: flag(item.visible, 'display.visible'),
-    marker: {
-      enabled: flag(marker.enabled, 'display.marker.enabled'),
-      frequencyHz:
-        marker.frequencyHz === null
-          ? null
-          : number(marker.frequencyHz, 'display.marker.frequencyHz', 0),
-      sampleIndex:
-        marker.sampleIndex === null
-          ? null
-          : integer(marker.sampleIndex, 'display.marker.sampleIndex', 0, 10000),
-      discrete: flag(marker.discrete, 'display.marker.discrete'),
-    },
+    marker,
+    ...decodeMarkerCollection(item, marker),
   }
 }
 
@@ -111,7 +107,7 @@ function diagrams(
     const measurementNames = array(
       item.measurementNames,
       'display.diagram.measurementNames',
-      4,
+      MAX_TRACES,
     ).map((value) => text(value, 'display.diagram.measurementName'))
     if (
       new Set(measurementNames).size !== measurementNames.length ||
@@ -151,7 +147,7 @@ export function decodeDisplay(
   const displayedNames = array(
     item.displayedNames,
     'display.displayedNames',
-    4,
+    MAX_TRACES,
   ).map((value) => text(value, 'display.traceName'))
   if (
     new Set(displayedNames).size !== displayedNames.length ||
@@ -243,6 +239,7 @@ export function decodeProjection(
 ): TraceProjection {
   const item = object(value, 'projection')
   const format = choice(item.format, 'projection.format', FORMATS)
+  const marker = markerProjection(item.marker)
   const result: TraceProjection = {
     format,
     values: array(item.values, 'projection.values', 2001).map((value) =>
@@ -262,7 +259,8 @@ export function decodeProjection(
       2001,
     ).map((value) => choice(value, 'projection.secondaryState', STATES)),
     ...pointImpedance(item, format, count),
-    marker: markerProjection(item.marker),
+    marker,
+    ...decodeMarkerProjections(item, marker, markerProjection),
   }
   if (
     [

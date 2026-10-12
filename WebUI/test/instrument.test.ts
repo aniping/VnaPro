@@ -1,3 +1,4 @@
+import { legacyProtocolFields } from './displayFixtures'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { decodeFrame, decodeStatus } from '../src/api/decoders'
@@ -848,7 +849,7 @@ test('display decoder rejects missing projection provenance and accepts an inval
     sampleIndex: 1,
   })
   current.traces[0]!.projection.marker = marker
-  assert.deepEqual(decodeFrame(current), current)
+  assert.deepEqual(legacyProtocolFields(decodeFrame(current)), current)
   assert.throws(() => decodeFrame({ ...current, displayRevision: undefined }))
   assert.throws(() => decodeFrame({ ...current, sampleIndexes: [0, 0] }))
   assert.throws(() =>

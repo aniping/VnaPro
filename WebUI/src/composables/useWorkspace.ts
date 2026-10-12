@@ -11,6 +11,8 @@ import type {
 } from '../domain/presentation'
 
 export interface MarkerCommand {
+  markerId?: number
+  markerAction?: 'update' | 'add' | 'select' | 'allOff'
   enabled?: boolean
   frequencyHz?: number
   sampleIndex?: number
@@ -38,9 +40,15 @@ export function useWorkspace(
   const activePresentation = computed(
     () => presentations.value[activeTraceName.value],
   )
-  const activeIndex = computed(() =>
-    displayedNames.value.indexOf(activeTraceName.value),
-  )
+  const activeIndex = computed(() => {
+    const diagram = status()?.display.diagrams.find((diagram) =>
+      diagram.measurementNames.includes(activeTraceName.value),
+    )
+    return Math.max(
+      0,
+      diagram?.measurementNames.indexOf(activeTraceName.value) ?? 0,
+    )
+  })
   const displayedMeasurements = computed(() =>
     displayedNames.value.flatMap((name) => {
       const measurement = status()?.measurements.find(
@@ -113,6 +121,12 @@ export function useWorkspace(
     if (current)
       return send({ action: 'visible', traceName, enabled: !current.visible })
   }
+  function addMarker(traceName = activeTraceName.value) {
+    return setMarker({ markerAction: 'add' }, traceName)
+  }
+  function selectMarker(traceName: string, markerId: number) {
+    return setMarker({ markerAction: 'select', markerId }, traceName)
+  }
   return {
     presentations,
     activeTraceName,
@@ -131,6 +145,8 @@ export function useWorkspace(
     setSmithRadius,
     autoscale,
     setMarker,
+    addMarker,
+    selectMarker,
     toggleVisibility,
   }
 }

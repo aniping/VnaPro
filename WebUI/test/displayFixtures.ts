@@ -11,6 +11,7 @@ import type {
   DisplayFormat,
   TracePresentation,
 } from '../src/domain/presentation'
+import { MARKER_IDS, type MarkerDefinition } from '../src/domain/markers'
 
 export const reflection: Measurement = {
   name: 'Reflect',
@@ -189,4 +190,29 @@ export function instrumentStatus(
       readOnlyReason: '',
     },
   }
+}
+
+/** 旧 DTO 的既有字段必须保持不变；新增集合的兼容行为由独立协议测试验证。 */
+export function legacyProtocolFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(legacyProtocolFields)
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== 'markers' && key !== 'activeMarkerId')
+      .map(([key, item]) => [key, legacyProtocolFields(item)]),
+  )
+}
+
+export function markerDefinitions(): MarkerDefinition[] {
+  return MARKER_IDS.map((id) => ({
+    id,
+    enabled: false,
+    frequencyHz: null,
+    sampleIndex: null,
+    discrete: false,
+  }))
+}
+
+export function markerProjections(): (MarkerProjection & { id: number })[] {
+  return MARKER_IDS.map((id) => ({ id, ...markerProjection() }))
 }
