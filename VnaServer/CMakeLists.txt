@@ -6,7 +6,8 @@ set(SERVER_CONFIG_SOURCES src/server_config_loader.cpp src/server_config_io.cpp 
 add_executable(vna_server src/main.cpp ${SERVER_CONFIG_SOURCES} src/utf8_argument.cpp
     src/scpi_tcp_server.cpp src/scpi_connection.cpp)
 target_link_libraries(vna_server PRIVATE vna_scpi vna_web vna_log yaml-cpp::yaml-cpp)
-set(DEFAULT_DRIVER_PATH "$<TARGET_FILE:vnb_drv_sim>")
+set(DEFAULT_VN08_DRIVER_PATH "$<TARGET_FILE:vnb_drv_sim>")
+set(DEFAULT_VN10_DRIVER_PATH "$<TARGET_FILE:tdc1vn10_drv_sim>")
 set(DEFAULT_WEB_ROOT_PATH "${CMAKE_SOURCE_DIR}/WebUI/dist")
 set(DEFAULT_CONFIG_PATH "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/vnapro.yml")
 configure_file("${CMAKE_SOURCE_DIR}/config/vnapro.yml" "${DEFAULT_CONFIG_PATH}" COPYONLY)
@@ -20,7 +21,7 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(vna_server PRIVATE -Wall -Wextra -Wpedantic)
 endif()
-add_dependencies(vna_server vnb_drv_sim)
+add_dependencies(vna_server vnb_drv_sim tdc1vn10_drv_sim)
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME scpi_tcp_integration
@@ -68,4 +69,8 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/InstrumentConfigurationIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vnb_drv_sim>)
     set_tests_properties(instrument_configuration_integration PROPERTIES TIMEOUT 45)
+    add_test(NAME board_driver_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/BoardDriverIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn10_drv_sim> $<TARGET_FILE:vnb_drv_sim>)
+    set_tests_properties(board_driver_integration PROPERTIES TIMEOUT 60)
 endif()

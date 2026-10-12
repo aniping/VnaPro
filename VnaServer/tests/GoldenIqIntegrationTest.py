@@ -96,9 +96,13 @@ def exercise(http_port, scpi_port, vectors):
 
 
 @contextmanager
-def running_server(server, driver, environment, config=None):
+def running_server(server, driver, environment, config=None, board="tdc1vn08"):
     """返回新启动服务的监听端口；优雅关闭由生命周期测试验证。"""
-    arguments = [server, "--port", "0", "--web-port", "0", "--driver", os.path.abspath(driver)]
+    arguments = [server, "--port", "0", "--web-port", "0"]
+    if board is not None:
+        arguments += ["--board", board]
+    if driver is not None:
+        arguments += ["--driver", os.path.abspath(driver)]
     if config is not None:
         arguments += ["--config", os.fspath(config)]
     process = subprocess.Popen(

@@ -31,7 +31,7 @@ def config_file(directory, extra=""):
 
 
 def command(config):
-    return [sys.argv[1], "--port", "0", "--no-web", "--driver",
+    return [sys.argv[1], "--port", "0", "--no-web", "--board", "tdc1vn08", "--driver",
             os.path.abspath(sys.argv[2]), "--config", str(config)]
 
 

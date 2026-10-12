@@ -7,6 +7,7 @@
 #include <iostream>
 #include <string>
 
+#include "driver_options.h"
 #include "scpi_tcp_server.h"
 #include "server_config_loader.h"
 #include "server_defaults.h"
@@ -34,9 +35,10 @@ void PrintHelp()
 {
     std::cout << "VnaPro mock SCPI and Web service\n"
                  "Usage: vna_server [--bind IPv4] [--port 0..65535] [--driver absolute-simulator-path]\n"
+                 "                  [--board tdc1vn10|tdc1vn08]\n"
                  "                  [--web-bind IPv4] [--web-port 0..65535] [--web-root directory] [--no-web]\n"
                  "                  [--config yaml-file]\n"
-                 "Defaults: SCPI 127.0.0.1:5025, Web http://127.0.0.1:8080.\n"
+                 "Defaults: TDC1VN10 simulator, SCPI 127.0.0.1:5025, Web http://127.0.0.1:8080.\n"
                  "Port 0 selects an available port. Only the VnaPro mock profile is implemented.\n";
 }
 
@@ -53,7 +55,7 @@ bool ParsePort(const std::string &value, std::uint16_t &port)
 }
 
 bool ParseOption(const std::string &argument, const std::string &value, VnaServer::ListenOptions &options,
-    std::string &driver, std::string &configPath)
+    VnaServer::DriverOptions &driver, std::string &configPath)
 {
     if (argument == "--bind") {
         options.bindAddress = value;
@@ -62,7 +64,16 @@ bool ParseOption(const std::string &argument, const std::string &value, VnaServe
     } else if (argument == "--web-root") {
         options.web.staticRoot = value;
     } else if (argument == "--driver") {
-        driver = value;
+        driver.path = value;
+    } else if (argument == "--board") {
+        if (value == "tdc1vn10") {
+            driver.api = VnaCore::DriverApi::TDC1VN10;
+        } else if (value == "tdc1vn08") {
+            driver.api = VnaCore::DriverApi::TDC1VN08;
+        } else {
+            std::cerr << "Invalid board: " << value << '\n';
+            return false;
+        }
     } else if (argument == "--config") {
         configPath = value;
     } else if (argument == "--port") {
@@ -76,8 +87,8 @@ bool ParseOption(const std::string &argument, const std::string &value, VnaServe
     return true;
 }
 
-ArgumentResult ParseArguments(
-    int argc, const char * const *argv, VnaServer::ListenOptions &options, std::string &driver, std::string &configPath)
+ArgumentResult ParseArguments(int argc, const char * const *argv, VnaServer::ListenOptions &options,
+    VnaServer::DriverOptions &driver, std::string &configPath)
 {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -94,8 +105,9 @@ ArgumentResult ParseArguments(
         }
         ++index;
         try {
-            const std::string value =
-                argument == "--config" ? VnaServer::Utf8Argument(index, argv[index]) : argv[index];
+            const std::string value = (argument == "--config" || argument == "--driver")
+                                          ? VnaServer::Utf8Argument(index, argv[index])
+                                          : argv[index];
             if (!ParseOption(argument, value, options, driver, configPath)) {
                 return ArgumentResult::ERROR;
             }
@@ -122,11 +134,12 @@ bool LoadConfiguration(const std::string &path, VnaServer::ServerConfig &config)
     }
 }
 
-int StartService(
-    const std::string &driver, const VnaServer::ListenOptions &options, const VnaService::InstrumentProfile &profile)
+int StartService(const VnaServer::DriverOptions &driver, const VnaServer::ListenOptions &options,
+    const VnaService::InstrumentProfile &profile)
 {
-    VnaLog::Info(VnaLog::Module::SERVER, "服务启动，driver={}", driver);
-    VnaCore::AcquisitionCore core(driver);
+    VnaLog::Info(VnaLog::Module::SERVER, "服务启动，board={}，driver={}",
+        driver.api == VnaCore::DriverApi::TDC1VN10 ? "TDC1VN10" : "TDC1VN08", driver.path);
+    VnaCore::AcquisitionCore core(driver.path, driver.api);
     const auto initialized = core.Initialize().get();
     if (!initialized.ok) {
         VnaLog::Error(VnaLog::Module::SERVER, "Driver initialization failed: {}", initialized.message);
@@ -160,7 +173,7 @@ int main(int argc, char **argv)
 {
     VnaServer::ListenOptions options;
     options.web.staticRoot = VnaServer::DEFAULT_WEB_ROOT_PATH;
-    std::string driver = VnaServer::DEFAULT_DRIVER_PATH;
+    VnaServer::DriverOptions driver;
     std::string configPath = VnaServer::DEFAULT_CONFIG_PATH;
     const ArgumentResult parsed = ParseArguments(argc, argv, options, driver, configPath);
     if (parsed == ArgumentResult::HELP) {
@@ -169,6 +182,11 @@ int main(int argc, char **argv)
     }
     if (parsed == ArgumentResult::ERROR) {
         return 2;
+    }
+    // 最后选择默认库，保证 --board 与 --driver 的参数顺序不影响结果。
+    if (driver.path.empty()) {
+        driver.path = driver.api == VnaCore::DriverApi::TDC1VN10 ? VnaServer::DEFAULT_VN10_DRIVER_PATH
+                                                                 : VnaServer::DEFAULT_VN08_DRIVER_PATH;
     }
     VnaServer::ServerConfig config;
     if (!LoadConfiguration(configPath, config)) {

@@ -510,7 +510,7 @@ def main():
     environment = dict(os.environ, VNAPRO_SIM_MODE="golden")
     environment.pop("VNAPRO_SIM_SEED", None)
     process = subprocess.Popen(
-        [sys.argv[1], "--port", "0", "--web-port", "0", "--driver", os.path.abspath(sys.argv[2]),
+        [sys.argv[1], "--port", "0", "--web-port", "0", "--board", "tdc1vn08", "--driver", os.path.abspath(sys.argv[2]),
          "--web-root", os.path.abspath(sys.argv[3]),
          "--config", os.fspath(Path(__file__).with_name("golden_test.yml"))],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=environment,

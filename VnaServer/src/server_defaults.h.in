@@ -6,7 +6,8 @@
 #define VNAPRO_SERVER_SERVER_DEFAULTS_H
 
 namespace VnaServer {
-constexpr const char *DEFAULT_DRIVER_PATH = "@DEFAULT_DRIVER_PATH@";
+constexpr const char *DEFAULT_VN08_DRIVER_PATH = "@DEFAULT_VN08_DRIVER_PATH@";
+constexpr const char *DEFAULT_VN10_DRIVER_PATH = "@DEFAULT_VN10_DRIVER_PATH@";
 constexpr const char *DEFAULT_WEB_ROOT_PATH = "@DEFAULT_WEB_ROOT_PATH@";
 constexpr const char *DEFAULT_CONFIG_PATH = "@DEFAULT_CONFIG_PATH@";
 }  // 命名空间 VnaServer
