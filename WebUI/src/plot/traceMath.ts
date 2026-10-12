@@ -1,5 +1,6 @@
 import type { AcquiredFrame } from '../api/types'
 import type { DisplayFormat, DisplayScale } from '../domain/presentation'
+import { isCircularFormat } from '../domain/presentation'
 
 export type FrameTrace = AcquiredFrame['traces'][number]
 export interface DisplaySeries {
@@ -34,7 +35,7 @@ export function displaySeries(
   if (
     !trace?.available ||
     trace.projection.format !== format ||
-    format === 'smith'
+    isCircularFormat(format)
   )
     return []
   const projection = trace.projection
@@ -54,17 +55,36 @@ export function displaySeries(
 }
 
 /** 细微变化用相对参考值的刻度显示；该判断不触发自动缩放。 */
-export function usesRelativeAxis(scale: DisplayScale): boolean {
+export function usesRelativeAxis(
+  scale: DisplayScale,
+  format: DisplayFormat = 'db',
+): boolean {
+  if (format === 'logMagnitude') return false
   const span = scale.max - scale.min
   return span < 0.001 || span < Math.abs(referenceLevel(scale)) * 0.0001
 }
 
-export function referenceLevel(scale: DisplayScale): number {
+export function referenceLevel(
+  scale: DisplayScale,
+  format: DisplayFormat = 'db',
+): number {
   const requested = scale.referencePosition ?? 8
   const position = Number.isFinite(requested)
     ? Math.max(0, Math.min(10, requested))
     : 8
-  return scale.min + ((scale.max - scale.min) * position) / 10
+  const min = scaleCoordinate(scale.min, format)
+  const max = scaleCoordinate(scale.max, format)
+  const value = min + ((max - min) * position) / 10
+  return format === 'logMagnitude' ? 10 ** value : value
+}
+
+/** 仅进行坐标轴映射；幅度、相位与延时等测量值始终采用后端投影。 */
+export function scaleCoordinate(value: number, format: DisplayFormat): number {
+  return format === 'logMagnitude'
+    ? value > 0
+      ? Math.log10(value)
+      : NaN
+    : value
 }
 
 export function normalizedX(
@@ -75,8 +95,16 @@ export function normalizedX(
   return maximum > minimum ? (frequencyHz - minimum) / (maximum - minimum) : 0.5
 }
 
-export function normalizedY(value: number, scale: DisplayScale): number {
-  return (scale.max - value) / (scale.max - scale.min)
+export function normalizedY(
+  value: number,
+  scale: DisplayScale,
+  format: DisplayFormat = 'db',
+): number {
+  const max = scaleCoordinate(scale.max, format)
+  return (
+    (max - scaleCoordinate(value, format)) /
+    (max - scaleCoordinate(scale.min, format))
+  )
 }
 
 export interface MarkerResult {
@@ -90,6 +118,9 @@ export interface MarkerResult {
   impedanceReal: number | null
   impedanceImag: number | null
   impedanceState: 'finite' | 'open' | 'overflow' | 'invalid'
+  admittanceReal?: number | null
+  admittanceImag?: number | null
+  admittanceState?: 'finite' | 'short' | 'overflow' | 'invalid'
   interpolated: boolean
   reason: string
 }
@@ -124,6 +155,9 @@ export function markerResult(
     impedanceReal: marker.impedanceReal,
     impedanceImag: marker.impedanceImag,
     impedanceState: marker.impedanceState,
+    admittanceReal: marker.admittanceReal ?? null,
+    admittanceImag: marker.admittanceImag ?? null,
+    admittanceState: marker.admittanceState ?? 'invalid',
     interpolated: marker.interpolated,
     reason: marker.reason,
   }

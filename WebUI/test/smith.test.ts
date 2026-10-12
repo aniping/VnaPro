@@ -173,6 +173,7 @@ test('Smith readouts format independent backend impedance without recomputing it
     secondaryState: 'finite',
     impedanceReal: 7.75,
     impedanceImag: -2.5,
+    impedanceState: 'finite',
   })
   const setting = presentation('smith')
   setting.marker.enabled = true
