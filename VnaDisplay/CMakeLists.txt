@@ -1,5 +1,6 @@
 add_library(vna_display STATIC
     src/display_workspace.cpp
+    src/diagram_collection.cpp
     src/display_format.cpp
     src/trace_projection.cpp
     src/trace_sequence_formatter.cpp

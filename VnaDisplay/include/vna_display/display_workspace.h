@@ -18,8 +18,8 @@ namespace VnaDisplay {
 
 // 迹线容量是仪器目录的资源预算，与物理端口数量无关。
 constexpr std::size_t MAX_DISPLAY_TRACES = 128U;
-// 网格图窗数量独立于迹线数量，更多迹线叠加到格式相同的图窗。
-constexpr std::size_t MAX_DISPLAY_DIAGRAMS = 4U;
+// 图窗独立于坐标格式；允许 Split All 为每条迹线创建一个图窗。
+constexpr std::size_t MAX_DISPLAY_DIAGRAMS = MAX_DISPLAY_TRACES;
 
 enum class DisplayFormat {
     DB,
@@ -60,20 +60,24 @@ struct TracePresentation final {
     MarkerCollection markers;
 };
 
-struct DisplayState final {
-    std::uint64_t revision = 1U;
-    // 仪器唯一的测量选择；绘图区为空时仍允许 SCPI 查询选中的测量。
-    std::string selectedMeasurement;
-    std::vector<std::string> displayedNames;
-    LayoutMode layout = LayoutMode::SINGLE;
-    std::vector<TracePresentation> traces;
-};
-
 struct DisplayDiagram final {
     unsigned number = 1U;
     std::vector<std::string> measurementNames;
-    // 该图窗的主迹线负责共享坐标轴；不另存第二个可写选择状态。
+    // 每个图窗保留自己的活动迹线，控制网格并在绘制时置顶。
     std::string primaryMeasurement;
+    // 显示槽身份与 Trc 名称独立；删除成员不得压缩其他槽号。
+    std::vector<unsigned> traceSlots = {};
+};
+
+struct DisplayState final {
+    std::uint64_t revision = 1U;
+    std::string selectedMeasurement;
+    // 兼容协议的只读扁平目录，由 diagrams 派生，禁止作为第二份归属状态写入。
+    std::vector<std::string> displayedNames;
+    LayoutMode layout = LayoutMode::SINGLE;
+    std::vector<TracePresentation> traces;
+    std::vector<DisplayDiagram> diagrams;
+    unsigned selectedDiagram = 1U;
 };
 
 struct FrameContext final {
