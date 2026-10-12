@@ -198,12 +198,15 @@ void TestOwnedInputAndShutdownError()
     auto input = MakePlan();
     const auto configured = f.core.Configure(input);
     input.frequencyRaw[0] = 42U;
+    input.powerRaw.clear();
     input.tableData.clear();
     Require(Await(configured).ok, "owned input failed to apply");
     const auto started = Await(f.core.Start(RunMode::MANUAL));
     Require(Await(f.core.TriggerOnce(started.runId, started.configRevision)).ok, "owned input scan failed");
     Require(
         f.core.ReadView().frame->plan.frequencyRaw[0] == UINT64_C(1000000), "caller mutation changed the frozen plan");
+    Require(f.core.ReadView().frame->plan.powerRaw == MakePlan().powerRaw,
+        "caller mutation changed the frozen raw power list");
     {
         std::lock_guard<std::mutex> lock(f.device->mutex_);
         f.device->failShutdown_ = true;
@@ -298,6 +301,28 @@ void TestConcurrentSubmittersAndReaders()
     scenario.Run();
 }
 
+void TestWrongSourceDoesNotPublish()
+{
+    for (const bool omit : {false, true}) {
+        Fixture fixture;
+        const auto started = Await(fixture.core.Start(RunMode::MANUAL));
+        Require(Await(fixture.core.TriggerOnce(started.runId, started.configRevision)).ok,
+            "source-validation baseline failed");
+        const auto retained = fixture.core.ReadView().frame;
+        const MeasurementFrame snapshot = *retained;
+        {
+            std::lock_guard<std::mutex> lock(fixture.device->mutex_);
+            fixture.device->omitLastSource_ = omit;
+            fixture.device->wrongFirstSource_ = !omit;
+        }
+        const auto failed = Await(fixture.core.TriggerOnce(started.runId, started.configRevision));
+        Require(!failed.ok && fixture.core.ReadView().state == CoreState::FAULTED &&
+                    fixture.core.ReadView().frame == retained && failed.frameSeq == retained->frameSeq,
+            "missing or duplicate source became a published complete frame");
+        RequireUnchanged(*retained, snapshot);
+    }
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -314,7 +339,8 @@ int main()
         TestRetainedFrameDeepImmutability();
         TestShortIqDoesNotPublish();
         TestConcurrentSubmittersAndReaders();
-        std::cout << "core concurrency: 11 scenarios passed\n";
+        TestWrongSourceDoesNotPublish();
+        std::cout << "core concurrency: 12 scenarios passed\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

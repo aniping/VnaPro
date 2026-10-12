@@ -101,6 +101,17 @@ void VerifyLoaderFailures(const std::string &libraryPath)
     Require(relative.Close().ok, "rejected relative path could not be closed");
 }
 
+void VerifyMissingLegacyTable(VnaCore::AcquisitionCore &core, VnaCore::SweepPlan plan)
+{
+    const auto before = core.ReadView();
+    plan.tableData.clear();
+    const auto rejected = core.Configure(plan).get();
+    Require(!rejected.ok && rejected.message.find("VN08 opaque table") != std::string::npos &&
+                core.ReadView().state == VnaCore::CoreState::READY &&
+                core.ReadView().configRevision == before.configRevision,
+        "missing legacy table changed the committed VN08 configuration");
+}
+
 }  // 匿名命名空间
 
 int main(int argc, char **argv)
@@ -123,6 +134,7 @@ int main(int argc, char **argv)
             expected.push_back(VnaTest::GoldenIqForSource(source));
         }
         const auto configured = Await(core.Configure(plan));
+        VerifyMissingLegacyTable(core, plan);
         const auto started = Await(core.Start(VnaCore::RunMode::MANUAL));
         Require(started.configRevision == configured.configRevision, "start changed the configuration revision");
         const auto triggered = Await(core.TriggerOnce(started.runId, configured.configRevision));

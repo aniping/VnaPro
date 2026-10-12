@@ -60,4 +60,15 @@ if(BUILD_TESTING)
             COMMAND vna_core_native_tests $<TARGET_FILE:vnb_drv_sim>)
         set_tests_properties(core_native_integration PROPERTIES TIMEOUT 20)
     endif()
+    if(TARGET tdc1vn10_drv_sim AND TARGET vnb_drv_sim)
+        add_executable(vna_core_board_tests tests/board_integration_test.cpp)
+        target_include_directories(vna_core_board_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/../VnaBoardSimulator/include)
+        target_link_libraries(vna_core_board_tests PRIVATE vna_core)
+        add_dependencies(vna_core_board_tests tdc1vn10_drv_sim vnb_drv_sim)
+        add_test(NAME core_board_integration
+            COMMAND vna_core_board_tests $<TARGET_FILE:tdc1vn10_drv_sim> $<TARGET_FILE:vnb_drv_sim>)
+        set_tests_properties(core_board_integration PROPERTIES TIMEOUT 20)
+    endif()
 endif()
