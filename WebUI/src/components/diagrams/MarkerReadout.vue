@@ -13,6 +13,7 @@ import { smithReadout } from '../../plot/smithMath'
 
 interface MarkerReadoutItem {
   name: string
+  markerId: number
   color: string
   format: DisplayFormat
   measurement: Measurement
@@ -21,7 +22,9 @@ interface MarkerReadoutItem {
   preview?: boolean
 }
 defineProps<{ markers: MarkerReadoutItem[]; canEditDisplay: boolean }>()
-const emit = defineEmits<{ select: [name: string] }>()
+const emit = defineEmits<{
+  select: [value: { name: string; markerId: number }]
+}>()
 </script>
 
 <template>
@@ -32,7 +35,7 @@ const emit = defineEmits<{ select: [name: string] }>()
   >
     <button
       v-for="marker in markers"
-      :key="marker.name"
+      :key="`${marker.name}-M${marker.markerId}`"
       type="button"
       class="marker-row"
       :disabled="!canEditDisplay"
@@ -40,14 +43,16 @@ const emit = defineEmits<{ select: [name: string] }>()
       :style="{ '--marker-color': marker.color }"
       :aria-current="marker.active ? 'true' : undefined"
       :data-marker-preview="marker.preview ? 'true' : undefined"
-      :aria-label="`${marker.name} M1, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? (marker.format === 'smith' ? smithReadout(marker.result) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit) : 'invalid point'}`"
+      :aria-label="`${marker.name} M${marker.markerId}, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? (marker.format === 'smith' ? smithReadout(marker.result) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit) : 'invalid point'}`"
       :title="`${marker.name}: real ${numberText(marker.result.real ?? NaN, 10)}, imaginary ${numberText(marker.result.imaginary ?? NaN, 10)} ${marker.measurement.unit}`"
-      @click.stop="emit('select', marker.name)"
+      @click.stop="
+        emit('select', { name: marker.name, markerId: marker.markerId })
+      "
     >
       <span class="active-dot" aria-hidden="true">{{
         marker.active ? '•' : ''
       }}</span>
-      <span class="marker-number">M1</span>
+      <span class="marker-number">M{{ marker.markerId }}</span>
       <span class="marker-frequency">{{
         markerFrequencyText(marker.result.frequencyHz)
       }}</span>
@@ -80,6 +85,9 @@ const emit = defineEmits<{ select: [name: string] }>()
   display: grid;
   gap: 0;
   max-width: calc(100% - 45px);
+  max-height: 45%;
+  overflow: auto;
+  scrollbar-width: thin;
   padding: 1px 2px;
   background: #323f48;
   border: 1px solid #546a78;
@@ -88,7 +96,7 @@ const emit = defineEmits<{ select: [name: string] }>()
 
 .marker-row {
   display: grid;
-  grid-template-columns: 5px 18px 1fr auto;
+  grid-template-columns: 5px 21px 1fr auto;
   align-items: center;
   gap: 3px;
   min-height: 14px;

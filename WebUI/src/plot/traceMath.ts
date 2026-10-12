@@ -101,9 +101,14 @@ export function markerResult(
   _frequencyHz: number | null,
   format: DisplayFormat,
   _sampleIndex?: number | null,
+  markerId?: number,
 ): MarkerResult | null {
   if (!frame || !trace || trace.projection.format !== format) return null
-  const marker = trace.projection.marker
+  const marker =
+    markerId === undefined || !trace.projection.markers
+      ? trace.projection.marker
+      : trace.projection.markers.find((marker) => marker.id === markerId)
+  if (!marker) return null
   if (marker.frequencyHz === null) return null
   return {
     index: marker.sampleIndex,

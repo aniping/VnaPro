@@ -8,19 +8,12 @@ import {
   type LayoutMode,
   type TracePresentation,
 } from '../../domain/presentation'
-import {
-  displayUnit,
-  frequencyText,
-  getMarkerReadout,
-  getTraceScale,
-  numberText,
-} from '../../plot'
+import { displayUnit, getTraceScale, numberText } from '../../plot'
 import { measurementState } from '../../domain/measurements'
 import { MIN_SMITH_RADIUS, validSmithRadius } from '../../plot/smithMath'
-import FrequencyField from '../shared/FrequencyField.vue'
 
 const props = defineProps<{
-  mode: 'format' | 'scale' | 'marker'
+  mode: 'format' | 'scale'
   measurement: Measurement | undefined
   presentation: TracePresentation | undefined
   frame: AcquiredFrame | null
@@ -35,9 +28,6 @@ const emit = defineEmits<{
   scale: [values: ScaleValues]
   autoscale: []
   smithRadius: [radius: number]
-  marker: [
-    update: { enabled?: boolean; frequencyHz?: number; discrete?: boolean },
-  ]
   toggleVisibility: []
 }>()
 
@@ -82,15 +72,10 @@ const unit = computed(() =>
 const range = computed(() =>
   getTraceScale(props.frame, props.measurement, props.presentation),
 )
-const marker = computed(() =>
-  getMarkerReadout(props.frame, props.measurement, props.presentation),
-)
 const perDivision = ref(10)
 const reference = ref(0)
 const position = ref(8)
 const scaleError = ref('')
-const markerFrequency = ref(0)
-const markerError = ref('')
 const smithRadius = ref(1)
 watch(
   () => props.presentation?.smithRadius,
@@ -116,28 +101,6 @@ watch(
       (min + position.value * perDivision.value).toPrecision(10),
     )
     scaleError.value = ''
-  },
-  { immediate: true },
-)
-
-watch(
-  [
-    () => props.measurement?.name,
-    () => props.presentation?.marker.frequencyHz,
-    () =>
-      props.presentation?.marker.frequencyHz === null
-        ? marker.value?.frequencyHz
-        : undefined,
-  ],
-  () => {
-    markerFrequency.value =
-      props.presentation?.marker.frequencyHz ??
-      marker.value?.frequencyHz ??
-      props.frame?.frequencyHz[
-        Math.floor((props.frame.frequencyHz.length - 1) / 2)
-      ] ??
-      0
-    markerError.value = ''
   },
   { immediate: true },
 )
@@ -173,16 +136,6 @@ function applyScale() {
     referenceLevel: ref,
     referencePosition: pos,
   })
-}
-
-function applyMarker() {
-  if (!trace.value || !props.presentation?.marker.enabled) return
-  if (!Number.isFinite(markerFrequency.value) || markerFrequency.value < 0) {
-    markerError.value = '请输入有效的非负频率。'
-    return
-  }
-  markerError.value = ''
-  emit('marker', { frequencyHz: markerFrequency.value })
 }
 </script>
 
@@ -360,110 +313,6 @@ function applyMarker() {
       <p class="softtool-note">
         Autoscale
         按当前显示数据适配一次并固定刻度；再次点击才重新适配。后端保存当前迹线的显示设置，所有观察窗口共享。
-      </p>
-    </template>
-
-    <template v-else-if="mode === 'marker'">
-      <h3 class="softtool-section-title">Marker</h3>
-      <div class="softtool-grid" aria-label="Marker selection">
-        <button
-          class="softtool-choice is-active"
-          type="button"
-          :disabled="!trace"
-          title="Marker 1"
-          @click="emit('marker', { enabled: true })"
-        >
-          M1
-        </button>
-        <button
-          v-for="number in [2, 3, 4]"
-          :key="number"
-          class="softtool-choice"
-          type="button"
-          disabled
-          title="本期仅实现 M1"
-        >
-          M{{ number }}
-        </button>
-      </div>
-      <button
-        class="softtool-button"
-        type="button"
-        :disabled="!trace"
-        :aria-pressed="presentation?.marker.enabled"
-        data-testid="marker-enabled"
-        @click="emit('marker', { enabled: !presentation?.marker.enabled })"
-      >
-        Marker State
-        <strong>{{ presentation?.marker.enabled ? 'On' : 'Off' }}</strong>
-      </button>
-      <button
-        class="softtool-button"
-        type="button"
-        :disabled="!trace"
-        :aria-pressed="presentation?.marker.discrete"
-        data-testid="marker-discrete"
-        @click="emit('marker', { discrete: !presentation?.marker.discrete })"
-      >
-        Discrete
-        <strong>{{ presentation?.marker.discrete ? 'On' : 'Off' }}</strong>
-      </button>
-      <form @submit.prevent="applyMarker">
-        <FrequencyField
-          id="marker-frequency"
-          :model-value="markerFrequency"
-          label="Stimulus"
-          :disabled="!trace || !presentation?.marker.enabled"
-          @update:model-value="markerFrequency = $event"
-        />
-        <button
-          class="softtool-button softtool-primary softtool-apply"
-          type="submit"
-          :disabled="!trace || !presentation?.marker.enabled"
-          data-testid="apply-marker"
-        >
-          Set Marker
-        </button>
-      </form>
-      <p v-if="markerError" class="softtool-note" role="alert">
-        {{ markerError }}
-      </p>
-      <div class="softtool-divider" aria-hidden="true" />
-      <h3 class="softtool-section-title">Actual Sample</h3>
-      <div
-        class="softtool-readout"
-        data-testid="marker-value"
-        :style="{ color }"
-      >
-        <template v-if="marker">
-          <span>{{ frequencyText(marker.frequencyHz, 9) }}</span>
-          <strong :style="{ color }">{{ marker.valueText }}</strong>
-          <span
-            >Re {{ marker.real === null ? '—' : numberText(marker.real, 8) }}
-            {{ measurement?.unit }}</span
-          >
-          <span
-            >Im {{ marker.imag === null ? '—' : numberText(marker.imag, 8) }}
-            {{ measurement?.unit }}</span
-          >
-          <span
-            >Sample
-            {{
-              marker.interpolated
-                ? 'Interpolated'
-                : marker.index === null
-                  ? '—'
-                  : marker.index + 1
-            }}</span
-          >
-        </template>
-        <span v-else>{{
-          presentation?.marker.enabled ? 'Waiting for data' : 'Marker off'
-        }}</span>
-      </div>
-      <p class="softtool-note">
-        标记读数由后端使用完整原始帧计算。图上点击和方向键选择真实频点；频率输入按仪器
-        Discrete 模式处理。
       </p>
     </template>
   </section>

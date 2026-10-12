@@ -29,6 +29,7 @@ const emit = defineEmits<{
   toggleVisibility: [name: string]
   setLayout: [mode: LayoutMode]
   addMarker: [name: string]
+  selectMarker: [value: { name: string; markerId: number }]
 }>()
 /** 只查找后端已安排图窗的测量 DTO，不在前端决定布局、分组或主坐标迹线。 */
 const panes = computed(() =>
@@ -77,6 +78,7 @@ const panes = computed(() =>
       @toggle-visibility="emit('toggleVisibility', $event)"
       @set-layout="emit('setLayout', $event)"
       @add-marker="emit('addMarker', $event)"
+      @select-marker="emit('selectMarker', $event)"
     />
   </section>
 </template>

@@ -2,6 +2,7 @@ import type { MarkerResult } from './traceMath'
 
 export interface MarkerMove {
   name: string
+  markerId?: number
   frequencyHz?: number
   sampleIndex?: number
   step?: number
@@ -24,6 +25,7 @@ export interface MarkerPreviewPoint extends MarkerDragPoint {
 
 export interface MarkerDragGeometryInput {
   name: string
+  markerId?: number
   points: readonly MarkerPreviewPoint[]
   smith: boolean
   bounds: { left: number; top: number; width: number; height: number }
@@ -37,6 +39,8 @@ export interface MarkerDragGeometryInput {
 /** 冻结手势的绘图几何；后续采集快照不改变当前鼠标选中的原始采样索引。 */
 export function createMarkerDragGeometry(input: MarkerDragGeometryInput) {
   const name = input.name
+  const marker =
+    input.markerId === undefined ? {} : { markerId: input.markerId }
   const smith = input.smith
   const points = input.points.map((point) => ({
     ...point,
@@ -85,7 +89,7 @@ export function createMarkerDragGeometry(input: MarkerDragGeometryInput) {
       const sampleIndex = project(point).sampleIndex
       return sampleIndex === undefined
         ? null
-        : { name, sampleIndex, discrete: true }
+        : { name, ...marker, sampleIndex, discrete: true }
     }
     const fraction = Math.max(
       0,
@@ -94,6 +98,7 @@ export function createMarkerDragGeometry(input: MarkerDragGeometryInput) {
     // 预览只吸附抽取后的投影；正式频点由后端按完整帧选择。
     return {
       name,
+      ...marker,
       frequencyHz: range.min + fraction * (range.max - range.min),
       discrete: true,
     }

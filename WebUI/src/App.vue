@@ -10,9 +10,12 @@ import MeasurementSofttool from './components/softtools/MeasurementSofttool.vue'
 import TraceCatalogSofttool from './components/softtools/TraceCatalogSofttool.vue'
 import SweepSofttool from './components/softtools/SweepSofttool.vue'
 import TraceSofttool from './components/softtools/TraceSofttool.vue'
+import MarkerSofttool from './components/softtools/MarkerSofttool.vue'
+import { MAX_TRACES } from './domain/presentation'
 import SystemSofttool from './components/softtools/SystemSofttool.vue'
 import { useInstrument } from './composables/useInstrument'
 import { useWorkspace } from './composables/useWorkspace'
+import { enableMarkerOnEntry } from './composables/markerMenuEntry'
 import { exportVisibleFrameCsv } from './plot'
 import type { MarkerMove } from './plot/markerDrag'
 
@@ -85,7 +88,7 @@ const title = computed(
     ({
       stimulus: 'Stimulus',
       measurement: 'Measurement Menu',
-      trace: 'Trace',
+      trace: activeTool.value === 'marker' ? 'Markers' : 'Trace',
       sweep: 'Sweep',
       bandwidth: 'Pwr Bw Avg',
       system: 'System',
@@ -138,6 +141,13 @@ const emptyConfig = { startHz: 0, stopHz: 0, points: 0, ifBandwidthHz: 0 }
 function selectTool(id: string) {
   activeTool.value = id
   softtoolVisible.value = true
+  if (id === 'marker') {
+    enableMarkerOnEntry(
+      activePresentation.value,
+      canEditDisplay.value,
+      (markerId) => workspace.selectMarker(activeTraceName.value, markerId),
+    )
+  }
   if (['start', 'stop', 'center', 'span', 'sweep', 'bandwidth'].includes(id)) {
     void nextTick(() => {
       const inputId =
@@ -199,6 +209,7 @@ async function commitMarker(value: MarkerMove): Promise<boolean> {
     await workspace.setMarker(
       {
         enabled: true,
+        markerId: value.markerId,
         frequencyHz: value.frequencyHz,
         sampleIndex: value.sampleIndex,
         step: value.step,
@@ -243,7 +254,9 @@ onBeforeUnmount(() => {
               :can-write="canWrite"
               :busy="busy"
               :can-delete="canChangeMeasurements && measurements.length > 1"
-              :can-add-trace="canChangeMeasurements && measurements.length < 32"
+              :can-add-trace="
+                canChangeMeasurements && measurements.length < MAX_TRACES
+              "
               @select-tool="selectTool"
               @toggle-layout="
                 workspace.setLayout(layout === 'grid' ? 'maximized' : 'grid')
@@ -273,11 +286,15 @@ onBeforeUnmount(() => {
               @select-trace="workspace.selectTrace"
               @toggle-visibility="workspace.toggleVisibility"
               @set-layout="workspace.setLayout"
-              @add-marker="workspace.setMarker({ enabled: true }, $event)"
+              @add-marker="workspace.addMarker($event)"
+              @select-marker="
+                workspace.selectMarker($event.name, $event.markerId)
+              "
               @move-marker="
                 workspace.setMarker(
                   {
                     enabled: true,
+                    markerId: $event.markerId,
                     frequencyHz: $event.frequencyHz,
                     sampleIndex: $event.sampleIndex,
                     step: $event.step,
@@ -344,8 +361,8 @@ onBeforeUnmount(() => {
               @display="workspace.setDisplayed($event.name, $event.enabled)"
             />
             <TraceSofttool
-              v-if="group === 'trace' && activeTool !== 'trace-config'"
-              :mode="activeTool as 'format' | 'scale' | 'marker'"
+              v-if="activeTool === 'format' || activeTool === 'scale'"
+              :mode="activeTool as 'format' | 'scale'"
               :measurement="displayedMeasurement"
               :presentation="activePresentation"
               :frame="frame"
@@ -357,8 +374,16 @@ onBeforeUnmount(() => {
               @scale="workspace.setScale"
               @smith-radius="workspace.setSmithRadius"
               @autoscale="workspace.autoscale"
-              @marker="workspace.setMarker"
               @toggle-visibility="workspace.toggleVisibility()"
+            />
+            <MarkerSofttool
+              v-if="activeTool === 'marker'"
+              :measurement="displayedMeasurement"
+              :presentation="activePresentation"
+              :frame="frame"
+              :index="activeIndex"
+              :can-edit-display="canEditDisplay"
+              @marker="workspace.setMarker"
             />
             <SweepSofttool
               v-show="group === 'sweep' && activeTool !== 'sweep'"

@@ -12,6 +12,11 @@ import {
   type TracePresentation,
 } from '../../domain/presentation'
 import {
+  activeMarkerId,
+  MARKER_COUNT,
+  traceMarkers,
+} from '../../domain/markers'
+import {
   FORMAT_INFO,
   measurementFormatInfo,
   frequencyText,
@@ -72,6 +77,7 @@ const emit = defineEmits<{
   toggleVisibility: [name: string]
   setLayout: [mode: LayoutMode]
   addMarker: [name: string]
+  selectMarker: [value: { name: string; markerId: number }]
 }>()
 const plotArea = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -83,13 +89,16 @@ let resolutionQuery: MediaQueryList | undefined
 let paintRequest = 0
 let dragPointer: number | null = null
 let draggingName = ''
+let draggingMarkerId = 1
 let dragTarget: HTMLElement | null = null
 let dragCommandAt: ((point: DragPoint) => MarkerMove | null) | null = null
 let suppressMarkerClick = false
 let previewName = ''
+let previewMarkerId = 1
 let previewColor = ''
 const dragPreview = ref<{
   name: string
+  markerId: number
   color: string
   placement: ReturnType<typeof markerPlacement>
   committing: boolean
@@ -102,6 +111,7 @@ const markerDrag = new MarkerDragController({
     dragPreview.value = point
       ? {
           name: previewName,
+          markerId: previewMarkerId,
           color: previewColor,
           placement: markerPlacement(point, rect.value),
           committing,
@@ -112,15 +122,11 @@ const markerDrag = new MarkerDragController({
 })
 
 const traces = computed(() =>
-  props.measurements.flatMap((measurement) => {
+  props.measurements.flatMap((measurement, index) => {
     const presentation = props.presentations[measurement.name]
     if (!presentation) return []
     const frameTrace = props.frame?.traces.find(
       (item) => item.name === measurement.name,
-    )
-    const index = Math.max(
-      0,
-      props.allMeasurements.findIndex((item) => item.name === measurement.name),
     )
     return [
       {
@@ -171,32 +177,43 @@ const xRange = computed(() => {
 })
 const markerModels = computed(() =>
   traces.value.flatMap((item) => {
-    if (!item.presentation.visible || !item.presentation.marker.enabled)
-      return []
-    const result = markerResult(
-      props.frame,
-      item.frameTrace,
-      item.presentation.marker.frequencyHz,
-      item.presentation.format,
-      item.presentation.marker.sampleIndex,
-    )
-    if (!result) return []
-    return [
-      {
-        ...item,
-        name: item.measurement.name,
-        result,
-        active: item.measurement.name === props.activeTraceName,
-      },
-    ]
+    if (!item.presentation.visible) return []
+    return traceMarkers(item.presentation).flatMap((marker) => {
+      if (!marker.enabled) return []
+      const result = markerResult(
+        props.frame,
+        item.frameTrace,
+        marker.frequencyHz,
+        item.presentation.format,
+        marker.sampleIndex,
+        marker.id,
+      )
+      return result
+        ? [
+            {
+              ...item,
+              name: item.measurement.name,
+              markerId: marker.id,
+              result,
+              active:
+                item.measurement.name === props.activeTraceName &&
+                marker.id === activeMarkerId(item.presentation),
+            },
+          ]
+        : []
+    })
   }),
 )
 const markerReadouts = computed(() =>
   markerModels.value.map((marker) => {
     const preview = dragPreview.value
-    const result = preview?.name === marker.name ? preview.result : null
+    const result =
+      preview?.name === marker.name && preview.markerId === marker.markerId
+        ? preview.result
+        : null
     return {
       name: marker.name,
+      markerId: marker.markerId,
       color: marker.color,
       format: marker.presentation.format,
       measurement: marker.measurement,
@@ -434,7 +451,10 @@ watch(
         trace.measurement.name,
         trace.presentation.format,
         trace.presentation.visible,
-        trace.presentation.marker.enabled,
+        traceMarkers(trace.presentation).map((marker) => [
+          marker.id,
+          marker.enabled,
+        ]),
         trace.presentation.smithRadius,
         trace.scale,
       ]),
@@ -454,6 +474,7 @@ function markerMoveAt(
   name: string,
   clientX: number,
   clientY: number,
+  markerId: number,
 ): MarkerMove | null {
   const bounds = plotArea.value?.getBoundingClientRect()
   const axis = props.frame?.frequencyHz
@@ -474,6 +495,7 @@ function markerMoveAt(
     return index >= 0
       ? {
           name,
+          markerId,
           sampleIndex: props.frame!.sampleIndexes[index]!,
           discrete: true,
         }
@@ -485,18 +507,28 @@ function markerMoveAt(
   )
   return {
     name,
+    markerId,
     frequencyHz:
       xRange.value.min + fraction * (xRange.value.max - xRange.value.min),
     discrete: true,
   }
 }
 
-function moveMarkerAt(name: string, clientX: number, clientY: number): void {
-  const command = markerMoveAt(name, clientX, clientY)
+function moveMarkerAt(
+  name: string,
+  clientX: number,
+  clientY: number,
+  markerId: number,
+): void {
+  const command = markerMoveAt(name, clientX, clientY, markerId)
   if (command) emit('moveMarker', command)
 }
 
-function beginDrag(event: PointerEvent, name: string): void {
+function beginDrag(
+  event: PointerEvent,
+  name: string,
+  markerId = activeMarkerId(props.presentations[name]),
+): void {
   if (
     event.button !== 0 ||
     !props.canEditDisplay ||
@@ -504,7 +536,9 @@ function beginDrag(event: PointerEvent, name: string): void {
     markerDrag.pending
   )
     return
-  const marker = plottedMarkers.value.find((item) => item.name === name)
+  const marker = plottedMarkers.value.find(
+    (item) => item.name === name && item.markerId === markerId,
+  )
   const bounds = plotArea.value?.getBoundingClientRect()
   if (!marker || !bounds || !bounds.width || !bounds.height) return
   const points = markerPreviewPoints(name)
@@ -525,6 +559,7 @@ function beginDrag(event: PointerEvent, name: string): void {
       : 0
   const geometry = createMarkerDragGeometry({
     name,
+    markerId,
     points,
     smith: isSmith.value,
     area: rect.value,
@@ -545,7 +580,9 @@ function beginDrag(event: PointerEvent, name: string): void {
   event.stopPropagation()
   dragPointer = event.pointerId
   draggingName = name
+  draggingMarkerId = markerId
   previewName = name
+  previewMarkerId = markerId
   previewColor = marker.color
   suppressMarkerClick = false
   dragTarget = event.currentTarget as HTMLElement
@@ -566,6 +603,7 @@ function endDrag(event: PointerEvent): void {
   }
   suppressMarkerClick = true
   const name = draggingName
+  const markerId = draggingMarkerId
   const commandAt = dragCommandAt
   void markerDrag
     .finish(
@@ -575,7 +613,7 @@ function endDrag(event: PointerEvent): void {
         const command = props.canEditDisplay ? commandAt?.(point) : null
         return command ? props.commitMarker(command) : false
       },
-      () => emit('selectTrace', name),
+      () => emit('selectMarker', { name, markerId }),
     )
     .catch(() => {
       // 命令入口负责错误提示；失败时手势层只恢复后端权威位置。
@@ -621,15 +659,15 @@ function markerPreviewPoints(name: string): MarkerPreviewPoint[] {
   )
 }
 
-function markerClick(name: string): void {
+function markerClick(name: string, markerId: number): void {
   if (suppressMarkerClick) {
     suppressMarkerClick = false
     return
   }
-  if (props.canEditDisplay) emit('selectTrace', name)
+  if (props.canEditDisplay) emit('selectMarker', { name, markerId })
 }
 
-function markerKey(event: KeyboardEvent, name: string): void {
+function markerKey(event: KeyboardEvent, name: string, markerId: number): void {
   if (!props.canEditDisplay || !props.frame) return
   let command: { step?: number; sampleIndex?: number }
   switch (event.key) {
@@ -650,13 +688,18 @@ function markerKey(event: KeyboardEvent, name: string): void {
   }
   event.preventDefault()
   event.stopPropagation()
-  emit('moveMarker', { name, ...command, discrete: true })
+  emit('moveMarker', { name, markerId, ...command, discrete: true })
 }
 
 function placeMarker(event: MouseEvent): void {
   const item = activeTrace.value
   if (item?.presentation.marker.enabled)
-    moveMarkerAt(item.measurement.name, event.clientX, event.clientY)
+    moveMarkerAt(
+      item.measurement.name,
+      event.clientX,
+      event.clientY,
+      activeMarkerId(item.presentation),
+    )
 }
 
 function clickPlot(event: MouseEvent): void {
@@ -668,7 +711,7 @@ function clickPlot(event: MouseEvent): void {
 }
 
 function plotKey(event: KeyboardEvent): void {
-  // 子级标记控件自行处理按键；绘图区获得焦点时操作当前轨迹的 M1。
+  // 子级标记控件自行处理按键；绘图区获得焦点时操作当前迹线的活动标记。
   if (event.target !== event.currentTarget) return
   const trace = activeTrace.value
   if (!trace?.presentation.marker.enabled || !props.frame) return
@@ -678,8 +721,10 @@ function plotKey(event: KeyboardEvent): void {
     trace.presentation.marker.frequencyHz,
     trace.presentation.format,
     trace.presentation.marker.sampleIndex,
+    activeMarkerId(trace.presentation),
   )
-  if (result) markerKey(event, trace.measurement.name)
+  if (result)
+    markerKey(event, trace.measurement.name, activeMarkerId(trace.presentation))
 }
 </script>
 
@@ -715,6 +760,12 @@ function plotKey(event: KeyboardEvent): void {
         :layout="layout"
         :has-trace="Boolean(activeTrace)"
         :can-edit-display="canEditDisplay"
+        :can-add-marker="
+          activeTrace &&
+          traceMarkers(activeTrace.presentation).filter(
+            (marker) => marker.enabled,
+          ).length < MARKER_COUNT
+        "
         @activate="selectPane"
         @layout="emit('setLayout', $event)"
         @add-marker="
@@ -728,7 +779,7 @@ function plotKey(event: KeyboardEvent): void {
       class="plot-area"
       tabindex="0"
       role="group"
-      :aria-label="`Diagram ${number} plot. When M1 is enabled, click a measured frequency or use Left, Right, Home and End to move the marker.`"
+      :aria-label="`Diagram ${number} plot. When the active marker is enabled, click a measured frequency or use Left, Right, Home and End to move the marker.`"
       @click="clickPlot"
       @keydown="plotKey"
     >
@@ -753,17 +804,19 @@ function plotKey(event: KeyboardEvent): void {
       <MarkerReadout
         :can-edit-display="canEditDisplay"
         :markers="markerReadouts"
-        @select="emit('selectTrace', $event)"
+        @select="emit('selectMarker', $event)"
       />
       <button
         v-for="marker in plottedMarkers"
-        :key="marker.name"
+        :key="`${marker.name}-M${marker.markerId}`"
         type="button"
         class="marker-handle"
         :disabled="!canEditDisplay"
         :class="{
           active: marker.active,
-          'drag-source': dragPreview?.name === marker.name,
+          'drag-source':
+            dragPreview?.name === marker.name &&
+            dragPreview.markerId === marker.markerId,
         }"
         :style="{
           left: `${marker.placement.left}px`,
@@ -772,16 +825,18 @@ function plotKey(event: KeyboardEvent): void {
           height: `${marker.placement.height}px`,
           color: marker.color,
         }"
-        :aria-label="`M1 ${marker.name}, ${frequencyText(marker.result.frequencyHz, 10)}, ${isSmith ? smithReadout(marker.result) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.presentation.format, marker.measurement).unit}. Arrow keys move between measured frequency points.`"
-        @pointerdown="beginDrag($event, marker.name)"
+        :aria-label="`M${marker.markerId} ${marker.name}, ${frequencyText(marker.result.frequencyHz, 10)}, ${isSmith ? smithReadout(marker.result) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.presentation.format, marker.measurement).unit}. Arrow keys move between measured frequency points.`"
+        @pointerdown="beginDrag($event, marker.name, marker.markerId)"
         @pointermove="dragMarker"
         @pointerup="endDrag"
         @pointercancel="endDrag"
         @lostpointercapture="lostDragCapture"
-        @keydown="markerKey($event, marker.name)"
-        @click.stop="markerClick(marker.name)"
+        @keydown="markerKey($event, marker.name, marker.markerId)"
+        @click.stop="markerClick(marker.name, marker.markerId)"
       >
-        <span :style="{ top: `${marker.placement.labelTop}px` }">M1</span>
+        <span :style="{ top: `${marker.placement.labelTop}px` }"
+          >M{{ marker.markerId }}</span
+        >
         <svg
           viewBox="0 0 10 9"
           aria-hidden="true"
@@ -805,7 +860,9 @@ function plotKey(event: KeyboardEvent): void {
           color: dragPreview.color,
         }"
       >
-        <span :style="{ top: `${dragPreview.placement.labelTop}px` }">M1</span>
+        <span :style="{ top: `${dragPreview.placement.labelTop}px` }"
+          >M{{ dragPreview.markerId }}</span
+        >
         <svg
           viewBox="0 0 10 9"
           :style="{
@@ -817,7 +874,9 @@ function plotKey(event: KeyboardEvent): void {
         </svg>
       </div>
       <span v-if="dragPreview" class="marker-drag-status" role="status">{{
-        dragPreview.committing ? 'Setting M1…' : 'Moving M1'
+        dragPreview.committing
+          ? `Setting M${dragPreview.markerId}…`
+          : `Moving M${dragPreview.markerId}`
       }}</span>
       <div
         v-if="!hasDrawable"
@@ -922,6 +981,10 @@ function plotKey(event: KeyboardEvent): void {
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 2px 4px;
+  max-height: 84px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
 }
 .empty-header {
   align-self: center;

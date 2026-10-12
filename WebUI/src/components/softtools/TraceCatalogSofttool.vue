@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { InstrumentStatus } from '../../api/types'
 import { measurementState } from '../../domain/measurements'
+import { MAX_TRACES } from '../../domain/presentation'
 
 const props = defineProps<{
   status: InstrumentStatus | null
@@ -83,7 +84,7 @@ async function remove() {
             :disabled="
               !canEditDisplay ||
               (!displayedNames.includes(measurement.name) &&
-                displayedNames.length >= 4)
+                displayedNames.length >= MAX_TRACES)
             "
             @change="
               emit('display', {
@@ -100,7 +101,7 @@ async function remove() {
     <button
       type="button"
       class="softtool-button"
-      :disabled="disabled || !active || catalog.length >= 32"
+      :disabled="disabled || !active || catalog.length >= MAX_TRACES"
       @click="clone"
     >
       Add Trace
@@ -118,7 +119,8 @@ async function remove() {
       <span>{{ measurementState(active) }}</span>
     </div>
     <p class="softtool-note">
-      Add Trace 复制活动迹线。Meas 修改其测量量；显示最多四条，目录最多32项。
+      Add Trace 复制活动迹线，编号由后端分配。Meas 修改其测量量；最多显示
+      {{ MAX_TRACES }} 条迹线。
     </p>
     <p v-if="!canChangeMeasurements" class="softtool-note">
       {{

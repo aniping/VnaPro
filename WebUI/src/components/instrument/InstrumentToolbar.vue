@@ -112,7 +112,7 @@ function singleSweep() {
         class="toolbar-button"
         :disabled="!hasTrace || !canEditDisplay"
         :aria-pressed="markerEnabled"
-        title="Marker M1 · 显示或隐藏标记"
+        title="显示或隐藏活动标记"
         aria-label="Toggle marker"
         data-testid="toolbar-marker"
         @click="emit('toggleMarker')"

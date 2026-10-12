@@ -8,6 +8,7 @@ const props = defineProps<{
   layout: LayoutMode
   hasTrace: boolean
   canEditDisplay: boolean
+  canAddMarker?: boolean
 }>()
 const emit = defineEmits<{
   activate: []
@@ -64,7 +65,8 @@ async function choose(mode: LayoutMode) {
 }
 
 function addMarker() {
-  if (!props.hasTrace) return
+  if (!props.hasTrace || !props.canEditDisplay || props.canAddMarker === false)
+    return
   emit('addMarker')
   close(true)
 }
@@ -155,7 +157,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
         class="diagram-menu-item"
         type="button"
         role="menuitem"
-        :disabled="!hasTrace || !canEditDisplay"
+        :disabled="!hasTrace || !canEditDisplay || canAddMarker === false"
         @click.stop="addMarker"
       >
         <span class="diagram-menu-check" aria-hidden="true">+</span

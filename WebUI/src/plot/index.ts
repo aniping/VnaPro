@@ -56,6 +56,7 @@ export function getMarkerReadout(
     presentation.marker.frequencyHz,
     presentation.format,
     presentation.marker.sampleIndex,
+    presentation.activeMarkerId,
   )
   if (!result) return null
   const displayed = trace ?? measurement
