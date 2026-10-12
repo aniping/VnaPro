@@ -93,9 +93,15 @@ const emit = defineEmits<{
   <section v-else-if="mode === 'help'" class="softtool-section">
     <h2 class="softtool-section-title">Quick Start</h2>
     <ol class="softtool-help">
-      <li>Stimulus：在仪器能力范围内填写频率、点数和 IF 带宽，再 Apply。</li>
+      <li>
+        Stimulus：在仪器能力范围内填写 Start/Stop 或 Center/Span，再 Apply。
+      </li>
+      <li>Sweep → Sweep Params：编辑 Number of Points，再 Apply。</li>
+      <li>Power / Bw / Avg → Bandwidth：编辑 IF Bandwidth，再 Apply。</li>
       <li>Meas：添加 S11/S21/S12/S22 或 RAW，选择最多四条显示迹线。</li>
-      <li>Sweep：Single 采一帧；Continuous 连续采集；Hold 停止。</li>
+      <li>
+        Sweep → Sweep Control：Single 采一帧；Continuous 连续采集；Hold 停止。
+      </li>
       <li>点击图内迹线条，Format / Scale / Marker 只调整该迹线显示。</li>
     </ol>
     <div class="softtool-divider" />

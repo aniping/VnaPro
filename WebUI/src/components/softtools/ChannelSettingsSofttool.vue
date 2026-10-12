@@ -11,9 +11,10 @@ import FrequencyField from '../shared/FrequencyField.vue'
 
 const props = defineProps<{
   status: InstrumentStatus | null
+  mode: 'frequency' | 'points' | 'bandwidth'
   canConfigure: boolean
   busy: boolean
-  focusField?: 'start' | 'stop' | 'center' | 'span' | 'bandwidth'
+  focusField?: 'start' | 'stop' | 'center' | 'span'
   apply: (
     candidate: SweepPatch,
     expectedRevision: string,
@@ -41,12 +42,9 @@ function configuration(status: InstrumentStatus): SweepConfiguration {
 }
 
 function signature(value: SweepConfiguration): string {
-  return JSON.stringify([
-    value.startHz,
-    value.stopHz,
-    value.points,
-    value.ifBandwidthHz,
-  ])
+  if (props.mode === 'points') return JSON.stringify(value.points)
+  if (props.mode === 'bandwidth') return JSON.stringify(value.ifBandwidthHz)
+  return JSON.stringify([value.startHz, value.stopHz])
 }
 
 function load(status: InstrumentStatus) {
@@ -106,13 +104,21 @@ const locked = computed(() => props.busy || applying.value)
 
 /** 只为草稿预览换算边界；实际命令发送 Center/Span，由后端执行联动。 */
 function previewConfiguration(): SweepConfiguration {
-  return frequencyMode.value === 'centerSpan'
-    ? {
-        ...draft,
-        startHz: centerDraft.value - spanDraft.value / 2,
-        stopHz: centerDraft.value + spanDraft.value / 2,
-      }
-    : { ...draft }
+  const current = props.status ? configuration(props.status) : { ...draft }
+  if (props.mode === 'points') return { ...current, points: draft.points }
+  if (props.mode === 'bandwidth')
+    return { ...current, ifBandwidthHz: draft.ifBandwidthHz }
+  return {
+    ...current,
+    startHz:
+      frequencyMode.value === 'centerSpan'
+        ? centerDraft.value - spanDraft.value / 2
+        : draft.startHz,
+    stopHz:
+      frequencyMode.value === 'centerSpan'
+        ? centerDraft.value + spanDraft.value / 2
+        : draft.stopHz,
+  }
 }
 function beginCenterSpan() {
   if (frequencyMode.value === 'centerSpan') return
@@ -146,19 +152,24 @@ function discard() {
 async function commit() {
   if (!dirty.value || !props.canConfigure || locked.value || !props.status)
     return
+  // 每个菜单只发送用户在本页编辑的字段，避免覆盖其它菜单的后端设置。
   const candidate: SweepPatch =
-    frequencyMode.value === 'centerSpan'
-      ? {
-          centerHz: centerDraft.value,
-          spanHz: spanDraft.value,
-          points: draft.points,
-          ifBandwidthHz: draft.ifBandwidthHz,
-        }
-      : { ...draft }
+    props.mode === 'points'
+      ? { points: draft.points }
+      : props.mode === 'bandwidth'
+        ? { ifBandwidthHz: draft.ifBandwidthHz }
+        : frequencyMode.value === 'centerSpan'
+          ? { centerHz: centerDraft.value, spanHz: spanDraft.value }
+          : { startHz: draft.startHz, stopHz: draft.stopHz }
   const expectedRevision = editRevision.value
   const limits = props.status.capabilities
   if (!sweepWithinCapabilities(previewConfiguration(), limits)) {
-    validation.value = `Start ≤ Stop · ${frequencyText(limits.minFrequencyHz)}–${frequencyText(limits.maxFrequencyHz)} · ${limits.minSweepPoints}–${limits.maxSweepPoints} points · Span 0 = CW`
+    validation.value =
+      props.mode === 'points'
+        ? `Number of Points must be an integer between ${limits.minSweepPoints} and ${limits.maxSweepPoints}.`
+        : props.mode === 'bandwidth'
+          ? 'IF Bandwidth must be at least 10 Hz.'
+          : `Start ≤ Stop · ${frequencyText(limits.minFrequencyHz)}–${frequencyText(limits.maxFrequencyHz)} · Span 0 = CW`
     return
   }
   const submitted = signature(previewConfiguration())
@@ -171,7 +182,7 @@ async function commit() {
       else {
         baseline = configuration(result)
         editRevision.value = result.revision
-        dirty.value = signature(draft) !== signature(baseline)
+        dirty.value = signature(previewConfiguration()) !== signature(baseline)
       }
     }
   } finally {
@@ -190,67 +201,79 @@ function applyFromKeyboard(event: KeyboardEvent) {
 <template>
   <section
     class="softtool-section"
-    aria-label="Stimulus settings"
+    :aria-label="
+      mode === 'frequency'
+        ? 'Stimulus settings'
+        : mode === 'points'
+          ? 'Sweep parameters'
+          : 'IF bandwidth settings'
+    "
     @keydown.enter="applyFromKeyboard"
   >
     <template v-if="status">
-      <h3 class="softtool-section-title">Frequency</h3>
-      <FrequencyField
-        id="stimulus-start"
-        label="Start"
-        :model-value="previewConfiguration().startHz"
-        @update:model-value="setEdge('startHz', $event)"
-      />
-      <FrequencyField
-        id="stimulus-stop"
-        label="Stop"
-        :model-value="previewConfiguration().stopHz"
-        @update:model-value="setEdge('stopHz', $event)"
-      />
-      <div class="softtool-divider" />
-      <FrequencyField
-        id="stimulus-center"
-        label="Center"
-        :model-value="centerHz"
-        @update:model-value="setCenter"
-      />
-      <FrequencyField
-        id="stimulus-span"
-        label="Span"
-        :model-value="spanHz"
-        @update:model-value="setSpan"
-      />
-      <div class="softtool-divider" />
-      <h3 class="softtool-section-title">Sweep settings</h3>
-      <label class="field-row" for="stimulus-points">
-        <span class="softtool-label">Points</span>
-        <input
-          id="stimulus-points"
-          v-model.number="draft.points"
-          data-testid="points"
-          class="field-input"
-          type="number"
-          :min="status.capabilities.minSweepPoints"
-          :max="status.capabilities.maxSweepPoints"
-          step="1"
-          @input="update"
+      <template v-if="mode === 'frequency'">
+        <h3 class="softtool-section-title">Stimulus</h3>
+        <FrequencyField
+          id="stimulus-start"
+          label="Start"
+          :model-value="previewConfiguration().startHz"
+          @update:model-value="setEdge('startHz', $event)"
         />
-      </label>
-      <label class="field-row" for="stimulus-bandwidth">
-        <span class="softtool-label">IF bandwidth</span>
-        <select
-          id="stimulus-bandwidth"
-          v-model.number="draft.ifBandwidthHz"
-          class="field-input"
-          @change="update"
-        >
-          <option :value="10">10 Hz</option>
-          <option :value="100">100 Hz</option>
-          <option :value="1000">1 kHz</option>
-          <option :value="10000">10 kHz</option>
-          <option :value="100000">100 kHz</option>
-        </select>
-      </label>
+        <FrequencyField
+          id="stimulus-stop"
+          label="Stop"
+          :model-value="previewConfiguration().stopHz"
+          @update:model-value="setEdge('stopHz', $event)"
+        />
+        <div class="softtool-divider" />
+        <FrequencyField
+          id="stimulus-center"
+          label="Center"
+          :model-value="centerHz"
+          @update:model-value="setCenter"
+        />
+        <FrequencyField
+          id="stimulus-span"
+          label="Span"
+          :model-value="spanHz"
+          @update:model-value="setSpan"
+        />
+      </template>
+      <template v-else-if="mode === 'points'">
+        <h3 class="softtool-section-title">Sweep Params</h3>
+        <label class="field-row" for="sweep-points">
+          <span class="softtool-label">Number of Points</span>
+          <input
+            id="sweep-points"
+            v-model.number="draft.points"
+            data-testid="points"
+            class="field-input"
+            type="number"
+            :min="status.capabilities.minSweepPoints"
+            :max="status.capabilities.maxSweepPoints"
+            step="1"
+            @input="update"
+          />
+        </label>
+      </template>
+      <template v-else>
+        <h3 class="softtool-section-title">Bandwidth</h3>
+        <label class="field-row" for="channel-bandwidth">
+          <span class="softtool-label">IF Bandwidth</span>
+          <select
+            id="channel-bandwidth"
+            v-model.number="draft.ifBandwidthHz"
+            class="field-input"
+            @change="update"
+          >
+            <option :value="10">10 Hz</option>
+            <option :value="100">100 Hz</option>
+            <option :value="1000">1 kHz</option>
+            <option :value="10000">10 kHz</option>
+            <option :value="100000">100 kHz</option>
+          </select>
+        </label>
+      </template>
       <div class="softtool-apply">
         <button
           class="softtool-button softtool-primary"

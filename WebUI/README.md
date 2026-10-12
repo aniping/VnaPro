@@ -108,11 +108,13 @@ Scale 和 Marker 输入按活动迹线及已应用显示设置同步；200 ms �
 新服务启动后已有活动迹线 `Trc1 / S21`，使用仪器配置的完整频段、默认 201 点；单端口配置使用 S11。启动状态为 HOLD，无初始采集帧，图中显示网格和“无帧”状态；执行 Single sweep 或 Continuous 才获得真实曲线。浏览器刷新读取已有设备目录和配置，不重新创建 RAW a1,1，也不覆盖其他客户端已选择的测量。
 
 1. 在 Setup 或底栏取得控制权；若 SCPI 或另一页面持权，本页可只读查看。
-2. 在 HOLD 下打开 Start/Stop/Center/Span 或 Power/Bw/Avg，编辑能力范围内的频率、点数和 IFBW，Apply 后等待设备完成及读回。允许 Start = Stop，或把 Span 设为 0，进行 CW 定频采样；返回频轴允许同一频率重复。
+2. 在 HOLD 下设置通道采集参数：Start/Stop/Center/Span 硬键打开 `Stimulus → Stimulus` 的频率设置；`Channel → Sweep → Sweep Params` 设置 `Number of Points`；`Channel → Power / Bw / Avg → Bandwidth` 设置 `IF Bandwidth`，软工具标题为 `Pwr Bw Avg`。每页保留独立输入草稿，Apply 只发送本页字段并等待后端完成及读回，切换菜单或帧轮询不会清除尚未应用的草稿。允许 Start = Stop，或把 Span 设为 0，进行 CW 定频采样；返回频轴允许同一频率重复。
 3. Meas 的 S-Params 页直接选择 S11/S12/S21/S22，修改活动迹线的测量量，不要求输入新名称。S11/S21 在源端口 1 的同帧波量上计算 `b1/a1`、`b2/a1`；S12/S22 在源端口 2 的同帧波量上计算 `b1/a2`、`b2/a2`。Wave 页提供六个标准两端口波量快捷选择；More Wave Quantities 对话框可按仪器能力指定 a/b、接收端口和激励端口，确认后修改活动迹线。超出当前端口能力的快捷选择禁用。CONT 中可以直接切换测量量；已有采集计划覆盖所需波量时复算同一完整帧，缺少源或接收机时由后台在完整帧边界更新计划，保持 CONT 和 runId。
-4. Sweep 的 Single sweep 采一帧并进入 HOLD；Continuous 连续采集，Hold 等待当前完整帧收尾。Manual trigger 仅在实际 MAN 触发并已 armed 时启用。
+4. Sweep 硬键默认打开 `Sweep Params`；在 `Sweep Control` 页签中，Single sweep 采一帧并进入 HOLD，Continuous 连续采集，Hold 等待当前完整帧收尾。`Trigger` 页签和 Trigger 硬键显示触发源及 Manual trigger；仅在实际 MAN 触发并已 armed 时允许手动触发。
 5. 点击图内迹线条选择当前迹线。Format、Scale、Marker 改变后端共享显示设置。Trace Config 管理测量目录和共享 Display 集合，Add Trace 由后端复制并命名，Delete 删除定义；全部仪器写动作要求控制权，CONT 中仍可执行。另一观察窗口及 SCPI 能读取相同状态。
 6. 在 File/Print、Tools 或工具栏导出当前显示的 CSV。
+
+点数与 IF 带宽菜单位置依据 [ZNB8 官方手册核对](../docs/research/ZNB8点数与中频带宽菜单核对.md)。本项目保留 Apply / Reload 作为草稿提交与重读交互，这组按钮并非原机软工具的复刻。当前驱动的 HOLD 配置限制与控制权检查仍由后端决定；功率、数字 IF 滤波器和平均尚未实现，不提供可操作的占位控件。
 
 图窗采用 10 × 10 网格，网格铺满绘图区，仅留 1 px 边线；纵轴数值和单位叠在网格内，普通刻度使用 `#4b5f6c`，如 `10dB` 不增加数值与单位之间的空格。频率 Start/Stop 显示在 20 px 黑色通道行，`Bw` 使用实际 IFBW，扫频点数使用真实配置或当前帧；不填充未实现的 Pwr。18 px 迹线条紧凑排列，如 `Trc1 S21 dB Mag 10 dB/ Ref 0 dB`，当前迹线选中呈 `#0d75bf` 蓝底。图内文字使用 Tahoma/Arial 近似参考截图，未确认原机字体。每条可见迹线保留自己的参考虚线与右侧同色向左三角；当前坐标所对应迹线的 Ref 虚线及对齐刻度用浅色 `#dbe2e6` 强调，其他叠加迹线的参考虚线使用自己的颜色。M1 使用小填充三角；右上角读数为实心 `#323f48` 背景、白色数值，圆点用迹线色指示活动标记。频率以工程单位显示六位小数，对应的实际采样索引不变，高精度提示仍可读取。靠近顶部时三角反向、文字移到下方；频率端点处目标向内收，尖点仍对应真实采样位置，单击不会跳频。
 
@@ -137,6 +139,8 @@ CSV 使用 schema 4，记录采集、目录、显示版本、抽取信息及后�
 ## 验证与界面依据
 
 `npm test` 覆盖严格解码、uint64 身份、202 等待与权威读回、控制租约、旧响应及不确定写入竞争；共享工作区的两个观察器与刷新、所有动作不乐观改状态、后端 displayRevision 竞争、格式投影及完整帧标记读数、原始 sampleIndexes 与 CSV schema 4 均有回归。渲染测试覆盖网格/标记几何、非方形 CSS 缩放与 DPR、屏幕命中及无效断线。格式数学、Autoscale 和标记插值移至 C++ VnaDisplay 的测试职责；前端用与原始复数刻意不同的投影验证没有本地重算。`npm run build` 负责 Vue/TypeScript 类型检查和生产构建。HTTP/SCPI 共享状态与真实浏览器另由集成测试验收。
+
+通道菜单测试执行真实 `ChannelSettingsSofttool.vue` 的 setup，覆盖三页字段隔离、原始 Center/Span 意图、轮询保留草稿、HOLD 权限与无效点数拒绝，以及异步提交期间新编辑不会被读回覆盖。
 
 2026-10-10 的绘图复验使用独立模拟服务、seed 42 的 401 点噪声帧，覆盖 1280 × 800 / DPR 1、1440 × 900 / DPR 1、1024 × 640 / DPR 1、1280 × 800 / DPR 1.25 和 DPR 2。四图窗的网格横截面均为 1 列物理像素，颜色保持 `#4b5f6c`；刻度背景透明，HOLD 下改变视口仍正确重画。M1 与实际曲线样本的最大差为 0.042 个物理像素；显示操作未触发设备配置或扫描写入，冻结帧保持一致，页面无脚本错误。
 

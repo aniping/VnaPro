@@ -4,7 +4,7 @@
 
 ## 结论
 
-当前把这两项合在 `Sweep settings` 中，**不符合本项目选定的 ZNB8 官方界面基线**：普通频率扫描的点数属于 `Sweep`，中频带宽属于 `Pwr Bw Avg`。两者都是通道采集参数，菜单分组不同不会改变后端的归属或权限规则。
+整改前把这两项合在 `Sweep settings` 中，**不符合本项目选定的 ZNB8 官方界面基线**：普通频率扫描的点数属于 `Sweep`，中频带宽属于 `Pwr Bw Avg`。两者都是通道采集参数，菜单分组不同不会改变后端的归属或权限规则。
 
 | 参数 | 官方入口 | 官方控件名称 | User Manual v74 依据 |
 | --- | --- | --- | --- |
@@ -23,9 +23,9 @@
 
 这些边界同样来自[官方 User Manual v74 第 59、524–525、531、534 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=59)。
 
-## 可执行调整
+## 已实施调整
 
-在 `Sweep` 软工具增加 `Sweep Params` 页签，放置 `Number of Points`；将现有 `Power / Bw / Avg` 硬键正确路由到独立的 `Pwr Bw Avg` 软工具，带宽放在其 `Bandwidth` 页签。当前 `App.vue` 将带宽硬键归入 `Stimulus`，而 `StimulusSofttool.vue` 同时显示点数和带宽，需要修正这两处组织。未实现的功率、滤波器类型与平均能力不呈现为可操作控件。前端仍只提交用户意图并显示后端状态，菜单调整不产生浏览器独立的采集配置。
+2026-10-12 已在 `Sweep` 软工具增加 `Sweep Params` 页签，放置 `Number of Points`；`Power / Bw / Avg` 硬键改为路由到独立的 `Pwr Bw Avg` 软工具，带宽放在其 `Bandwidth` 页签。`App.vue` 分别维护频率、点数、带宽三个固定菜单实例，共用 `ChannelSettingsSofttool.vue` 的输入和提交组件；每个菜单仅发送本页字段，保留独立草稿及后端版本校验。`Sweep Control` 与 `Trigger` 分页。未实现的功率、滤波器类型与平均能力不呈现为可操作控件。前端仍只提交用户意图并显示后端状态，菜单调整不产生浏览器独立的采集配置。
 
 ## 来源与复核
 

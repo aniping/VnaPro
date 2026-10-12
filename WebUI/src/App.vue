@@ -5,7 +5,7 @@ import HardkeyPanel from './components/instrument/HardkeyPanel.vue'
 import InstrumentStatusBar from './components/instrument/InstrumentStatusBar.vue'
 import DiagramWorkspace from './components/diagrams/DiagramWorkspace.vue'
 import SofttoolHost from './components/softtools/SofttoolHost.vue'
-import StimulusSofttool from './components/softtools/StimulusSofttool.vue'
+import ChannelSettingsSofttool from './components/softtools/ChannelSettingsSofttool.vue'
 import MeasurementSofttool from './components/softtools/MeasurementSofttool.vue'
 import TraceCatalogSofttool from './components/softtools/TraceCatalogSofttool.vue'
 import SweepSofttool from './components/softtools/SweepSofttool.vue'
@@ -14,6 +14,7 @@ import SystemSofttool from './components/softtools/SystemSofttool.vue'
 import { useInstrument } from './composables/useInstrument'
 import { useWorkspace } from './composables/useWorkspace'
 import { exportVisibleFrameCsv } from './plot'
+import type { MarkerMove } from './plot/markerDrag'
 
 const instrument = useInstrument()
 const {
@@ -62,19 +63,21 @@ const busy = computed(() =>
   ),
 )
 const group = computed(() =>
-  ['start', 'stop', 'center', 'span', 'bandwidth'].includes(activeTool.value)
+  ['start', 'stop', 'center', 'span'].includes(activeTool.value)
     ? 'stimulus'
     : ['meas', 'meas-wave'].includes(activeTool.value)
       ? 'measurement'
       : ['format', 'scale', 'marker', 'trace-config'].includes(activeTool.value)
         ? 'trace'
-        : ['sweep', 'trigger'].includes(activeTool.value)
+        : ['sweep', 'sweep-control', 'trigger'].includes(activeTool.value)
           ? 'sweep'
-          : 'system',
+          : activeTool.value === 'bandwidth'
+            ? 'bandwidth'
+            : 'system',
 )
 const focusField = computed(() =>
   group.value === 'stimulus'
-    ? (activeTool.value as 'start' | 'stop' | 'center' | 'span' | 'bandwidth')
+    ? (activeTool.value as 'start' | 'stop' | 'center' | 'span')
     : undefined,
 )
 const title = computed(
@@ -84,15 +87,13 @@ const title = computed(
       measurement: 'Measurement Menu',
       trace: 'Trace',
       sweep: 'Sweep',
+      bandwidth: 'Pwr Bw Avg',
       system: 'System',
     })[group.value],
 )
 const tabs = computed(() =>
   group.value === 'stimulus'
-    ? [
-        { id: 'start', label: 'Frequency' },
-        { id: 'bandwidth', label: 'Bandwidth' },
-      ]
+    ? [{ id: 'start', label: 'Stimulus' }]
     : group.value === 'measurement'
       ? [
           { id: 'meas', label: 'S-Params' },
@@ -113,21 +114,22 @@ const tabs = computed(() =>
           ]
         : group.value === 'sweep'
           ? [
-              { id: 'sweep', label: 'Sweep' },
+              { id: 'sweep', label: 'Sweep Params' },
+              { id: 'sweep-control', label: 'Sweep Control' },
               { id: 'trigger', label: 'Trigger' },
             ]
-          : [
-              { id: 'setup', label: 'State' },
-              { id: 'display', label: 'Display' },
-              { id: 'file', label: 'File' },
-              { id: 'help', label: 'Help' },
-            ],
+          : group.value === 'bandwidth'
+            ? [{ id: 'bandwidth', label: 'Bandwidth' }]
+            : [
+                { id: 'setup', label: 'State' },
+                { id: 'display', label: 'Display' },
+                { id: 'file', label: 'File' },
+                { id: 'help', label: 'Help' },
+              ],
 )
 const activeTab = computed(() =>
   group.value === 'stimulus'
-    ? activeTool.value === 'bandwidth'
-      ? 'bandwidth'
-      : 'start'
+    ? 'start'
     : activeTool.value === 'tools'
       ? 'file'
       : activeTool.value,
@@ -136,9 +138,15 @@ const emptyConfig = { startHz: 0, stopHz: 0, points: 0, ifBandwidthHz: 0 }
 function selectTool(id: string) {
   activeTool.value = id
   softtoolVisible.value = true
-  if (['start', 'stop', 'center', 'span', 'bandwidth'].includes(id)) {
+  if (['start', 'stop', 'center', 'span', 'sweep', 'bandwidth'].includes(id)) {
     void nextTick(() => {
-      const input = document.getElementById(`stimulus-${id}`)
+      const inputId =
+        id === 'sweep'
+          ? 'sweep-points'
+          : id === 'bandwidth'
+            ? 'channel-bandwidth'
+            : `stimulus-${id}`
+      const input = document.getElementById(inputId)
       input?.focus()
       if (input instanceof HTMLInputElement) input.select()
     })
@@ -185,6 +193,20 @@ async function addTrace() {
   if (!canChangeMeasurements.value || !status.value || !activeMeasurement.value)
     return
   await instrument.cloneMeasurement(activeMeasurement.value.name)
+}
+async function commitMarker(value: MarkerMove): Promise<boolean> {
+  return Boolean(
+    await workspace.setMarker(
+      {
+        enabled: true,
+        frequencyHz: value.frequencyHz,
+        sampleIndex: value.sampleIndex,
+        step: value.step,
+        discrete: value.discrete,
+      },
+      value.name,
+    ),
+  )
 }
 onMounted(() => {
   fitCanvas()
@@ -247,6 +269,7 @@ onBeforeUnmount(() => {
               :config="status?.config ?? emptyConfig"
               :frame-condition="frameCondition"
               :can-edit-display="canEditDisplay"
+              :commit-marker="commitMarker"
               @select-trace="workspace.selectTrace"
               @toggle-visibility="workspace.toggleVisibility"
               @set-layout="workspace.setLayout"
@@ -273,12 +296,29 @@ onBeforeUnmount(() => {
             @select="selectTool"
             @close="softtoolVisible = false"
           >
-            <StimulusSofttool
+            <ChannelSettingsSofttool
               v-show="group === 'stimulus'"
+              mode="frequency"
               :status="status"
               :can-configure="canConfigure"
               :busy="busy"
               :focus-field="focusField"
+              :apply="instrument.configure"
+            />
+            <ChannelSettingsSofttool
+              v-show="activeTool === 'sweep'"
+              mode="points"
+              :status="status"
+              :can-configure="canConfigure"
+              :busy="busy"
+              :apply="instrument.configure"
+            />
+            <ChannelSettingsSofttool
+              v-show="group === 'bandwidth'"
+              mode="bandwidth"
+              :status="status"
+              :can-configure="canConfigure"
+              :busy="busy"
               :apply="instrument.configure"
             />
             <MeasurementSofttool
@@ -321,7 +361,8 @@ onBeforeUnmount(() => {
               @toggle-visibility="workspace.toggleVisibility()"
             />
             <SweepSofttool
-              v-show="group === 'sweep'"
+              v-show="group === 'sweep' && activeTool !== 'sweep'"
+              :mode="activeTool === 'trigger' ? 'trigger' : 'sweep-control'"
               :status="status"
               :can-write="canWrite"
               :busy="busy"
@@ -344,7 +385,13 @@ onBeforeUnmount(() => {
             />
           </SofttoolHost>
           <HardkeyPanel
-            :active-key="softtoolVisible ? activeTool : ''"
+            :active-key="
+              softtoolVisible
+                ? activeTool === 'sweep-control'
+                  ? 'sweep'
+                  : activeTool
+                : ''
+            "
             :has-trace="Boolean(activeMeasurement)"
             @select="selectTool"
           />
