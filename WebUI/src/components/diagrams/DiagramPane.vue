@@ -8,6 +8,7 @@ import type {
 } from '../../api/types'
 import {
   diagramTraceColor,
+  isCircularFormat,
   type LayoutMode,
   type TracePresentation,
 } from '../../domain/presentation'
@@ -22,12 +23,7 @@ import {
   frequencyText,
   numberText,
 } from '../../plot/formatting'
-import {
-  markerPlacement,
-  paintDiagram,
-  plotRect,
-  type CanvasCurve,
-} from '../../plot/canvasRenderer'
+import { markerPlacement, plotRect } from '../../plot/canvasRenderer'
 import {
   displaySeries,
   markerResult,
@@ -35,16 +31,17 @@ import {
   normalizedY,
   referenceLevel,
   usesRelativeAxis,
+  scaleCoordinate,
   type MarkerResult,
 } from '../../plot/traceMath'
 import {
   nearestSmithIndex,
   smithPoint,
-  smithReadout,
+  circularReadout,
   smithSeries,
   smithViewport,
 } from '../../plot/smithMath'
-import { paintSmithDiagram } from '../../plot/smithRenderer'
+import { paintMixedDiagram, type MixedCurve } from '../../plot/mixedRenderer'
 import { createMarkerPreviewPoints } from '../../plot/markerPreview'
 import {
   MarkerDragController,
@@ -66,6 +63,9 @@ const props = defineProps<{
   presentations: Record<string, TracePresentation>
   activeTraceName: string
   primaryTraceName: string
+  selectedDiagram?: number
+  canAddTrace?: boolean
+  canDeleteDiagram?: boolean
   config: SweepConfiguration
   frameCondition: FrameCondition
   canEditDisplay: boolean
@@ -75,9 +75,13 @@ const emit = defineEmits<{
   selectTrace: [name: string]
   moveMarker: [value: MarkerMove]
   toggleVisibility: [name: string]
-  setLayout: [mode: LayoutMode]
+  setLayout: [value: { layout: LayoutMode; diagram: number }]
   addMarker: [name: string]
   selectMarker: [value: { name: string; markerId: number }]
+  selectDiagram: [diagram: number]
+  addTrace: [value: { diagram: number; newDiagram: boolean }]
+  deleteDiagram: [diagram: number]
+  arrange: [value: { action: 'overlay' | 'split'; diagram: number }]
 }>()
 const plotArea = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -144,7 +148,9 @@ const activeTrace = computed(() =>
   traces.value.find((item) => item.measurement.name === props.primaryTraceName),
 )
 const active = computed(() =>
-  props.measurements.some((item) => item.name === props.activeTraceName),
+  props.selectedDiagram === undefined
+    ? props.measurements.some((item) => item.name === props.activeTraceName)
+    : props.number === props.selectedDiagram,
 )
 const axisScale = computed(
   () => activeTrace.value?.scale ?? FORMAT_INFO.db.fallback,
@@ -152,7 +158,7 @@ const axisScale = computed(
 const axisFormat = computed(
   () => activeTrace.value?.presentation.format ?? 'db',
 )
-const isSmith = computed(() => axisFormat.value === 'smith')
+const circularAxis = computed(() => isCircularFormat(axisFormat.value))
 const smithRadius = computed(
   () => activeTrace.value?.presentation.smithRadius ?? 1,
 )
@@ -167,7 +173,15 @@ const smithArea = computed(() =>
 const axisDefinition = computed(() =>
   measurementFormatInfo(axisFormat.value, activeTrace.value?.measurement),
 )
-const relativeAxis = computed(() => usesRelativeAxis(axisScale.value))
+const axisPhysical = computed(
+  () =>
+    activeTrace.value?.measurement.kind === 'sParameter' &&
+    activeTrace.value.measurement.receiverPort ===
+      activeTrace.value.measurement.sourcePort,
+)
+const relativeAxis = computed(() =>
+  usesRelativeAxis(axisScale.value, axisFormat.value),
+)
 const rect = computed(() => plotRect(width.value, height.value))
 const xRange = computed(() => {
   const axis = props.frame?.frequencyHz
@@ -226,11 +240,11 @@ const markerReadouts = computed(() =>
 const plottedMarkers = computed(() =>
   markerModels.value.flatMap((marker) => {
     if (!marker.result.valid) return []
-    if (isSmith.value) {
+    if (isCircularFormat(marker.presentation.format)) {
       const point = smithPoint(
         { real: marker.result.real!, imaginary: marker.result.imaginary! },
         smithArea.value,
-        smithRadius.value,
+        circleRadius(marker.presentation),
       )
       if (
         !Number.isFinite(point.x) ||
@@ -244,8 +258,12 @@ const plottedMarkers = computed(() =>
       return [{ ...marker, placement: markerPlacement(point, rect.value) }]
     }
     if (!Number.isFinite(marker.result.value)) return []
-    const y = normalizedY(marker.result.value, marker.scale)
-    if (y < 0 || y > 1) return []
+    const y = normalizedY(
+      marker.result.value,
+      marker.scale,
+      marker.presentation.format,
+    )
+    if (!Number.isFinite(y) || y < 0 || y > 1) return []
     const point = {
       x:
         rect.value.left +
@@ -264,10 +282,15 @@ const hasDrawable = computed(() =>
   traces.value.some(
     (item) =>
       item.presentation.visible &&
-      (isSmith.value
+      (isCircularFormat(item.presentation.format)
         ? smithSeries(item.frameTrace).some((point) => point !== null)
         : displaySeries(item.frameTrace, item.presentation.format).some(
-            (series) => series.values.some(Number.isFinite),
+            (series) =>
+              series.values.some((value) =>
+                Number.isFinite(
+                  scaleCoordinate(value, item.presentation.format),
+                ),
+              ),
           )),
   ),
 )
@@ -298,19 +321,33 @@ const noDrawableMessage = computed(() => {
 const yTickDivisions = 10
 const yTicks = computed(() =>
   Array.from({ length: yTickDivisions + 1 }, (_, index) => {
-    const span = axisScale.value.max - axisScale.value.min
-    const tick = axisScale.value.max - (span * index) / yTickDivisions
+    const span =
+      scaleCoordinate(axisScale.value.max, axisFormat.value) -
+      scaleCoordinate(axisScale.value.min, axisFormat.value)
+    const coordinate =
+      scaleCoordinate(axisScale.value.max, axisFormat.value) -
+      (span * index) / yTickDivisions
+    const tick =
+      axisFormat.value === 'logMagnitude' ? 10 ** coordinate : coordinate
     let value =
-      tick - (relativeAxis.value ? referenceLevel(axisScale.value) : 0)
+      tick -
+      (relativeAxis.value
+        ? referenceLevel(axisScale.value, axisFormat.value)
+        : 0)
     if (relativeAxis.value && Math.abs(value) < span * 1e-10) value = 0
     return {
       top: rect.value.top + (rect.value.height * index) / yTickDivisions,
       reference:
-        Math.abs(tick - referenceLevel(axisScale.value)) <= span * 1e-9,
+        Math.abs(tick - referenceLevel(axisScale.value, axisFormat.value)) <=
+        span * 1e-9,
       value: `${relativeAxis.value ? 'Δ ' : ''}${relativeAxis.value && value > 0 ? '+' : ''}${numberText(value, 4)}${axisDefinition.value.shortUnit}`,
     }
   }),
 )
+
+function circleRadius(presentation: TracePresentation): number {
+  return circularAxis.value ? smithRadius.value : presentation.smithRadius
+}
 
 function schedulePaint(): void {
   cancelAnimationFrame(paintRequest)
@@ -327,47 +364,47 @@ function schedulePaint(): void {
       x: bounds.width / width.value,
       y: bounds.height / height.value,
     }
-    if (isSmith.value) {
-      paintSmithDiagram(
-        canvas.value,
-        {
-          width: width.value,
-          height: height.value,
-          radius: smithRadius.value,
-          curves: traces.value
-            .filter((item) => item.presentation.visible)
-            .map((item) => ({
-              points: smithSeries(item.frameTrace),
-              color: item.color,
-              active: item.measurement.name === props.activeTraceName,
-            })),
-        },
-        bounds,
-      )
-      return
-    }
-    const curves: CanvasCurve[] = traces.value.flatMap((item) =>
-      item.presentation.visible
-        ? displaySeries(item.frameTrace, item.presentation.format).map(
-            (series) => ({
-              frequencyHz: props.frame?.frequencyHz ?? [],
-              values: series.values,
-              scale: item.scale,
-              color: item.color,
-              dashed: series.component === 'imaginary',
-              active: item.measurement.name === props.activeTraceName,
-            }),
-          )
-        : [],
-    )
+    const curves: MixedCurve[] = traces.value.flatMap((item): MixedCurve[] => {
+      if (!item.presentation.visible) return []
+      const format = item.presentation.format
+      const shared = {
+        color: item.color,
+        active: item.measurement.name === props.activeTraceName,
+      }
+      if (isCircularFormat(format)) {
+        return [
+          {
+            ...shared,
+            kind: 'circular',
+            format: format as 'smith' | 'polar' | 'invSmith',
+            radius: circleRadius(item.presentation),
+            points: smithSeries(item.frameTrace),
+          },
+        ]
+      }
+      return displaySeries(item.frameTrace, format).map((series) => ({
+        ...shared,
+        kind: 'cartesian',
+        format,
+        frequencyHz: props.frame?.frequencyHz ?? [],
+        values: series.values,
+        scale: item.scale,
+        dashed: series.component === 'imaginary',
+      }))
+    })
     const references = traces.value
-      .filter((item) => item.presentation.visible)
+      .filter(
+        (item) =>
+          item.presentation.visible &&
+          !isCircularFormat(item.presentation.format),
+      )
       .map((item) => ({
         scale: item.scale,
+        format: item.presentation.format,
         color: item.color,
         active: item.measurement.name === activeTrace.value?.measurement.name,
       }))
-    paintDiagram(
+    paintMixedDiagram(
       canvas.value,
       {
         width: width.value,
@@ -375,6 +412,8 @@ function schedulePaint(): void {
         rect: rect.value,
         xMin: xRange.value.min,
         xMax: xRange.value.max,
+        axisFormat: axisFormat.value,
+        radius: smithRadius.value,
         references,
         curves,
       },
@@ -466,8 +505,7 @@ watch(
 )
 
 function selectPane(): void {
-  if (props.canEditDisplay && !active.value && activeTrace.value)
-    emit('selectTrace', activeTrace.value.measurement.name)
+  if (props.canEditDisplay && !active.value) emit('selectDiagram', props.number)
 }
 
 function markerMoveAt(
@@ -480,13 +518,13 @@ function markerMoveAt(
   const axis = props.frame?.frequencyHz
   if (!props.canEditDisplay || !bounds || !axis?.length) return null
   const logicalX = ((clientX - bounds.left) * width.value) / bounds.width
-  if (isSmith.value) {
+  const item = traces.value.find((trace) => trace.measurement.name === name)
+  if (item && isCircularFormat(item.presentation.format)) {
     const logicalY = ((clientY - bounds.top) * height.value) / bounds.height
-    const item = traces.value.find((trace) => trace.measurement.name === name)
     const index = nearestSmithIndex(
       item?.frameTrace,
       smithArea.value,
-      smithRadius.value,
+      circleRadius(item.presentation),
       logicalX,
       logicalY,
       screenScale.value.x,
@@ -561,7 +599,7 @@ function beginDrag(
     name,
     markerId,
     points,
-    smith: isSmith.value,
+    smith: isCircularFormat(marker.presentation.format),
     area: rect.value,
     bounds,
     size: { width: width.value, height: height.value },
@@ -654,7 +692,7 @@ function markerPreviewPoints(name: string): MarkerPreviewPoint[] {
       range: xRange.value,
       scale: trace.scale,
       smithArea: smithArea.value,
-      smithRadius: smithRadius.value,
+      smithRadius: circleRadius(trace.presentation),
     },
   )
 }
@@ -744,7 +782,7 @@ function plotKey(event: KeyboardEvent): void {
           :presentation="trace.presentation"
           :scale="trace.scale"
           :color="trace.color"
-          :smith-radius="smithRadius"
+          :smith-radius="circleRadius(trace.presentation)"
           :can-edit-display="canEditDisplay"
           :active="trace.measurement.name === activeTraceName"
           @select="emit('selectTrace', $event)"
@@ -760,6 +798,8 @@ function plotKey(event: KeyboardEvent): void {
         :layout="layout"
         :has-trace="Boolean(activeTrace)"
         :can-edit-display="canEditDisplay"
+        :can-add-trace="canAddTrace"
+        :can-delete-diagram="canDeleteDiagram"
         :can-add-marker="
           activeTrace &&
           traceMarkers(activeTrace.presentation).filter(
@@ -767,10 +807,13 @@ function plotKey(event: KeyboardEvent): void {
           ).length < MARKER_COUNT
         "
         @activate="selectPane"
-        @layout="emit('setLayout', $event)"
+        @layout="emit('setLayout', { layout: $event, diagram: number })"
         @add-marker="
           activeTrace && emit('addMarker', activeTrace.measurement.name)
         "
+        @add-trace="emit('addTrace', { diagram: number, newDiagram: $event })"
+        @delete-diagram="emit('deleteDiagram', number)"
+        @arrange="emit('arrange', { action: $event, diagram: number })"
       />
     </header>
 
@@ -785,7 +828,7 @@ function plotKey(event: KeyboardEvent): void {
     >
       <canvas ref="canvas" class="diagram-canvas" aria-hidden="true" />
       <span
-        v-for="(tick, index) in isSmith ? [] : yTicks"
+        v-for="(tick, index) in circularAxis ? [] : yTicks"
         :key="`y-${index}`"
         class="y-tick"
         :class="{
@@ -796,7 +839,7 @@ function plotKey(event: KeyboardEvent): void {
         :style="{ top: `${tick.top}px` }"
         :title="
           relativeAxis
-            ? `相对 Ref ${numberText(referenceLevel(axisScale), 10)} ${axisDefinition.unit} 的偏移`
+            ? `相对 Ref ${numberText(referenceLevel(axisScale, axisFormat), 10)} ${axisDefinition.unit} 的偏移`
             : axisDefinition.unit
         "
         >{{ tick.value }}</span
@@ -824,8 +867,9 @@ function plotKey(event: KeyboardEvent): void {
           width: `${marker.placement.width}px`,
           height: `${marker.placement.height}px`,
           color: marker.color,
+          zIndex: marker.active ? 6 : marker.name === activeTraceName ? 5 : 4,
         }"
-        :aria-label="`M${marker.markerId} ${marker.name}, ${frequencyText(marker.result.frequencyHz, 10)}, ${isSmith ? smithReadout(marker.result) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.presentation.format, marker.measurement).unit}. Arrow keys move between measured frequency points.`"
+        :aria-label="`M${marker.markerId} ${marker.name}, ${frequencyText(marker.result.frequencyHz, 10)}, ${isCircularFormat(marker.presentation.format) ? circularReadout(marker.presentation.format, marker.result, marker.measurement.unit) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.presentation.format, marker.measurement).unit}. Arrow keys move between measured frequency points.`"
         @pointerdown="beginDrag($event, marker.name, marker.markerId)"
         @pointermove="dragMarker"
         @pointerup="endDrag"
@@ -911,7 +955,17 @@ function plotKey(event: KeyboardEvent): void {
         Display {{ frame.displayPointCount }} /
         {{ frame.originalPointCount }} pts
       </span>
-      <span v-if="isSmith" class="smith-note">Γ · 归一化阻抗 z · 未校准</span>
+      <span v-if="circularAxis" class="smith-note"
+        >{{ FORMAT_INFO[axisFormat].label }} ·
+        {{
+          axisFormat === 'polar' || !axisPhysical
+            ? 'Complex Re/Im'
+            : axisFormat === 'invSmith'
+              ? '归一化导纳 y'
+              : 'Γ · 归一化阻抗 z'
+        }}
+        · 未校准</span
+      >
       <span class="sr-only"
         >{{ activeTrace?.measurement.name ?? 'Empty diagram' }}. Format
         {{ FORMAT_INFO[axisFormat].label }}.
@@ -1071,6 +1125,7 @@ function plotKey(event: KeyboardEvent): void {
   opacity: 0;
 }
 .marker-drag-preview {
+  z-index: 7;
   left: 0;
   top: 0;
   pointer-events: none;

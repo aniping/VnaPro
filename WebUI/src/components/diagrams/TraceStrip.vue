@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import type { Measurement } from '../../api/types'
-import type { DisplayScale, TracePresentation } from '../../domain/presentation'
-import { FORMAT_INFO, scaleValue } from '../../plot/formatting'
+import type {
+  DisplayFormat,
+  DisplayScale,
+  TracePresentation,
+} from '../../domain/presentation'
+import { isCircularFormat } from '../../domain/presentation'
+import { FORMAT_INFO, numberText, scaleValue } from '../../plot/formatting'
 import { measurementState } from '../../domain/measurements'
-import { referenceLevel, usesRelativeAxis } from '../../plot/traceMath'
+import {
+  referenceLevel,
+  usesRelativeAxis,
+  scaleCoordinate,
+} from '../../plot/traceMath'
 
 defineProps<{
   measurement: Measurement
@@ -18,6 +27,34 @@ const emit = defineEmits<{
   select: [name: string]
   toggleVisibility: [name: string]
 }>()
+
+function divisionText(
+  scale: DisplayScale,
+  format: DisplayFormat,
+  measurement: Measurement,
+): string {
+  const division =
+    (scaleCoordinate(scale.max, format) - scaleCoordinate(scale.min, format)) /
+    10
+  return format === 'logMagnitude'
+    ? `${numberText(division, 5)} dec`
+    : scaleValue(division, format, 5, measurement)
+}
+
+function circularDescription(
+  presentation: TracePresentation,
+  measurement: Measurement,
+): string {
+  if (presentation.format === 'polar') return 'Polar · 复数 Re/Im'
+  if (
+    measurement.kind !== 'sParameter' ||
+    measurement.receiverPort !== measurement.sourcePort
+  )
+    return `${FORMAT_INFO[presentation.format].label} · 复数 Re/Im`
+  return presentation.format === 'invSmith'
+    ? 'Inv Smith · 归一化导纳 y'
+    : 'Smith · Γ 与归一化阻抗 z'
+}
 </script>
 
 <template>
@@ -32,9 +69,9 @@ const emit = defineEmits<{
       :disabled="!canEditDisplay"
       :aria-pressed="active"
       :title="
-        presentation.format === 'smith'
-          ? `${measurement.name} · ${measurement.parameter} · 未校准 · 当前图窗外圈 |Γ| ${smithRadius} · 本迹线保存值 ${presentation.smithRadius} · z 为归一化阻抗`
-          : `${measurement.name} · ${measurement.parameter} · ${measurementState(measurement)} · ${scaleValue((scale.max - scale.min) / 10, presentation.format, 5, measurement)} per division · Ref ${scaleValue(referenceLevel(scale), presentation.format, 9, measurement)}${usesRelativeAxis(scale) ? ' · Δ 刻度为相对 Ref 的偏移' : ''}`
+        isCircularFormat(presentation.format)
+          ? `${measurement.name} · ${measurement.parameter} · ${circularDescription(presentation, measurement)} · 未校准 · 当前外圈幅度 ${smithRadius} · 本迹线保存值 ${presentation.smithRadius}`
+          : `${measurement.name} · ${measurement.parameter} · ${measurementState(measurement)} · ${divisionText(scale, presentation.format, measurement)} per division · Ref ${scaleValue(referenceLevel(scale, presentation.format), presentation.format, 9, measurement)}${usesRelativeAxis(scale, presentation.format) ? ' · Δ 刻度为相对 Ref 的偏移' : ''}`
       "
       :aria-label="`Select ${measurement.name}, ${measurement.parameter}, ${measurementState(measurement)}`"
       @click="emit('select', measurement.name)"
@@ -44,27 +81,20 @@ const emit = defineEmits<{
       <span class="trace-format">{{
         FORMAT_INFO[presentation.format].label
       }}</span>
-      <template v-if="presentation.format === 'smith'">
+      <template v-if="isCircularFormat(presentation.format)">
         <span class="trace-reference"
           >Ref {{ smithRadius.toPrecision(4) }} U</span
         >
       </template>
       <template v-else>
         <span class="trace-scale"
-          >{{
-            scaleValue(
-              (scale.max - scale.min) / 10,
-              presentation.format,
-              5,
-              measurement,
-            )
-          }}/</span
+          >{{ divisionText(scale, presentation.format, measurement) }}/</span
         >
         <span class="trace-reference"
           >Ref
           {{
             scaleValue(
-              referenceLevel(scale),
+              referenceLevel(scale, presentation.format),
               presentation.format,
               9,
               measurement,

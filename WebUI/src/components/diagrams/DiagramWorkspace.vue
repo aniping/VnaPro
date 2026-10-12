@@ -17,6 +17,8 @@ const props = defineProps<{
   measurements: Measurement[]
   presentations: Record<string, TracePresentation>
   activeTraceName: string
+  selectedDiagram?: number
+  canAddTrace?: boolean
   layout: LayoutMode
   config: SweepConfiguration
   frameCondition: FrameCondition
@@ -27,22 +29,48 @@ const emit = defineEmits<{
   selectTrace: [name: string]
   moveMarker: [value: MarkerMove]
   toggleVisibility: [name: string]
-  setLayout: [mode: LayoutMode]
+  setLayout: [value: { layout: LayoutMode; diagram: number }]
   addMarker: [name: string]
   selectMarker: [value: { name: string; markerId: number }]
+  selectDiagram: [diagram: number]
+  addTrace: [value: { diagram: number; newDiagram: boolean }]
+  deleteDiagram: [diagram: number]
+  arrange: [value: { action: 'overlay' | 'split'; diagram: number }]
 }>()
 /** 只查找后端已安排图窗的测量 DTO，不在前端决定布局、分组或主坐标迹线。 */
 const panes = computed(() =>
-  props.diagrams.map((diagram) => ({
-    ...diagram,
-    measurements: diagram.measurementNames.flatMap((name) => {
-      const measurement = props.measurements.find(
-        (measurement) => measurement.name === name,
-      )
-      return measurement ? [measurement] : []
-    }),
-  })),
+  props.diagrams
+    .filter(
+      (diagram) =>
+        props.layout !== 'maximized' ||
+        diagram.number ===
+          (props.selectedDiagram ??
+            props.diagrams.find((item) =>
+              item.measurementNames.includes(props.activeTraceName),
+            )?.number ??
+            props.diagrams[0]?.number),
+    )
+    .map((diagram) => ({
+      ...diagram,
+      measurements: diagram.measurementNames.flatMap((name) => {
+        const measurement = props.measurements.find(
+          (measurement) => measurement.name === name,
+        )
+        return measurement ? [measurement] : []
+      }),
+    })),
 )
+const gridStyle = computed(() => {
+  const columns = Math.max(
+    1,
+    Math.min(2, Math.ceil(Math.sqrt(panes.value.length))),
+  )
+  const rows = Math.max(1, Math.ceil(panes.value.length / columns))
+  return {
+    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${rows}, minmax(150px, 1fr))`,
+  }
+})
 </script>
 
 <template>
@@ -54,13 +82,14 @@ const panes = computed(() =>
       { 'mixed-formats': layout === 'single' && panes.length > 1 },
     ]"
     aria-label="Measurement diagrams"
+    :style="gridStyle"
   >
     <div v-if="!diagrams.length" class="diagram-loading" role="status">
       Waiting for instrument display…
     </div>
     <DiagramPane
       v-for="pane in panes"
-      :key="`${layout}-${pane.number}`"
+      :key="`${pane.number}-${JSON.stringify(pane.measurementNames)}`"
       :number="pane.number"
       :layout="layout"
       :frame="frame"
@@ -68,6 +97,9 @@ const panes = computed(() =>
       :all-measurements="measurements"
       :presentations="presentations"
       :active-trace-name="activeTraceName"
+      :selected-diagram="selectedDiagram"
+      :can-add-trace="canAddTrace"
+      :can-delete-diagram="diagrams.length > 1"
       :primary-trace-name="pane.primaryMeasurement"
       :config="config"
       :frame-condition="frameCondition"
@@ -79,6 +111,10 @@ const panes = computed(() =>
       @set-layout="emit('setLayout', $event)"
       @add-marker="emit('addMarker', $event)"
       @select-marker="emit('selectMarker', $event)"
+      @select-diagram="emit('selectDiagram', $event)"
+      @add-trace="emit('addTrace', $event)"
+      @delete-diagram="emit('deleteDiagram', $event)"
+      @arrange="emit('arrange', $event)"
     />
   </section>
 </template>
@@ -97,6 +133,7 @@ const panes = computed(() =>
   padding: 0;
   gap: 2px;
   background: #0a1115;
+  overflow: auto;
 }
 .diagram-workspace.single,
 .diagram-workspace.maximized,
