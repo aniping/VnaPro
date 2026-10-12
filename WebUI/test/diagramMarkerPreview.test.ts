@@ -10,6 +10,8 @@ import {
   presentation,
   projection,
   receiverTrace,
+  markerDefinitions,
+  markerProjections,
 } from './displayFixtures'
 import { findComponent, sfcHarness } from './sfcHarness'
 
@@ -18,15 +20,18 @@ interface PaneBindings {
   plottedMarkers: Ref<
     {
       name: string
+      markerId: number
       placement: { left: number; top: number; tipX: number; tipY: number }
     }[]
   >
   dragPreview: Ref<unknown>
-  beginDrag: (event: unknown, name: string) => void
+  beginDrag: (event: unknown, name: string, markerId?: number) => void
   dragMarker: (event: unknown) => void
   endDrag: (event: unknown) => void
   cancelDrag: () => void
   markerPreviewPoints: (name: string) => MarkerPreviewPoint[]
+  markerClick: (name: string, markerId: number) => void
+  markerKey: (event: unknown, name: string, markerId: number) => void
 }
 
 interface DiagramOptions {
@@ -34,6 +39,7 @@ interface DiagramOptions {
   values?: number[]
   secondaryValues?: number[]
   commit?: (command: MarkerMove) => Promise<boolean>
+  multipleMarkers?: boolean
 }
 
 async function diagram(options: DiagramOptions = {}) {
@@ -73,6 +79,29 @@ async function diagram(options: DiagramOptions = {}) {
     frequencyHz: 10e6,
     sampleIndex: 0,
     discrete: true,
+  }
+  if (options.multipleMarkers) {
+    view.activeMarkerId = 1
+    view.markers = markerDefinitions()
+    view.markers[0] = { id: 1, ...view.marker }
+    view.markers[1] = {
+      id: 2,
+      enabled: true,
+      frequencyHz: 20e6,
+      sampleIndex: 1,
+      discrete: true,
+    }
+    trace.projection.activeMarkerId = 1
+    trace.projection.markers = markerProjections()
+    trace.projection.markers[0] = { id: 1, ...trace.projection.marker }
+    trace.projection.markers[1] = {
+      id: 2,
+      ...trace.projection.marker,
+      frequencyHz: 20e6,
+      sampleIndex: 1,
+      value: values[1]!,
+      real: 0.5,
+    }
   }
   const commits: MarkerMove[] = []
   const props = reactive({
@@ -132,10 +161,18 @@ async function diagram(options: DiagramOptions = {}) {
     pointer,
     readout() {
       return findComponent(harness.render(), 'MarkerReadout')!.props!
-        .markers as { name: string; result: MarkerResult; preview?: boolean }[]
+        .markers as {
+        name: string
+        markerId: number
+        result: MarkerResult
+        active: boolean
+        preview?: boolean
+      }[]
     },
-    begin() {
-      const placement = bindings.plottedMarkers.value[0]!.placement
+    begin(markerId = 1) {
+      const placement = bindings.plottedMarkers.value.find(
+        (marker) => marker.markerId === markerId,
+      )!.placement
       bindings.beginDrag(
         pointer(
           placement.left + placement.tipX,
@@ -143,6 +180,7 @@ async function diagram(options: DiagramOptions = {}) {
           'pointerdown',
         ),
         'Reflect',
+        markerId,
       )
     },
     moveTo(index: number) {
@@ -157,6 +195,112 @@ async function diagram(options: DiagramOptions = {}) {
     },
   }
 }
+
+test('multiple enabled markers retain independent readouts and selecting M2 requests its backend identity', async () => {
+  const pane = await diagram({ multipleMarkers: true })
+  try {
+    assert.deepEqual(
+      pane
+        .readout()
+        .map((marker) => [
+          marker.markerId,
+          marker.result.frequencyHz,
+          marker.active,
+        ]),
+      [
+        [1, 10e6, true],
+        [2, 20e6, false],
+      ],
+    )
+    assert.equal(pane.bindings.plottedMarkers.value.length, 2)
+    pane.bindings.markerClick('Reflect', 2)
+    assert.deepEqual(JSON.parse(JSON.stringify(pane.emitted)), [
+      ['selectMarker', { name: 'Reflect', markerId: 2 }],
+    ])
+    assert.equal(
+      pane.props.presentations.Reflect.activeMarkerId,
+      1,
+      'Click cannot mutate the saved selection before readback',
+    )
+    pane.bindings.markerKey(
+      {
+        key: 'ArrowRight',
+        shiftKey: false,
+        preventDefault() {},
+        stopPropagation() {},
+      },
+      'Reflect',
+      2,
+    )
+    assert.deepEqual(JSON.parse(JSON.stringify(pane.emitted[1])), [
+      'moveMarker',
+      { name: 'Reflect', markerId: 2, step: 1, discrete: true },
+    ])
+  } finally {
+    pane.dispose()
+  }
+})
+
+test('dragging inactive M2 previews only M2 and submits its identity once without touching M1', async () => {
+  const pane = await diagram({ multipleMarkers: true })
+  try {
+    pane.begin(2)
+    pane.moveTo(2)
+    pane.paint()
+    assert.equal(pane.readout()[0]!.result.frequencyHz, 10e6)
+    assert.equal(pane.readout()[0]!.preview, false)
+    assert.equal(pane.readout()[1]!.result.frequencyHz, 30e6)
+    assert.equal(pane.readout()[1]!.preview, true)
+    assert.equal(pane.commits.length, 0)
+    pane.bindings.endDrag(pane.pointer(699, 150, 'pointerup'))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(pane.commits.length, 1)
+    assert.equal(pane.commits[0]!.markerId, 2)
+    assert.equal(
+      pane.props.presentations.Reflect.markers![0]!.frequencyHz,
+      10e6,
+    )
+    assert.equal(
+      pane.props.frame.traces[0]!.projection.markers![0]!.frequencyHz,
+      10e6,
+    )
+    assert.equal(pane.readout()[1]!.result.frequencyHz, 20e6)
+  } finally {
+    pane.bindings.cancelDrag()
+    pane.dispose()
+  }
+})
+
+test('all ten saved marker projections render together and readout clicks target M10', async () => {
+  const pane = await diagram({ multipleMarkers: true })
+  try {
+    const presentation = pane.props.presentations.Reflect
+    const projection = pane.props.frame.traces[0]!.projection
+    presentation.activeMarkerId = 10
+    presentation.markers!.forEach((marker) => {
+      marker.enabled = true
+      marker.frequencyHz = 10e6
+      marker.sampleIndex = 0
+    })
+    projection.markers = projection.markers!.map((marker) => ({
+      ...projection.marker,
+      id: marker.id,
+    }))
+    const markers = pane.readout()
+    assert.equal(markers.length, 10)
+    assert.equal(pane.bindings.plottedMarkers.value.length, 10)
+    assert.equal(markers.filter((marker) => marker.active).length, 1)
+    assert.equal(markers[9]!.active, true)
+    const readout = findComponent(pane.render(), 'MarkerReadout')!
+    readout.props!.onSelect({ name: 'Reflect', markerId: 10 })
+    assert.deepEqual(JSON.parse(JSON.stringify(pane.emitted[0])), [
+      'selectMarker',
+      { name: 'Reflect', markerId: 10 },
+    ])
+  } finally {
+    pane.dispose()
+  }
+})
 
 test('actual pointermove updates MarkerReadout XY and ghost in the same display frame without backend writes', async () => {
   const pane = await diagram()

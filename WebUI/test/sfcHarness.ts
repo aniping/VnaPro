@@ -104,3 +104,16 @@ export function findComponent(node: VNode, name: string): VNode | undefined {
   }
   return undefined
 }
+
+export function findElements(
+  node: VNode,
+  predicate: (node: VNode) => boolean,
+): VNode[] {
+  const matches = predicate(node) ? [node] : []
+  if (!Array.isArray(node.children)) return matches
+  return matches.concat(
+    node.children.flatMap((child) =>
+      isVNode(child) ? findElements(child, predicate) : [],
+    ),
+  )
+}
