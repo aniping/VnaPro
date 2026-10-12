@@ -23,6 +23,8 @@ struct Measurement final {
 
     // 返回 Keysight 兼容参数名；S 参数仅表示未校准的波量比值。
     std::string Parameter() const;
+    // 原子解析受支持的标准参数名，各控制协议共享端口映射和参数规则。
+    bool SetParameter(const std::string &parameter);
 
     // 检查当前计算模块支持的波量与端口组合，不检查用户测量名称。
     bool IsSupported() const noexcept;
