@@ -41,6 +41,24 @@ std::string Quote(const std::string &value)
     return encoded + "\"";
 }
 
+bool StringArgument(const std::string &text, std::string &value)
+{
+    if (text.size() < 2U || (text.front() != '"' && text.front() != '\'') || text.back() != text.front()) {
+        return false;
+    }
+    value.clear();
+    for (std::size_t index = 1U; index + 1U < text.size(); ++index) {
+        if (text[index] == text.front()) {
+            if (index + 2U >= text.size() || text[index + 1U] != text.front()) {
+                return false;
+            }
+            ++index;
+        }
+        value += text[index];
+    }
+    return true;
+}
+
 namespace {
 constexpr double KILOHERTZ_SCALE = 1000.0;
 constexpr double MEGAHERTZ_SCALE = 1000000.0;
@@ -91,12 +109,15 @@ std::string Keyword(std::string token)
         {"RESOLUTION", "RES"}, {"TRIGGER", "TRIG"}, {"SEQUENCE", "SEQ"}, {"SOURCE", "SOUR"}, {"SCOPE", "SCOP"},
         {"INITIATE", "INIT"}, {"CONTINUOUS", "CONT"}, {"IMMEDIATE", "IMM"}, {"CALCULATE", "CALC"}, {"PARAMETER", "PAR"},
         {"DEFINE", "DEF"}, {"EXTENDED", "EXT"}, {"SELECT", "SEL"}, {"CATALOG", "CAT"}, {"DELETE", "DEL"},
-        {"FORMAT", "FORM"}, {"VALUES", "VAL"}, {"SYSTEM", "SYST"}, {"ERROR", "ERR"}, {"COUNT", "COUN"}};
+        {"FORMAT", "FORM"}, {"VALUES", "VAL"}, {"SYSTEM", "SYST"}, {"ERROR", "ERR"}, {"COUNT", "COUN"},
+        {"DISPLAY", "DISP"}, {"WINDOW", "WIND"}, {"TRACE", "TRAC"}, {"SCALE", "SCAL"}, {"PDIVISION", "PDIV"},
+        {"RLEVEL", "RLEV"}, {"RPOSITION", "RPOS"}, {"MARKER", "MARK"}, {"STATE", "STAT"}, {"DISCRETE", "DISC"}};
     const auto found = names.find(token);
     if (found != names.end()) {
         token = found->second;
     }
-    if (suffix.empty() && (token == "SENS" || token == "CALC")) {
+    if (suffix.empty() &&
+        (token == "SENS" || token == "CALC" || token == "WIND" || token == "TRAC" || token == "MARK")) {
         suffix = "1";
     }
     return token + suffix;

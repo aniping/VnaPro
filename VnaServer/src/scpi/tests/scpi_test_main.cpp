@@ -268,7 +268,8 @@ void DisconnectAndInstrumentErrors(const std::string &driver)
     {
         VnaScpi::ScpiEngine engine(fixture.service);
         VnaScpi::ScpiEngine refused(fixture.service);
-        Expect(!refused.HasControl() && !refused.SubmitLine("*IDN?"), "second controller must be rejected");
+        Expect(!refused.HasControl() && Command(refused, "*IDN?").find("VnaPro,") == 0U && !refused.SubmitLine("*CLS"),
+            "second connection is a read-only observer");
         Expect(engine.SubmitLine("*CLS;SENS1:SWE:MODE SING;*OPC?;:UNSUPPORTED"), "accepted disconnected input");
         engine.Poll();
         engine.Disconnect();
@@ -428,13 +429,13 @@ void ConfigurationPreservesDirectSettings(const std::string &)
         service.Poll();
     }
     Expect(configured.get().ok, "configuration completion");
-    Expect(service.Settings().selectedMeasurement == "Alternate" && service.Settings().currentTriggerScope,
+    Expect(service.Display().selectedMeasurement == "Alternate" && service.Settings().currentTriggerScope,
         "successful prior settings cannot be overwritten by candidate commit");
     Expect(service.SelectMeasurement("Trc1") && service.SetCurrentTriggerScope(false), "direct settings after commit");
     service.ReleaseControl();
     Expect(!service.SelectMeasurement("Alternate") && !service.SetCurrentTriggerScope(true),
         "direct writes require control");
-    Expect(service.Settings().selectedMeasurement == "Trc1" && !service.Settings().currentTriggerScope,
+    Expect(service.Display().selectedMeasurement == "Trc1" && !service.Settings().currentTriggerScope,
         "unauthorized direct settings must not change state");
 }
 
@@ -468,13 +469,13 @@ void BootstrapPreparationFailureCanRetry(const std::string &)
     Expect(!service.BootstrapMockProfile(error), "first bootstrap must report preparation failure");
     Expect(!error.empty() && core.ReadView().state == VnaCore::CoreState::READY,
         "preparation failure must leave the device retryable");
-    Expect(service.Settings().measurements.empty() && service.Settings().selectedMeasurement.empty() &&
+    Expect(service.Settings().measurements.empty() && service.Display().selectedMeasurement.empty() &&
                service.Settings().revision == 0U,
         "failed bootstrap must not publish a partial default catalog");
     Expect(service.BootstrapMockProfile(error), "bootstrap retry must succeed");
     Expect(service.Settings().measurements.size() == 1U && service.Settings().measurements.front().name == "Trc1" &&
                service.Settings().measurements.front().Parameter() == "S21" &&
-               service.Settings().selectedMeasurement == "Trc1" &&
+               service.Display().selectedMeasurement == "Trc1" &&
                service.Settings().revision == core.ReadView().configRevision,
         "retry must commit one default measurement and the successful revision");
     Expect(!service.BootstrapMockProfile(error) && service.Settings().measurements.size() == 1U,

@@ -17,7 +17,7 @@ namespace VnaScpi {
 // 每个 TCP 控制连接对应一个引擎；所有调用都由服务执行线程完成。
 class ScpiEngine final {
 public:
-    // 控制权空闲时获取独占控制权；服务的生命周期必须覆盖本引擎。
+    // 控制权空闲时取得写控制权，否则固定为只读观察连接；不会自动升级。
     explicit ScpiEngine(VnaService::InstrumentService &service);
     // 已接收的操作全部完成后才能销毁；空闲引擎在销毁时释放控制权。
     ~ScpiEngine() noexcept;
@@ -35,6 +35,8 @@ public:
     bool HasPending() const noexcept;
     // 报告本连接是否持有服务控制权。
     bool HasControl() const noexcept;
+    // 观察连接的最近错误仅保存在本连接，不改变仪器的全局 SCPI 错误队列。
+    const VnaService::InstrumentError &LocalError() const noexcept;
     // 设置 SCPI 消息可用状态位时，也计入传输层的待发送字节。
     void SetTransportOutputPending(bool pending) noexcept;
     // 丢弃响应；应继续轮询，直到已接收操作完成并释放控制权。
@@ -87,7 +89,6 @@ private:
     void DispatchSweepMode(const ParsedCommand &command);
     void DispatchInitiate(const ParsedCommand &command);
     void DispatchDefineMeasurement(const ParsedCommand &command);
-    void DispatchSelectMeasurement(const ParsedCommand &command);
     void DispatchMeasurementCatalog(const ParsedCommand &command);
     void DispatchDeleteMeasurement(const ParsedCommand &command);
     void DispatchDataFormat(const ParsedCommand &command);
@@ -96,8 +97,10 @@ private:
     void PollOperationWatches();
     bool PollBarrier();
     void PollMessages();
+    bool ObserverMessageAllowed(const ScpiMessage &message);
 
     VnaService::InstrumentService &service_;
+    VnaService::InstrumentError localError_;
     bool control_ = false;
     bool connected_ = true;
     bool transportOutputPending_ = false;

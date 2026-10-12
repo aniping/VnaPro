@@ -19,6 +19,8 @@ std::string Upper(std::string value);
 std::string Trim(const std::string &value);
 // 生成 SCPI 字符串值，通过重复引号转义字符串内部的引号。
 std::string Quote(const std::string &value);
+// 解码完整的单引号或双引号字符串；引号字符只能按 SCPI 重复转义。
+bool StringArgument(const std::string &text, std::string &value);
 // 仅接受有限数值；将可选的频率单位后缀换算为 Hz。
 bool Numeric(const std::string &text, double &value, bool frequencyUnits = false);
 // 仅接受闭区间 [0, maximum] 内的有限整数。

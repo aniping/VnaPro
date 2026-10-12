@@ -13,7 +13,9 @@
 #include <vector>
 
 #include "scpi/scpi_constants.h"
+#include "scpi/scpi_display_adapter.h"
 #include "scpi/scpi_parser.h"
+#include "scpi/scpi_query_policy.h"
 #include "vna_service/instrument_service.h"
 
 namespace VnaScpi {
@@ -44,62 +46,6 @@ std::string Number(double value)
     return stream.str();
 }
 
-bool StringArgument(const std::string &text, std::string &value)
-{
-    if (text.size() < 2U || (text.front() != '"' && text.front() != '\'') || text.back() != text.front()) {
-        return false;
-    }
-    value.clear();
-    for (std::size_t index = 1U; index + 1U < text.size(); ++index) {
-        if (text[index] == text.front()) {
-            if (index + 2U >= text.size() || text[index + 1U] != text.front()) {
-                return false;
-            }
-            ++index;
-        }
-        value += text[index];
-    }
-    return true;
-}
-
-bool ReceiverParameter(const std::string &text, VnaService::Measurement &measurement)
-{
-    const auto comma = text.find(',');
-    if (comma == std::string::npos) {
-        return false;
-    }
-    const std::string receiver = Trim(text.substr(0, comma));
-    unsigned source = 0;
-    unsigned port = 0;
-    const char kind =
-        receiver.empty() ? '\0' : static_cast<char>(std::tolower(static_cast<unsigned char>(receiver.front())));
-    if (receiver.size() != 2U || (kind != 'a' && kind != 'b') ||
-        !Integer(receiver.substr(1), port, RECEIVER_PORT_MAXIMUM) || port == 0U ||
-        !Integer(text.substr(comma + 1U), source, RECEIVER_PORT_MAXIMUM) || source == 0U) {
-        return false;
-    }
-    measurement.receiverKind = kind;
-    measurement.receiverPort = port;
-    measurement.sourcePort = source;
-    return true;
-}
-
-bool MeasurementParameter(const std::string &text, VnaService::Measurement &measurement)
-{
-    // Keysight 扩展测量参数区分大小写；同时接受标准单数字端口下划线写法。
-    const bool compact = text.size() == 3U;
-    const bool separated = text.size() == 4U && text[2U] == '_';
-    if ((compact || separated) && text.front() == 'S' && (text[1U] == '1' || text[1U] == '2') &&
-        (text.back() == '1' || text.back() == '2')) {
-        measurement.kind = VnaService::MeasurementKind::S_PARAMETER;
-        measurement.receiverKind = 'b';
-        measurement.receiverPort = text[1] == '1' ? 1U : 2U;
-        measurement.sourcePort = text.back() == '1' ? 1U : 2U;
-        return true;
-    }
-    return ReceiverParameter(text, measurement);
-}
-
 bool Matches(const std::string &value, const char *shortName, const char *fullName)
 {
     return value == shortName || value == fullName;
@@ -109,12 +55,17 @@ bool Matches(const std::string &value, const char *shortName, const char *fullNa
 bool ScpiEngine::HasPending() const noexcept
 {
     return !messages_.empty() || sequential_.valid() || waiting_ || !encoding_.empty() || !watches_.empty() ||
-           service_.HasPending();
+           (control_ && service_.HasPending());
 }
 
 void ScpiEngine::RecordCommandError(const ParsedCommand &command, int code, const std::string &text)
 {
-    service_.RecordError(code, text);
+    if (control_) {
+        service_.RecordError(code, text);
+    } else {
+        localError_.code = code;
+        localError_.message = text;
+    }
     if (command.query && !messages_.empty()) {
         messages_.front().queryFailed = true;
     }
@@ -137,7 +88,7 @@ void ScpiEngine::AppendResponse(const std::string &unit)
     }
     ScpiMessage &message = messages_.front();
     if ((message.response.size() + unit.size() + 2U) > RESPONSE_MESSAGE_BYTE_LIMIT) {
-        service_.RecordError(INPUT_BUFFER_OVERRUN, "Response exceeds software output budget");
+        RecordCommandError(ParsedCommand{}, INPUT_BUFFER_OVERRUN, "Response exceeds software output budget");
         message.queryFailed = true;
         return;
     }
@@ -177,7 +128,7 @@ void ScpiEngine::EncodeBatch()
         encodedResponse_ += Number(encoding_[encoded_]);
     }
     if (encodedResponse_.size() > NUMERIC_ARRAY_BYTE_LIMIT) {
-        service_.RecordError(INPUT_BUFFER_OVERRUN, "Array exceeds software output budget");
+        RecordCommandError(ParsedCommand{}, INPUT_BUFFER_OVERRUN, "Array exceeds software output budget");
         messages_.front().queryFailed = true;
         encoding_.clear();
         encodedResponse_.clear();
@@ -239,7 +190,21 @@ void ScpiEngine::Dispatch(const ParsedCommand &command)
         RecordCommandError(command, command.errorCode, command.error);
         return;
     }
-    if (DispatchCommon(command) || DispatchSweep(command) || DispatchMeasurement(command)) {
+    if (DispatchCommon(command) || DispatchSweep(command)) {
+        return;
+    }
+    const auto display = ScpiDisplayAdapter(service_).Execute(command);
+    if (display.matched) {
+        if (display.errorCode != 0) {
+            RecordCommandError(command, display.errorCode, display.error);
+        } else if (display.operation.valid()) {
+            SetOperation(display.operation);
+        } else if (!display.response.empty()) {
+            AppendResponse(display.response);
+        }
+        return;
+    }
+    if (DispatchMeasurement(command)) {
         return;
     }
     RecordCommandError(command, UNDEFINED_HEADER, "Undefined header");
@@ -326,10 +291,6 @@ bool ScpiEngine::DispatchMeasurement(const ParsedCommand &command)
     const std::string &path = command.path;
     if (path == "CALC1:PAR:DEF:EXT" || path == "CALC1:PAR:EXT") {
         DispatchDefineMeasurement(command);
-        return true;
-    }
-    if (path == "CALC1:PAR:SEL") {
-        DispatchSelectMeasurement(command);
         return true;
     }
     if (path == "CALC1:PAR:CAT:EXT" && command.query) {
@@ -632,32 +593,12 @@ void ScpiEngine::DispatchDefineMeasurement(const ParsedCommand &command)
         RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name and parameter require quoted strings");
         return;
     }
-    if (!MeasurementParameter(parameter, measurement)) {
+    if (!measurement.SetParameter(parameter)) {
         RecordCommandError(
             command, ILLEGAL_PARAMETER_VALUE, "Only S11/S21/S12/S22 and logical a1..a4/b1..b4 receivers are supported");
         return;
     }
     SetOperation(service_.DefineMeasurement(measurement));
-}
-
-void ScpiEngine::DispatchSelectMeasurement(const ParsedCommand &command)
-{
-    const auto &settings = service_.Settings();
-    if (command.query) {
-        if (CheckArguments(command, 0)) {
-            AppendResponse(Quote(settings.selectedMeasurement));
-        }
-        return;
-    }
-    if (!CheckArguments(command, 1)) {
-        return;
-    }
-    std::string name;
-    if (!StringArgument(command.arguments.front(), name)) {
-        RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name requires a string");
-        return;
-    }
-    service_.SelectMeasurement(name);
 }
 
 void ScpiEngine::DispatchMeasurementCatalog(const ParsedCommand &command)
@@ -745,7 +686,9 @@ void ScpiEngine::DispatchMeasurementData(const ParsedCommand &command)
 
 void ScpiEngine::Poll()
 {
-    service_.Poll();
+    if (control_) {
+        service_.Poll();
+    }
     PollOperationWatches();
     if (!PollBarrier()) {
         return;
@@ -838,7 +781,7 @@ ScpiEngine::~ScpiEngine() noexcept
 
 bool ScpiEngine::SubmitLine(const std::string &line)
 {
-    if (!connected_ || !control_ || messages_.size() >= MESSAGE_QUEUE_LIMIT || line.size() > LINE_BUDGET) {
+    if (!connected_ || messages_.size() >= MESSAGE_QUEUE_LIMIT || line.size() > LINE_BUDGET) {
         return false;
     }
     if (Trim(line).empty()) {
@@ -847,6 +790,9 @@ bool ScpiEngine::SubmitLine(const std::string &line)
     ScpiMessage message;
     message.units = SplitProgram(line);
     if (message.units.size() > PROGRAM_UNIT_LIMIT) {
+        return false;
+    }
+    if (!control_ && !ObserverMessageAllowed(message)) {
         return false;
     }
     messages_.push_back(std::move(message));
@@ -867,6 +813,31 @@ std::string ScpiEngine::TakeOutput()
 bool ScpiEngine::HasControl() const noexcept
 {
     return control_;
+}
+
+const VnaService::InstrumentError &ScpiEngine::LocalError() const noexcept
+{
+    return localError_;
+}
+
+bool ScpiEngine::ObserverMessageAllowed(const ScpiMessage &message)
+{
+    std::vector<std::string> parent;
+    for (const auto &unit : message.units) {
+        const auto command = ParseCommand(unit, parent);
+        if (!IsObserverQuery(command)) {
+            const bool destructive = !command.query || command.path == "*ESR" || command.path == "SYST:ERR" ||
+                                     command.path == "SYST:ERR:NEXT";
+            const int code =
+                command.errorCode != 0 ? command.errorCode : (destructive ? SETTINGS_CONFLICT : UNDEFINED_HEADER);
+            RecordCommandError(command, code,
+                command.errorCode != 0
+                    ? command.error
+                    : (destructive ? "Observer connection cannot change instrument state" : "Undefined header"));
+            return false;
+        }
+    }
+    return true;
 }
 
 void ScpiEngine::SetTransportOutputPending(bool pending) noexcept
