@@ -11,76 +11,18 @@ import type {
   ReceiverTrace,
 } from './types'
 
-type ObjectValue = Record<string, unknown>
-
-function invalid(field: string): never {
-  throw new Error(`服务数据格式无效：${field}`)
-}
-
-function object(value: unknown, field: string): ObjectValue {
-  if (value === null || typeof value !== 'object' || Array.isArray(value))
-    invalid(field)
-  return value as ObjectValue
-}
-
-function text(value: unknown, field: string): string {
-  if (typeof value !== 'string') invalid(field)
-  return value
-}
-
-function flag(value: unknown, field: string): boolean {
-  if (typeof value !== 'boolean') invalid(field)
-  return value
-}
-
-function number(
-  value: unknown,
-  field: string,
-  minimum = -Infinity,
-  maximum = Infinity,
-): number {
-  if (
-    typeof value !== 'number' ||
-    !Number.isFinite(value) ||
-    value < minimum ||
-    value > maximum
-  )
-    invalid(field)
-  return value
-}
-
-function integer(
-  value: unknown,
-  field: string,
-  minimum: number,
-  maximum: number,
-): number {
-  const result = number(value, field, minimum, maximum)
-  if (!Number.isInteger(result)) invalid(field)
-  return result
-}
-
-function identity(value: unknown, field: string): string {
-  const result = text(value, field)
-  if (!/^\d{1,20}$/.test(result)) invalid(field)
-  return result
-}
-
-function choice<T extends string>(
-  value: unknown,
-  field: string,
-  choices: readonly T[],
-): T {
-  const result = text(value, field)
-  const match = choices.find((item) => item === result)
-  if (match === undefined) invalid(field)
-  return match
-}
-
-function array(value: unknown, field: string, maximum: number): unknown[] {
-  if (!Array.isArray(value) || value.length > maximum) invalid(field)
-  return value
-}
+import {
+  array,
+  choice,
+  flag,
+  identity,
+  integer,
+  invalid,
+  number,
+  object,
+  text,
+} from './decodeValues'
+import { decodeDisplay, decodeProjection } from './displayDecoders'
 
 function measurement(value: unknown): Measurement {
   const item = object(value, 'measurement')
@@ -231,6 +173,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
       ]),
     },
     measurements,
+    display: decodeDisplay(item.display, measurements),
     control: {
       owner: choice(control.owner, 'control.owner', ['none', 'scpi', 'web']),
       hasControl: flag(control.hasControl, 'control.hasControl'),
@@ -272,6 +215,7 @@ function trace(value: unknown, count: number): ReceiverTrace {
     real,
     imag,
     valid,
+    projection: decodeProjection(item.projection, count),
   }
 }
 
@@ -323,13 +267,25 @@ export function decodeFrame(value: unknown): FrameResponse {
       item.measurementRevision,
       'frame.measurementRevision',
     ),
+    displayRevision: identity(item.displayRevision, 'frame.displayRevision'),
     frameSeq: identity(item.frameSeq, 'frame.frameSeq'),
     originalPointCount: originalCount,
     displayPointCount: count,
     decimated,
     frequencyHz: axis,
+    sampleIndexes: array(item.sampleIndexes, 'frame.sampleIndexes', 2001).map(
+      (entry) => integer(entry, 'frame.sampleIndex', 0, originalCount - 1),
+    ),
     traces,
   }
+  if (
+    result.sampleIndexes.length !== count ||
+    result.sampleIndexes.some(
+      (index, position) =>
+        position > 0 && index <= result.sampleIndexes[position - 1]!,
+    )
+  )
+    invalid('frame.sampleIndexes')
   return result
 }
 

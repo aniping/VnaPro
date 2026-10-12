@@ -1,7 +1,20 @@
-import { decodeAccepted, decodeClaim, decodeFrame, decodeOperation, decodeStatus } from './decoders'
+import {
+  decodeAccepted,
+  decodeClaim,
+  decodeFrame,
+  decodeOperation,
+  decodeStatus,
+} from './decoders'
 import type {
-  AcceptedOperation, ClaimResponse, FrameResponse, InstrumentStatus, MeasurementCandidate,
-  OperationSnapshot, RunAction, SweepConfiguration,
+  AcceptedOperation,
+  ClaimResponse,
+  FrameResponse,
+  InstrumentStatus,
+  MeasurementCandidate,
+  OperationSnapshot,
+  RunAction,
+  SweepPatch,
+  DisplayCommand,
 } from './types'
 
 export class ApiError extends Error {
@@ -42,9 +55,27 @@ function browserStorage(): SessionStorage | null {
 function requestId(): string {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
   const bytes = new Uint8Array(16)
-  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes)
-  else for (let index = 0; index < bytes.length; index++) bytes[index] = Math.floor(Math.random() * 256)
-  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  if (globalThis.crypto?.getRandomValues)
+    globalThis.crypto.getRandomValues(bytes)
+  else
+    for (let index = 0; index < bytes.length; index++)
+      bytes[index] = Math.floor(Math.random() * 256)
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join(
+    '',
+  )
+}
+
+function measurementBody(
+  candidate: MeasurementCandidate,
+): Record<string, unknown> {
+  return 'parameter' in candidate
+    ? { parameter: candidate.parameter }
+    : {
+        kind: candidate.kind,
+        receiverKind: candidate.receiverKind,
+        receiverPort: candidate.receiverPort,
+        sourcePort: candidate.sourcePort,
+      }
 }
 
 export interface InstrumentGateway {
@@ -53,12 +84,33 @@ export interface InstrumentGateway {
   frame(names?: readonly string[]): Promise<FrameResponse>
   claim(): Promise<ClaimResponse>
   release(): Promise<void>
-  configure(candidate: SweepConfiguration, expectedRevision: string): Promise<AcceptedOperation>
+  configure(
+    candidate: SweepPatch,
+    expectedRevision: string,
+  ): Promise<AcceptedOperation>
   operate(action: RunAction): Promise<AcceptedOperation>
   operation(id: string, ownerSessionId: string): Promise<OperationSnapshot>
-  addMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation>
-  updateMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation>
-  deleteMeasurement(name: string, expectedRevision: string): Promise<AcceptedOperation>
+  addMeasurement(
+    candidate: MeasurementCandidate,
+    expectedRevision: string,
+  ): Promise<AcceptedOperation>
+  updateMeasurement(
+    candidate: MeasurementCandidate,
+    expectedRevision: string,
+  ): Promise<AcceptedOperation>
+  deleteMeasurement(
+    name: string,
+    expectedRevision: string,
+  ): Promise<AcceptedOperation>
+  display(
+    command: DisplayCommand,
+    expectedDisplayRevision: string,
+  ): Promise<AcceptedOperation>
+  cloneMeasurement(
+    sourceName: string,
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+  ): Promise<AcceptedOperation>
   abortRequests(): void
 }
 
@@ -74,12 +126,19 @@ export class InstrumentApi implements InstrumentGateway {
   constructor(options: ApiOptions = {}) {
     this.root = options.root ?? '/api/v1'
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis)
-    this.storage = options.storage === undefined ? browserStorage() : options.storage
+    this.storage =
+      options.storage === undefined ? browserStorage() : options.storage
     this.timeoutMs = options.timeoutMs ?? 5000
-    try { this.token = this.storage?.getItem(SESSION_KEY) || '' } catch { /* 浏览器存储可能不可用。 */ }
+    try {
+      this.token = this.storage?.getItem(SESSION_KEY) || ''
+    } catch {
+      /* 浏览器存储可能不可用。 */
+    }
   }
 
-  get sessionId(): string { return this.token }
+  get sessionId(): string {
+    return this.token
+  }
 
   abortRequests(): void {
     for (const controller of this.controllers) controller.abort()
@@ -91,7 +150,9 @@ export class InstrumentApi implements InstrumentGateway {
     try {
       if (token) this.storage?.setItem(SESSION_KEY, token)
       else this.storage?.removeItem(SESSION_KEY)
-    } catch { /* 控制租约仍可保存在当前标签页内存中使用。 */ }
+    } catch {
+      /* 控制租约仍可保存在当前标签页内存中使用。 */
+    }
   }
 
   private async request<T>(
@@ -105,7 +166,10 @@ export class InstrumentApi implements InstrumentGateway {
     const controller = new AbortController()
     this.controllers.add(controller)
     let timedOut = false
-    const timeout = setTimeout(() => { timedOut = true; controller.abort() }, this.timeoutMs)
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, this.timeoutMs)
     try {
       const headers: Record<string, string> = { Accept: 'application/json' }
       if (ownerSessionId) headers['X-Vna-Session'] = ownerSessionId
@@ -118,44 +182,93 @@ export class InstrumentApi implements InstrumentGateway {
         signal: controller.signal,
       })
       let value: unknown
-      try { value = await response.json() } catch {
-        throw new ApiError(`服务返回无效 JSON (${response.status})`, response.ok ? 0 : response.status, '', 'protocol')
+      try {
+        value = await response.json()
+      } catch {
+        throw new ApiError(
+          `服务返回无效 JSON (${response.status})`,
+          response.ok ? 0 : response.status,
+          '',
+          'protocol',
+        )
       }
       if (!response.ok) {
-        const item = value !== null && typeof value === 'object' ? value as Record<string, unknown> : {}
-        const error = item.error !== null && typeof item.error === 'object' ? item.error as Record<string, unknown> : {}
-        throw new ApiError(typeof error.message === 'string' ? error.message : `HTTP ${response.status}`,
-          response.status, typeof error.code === 'string' ? error.code : '', 'http')
+        const item =
+          value !== null && typeof value === 'object'
+            ? (value as Record<string, unknown>)
+            : {}
+        const error =
+          item.error !== null && typeof item.error === 'object'
+            ? (item.error as Record<string, unknown>)
+            : {}
+        throw new ApiError(
+          typeof error.message === 'string'
+            ? error.message
+            : `HTTP ${response.status}`,
+          response.status,
+          typeof error.code === 'string' ? error.code : '',
+          'http',
+        )
       }
       if (expectedStatus !== undefined && response.status !== expectedStatus) {
-        throw new ApiError(`服务返回意外状态 (${response.status})`, 0, '', 'protocol')
+        throw new ApiError(
+          `服务返回意外状态 (${response.status})`,
+          0,
+          '',
+          'protocol',
+        )
       }
-      try { return decode(value) } catch (error) {
-        throw new ApiError(error instanceof Error ? error.message : '服务数据格式无效', 0, '', 'protocol')
+      try {
+        return decode(value)
+      } catch (error) {
+        throw new ApiError(
+          error instanceof Error ? error.message : '服务数据格式无效',
+          0,
+          '',
+          'protocol',
+        )
       }
     } catch (error) {
       if (error instanceof ApiError) throw error
-      if (controller.signal.aborted && !timedOut) throw new ApiError('界面请求已停止', 0, '', 'cancelled')
-      throw new ApiError(timedOut ? '采集服务响应超时' : '无法连接采集服务', 0, '', 'transport')
+      if (controller.signal.aborted && !timedOut)
+        throw new ApiError('界面请求已停止', 0, '', 'cancelled')
+      throw new ApiError(
+        timedOut ? '采集服务响应超时' : '无法连接采集服务',
+        0,
+        '',
+        'transport',
+      )
     } finally {
       clearTimeout(timeout)
       this.controllers.delete(controller)
     }
   }
 
-  status(): Promise<InstrumentStatus> { return this.request('/status', decodeStatus) }
+  status(): Promise<InstrumentStatus> {
+    return this.request('/status', decodeStatus)
+  }
   frame(names?: readonly string[]): Promise<FrameResponse> {
-    const query = names === undefined ? '' : names.length === 0 ? '?display=none'
-      : `?${names.map(name => `trace=${encodeURIComponent(name)}`).join('&')}`
+    const query =
+      names === undefined
+        ? ''
+        : names.length === 0
+          ? '?display=none'
+          : `?${names.map((name) => `trace=${encodeURIComponent(name)}`).join('&')}`
     return this.request(`/frame${query}`, decodeFrame)
   }
 
   async claim(): Promise<ClaimResponse> {
     let result: ClaimResponse
     try {
-      result = await this.request('/control/claim', decodeClaim, 'POST', this.token ? { sessionId: this.token } : {})
+      result = await this.request(
+        '/control/claim',
+        decodeClaim,
+        'POST',
+        this.token ? { sessionId: this.token } : {},
+      )
     } catch (error) {
-      if (!(error instanceof ApiError) || error.status !== 403 || !this.token) throw error
+      if (!(error instanceof ApiError) || error.status !== 403 || !this.token)
+        throw error
       // 控制租约令牌只由服务端签发；过期令牌不能在本地恢复。
       this.rememberSession('')
       result = await this.request('/control/claim', decodeClaim, 'POST', {})
@@ -165,41 +278,151 @@ export class InstrumentApi implements InstrumentGateway {
   }
 
   async release(): Promise<void> {
-    await this.request('/control/release', (value) => {
-      if (value === null || typeof value !== 'object' || (value as Record<string, unknown>).releasing !== true) {
-        throw new Error('服务未确认控制权释放')
-      }
-    }, 'POST', {})
+    await this.request(
+      '/control/release',
+      (value) => {
+        if (
+          value === null ||
+          typeof value !== 'object' ||
+          (value as Record<string, unknown>).releasing !== true
+        ) {
+          throw new Error('服务未确认控制权释放')
+        }
+      },
+      'POST',
+      {},
+    )
   }
 
-  configure(candidate: SweepConfiguration, expectedRevision: string): Promise<AcceptedOperation> {
-    return this.request('/config', decodeAccepted, 'POST',
-      { startHz: candidate.startHz, stopHz: candidate.stopHz, points: candidate.points,
-        ifBandwidthHz: candidate.ifBandwidthHz, expectedRevision, requestId: requestId() }, this.token, 202)
+  configure(
+    candidate: SweepPatch,
+    expectedRevision: string,
+  ): Promise<AcceptedOperation> {
+    const fields = [
+      'startHz',
+      'stopHz',
+      'centerHz',
+      'spanHz',
+      'points',
+      'ifBandwidthHz',
+    ] as const
+    const patch = Object.fromEntries(
+      fields
+        .filter((key) => candidate[key] !== undefined)
+        .map((key) => [key, candidate[key]]),
+    )
+    return this.request(
+      '/config',
+      decodeAccepted,
+      'POST',
+      { ...patch, expectedRevision, requestId: requestId() },
+      this.token,
+      202,
+    )
   }
 
   operate(action: RunAction): Promise<AcceptedOperation> {
-    return this.request('/operations', decodeAccepted, 'POST', { action, requestId: requestId() }, this.token, 202)
+    return this.request(
+      '/operations',
+      decodeAccepted,
+      'POST',
+      { action, requestId: requestId() },
+      this.token,
+      202,
+    )
   }
 
   operation(id: string, ownerSessionId: string): Promise<OperationSnapshot> {
-    return this.request(`/operations/${encodeURIComponent(id)}`, decodeOperation, 'GET', undefined, ownerSessionId)
+    return this.request(
+      `/operations/${encodeURIComponent(id)}`,
+      decodeOperation,
+      'GET',
+      undefined,
+      ownerSessionId,
+    )
   }
 
-  addMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation> {
-    return this.request('/measurements', decodeAccepted, 'POST',
-      { name: candidate.name, kind: candidate.kind, receiverKind: candidate.receiverKind, receiverPort: candidate.receiverPort,
-        sourcePort: candidate.sourcePort, expectedRevision, requestId: requestId() }, this.token, 202)
+  addMeasurement(
+    candidate: MeasurementCandidate,
+    expectedRevision: string,
+  ): Promise<AcceptedOperation> {
+    return this.request(
+      '/measurements',
+      decodeAccepted,
+      'POST',
+      {
+        ...measurementBody(candidate),
+        name: candidate.name,
+        expectedRevision,
+        requestId: requestId(),
+      },
+      this.token,
+      202,
+    )
   }
 
-  updateMeasurement(candidate: MeasurementCandidate, expectedRevision: string): Promise<AcceptedOperation> {
-    return this.request(`/measurements/${encodeURIComponent(candidate.name)}`, decodeAccepted, 'PUT',
-      { kind: candidate.kind, receiverKind: candidate.receiverKind, receiverPort: candidate.receiverPort,
-        sourcePort: candidate.sourcePort, expectedRevision, requestId: requestId() }, this.token, 202)
+  updateMeasurement(
+    candidate: MeasurementCandidate,
+    expectedRevision: string,
+  ): Promise<AcceptedOperation> {
+    return this.request(
+      `/measurements/${encodeURIComponent(candidate.name)}`,
+      decodeAccepted,
+      'PUT',
+      {
+        ...measurementBody(candidate),
+        expectedRevision,
+        requestId: requestId(),
+      },
+      this.token,
+      202,
+    )
   }
 
-  deleteMeasurement(name: string, expectedRevision: string): Promise<AcceptedOperation> {
-    return this.request(`/measurements/${encodeURIComponent(name)}`, decodeAccepted, 'DELETE',
-      { expectedRevision, requestId: requestId() }, this.token, 202)
+  deleteMeasurement(
+    name: string,
+    expectedRevision: string,
+  ): Promise<AcceptedOperation> {
+    return this.request(
+      `/measurements/${encodeURIComponent(name)}`,
+      decodeAccepted,
+      'DELETE',
+      { expectedRevision, requestId: requestId() },
+      this.token,
+      202,
+    )
+  }
+  display(
+    command: DisplayCommand,
+    expectedDisplayRevision: string,
+  ): Promise<AcceptedOperation> {
+    return this.request(
+      '/display',
+      decodeAccepted,
+      'POST',
+      { ...command, expectedDisplayRevision, requestId: requestId() },
+      this.token,
+      202,
+    )
+  }
+
+  cloneMeasurement(
+    sourceName: string,
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+  ): Promise<AcceptedOperation> {
+    return this.request(
+      '/measurement-actions/clone',
+      decodeAccepted,
+      'POST',
+      {
+        sourceName,
+        expectedRevision,
+        expectedDisplayRevision,
+        requestId: requestId(),
+      },
+      this.token,
+      202,
+    )
   }
 }

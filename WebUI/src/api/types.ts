@@ -1,3 +1,9 @@
+import type {
+  DisplayFormat,
+  LayoutMode,
+  TracePresentation,
+} from '../domain/presentation'
+
 /** 仪器标识保持为十进制字符串，以完整保留服务端 uint64 计数器的值。 */
 export type CoreState =
   | 'Uninitialized'
@@ -14,6 +20,15 @@ export interface SweepConfiguration {
   ifBandwidthHz: number
 }
 
+export interface SweepPatch {
+  startHz?: number
+  stopHz?: number
+  centerHz?: number
+  spanHz?: number
+  points?: number
+  ifBandwidthHz?: number
+}
+
 export interface Measurement {
   name: string
   kind: 'receiver' | 'sParameter'
@@ -25,10 +40,83 @@ export interface Measurement {
   calibration: 'raw' | 'uncalibrated'
 }
 
-export type MeasurementCandidate = Pick<
+export type ReceiverCandidate = Pick<
   Measurement,
   'name' | 'kind' | 'receiverKind' | 'receiverPort' | 'sourcePort'
 >
+
+export type MeasurementCandidate =
+  | ReceiverCandidate
+  | { name: string; parameter: string }
+
+export interface DisplaySnapshot {
+  revision: string
+  selectedMeasurement: string
+  displayedNames: string[]
+  layout: LayoutMode
+  presentations: Record<string, TracePresentation>
+  diagrams: DiagramDefinition[]
+}
+
+export interface DiagramDefinition {
+  number: number
+  measurementNames: string[]
+  primaryMeasurement: string
+}
+
+export type DisplayCommand =
+  | { action: 'select'; traceName: string }
+  | { action: 'displayed' | 'visible'; traceName: string; enabled: boolean }
+  | { action: 'layout'; layout: LayoutMode }
+  | { action: 'format'; traceName: string; format: DisplayFormat }
+  | {
+      action: 'scale'
+      traceName: string
+      perDivision: number
+      referenceLevel: number
+      referencePosition: number
+    }
+  | { action: 'autoscale'; traceName: string; acquisitionRevision: string }
+  | { action: 'smithRadius'; traceName: string; radius: number }
+  | {
+      action: 'marker'
+      traceName: string
+      enabled?: boolean
+      frequencyHz?: number
+      sampleIndex?: number
+      step?: number
+      discrete?: boolean
+      acquisitionRevision?: string
+    }
+
+export type ProjectionState = 'finite' | 'negativeInfinity' | 'undefined'
+
+export interface MarkerProjection {
+  available: boolean
+  valid: boolean
+  reason: string
+  sampleIndex: number | null
+  frequencyHz: number | null
+  real: number | null
+  imag: number | null
+  value: number | null
+  secondaryValue: number | null
+  valueState: ProjectionState
+  secondaryState: ProjectionState
+  impedanceReal: number | null
+  impedanceImag: number | null
+  impedanceState: 'finite' | 'open' | 'overflow' | 'invalid'
+  interpolated: boolean
+}
+
+export interface TraceProjection {
+  format: DisplayFormat
+  values: (number | null)[]
+  secondaryValues: (number | null)[]
+  valueStates: ProjectionState[]
+  secondaryStates: ProjectionState[]
+  marker: MarkerProjection
+}
 
 export interface InstrumentCapabilities {
   portCount: number
@@ -56,6 +144,7 @@ export interface InstrumentStatus {
     sweepMode: 'HOLD' | 'SING' | 'CONT'
   }
   measurements: Measurement[]
+  display: DisplaySnapshot
   control: {
     owner: 'none' | 'scpi' | 'web'
     hasControl: boolean
@@ -70,6 +159,7 @@ export interface ReceiverTrace extends Measurement {
   real: (number | null)[]
   imag: (number | null)[]
   valid: boolean[]
+  projection: TraceProjection
 }
 
 export interface AcquiredFrame {
@@ -81,11 +171,13 @@ export interface AcquiredFrame {
   revision: string
   /** 本次响应计算迹线时使用的测量目录版本。 */
   measurementRevision: string
+  displayRevision: string
   frameSeq: string
   originalPointCount: number
   displayPointCount: number
   decimated: boolean
   frequencyHz: number[]
+  sampleIndexes: number[]
   traces: ReceiverTrace[]
 }
 
@@ -127,7 +219,7 @@ export interface OperationSnapshot extends AcceptedOperation {
 export interface PendingOperation {
   id: string
   label: string
-  kind: 'config' | 'measurement' | 'sweep'
+  kind: 'config' | 'measurement' | 'sweep' | 'display'
   ownerSessionId: string
   readingBack: boolean
 }
