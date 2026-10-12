@@ -12,7 +12,7 @@
 #include "scpi/scpi_engine.h"
 
 namespace VnaServer {
-// 管理一个控制连接的传输资源及已接收 SCPI 命令的生命周期。
+// 管理一个控制或只读观察连接的传输资源及已接收 SCPI 命令的生命周期。
 class ScpiConnection final {
 public:
     // 接管 socket 的所有权；服务的生命周期必须覆盖本连接。

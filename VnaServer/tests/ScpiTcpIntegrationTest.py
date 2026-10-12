@@ -46,18 +46,69 @@ def values(response):
 
 def connect_controller(port):
     # 断开的控制连接可能仍在等待已受理操作完成后释放控制权。重试连接，
-    # 直到收到完整的身份响应，确认已获得控制权。
+    # 身份查询也允许观察者执行；再原值写回 ESE，确认当前连接持有写控制权。
     deadline = time.monotonic() + 5
     while True:
         client = Client(port)
         try:
             assert client.query("*IDN?").startswith("VnaPro,")
+            event_enable = int(client.query("*ESE?"))
+            assert client.query(f"*ESE {event_enable};*OPC?") == "+1"
             return client
         except (OSError, AssertionError):
             client.close()
             if time.monotonic() >= deadline:
                 raise
             time.sleep(0.01)
+
+
+def expect_closed(client, line):
+    """观察者的写入、破坏查询与非法消息被整行拒绝并关闭连接。"""
+    try:
+        client.write(line)
+        assert client.socket.recv(8192) == b"", "Rejected observer received a partial program response"
+    except ConnectionError:
+        pass
+
+
+def exercise_observers(port, writer):
+    """真实多连接共享显示状态；观察者不能消费 owner 错误或自动升级。"""
+    observers = []
+    try:
+        for _ in range(7):
+            observer = Client(port)
+            assert observer.query("*IDN?").startswith("VnaPro,")
+            observers.append(observer)
+        # 控制者与七个观察者达到八连接上限，第九条连接必须拒绝。
+        extra = Client(port)
+        try:
+            expect_closed(extra, "*IDN?")
+        finally:
+            extra.close()
+        writer.write("CALC:FORM REAL")
+        assert writer.query("CALC:FORM?") == "REAL"
+        for observer in observers:
+            assert observer.query("CALC:FORM?") == "REAL"
+            assert observer.query("*OPC?") == "+1"
+        # 错误计数允许观察，读清 ESR 与错误出队必须保持 writer 独占。
+        writer.write("*CLS;:INVALID_WRITER_COMMAND")
+        assert writer.query("SYST:ERR:COUN?") == "1"
+        assert observers[0].query("SYST:ERR:COUN?") == "1"
+        expect_closed(observers[0], "*IDN?;:CALC:FORM PHAS")
+        expect_closed(observers[1], "*STB?;*ESR?")
+        expect_closed(observers[2], "SYST:ERR?")
+        expect_closed(observers[3], "*IDN?;:NOT_IMPLEMENTED?")
+        assert writer.query("SYST:ERR:COUN?") == "1", "Observers polluted or consumed owner errors"
+        assert writer.query("CALC:FORM?") == "REAL", "Rejected mixed message changed shared format"
+        assert writer.query("SYST:ERR?").startswith("-113,")
+        assert writer.query("SYST:ERR?").startswith("0,")
+        # 合法观察连接断开也不能释放真实 writer。
+        observers[4].close()
+        assert writer.query("CALC:FORM IMAG;FORM?") == "IMAG"
+        assert observers[5].query("CALC:FORM?") == "IMAG"
+    finally:
+        for observer in observers:
+            observer.close()
 
 
 def exercise(port):
@@ -105,17 +156,7 @@ def exercise(port):
         client = connect_controller(port)
         assert client.query("SYST:ERR?").startswith("-113,")
         assert client.query("SYST:ERR?").startswith("0,")
-        # 第二个连接无法获得控制权，也不能更改设备状态。
-        second = Client(port)
-        try:
-            try:
-                second.write("*IDN?")
-                closed = second.socket.recv(32)
-                assert closed == b"", "A second controller must be rejected"
-            except ConnectionError:
-                pass
-        finally:
-            second.close()
+        exercise_observers(port, client)
         # 相对命令头沿用当前路径；公共命令不改变该路径。
         relative = client.query("SENS1:FREQ:STAR?;*OPC?;STOP?").split(";")
         assert [float(value) for value in relative] == [1000000, 1, 100000000]

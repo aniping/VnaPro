@@ -3,56 +3,75 @@
  */
 #include "scpi_tcp_server.h"
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 #include "network/network_runtime.h"
 #include "network/socket_owner.h"
 #include "network/socket_poll_set.h"
+#include "scpi/scpi_constants.h"
 #include "scpi_connection.h"
 #include "vna_log/logger.h"
 #include "web/web_endpoint.h"
 
 namespace VnaServer {
 namespace {
-void AdmitController(
-    VnaService::InstrumentService &service, Network::Socket listener, std::unique_ptr<ScpiConnection> &connection)
+using ScpiConnections = std::vector<std::unique_ptr<ScpiConnection>>;
+
+void AdmitConnection(VnaService::InstrumentService &service, Network::Socket listener, ScpiConnections &connections)
 {
     Network::SocketOwner incoming(accept(listener, nullptr, nullptr));
     if (incoming.Get() == Network::INVALID_SOCKET_HANDLE) {
         return;
     }
-    if (connection || !Network::FitsSelect(incoming.Get()) || !Network::SetNonBlocking(incoming.Get())) {
+    if (connections.size() >= VnaScpi::CONNECTION_LIMIT || !Network::FitsSelect(incoming.Get()) ||
+        !Network::SetNonBlocking(incoming.Get())) {
         VnaLog::Debug(VnaLog::Module::SCPI, "SCPI 连接未获准接入");
         return;
     }
-    // 仅在接入获准后才创建连接，因此允许连接所有者为空。
-    connection = std::make_unique<ScpiConnection>(service, std::move(incoming));
+    connections.push_back(std::make_unique<ScpiConnection>(service, std::move(incoming)));
 }
 
-void PollTransports(
-    Network::Socket listener, VnaService::InstrumentService &service, std::unique_ptr<ScpiConnection> &connection)
+void PollTransports(Network::Socket listener, VnaService::InstrumentService &service, ScpiConnections &connections)
 {
     Network::SocketPollSet events;
     events.AddReadable(listener);
-    if (connection && connection->WantsRead()) {
-        events.AddReadable(connection->GetSocket());
-    }
-    if (connection && connection->WantsWrite()) {
-        events.AddWritable(connection->GetSocket());
+    for (const auto &connection : connections) {
+        if (connection->WantsRead()) {
+            events.AddReadable(connection->GetSocket());
+        }
+        if (connection->WantsWrite()) {
+            events.AddWritable(connection->GetSocket());
+        }
     }
     events.Wait();
     if (events.IsReadable(listener)) {
-        AdmitController(service, listener, connection);
+        AdmitConnection(service, listener, connections);
     }
-    if (connection && events.IsReadable(connection->GetSocket())) {
-        connection->Read();
+    for (const auto &connection : connections) {
+        if (events.IsReadable(connection->GetSocket())) {
+            connection->Read();
+        }
+        if (events.IsWritable(connection->GetSocket())) {
+            connection->Write();
+        }
     }
-    if (connection && events.IsWritable(connection->GetSocket())) {
-        connection->Write();
+}
+
+void PollConnections(ScpiConnections &connections)
+{
+    for (const auto &connection : connections) {
+        connection->Poll();
     }
+    connections.erase(std::remove_if(connections.begin(), connections.end(),
+                          [](const auto &connection) {
+                              return connection->Drained();
+                          }),
+        connections.end());
 }
 
 void AnnounceListener(const ListenOptions &options, std::uint16_t port)
@@ -77,29 +96,24 @@ int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions
     }
     AnnounceListener(options, Network::BindListener(listener.Get(), options.bindAddress, options.port));
     VnaWeb::WebEndpoint web(service, options.web);
-    std::unique_ptr<ScpiConnection> connection;
+    ScpiConnections connections;
     bool shuttingDown = false;
     while (true) {
         if (!shuttingDown && shutdownRequested()) {
             VnaLog::Info(VnaLog::Module::SERVER, "收到退出请求，开始排空已接受操作");
             shuttingDown = true;
             listener.Reset();
-            if (connection) {
+            for (const auto &connection : connections) {
                 connection->Disconnect();
             }
             web.BeginShutdown();
         }
         web.Poll();
-        if (connection) {
-            connection->Poll();
-            if (connection->Drained()) {
-                connection.reset();
-            }
-        }
-        if (shuttingDown && !connection && web.Drained()) {
+        PollConnections(connections);
+        if (shuttingDown && connections.empty() && web.Drained()) {
             return 0;
         }
-        PollTransports(listener.Get(), service, connection);
+        PollTransports(listener.Get(), service, connections);
     }
 }
 }  // 命名空间 VnaServer

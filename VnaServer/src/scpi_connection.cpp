@@ -19,8 +19,7 @@ ScpiConnection::ScpiConnection(VnaService::InstrumentService &service, Network::
 {
     Network::ConfigureStreamSocket(socket_.Get());
     if (!engine_.HasControl()) {
-        VnaLog::Debug(VnaLog::Module::SCPI, "控制权已占用，关闭 SCPI 连接");
-        Disconnect();
+        VnaLog::Info(VnaLog::Module::SCPI, "SCPI 连接以只读观察模式接入");
     } else {
         VnaLog::Info(VnaLog::Module::SCPI, "SCPI 连接取得控制权");
     }
@@ -46,6 +45,11 @@ void ScpiConnection::Poll()
 {
     engine_.SetTransportOutputPending(output_.size() != sent_);
     engine_.Poll();
+    if (!engine_.HasControl() && engine_.LocalError().code != 0 && socket_.Get() != Network::INVALID_SOCKET_HANDLE) {
+        VnaLog::Warn(VnaLog::Module::SCPI, "观察查询失败，关闭连接，code={}, message={}", engine_.LocalError().code,
+            engine_.LocalError().message);
+        Disconnect();
+    }
     CollectResponses();
     if (WantsWrite() && (std::chrono::steady_clock::now() - lastSendProgress_) > WRITE_PROGRESS_TIMEOUT) {
         VnaLog::Warn(VnaLog::Module::SCPI, "响应发送超时，关闭 SCPI 连接");
@@ -111,6 +115,10 @@ void ScpiConnection::SubmitLines()
             line.pop_back();
         }
         if (!line.empty() && !engine_.SubmitLine(line)) {
+            if (!engine_.HasControl()) {
+                VnaLog::Warn(VnaLog::Module::SCPI, "观察消息整行拒绝，code={}, message={}", engine_.LocalError().code,
+                    engine_.LocalError().message);
+            }
             Disconnect();
             return;
         }

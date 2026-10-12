@@ -43,9 +43,13 @@ void ExerciseNetworkShutdown(VnaService::InstrumentService &service)
     });
     try {
         Expect(boundPort.wait_for(std::chrono::seconds(3)) == std::future_status::ready, "Listener did not start");
-        Client client(boundPort.get());
+        const auto port = boundPort.get();
+        Client client(port);
         client.Write("SENS1:SWE:POIN 10001\nSENS1:SWE:MODE SING;*OPC?\n");
         Expect(std::stoi(client.ReadLine()) == 1, "Finite measurement did not finish");
+        Client observer(port);
+        observer.Write("*IDN?\n");
+        Expect(observer.ReadLine().find("VnaPro,") == 0U, "Read-only observer did not connect");
         // 在控制连接仍建立且受限的大响应正在编码时停止服务。
         client.Write("CALC1:DATA? RDATA\n");
         stop.store(true);
