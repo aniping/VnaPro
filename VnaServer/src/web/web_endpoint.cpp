@@ -13,6 +13,7 @@
 
 #include "network/network_runtime.h"
 #include "network/socket_owner.h"
+#include "network/socket_poll_set.h"
 #include "vna_log/logger.h"
 #include "web/http_api.h"
 #include "web/json_encoder.h"
@@ -509,6 +510,22 @@ void WebEndpoint::Poll()
     api_.Poll();
     AcceptConnections();
     PollClients();
+}
+
+void WebEndpoint::AddPollEvents(VnaServer::Network::SocketPollSet &events) const noexcept
+{
+    events.AddReadable(listener_.Get());
+    for (const auto &client : clients_) {
+        if (!client.dispatched) {
+            events.AddReadable(client.socket.Get());
+        } else if (client.encoderActive || client.fileActive) {
+            // 每轮仍只处理原有编码或文件分片，随后让其他连接和服务任务获得执行机会。
+            events.RequestImmediate();
+        } else if (client.sent < client.output.size()) {
+            // 等待真实可写事件；背压中的连接不会因存在未发送字节而要求立即重试。
+            events.AddWritable(client.socket.Get());
+        }
+    }
 }
 
 void WebEndpoint::BeginShutdown()

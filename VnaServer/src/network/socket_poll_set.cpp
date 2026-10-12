@@ -43,14 +43,21 @@ void SocketPollSet::AddWritable(Socket socket) noexcept
     }
 }
 
+void SocketPollSet::RequestImmediate() noexcept
+{
+    immediate_ = true;
+}
+
 void SocketPollSet::Wait()
 {
     if (!anySocket_) {
-        std::this_thread::sleep_for(std::chrono::microseconds(EXECUTOR_INTERVAL_MICROSECONDS));
+        if (!immediate_) {
+            std::this_thread::sleep_for(std::chrono::microseconds(EXECUTOR_INTERVAL_MICROSECONDS));
+        }
         return;
     }
     timeval timeout{};
-    timeout.tv_usec = EXECUTOR_INTERVAL_MICROSECONDS;
+    timeout.tv_usec = immediate_ ? 0 : EXECUTOR_INTERVAL_MICROSECONDS;
 #ifdef _WIN32
     // Winsock 忽略 nfds，避免将其指针宽度的套接字句柄窄化。
     const int descriptorCount = 0;

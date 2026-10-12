@@ -36,7 +36,8 @@ void AdmitConnection(VnaService::InstrumentService &service, Network::Socket lis
     connections.push_back(std::make_unique<ScpiConnection>(service, std::move(incoming)));
 }
 
-void PollTransports(Network::Socket listener, VnaService::InstrumentService &service, ScpiConnections &connections)
+void PollTransports(Network::Socket listener, VnaService::InstrumentService &service, ScpiConnections &connections,
+    const VnaWeb::WebEndpoint &web)
 {
     Network::SocketPollSet events;
     events.AddReadable(listener);
@@ -48,6 +49,7 @@ void PollTransports(Network::Socket listener, VnaService::InstrumentService &ser
             events.AddWritable(connection->GetSocket());
         }
     }
+    web.AddPollEvents(events);
     events.Wait();
     if (events.IsReadable(listener)) {
         AdmitConnection(service, listener, connections);
@@ -113,7 +115,7 @@ int RunScpiTcpServer(VnaService::InstrumentService &service, const ListenOptions
         if (shuttingDown && connections.empty() && web.Drained()) {
             return 0;
         }
-        PollTransports(listener.Get(), service, connections);
+        PollTransports(listener.Get(), service, connections, web);
     }
 }
 }  // 命名空间 VnaServer

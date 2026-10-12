@@ -20,7 +20,9 @@ public:
     void AddReadable(Socket socket) noexcept;
     // 将可供 select 检测的描述符加入可写集合；忽略其他句柄。
     void AddWritable(Socket socket) noexcept;
-    // 等待一个较短的执行周期；select 出现不可恢复错误时抛出异常。
+    // 本轮存在可立即推进的 CPU 工作时，仅检测就绪，不等待套接字事件。
+    void RequestImmediate() noexcept;
+    // 有 CPU 工作时仅检测就绪，否则等待一个短周期；select 不可恢复错误时抛出异常。
     void Wait();
     // 查询上次 Wait 的结果；句柄无效或超出集合容量时返回假。
     bool IsReadable(Socket socket) const noexcept;
@@ -33,6 +35,7 @@ private:
     fd_set writable_{};
     Socket maximum_ = 0;
     bool anySocket_ = false;
+    bool immediate_ = false;
 };
 }  // 命名空间 Network
 }  // 命名空间 VnaServer

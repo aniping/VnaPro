@@ -19,6 +19,12 @@
 #include "web/json_encoder.h"
 #include "web/static_file.h"
 
+namespace VnaServer {
+namespace Network {
+class SocketPollSet;
+}  // 命名空间 Network
+}  // 命名空间 VnaServer
+
 namespace VnaWeb {
 // 在与 InstrumentService 和 SCPI 相同的执行器上管理传输状态。
 class WebEndpoint final {
@@ -33,6 +39,8 @@ public:
     WebEndpoint &operator=(WebEndpoint &&) = delete;
     // 推进一轮有界的接收、编码和发送，不等待设备 I/O。
     void Poll();
+    // 将 HTTP I/O 与可推进的编码工作加入同一执行器的就绪检测集合。
+    void AddPollEvents(VnaServer::Network::SocketPollSet &events) const noexcept;
     // 停止接受新请求，关闭连接，并等待已接受的 API 操作完成。
     void BeginShutdown();
     // 返回所有连接和有限操作是否均已结束。
