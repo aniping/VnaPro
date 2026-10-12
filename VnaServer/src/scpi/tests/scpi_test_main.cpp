@@ -247,19 +247,27 @@ void PendingBarriersAndErrors(const std::string &driver)
     Command(engine, "SENS1:SWE:MODE HOLD");
 }
 
-void BusyAdmissionAndOldRun(const std::string &driver)
+void QueuedConfigurationAndOldRun(const std::string &driver)
 {
     NativeFixture fixture(driver);
     VnaScpi::ScpiEngine engine(fixture.service);
     Command(engine, "*CLS;SENS1:SWE:MODE SING;*OPC?");
     const auto revision = fixture.service.Settings().revision;
+    const auto old = fixture.core.ReadView().frame;
     Expect(engine.SubmitLine("SENS1:SWE:MODE SING;:SENS1:FREQ:STAR 2MHz;:CALC1:DATA? RDATA"), "busy sequence");
     engine.Poll();
-    Expect(fixture.service.ErrorCount() >= 1U, "configuration must reject pending single at admission");
-    Expect(fixture.service.Settings().revision == revision, "busy config must not enqueue for later HOLD");
+    Expect(fixture.service.Settings().revision == revision, "排队配置不得提前修改正在执行的有限扫描");
     Drain(engine);
     Expect(engine.TakeOutput().empty(), "query during new finite run must not use old frame");
-    Expect(fixture.service.Settings().revision == revision, "busy config must not commit after single");
+    Expect(fixture.service.Settings().revision == revision + 1U && fixture.service.Settings().startHz == 2000000.0 &&
+               fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD,
+        "有限扫描完成后应按 FIFO 提交物理配置并保留 HOLD 收尾");
+    const auto completed = fixture.core.ReadView().frame;
+    Expect(old && completed && old != completed && completed->plan.frequencyHz.front() == 1000000.0 &&
+               old->plan.frequencyHz.front() == 1000000.0,
+        "排队配置不能改写先前或正在执行的完整帧");
+    Expect(Command(engine, "SYST:ERR?").find("-230,") == 0U && Command(engine, "SYST:ERR?").find("0,") == 0U,
+        "提前读取 RDATA 应报旧帧错误，合法排队配置不应产生 HOLD 限制错误");
 }
 
 void DisconnectAndInstrumentErrors(const std::string &driver)
@@ -527,7 +535,7 @@ int main(int argc, char **argv)
     Run("频率查询及设置遵守仪器能力", FrequencyQueriesFollowInstrumentProfile, driver, failed);
     Run("single frame and receiver mapping", SingleFrameAndReceivers, driver, failed);
     Run("pending barriers and errors", PendingBarriersAndErrors, driver, failed);
-    Run("busy admission and old run", BusyAdmissionAndOldRun, driver, failed);
+    Run("queued configuration and old run", QueuedConfigurationAndOldRun, driver, failed);
     Run("disconnect and persistent instrument errors", DisconnectAndInstrumentErrors, driver, failed);
     Run("software bounds", SoftwareBounds, driver, failed);
     Run("blocked finite operation and OPC budget", BlockedFiniteAndWatchBudget, driver, failed);

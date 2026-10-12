@@ -8,6 +8,8 @@
 
 进程拥有 `AcquisitionCore`。初始化成功后构造 `InstrumentService(core, profile)`，在监听前调用 `BootstrapMockProfile(error)`；这是唯一允许阻塞等待的服务方法。它检查缓存身份必须以 `VnaPro,NativeSimulator,` 开头。服务必须先于核心销毁。
 
+Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器随后按 `instrument.sweep.defaultSweepMode` 应用启动缺省：默认 CONT 自动连续扫描，也可显式 HOLD；监听前排空该启动操作并释放内部控制权。当前尚未持久化跨进程状态，启动缺省不等同于厂商 Preset。浏览器连接与服务单元夹具均不触发此启动流程。
+
 运行期间，服务、引擎和状态寄存器都在同一个 executor 调用。`ScpiEngine(service)` 自动尝试取得独占控制权，`HasControl()` 表示是否成功。`SubmitLine()` 接受不含 LF 的完整程序消息；返回 true 表示整条消息已受理，不能据此认为设备操作已经完成。
 
 网络每约 5 ms 调用 `SetTransportOutputPending(...)` 和 `Poll()`，通过 `TakeOutput()` 取得完整响应消息，再处理 socket 的部分发送。多个查询响应单元用分号分隔，消息以 LF 结束；写命令没有 ACK。数组每轮最多编码 256 个值，每次最多分派 32 个单元，采集 future 从不在网络循环中阻塞等待。
@@ -21,9 +23,9 @@
 - InstrumentProfile 在启动时验证并冻结；默认 4 端口、频率 10 MHz–8 GHz，201 点，IFBW 1 kHz。全新服务只创建并选择 `Trc1/S21`；单端口配置回退为 `Trc1/S11`，均为未校准测量，初始 HOLD 且没有已完成帧。
 - 仅模拟合同规定一个 frequencyRaw 计数等于 1 Hz，IFBW raw 采用相同整数；9N 表全零且为 opaque 数据，不代表真实功率、增益或校准表。
 - 默认支持频率范围 10 MHz–8 GHz，由 instrument.frequency 配置，端点按整数 Hz 回读；端点交叉保留旧 span，联动另一端点，联动后超范围则拒绝整个候选。
-- 点数 2–10001；IFBW 有效值为 10、100、1000、10000、100000 Hz，向上取适用值。频率、点数及 IFBW 等物理扫描配置仍只允许 HOLD 且无未完成有限测量；执行时再次校验状态和逻辑 expectedRevision。
+- 点数 2–10001；IFBW 有效值为 10、100、1000、10000、100000 Hz，向上取适用值。频率、点数及 IFBW 等物理配置允许 Ready/Running，复用核心完整帧边界替换计划；不 Stop/Start，不改变 CONT/MAN、触发源或 runId。有限 SING/Trigger 前的请求先完成原测量，再按 FIFO 执行配置；执行时重新校验控制权、状态及逻辑 expectedRevision。
 - 协议测量选择走 DISPLAY FIFO，不覆盖正在提交的配置候选；有限采集期间可受理并在先前完整帧终结后执行。保留的原生同步选择入口仅在 SCPI 持权且 FIFO 为空时使用；触发范围修改仍须持权且无待处理配置。
-- `UpdateMeasurement(measurement, expectedRevision, owner)` 原位替换已存在的同名定义，保留名称、目录顺序、数量和当前选择；目录满 32 项时也能更新。它与新增、删除使用独立的 MEASUREMENTS 任务，Ready 和 Running 都可受理，不要求 HOLD；执行时重新校验控制权、逻辑版本及能力，不存在的名称不会被隐式创建。
+- `UpdateMeasurement(measurement, expectedRevision, owner)` 原位替换已存在的同名定义，保留名称、目录顺序、数量和当前选择；目录达到 128 项预算时也能更新。它与新增、删除使用独立的 MEASUREMENTS 任务，Ready 和 Running 都可受理，不要求 HOLD；执行时重新校验控制权、逻辑版本及能力，不存在的名称不会被隐式创建。
 - 接收器映射仅采用模拟器明确的 IQ 布局，每点四端口、每端口 A.real/A.imag/B.real/B.imag。非比值参数接受已配置能力内的 `a1..a4` 或 `b1..b4` 和源端口 1..portCount（最高 4）；接收器字母大小写不敏感，测量名称保留大小写。
 
 浏览器首次打开或刷新只读取已有服务目录，不调用启动初始化，也不把用户已设置的测量恢复成默认值。Meas 通过 `PUT /api/v1/measurements/{name}` 更新活动迹线，名称取自路径；新增、显示和删除归 Trace Config，Add Trace 通过后端 Clone 事务复制活动测量定义、分配未使用的 `Trc<n>` 并选中。这不增加任何 SCPI 命令。
@@ -48,7 +50,9 @@ SING 或手动 Trigger 的有限任务尚未完成时，目录写请求仍可受
 
 ## 已实现范围
 
-支持共享显示域的标准格式、尺度、M1 与有界只读观察连接；以及设计白名单中的身份、错误、ESE/ESR/SRE/STB、OPC/WAI、线性频率/点数/IFBW、触发源/范围、CONT/SING/HOLD、INIT:CONT、空闲 MAN 下 INIT、测量定义/选择/目录/删除、ASCii,0、SENS:X? 和 CALC:DATA? RDATA。支持正式短名/全名、通道 1 后缀、分号消息、相对路径、单/双引号、指数数值与 Hz/kHz/MHz/GHz。测量名称保留大小写。
+支持共享显示域的标准格式、尺度、M1～M10 与有界只读观察连接；以及设计白名单中的身份、错误、ESE/ESR/SRE/STB、OPC/WAI、线性频率/点数/IFBW、触发源/范围、CONT/SING/HOLD、INIT:CONT、空闲 MAN 下 INIT、测量定义/选择/目录/删除、ASCii,0、SENS:X? 和 CALC:DATA? RDATA。支持正式短名/全名、通道 1 后缀、分号消息、相对路径、单/双引号、指数数值与 Hz/kHz/MHz/GHz。测量名称保留大小写。
+
+`CALC:PAR:SEL` 选择测量，不隐式显示隐藏项。`DISP:WIND<w>[:STAT]`、`SIZE`、`CAT?`、`TRAC<t>:FEED/DEL/SEL/STAT` 与 Y Scale 操作映射到共享图窗域；w/t 预算均为 1～128，局部槽身份支持稀疏编号并独立于 Trc 名称，删除槽不压缩其他槽号。CAT 返回局部槽号，FEED/DEL 只写且不删除测量定义；窗口 OFF 保护最后一个图窗。只读观察连接可查询所有已登记窗口状态、目录、尺度。CALC:FORM 增加官方 SWR、UPHase、GDELay、POLar；Web 特有格式没有自创 SCPI 名称。命令表及官方依据见[服务设计](../docs/网分服务与远程控制设计.md#42-首期实现命令)。
 
 SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC 响应前通道进入 HOLD。MAN+CONT 等待 INIT；INIT:CONT OFF 选择手动源，不等同 HOLD。忙时 INIT、中止 ABOR、复位 RST、外触发、组数、校准及二进制格式尚未开放；未校准 S11/S21/S12/S22 已开放。
 
@@ -64,7 +68,9 @@ SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC �
 
 `instrument_profile` 验证 1/2/4 端口的新服务默认测量、HOLD 和无初始帧，并独立检查默认 S 参数确实经过复比值计算。`service_measurement` 覆盖原位切换、源 2 参考波、旧帧失效、能力/控制权/状态/版本拒绝、设备准备失败回退、满目录更新及排队版本竞争；历史 RAW 和黄金向量用例显式准备自己的测量目录。
 
-`live_measurement` 使用阻塞关卡核对 CONT 中同帧重算、新增源的完整帧边界、旧帧计划与 IQ 深不可变、准备失败仍运行、目录新增/删除不重复下发、CAS/控制者/2 端口能力、MAN armed 无隐式触发，以及物理扫描配置仍要求 HOLD。
+`live_measurement` 使用阻塞关卡核对 CONT 中同帧重算、新增源的完整帧边界、旧帧计划与 IQ 深不可变、准备失败仍运行、目录新增/删除不重复下发、CAS/控制者/2 端口能力及 MAN armed 无隐式触发。`live_configuration` 独立验证 CONT 中点数与多参数原子修改、完整帧屏障、准备失败保留旧运行、MAN 布防、有限采集排队及 CAS/控制权拒绝。
+
+`service_scpi_windows` 使用实际模拟驱动核对两个图窗的局部第一槽、稀疏槽、删除后稳定身份、最大化/恢复、只读目录和 Web 控制者下的 SCPI 观察；`service_scpi_display` 核对新增标准格式、Polar/Smith 复数标记读数及不支持格式的明确错误。
 
 共享仪器显示状态、完整帧投影、跨协议同步和显示写入活动图见[共享显示域设计](../docs/共享显示域设计.md)。
 

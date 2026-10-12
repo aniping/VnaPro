@@ -71,24 +71,34 @@ void ReadLog(const YAML::Node &node, VnaLog::LogConfig &config)
     }
 }
 
-void ReadInstrument(const YAML::Node &node, VnaService::InstrumentProfile &profile)
+void ReadInstrument(const YAML::Node &node, ServerConfig &config)
 {
     YamlConfig::CheckMap(node, "instrument", {"portCount", "frequency", "sweep"});
     if (!node) {
         return;
     }
+    auto &profile = config.instrument;
     YamlConfig::ReadUnsigned(node, "portCount", "instrument", profile.portCount);
     const auto frequency = node["frequency"];
     YamlConfig::CheckMap(frequency, "instrument.frequency", {"minHz", "maxHz"});
     YamlConfig::ReadFrequency(frequency, "minHz", "instrument.frequency", profile.minFrequencyHz);
     YamlConfig::ReadFrequency(frequency, "maxHz", "instrument.frequency", profile.maxFrequencyHz);
     const auto sweep = node["sweep"];
-    YamlConfig::CheckMap(
-        sweep, "instrument.sweep", {"defaultStartHz", "defaultStopHz", "defaultPoints", "defaultIfBandwidthHz"});
+    YamlConfig::CheckMap(sweep, "instrument.sweep",
+        {"defaultStartHz", "defaultStopHz", "defaultPoints", "defaultIfBandwidthHz", "defaultSweepMode"});
     YamlConfig::ReadFrequency(sweep, "defaultStartHz", "instrument.sweep", profile.defaultStartHz);
     YamlConfig::ReadFrequency(sweep, "defaultStopHz", "instrument.sweep", profile.defaultStopHz);
     YamlConfig::ReadUnsigned(sweep, "defaultPoints", "instrument.sweep", profile.defaultPoints);
     YamlConfig::ReadFrequency(sweep, "defaultIfBandwidthHz", "instrument.sweep", profile.defaultIfBandwidthHz);
+    std::string mode = "CONT";
+    YamlConfig::ReadString(sweep, "defaultSweepMode", "instrument.sweep", mode);
+    if (mode == "CONT") {
+        config.defaultSweepMode = VnaService::SweepMode::CONTINUOUS;
+    } else if (mode == "HOLD") {
+        config.defaultSweepMode = VnaService::SweepMode::HOLD;
+    } else {
+        YamlConfig::Invalid(sweep["defaultSweepMode"], "instrument.sweep.defaultSweepMode", "必须为 CONT 或 HOLD");
+    }
     try {
         VnaService::ValidateInstrumentProfile(profile);
     } catch (const std::invalid_argument &error) {
@@ -103,7 +113,7 @@ ServerConfig LoadServerConfig(const std::string &path)
     YamlConfig::CheckMap(root, "", {"log", "instrument"});
     ServerConfig config;
     ReadLog(root["log"], config.log);
-    ReadInstrument(root["instrument"], config.instrument);
+    ReadInstrument(root["instrument"], config);
     config.log.filePath = ConfigIo::ResolveFilePath(config.log.filePath, path);
     return config;
 }

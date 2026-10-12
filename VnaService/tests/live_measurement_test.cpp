@@ -357,28 +357,6 @@ void ArmedManualModeChangesMeasurementWithoutTrigger()
     RequireRatio(fixture, 0.125, -0.25);
 }
 
-void PhysicalSweepConfigurationStillRequiresHold()
-{
-    Fixture fixture;
-    ClaimAndPrepare(fixture);
-    StartContinuous(fixture);
-    const auto before = fixture.service.Snapshot();
-    Require(!Finish(fixture, fixture.service.SetPoints(5U, before.settings.revision)).ok,
-        "当前版本的物理扫描点数修改仍要求 HOLD");
-    VnaService::ConfigPatch patch;
-    patch.hasIfBandwidthHz = true;
-    patch.ifBandwidthHz = 10000.0;
-    Require(!Finish(fixture, fixture.service.ApplyConfiguration(patch, before.settings.revision, "SCPI")).ok,
-        "测量目录放开不改变物理扫频配置的现有准入规则");
-    const auto after = fixture.service.Snapshot();
-    RequireContinuousRun(before, after);
-    Require(after.settings.points == before.settings.points &&
-                after.settings.ifBandwidthHz == before.settings.ifBandwidthHz &&
-                after.settings.revision == before.settings.revision &&
-                after.settings.acquisitionRevision == before.settings.acquisitionRevision,
-        "物理配置拒绝不影响连续运行和任何已提交版本");
-}
-
 VnaService::Operation BeginBlockedSingle(Fixture &fixture)
 {
     fixture.device->Arm();
@@ -448,7 +426,6 @@ int main()
     Run("连续更新重新校验版本与控制权", ContinuousUpdatesRecheckQueuedRevisionAndOwner, failed);
     Run("双端口拒绝超出能力的实时更新", TwoPortCapabilitiesRejectUnsupportedLiveReceiver, failed);
     Run("手动布防更新不隐式触发", ArmedManualModeChangesMeasurementWithoutTrigger, failed);
-    Run("物理扫频配置继续要求 HOLD", PhysicalSweepConfigurationStillRequiresHold, failed);
     Run("有限单次帧完成后才执行排队测量更新", MeasurementUpdateWaitsForFiniteSingleCompletion, failed);
     return failed == 0U ? 0 : 1;
 }

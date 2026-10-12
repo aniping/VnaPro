@@ -9,6 +9,8 @@ instrument:
     defaultStopHz: 100000000
     defaultPoints: 201
     defaultIfBandwidthHz: 1000
+    # 黄金数据与帧序号回放由测试显式触发，不在启动时消耗模拟样本。
+    defaultSweepMode: HOLD
 log:
   console:
     enabled: true

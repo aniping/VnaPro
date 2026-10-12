@@ -1,11 +1,13 @@
 /*
  * Copyright (c) 2026 Huawei Device Co., Ltd.
  */
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <iostream>
 #include <string>
+#include <thread>
 
 #include "driver_options.h"
 #include "scpi_tcp_server.h"
@@ -136,8 +138,31 @@ bool LoadConfiguration(const std::string &path, VnaServer::ServerConfig &config)
     }
 }
 
+bool ApplyStartupSweepMode(VnaService::InstrumentService &service, VnaService::SweepMode mode)
+{
+    if (mode == VnaService::SweepMode::HOLD) {
+        return true;
+    }
+    const std::string owner = "STARTUP";
+    if (mode != VnaService::SweepMode::CONTINUOUS || !service.TryAcquireControl(owner)) {
+        return false;
+    }
+    const auto operation = service.RunContinuous(owner);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        service.Poll();
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const auto result = operation.get();
+    service.ReleaseControl(owner);
+    return result.ok;
+}
+
 int StartService(const VnaServer::DriverOptions &driver, const VnaServer::ListenOptions &options,
-    const VnaService::InstrumentProfile &profile)
+    const VnaServer::ServerConfig &config)
 {
     VnaLog::Info(VnaLog::Module::SERVER, "服务启动，board={}，driver={}",
         driver.api == VnaCore::DriverApi::TDC1VN10 ? "TDC1VN10" : "TDC1VN08", driver.path);
@@ -152,10 +177,16 @@ int StartService(const VnaServer::DriverOptions &driver, const VnaServer::Listen
         core.Close();
         return 1;
     }
-    VnaService::InstrumentService service(core, profile);
+    VnaService::InstrumentService service(core, config.instrument);
     std::string bootstrapError;
     if (!service.BootstrapMockProfile(bootstrapError)) {
         VnaLog::Error(VnaLog::Module::SERVER, "Mock configuration failed: {}", bootstrapError);
+        core.Close();
+        return 1;
+    }
+    // 当前尚未持久化仪器状态；缺省扫描只在监听前执行一次，不由浏览器读取触发。
+    if (!ApplyStartupSweepMode(service, config.defaultSweepMode)) {
+        VnaLog::Error(VnaLog::Module::SERVER, "启动缺省扫描模式失败");
         core.Close();
         return 1;
     }
@@ -198,7 +229,7 @@ int main(int argc, char **argv)
     std::signal(SIGTERM, HandleSignal);
     int result = 1;
     try {
-        result = StartService(driver, options, config.instrument);
+        result = StartService(driver, options, config);
     } catch (const std::exception &error) {
         VnaLog::Error(VnaLog::Module::SERVER, "Service failed: {}", error.what());
     }

@@ -9,6 +9,8 @@ instrument:
     defaultStopHz: 8000000000
     defaultPoints: 201
     defaultIfBandwidthHz: 1000
+    # 无已恢复状态时的服务器启动缺省；CONT 自动连续扫描，HOLD 等待用户触发。
+    defaultSweepMode: CONT
 
 # 日志级别：TRACE、DEBUG、INFO、WARN、ERROR、CRITICAL、OFF。
 log:

@@ -322,10 +322,9 @@ Operation InstrumentService::Enqueue(Detail::ServiceTask task, const std::string
 Operation InstrumentService::Configure(
     std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected, const std::string &requester)
 {
-    if (settings_.sweepMode != SweepMode::HOLD || HasMeasurement() ||
-        core_.ReadView().state != VnaCore::CoreState::READY) {
-        return Rejected(
-            Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement", requester);
+    const auto state = core_.ReadView().state;
+    if (state != VnaCore::CoreState::READY && state != VnaCore::CoreState::RUNNING) {
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires Ready or Running", requester);
     }
     Detail::ServiceTask task;
     task.mutate = std::move(mutate);
@@ -448,12 +447,6 @@ bool InstrumentService::PrepareConfiguration(Detail::ServiceTask &task)
         Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Acquisition plan changed outside instrument service"));
         return false;
     }
-    if (task.kind == Detail::ServiceTaskKind::CONFIGURE &&
-        (settings_.sweepMode != SweepMode::HOLD || view.state != VnaCore::CoreState::READY)) {
-        Finish(
-            Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires HOLD and no pending measurement"));
-        return false;
-    }
     if (task.checkRevision && task.expectedRevision != settings_.revision) {
         Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration revision changed"));
         return false;
@@ -495,6 +488,7 @@ void InstrumentService::PollConfiguration(Detail::ServiceTask &task)
             CommitConfiguration(task);
             return;
         }
+        // 核心工作线程在完整帧边界替换计划；运行身份、扫描模式和触发源保持不变。
         task.ticket = core_.Configure(task.plan);
         task.stage = Detail::ServiceTaskStage::WAITING_CONFIGURATION;
         return;

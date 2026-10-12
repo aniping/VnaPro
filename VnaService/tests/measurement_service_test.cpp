@@ -282,8 +282,7 @@ void RejectedMeasurementUpdatesAreAtomic()
     Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 1U), revision, "OTHER")).ok,
         "其他所有者不能修改测量定义");
     Require(Finish(fixture, service.RunContinuous("SCPI")).ok, "启动连续采集以验证模式约束");
-    Require(
-        !Finish(fixture, service.SetPoints(TEST_POINT_COUNT + 1U, revision)).ok, "非 HOLD 模式不能修改物理扫描点数");
+    Require(!Finish(fixture, service.SetPoints(1U, revision)).ok, "连续模式仍拒绝能力范围外的扫描点数");
     Require(Finish(fixture, service.SetSweepMode(VnaService::SweepMode::HOLD)).ok, "完成连续采集停止屏障");
     Require(service.Settings().revision == revision && service.Settings().measurements.size() == 1U &&
                 service.Settings().measurements.front().Parameter() == "S21" &&
