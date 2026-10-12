@@ -49,9 +49,15 @@ export type MeasurementCandidate =
   | ReceiverCandidate
   | { name: string; parameter: string }
 
+export interface TraceDestination {
+  newDiagram?: boolean
+  diagram?: number
+}
+
 export interface DisplaySnapshot {
   revision: string
   selectedMeasurement: string
+  selectedDiagram?: number
   displayedNames: string[]
   layout: LayoutMode
   presentations: Record<string, TracePresentation>
@@ -65,9 +71,11 @@ export interface DiagramDefinition {
 }
 
 export type DisplayCommand =
-  | { action: 'select'; traceName: string }
+  | { action: 'select'; traceName: string; diagram?: number }
+  | { action: 'diagramSelect'; diagram: number }
+  | { action: 'overlay' | 'split'; diagram?: number }
   | { action: 'displayed' | 'visible'; traceName: string; enabled: boolean }
-  | { action: 'layout'; layout: LayoutMode }
+  | { action: 'layout'; layout: LayoutMode; diagram?: number }
   | { action: 'format'; traceName: string; format: DisplayFormat }
   | {
       action: 'scale'
@@ -93,6 +101,7 @@ export type DisplayCommand =
 
 export type ProjectionState = 'finite' | 'negativeInfinity' | 'undefined'
 export type ImpedanceState = 'finite' | 'open' | 'overflow' | 'invalid'
+export type AdmittanceState = 'finite' | 'short' | 'overflow' | 'invalid'
 
 export interface MarkerProjection {
   available: boolean
@@ -109,6 +118,9 @@ export interface MarkerProjection {
   impedanceReal: number | null
   impedanceImag: number | null
   impedanceState: ImpedanceState
+  admittanceReal?: number | null
+  admittanceImag?: number | null
+  admittanceState?: AdmittanceState
   interpolated: boolean
 }
 
@@ -118,10 +130,18 @@ export interface TraceProjection {
   secondaryValues: (number | null)[]
   valueStates: ProjectionState[]
   secondaryStates: ProjectionState[]
+  /** Polar 曲线保留 Re/Im，标记读数另由后端提供幅值/相位。 */
+  markerValues?: (number | null)[]
+  markerSecondaryValues?: (number | null)[]
+  markerValueStates?: ProjectionState[]
+  markerSecondaryStates?: ProjectionState[]
   /** Smith 每个显示点的 C++ 阻抗投影；旧服务或其他格式为空。 */
   impedanceRealValues: (number | null)[]
   impedanceImagValues: (number | null)[]
   impedanceStates: ImpedanceState[]
+  admittanceRealValues?: (number | null)[]
+  admittanceImagValues?: (number | null)[]
+  admittanceStates?: AdmittanceState[]
   marker: MarkerProjection
   /** 完整缺省表示旧服务；新版响应始终包含全部十个标记投影。 */
   markers?: (MarkerProjection & { id: number })[]

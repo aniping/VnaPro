@@ -71,14 +71,34 @@ export function useWorkspace(
     ),
   )
 
-  function selectTrace(traceName: string) {
-    return send({ action: 'select', traceName })
+  function selectTrace(traceName: string, diagram?: number) {
+    return send({
+      action: 'select',
+      traceName,
+      ...(diagram === undefined ? {} : { diagram }),
+    })
+  }
+  function selectDiagram(diagram: number) {
+    return send({ action: 'diagramSelect', diagram })
+  }
+  function overlayAll(diagram?: number) {
+    return send({
+      action: 'overlay',
+      ...(diagram === undefined ? {} : { diagram }),
+    })
+  }
+  function splitAll() {
+    return send({ action: 'split' })
   }
   function setDisplayed(traceName: string, enabled: boolean) {
     return send({ action: 'displayed', traceName, enabled })
   }
-  function setLayout(value: LayoutMode) {
-    return send({ action: 'layout', layout: value })
+  function setLayout(value: LayoutMode, diagram?: number) {
+    return send({
+      action: 'layout',
+      layout: value,
+      ...(diagram === undefined ? {} : { diagram }),
+    })
   }
   function setFormat(format: DisplayFormat) {
     return send({ action: 'format', traceName: activeTraceName.value, format })
@@ -138,6 +158,9 @@ export function useWorkspace(
     displayedMeasurements,
     canAutoscale,
     selectTrace,
+    selectDiagram,
+    overlayAll,
+    splitAll,
     setDisplayed,
     setLayout,
     setFormat,

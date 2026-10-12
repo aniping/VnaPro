@@ -150,6 +150,12 @@ class FakeGateway implements InstrumentGateway {
   ) {
     return this.submitter()
   }
+  addDefaultMeasurement(_revision: string, _displayRevision: string) {
+    return this.submitter()
+  }
+  deleteDiagram(_diagram: number, _revision: string, _displayRevision: string) {
+    return this.submitter()
+  }
   abortRequests() {
     this.aborts++
   }
@@ -169,13 +175,13 @@ async function microtasks() {
   await Promise.resolve()
 }
 
-test('continuous sweep accepts measurement edits while physical sweep settings remain locked', async (context) => {
+test('continuous sweep accepts measurement and sweep settings through the same backend write gate', async (context) => {
   const api = new FakeGateway()
   api.current.state = 'Running'
   api.current.config.sweepMode = 'CONT'
   const model = await ready(api)
   context.after(() => model.stop())
-  assert.equal(model.canConfigure.value, false)
+  assert.equal(model.canConfigure.value, true)
   assert.equal(model.canChangeMeasurements.value, true)
   const changing = model.updateMeasurement(
     {

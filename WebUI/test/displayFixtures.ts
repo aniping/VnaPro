@@ -12,6 +12,7 @@ import type {
   TracePresentation,
 } from '../src/domain/presentation'
 import { MARKER_IDS, type MarkerDefinition } from '../src/domain/markers'
+import { isCircularFormat } from '../src/domain/presentation'
 
 export const reflection: Measurement = {
   name: 'Reflect',
@@ -34,17 +35,29 @@ export const transmission: Measurement = {
 export function presentation(format: DisplayFormat = 'db'): TracePresentation {
   return {
     format,
-    cartesianFormat: format === 'smith' ? 'db' : format,
+    cartesianFormat: isCircularFormat(format)
+      ? 'db'
+      : (format as TracePresentation['cartesianFormat']),
     allowedFormats: [
       'db',
       'magnitude',
       'phase',
       'real',
       'imag',
-      'realimag',
       'smith',
+      'swr',
+      'unwrappedPhase',
+      'logMagnitude',
+      'delay',
+      'delayDerivation',
+      'polar',
+      'invSmith',
     ],
-    scale: { min: -90, max: 10, referencePosition: 9 },
+    scale: {
+      min: format === 'logMagnitude' ? 0.001 : -90,
+      max: 10,
+      referencePosition: 9,
+    },
     smithRadius: 1,
     visible: true,
     marker: {
@@ -62,6 +75,7 @@ export function displaySnapshot(
   return {
     revision,
     selectedMeasurement: catalog[0]?.name ?? '',
+    selectedDiagram: 1,
     displayedNames: catalog.slice(0, 4).map((trace) => trace.name),
     layout: 'single',
     diagrams: [
@@ -94,6 +108,9 @@ export function markerProjection(
     impedanceReal: null,
     impedanceImag: null,
     impedanceState: 'invalid',
+    admittanceReal: null,
+    admittanceImag: null,
+    admittanceState: 'invalid',
     interpolated: false,
     ...overrides,
   }
@@ -113,9 +130,17 @@ export function projection(
     secondaryStates: secondaryValues.map((value) =>
       value === null ? 'undefined' : 'finite',
     ),
+    markerValues: format === 'polar' ? values.map(() => null) : [],
+    markerSecondaryValues: format === 'polar' ? values.map(() => null) : [],
+    markerValueStates: format === 'polar' ? values.map(() => 'undefined') : [],
+    markerSecondaryStates:
+      format === 'polar' ? values.map(() => 'undefined') : [],
     impedanceRealValues: format === 'smith' ? values.map(() => null) : [],
     impedanceImagValues: format === 'smith' ? values.map(() => null) : [],
     impedanceStates: format === 'smith' ? values.map(() => 'invalid') : [],
+    admittanceRealValues: format === 'invSmith' ? values.map(() => null) : [],
+    admittanceImagValues: format === 'invSmith' ? values.map(() => null) : [],
+    admittanceStates: format === 'invSmith' ? values.map(() => 'invalid') : [],
     marker: markerProjection(),
   }
 }

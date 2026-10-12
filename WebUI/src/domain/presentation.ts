@@ -2,6 +2,7 @@ import type { MarkerDefinition, MarkerState } from './markers'
 
 /** 本项目的共享迹线资源上限，与物理端口数、图窗数相互独立。 */
 export const MAX_TRACES = 128
+export const MAX_DIAGRAMS = 128
 
 export type CartesianFormat =
   | 'db'
@@ -10,7 +11,16 @@ export type CartesianFormat =
   | 'real'
   | 'imag'
   | 'realimag'
-export type DisplayFormat = CartesianFormat | 'smith'
+  | 'swr'
+  | 'unwrappedPhase'
+  | 'logMagnitude'
+  | 'delay'
+  | 'delayDerivation'
+export type DisplayFormat = CartesianFormat | 'smith' | 'polar' | 'invSmith'
+
+export function isCircularFormat(format: DisplayFormat): boolean {
+  return format === 'smith' || format === 'polar' || format === 'invSmith'
+}
 export type LayoutMode = 'single' | 'grid' | 'maximized'
 
 export interface DisplayScale {

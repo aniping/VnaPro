@@ -15,6 +15,7 @@ import type {
   RunAction,
   SweepPatch,
   DisplayCommand,
+  TraceDestination,
 } from './types'
 
 export class ApiError extends Error {
@@ -108,6 +109,17 @@ export interface InstrumentGateway {
   ): Promise<AcceptedOperation>
   cloneMeasurement(
     sourceName: string,
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+    destination?: TraceDestination,
+  ): Promise<AcceptedOperation>
+  addDefaultMeasurement(
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+    destination?: TraceDestination,
+  ): Promise<AcceptedOperation>
+  deleteDiagram(
+    diagram: number,
     expectedRevision: string,
     expectedDisplayRevision: string,
   ): Promise<AcceptedOperation>
@@ -410,6 +422,7 @@ export class InstrumentApi implements InstrumentGateway {
     sourceName: string,
     expectedRevision: string,
     expectedDisplayRevision: string,
+    destination: TraceDestination = {},
   ): Promise<AcceptedOperation> {
     return this.request(
       '/measurement-actions/clone',
@@ -417,6 +430,48 @@ export class InstrumentApi implements InstrumentGateway {
       'POST',
       {
         sourceName,
+        ...destination,
+        expectedRevision,
+        expectedDisplayRevision,
+        requestId: requestId(),
+      },
+      this.token,
+      202,
+    )
+  }
+
+  addDefaultMeasurement(
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+    destination: TraceDestination = {},
+  ): Promise<AcceptedOperation> {
+    return this.request(
+      '/measurement-actions/add',
+      decodeAccepted,
+      'POST',
+      {
+        newDiagram: false,
+        ...destination,
+        expectedRevision,
+        expectedDisplayRevision,
+        requestId: requestId(),
+      },
+      this.token,
+      202,
+    )
+  }
+
+  deleteDiagram(
+    diagram: number,
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+  ): Promise<AcceptedOperation> {
+    return this.request(
+      '/measurement-actions/delete-diagram',
+      decodeAccepted,
+      'POST',
+      {
+        diagram,
         expectedRevision,
         expectedDisplayRevision,
         requestId: requestId(),

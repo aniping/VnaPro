@@ -12,6 +12,7 @@ import type {
   RunAction,
   SweepPatch,
   DisplayCommand,
+  TraceDestination,
 } from '../api/types'
 
 interface InstrumentOptions {
@@ -89,8 +90,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const canConfigure = computed(
     () =>
       canWrite.value &&
-      status.value?.state === 'Ready' &&
-      status.value.config.sweepMode === 'HOLD',
+      ['Ready', 'Running'].includes(status.value?.state ?? ''),
   )
   const canChangeMeasurements = computed(
     () =>
@@ -440,10 +440,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
           ? canChangeMeasurements.value
           : canWrite.value
     if (!allowed) {
-      const reason =
-        kind === 'config'
-          ? '请取得控制权，并等待当前操作完成；修改扫频配置前须先 Hold。'
-          : '请取得控制权，并等待当前操作完成。'
+      const reason = '请取得控制权，并等待当前操作完成。'
       notify(status.value?.control.readOnlyReason || reason, 'warning')
       return null
     }
@@ -568,12 +565,37 @@ export function useInstrument(options: InstrumentOptions = {}) {
           )
         : Promise.resolve(null)
     },
-    cloneMeasurement: (sourceName: string) => {
+    cloneMeasurement: (sourceName: string, destination?: TraceDestination) => {
       const snapshot = status.value
       return snapshot
         ? submit('Add trace', 'measurement', () =>
             api.cloneMeasurement(
               sourceName,
+              snapshot.revision,
+              snapshot.display.revision,
+              destination,
+            ),
+          )
+        : Promise.resolve(null)
+    },
+    addDefaultMeasurement: (destination?: TraceDestination) => {
+      const snapshot = status.value
+      return snapshot
+        ? submit('Add trace', 'measurement', () =>
+            api.addDefaultMeasurement(
+              snapshot.revision,
+              snapshot.display.revision,
+              destination,
+            ),
+          )
+        : Promise.resolve(null)
+    },
+    deleteDiagram: (diagram: number) => {
+      const snapshot = status.value
+      return snapshot
+        ? submit('Delete diagram', 'measurement', () =>
+            api.deleteDiagram(
+              diagram,
               snapshot.revision,
               snapshot.display.revision,
             ),

@@ -1,5 +1,5 @@
 import type { DisplayFormat, TracePresentation } from '../domain/presentation'
-import { MAX_TRACES } from '../domain/presentation'
+import { MAX_DIAGRAMS, MAX_TRACES } from '../domain/presentation'
 import {
   decodeMarkerCollection,
   decodeMarkerProjections,
@@ -13,6 +13,7 @@ import type {
   ImpedanceState,
   ProjectionState,
   TraceProjection,
+  AdmittanceState,
 } from './types'
 import {
   array,
@@ -34,6 +35,13 @@ const FORMATS: readonly DisplayFormat[] = [
   'imag',
   'realimag',
   'smith',
+  'swr',
+  'unwrappedPhase',
+  'logMagnitude',
+  'delay',
+  'delayDerivation',
+  'polar',
+  'invSmith',
 ]
 const STATES: readonly ProjectionState[] = [
   'finite',
@@ -59,10 +67,10 @@ function presentation(value: unknown): TracePresentation {
   const allowedFormats = array(
     item.allowedFormats,
     'display.allowedFormats',
-    7,
+    14,
   ).map((value) => choice(value, 'display.allowedFormat', FORMATS))
   if (
-    !allowedFormats.includes(format) ||
+    (format !== 'realimag' && !allowedFormats.includes(format)) ||
     new Set(allowedFormats).size !== allowedFormats.length
   )
     invalid('display.allowedFormats')
@@ -70,6 +78,7 @@ function presentation(value: unknown): TracePresentation {
   const max = number(scale.max, 'display.scale.max')
   if (!(max > min) || !Number.isFinite(max - min))
     invalid('display.scale.bounds')
+  if (format === 'logMagnitude' && min <= 0) invalid('display.scale.logBounds')
   return {
     format,
     allowedFormats,
@@ -80,6 +89,11 @@ function presentation(value: unknown): TracePresentation {
       'real',
       'imag',
       'realimag',
+      'swr',
+      'unwrappedPhase',
+      'logMagnitude',
+      'delay',
+      'delayDerivation',
     ]),
     scale: {
       min,
@@ -102,7 +116,7 @@ function diagrams(
   value: unknown,
   displayedNames: readonly string[],
 ): DiagramDefinition[] {
-  const result = array(value, 'display.diagrams', 4).map((value) => {
+  const result = array(value, 'display.diagrams', MAX_DIAGRAMS).map((value) => {
     const item = object(value, 'display.diagram')
     const measurementNames = array(
       item.measurementNames,
@@ -125,7 +139,7 @@ function diagrams(
     )
       invalid('display.diagram.primaryMeasurement')
     return {
-      number: integer(item.number, 'display.diagram.number', 1, 4),
+      number: integer(item.number, 'display.diagram.number', 1, MAX_DIAGRAMS),
       measurementNames,
       primaryMeasurement,
     }
@@ -169,9 +183,33 @@ export function decodeDisplay(
   const presentations = Object.fromEntries(
     Object.entries(values).map(([name, value]) => [name, presentation(value)]),
   )
+  const diagramDefinitions = diagrams(item.diagrams, displayedNames)
+  const assignedNames = diagramDefinitions.flatMap(
+    (diagram) => diagram.measurementNames,
+  )
+  if (
+    new Set(assignedNames).size !== assignedNames.length ||
+    (item.selectedDiagram !== undefined &&
+      assignedNames.length !== displayedNames.length)
+  )
+    invalid('display.diagramAssignments')
+  const selectedDiagram =
+    item.selectedDiagram === undefined
+      ? (diagramDefinitions.find((diagram) =>
+          diagram.measurementNames.includes(selectedMeasurement),
+        )?.number ?? diagramDefinitions[0]!.number)
+      : integer(
+          item.selectedDiagram,
+          'display.selectedDiagram',
+          1,
+          MAX_DIAGRAMS,
+        )
+  if (!diagramDefinitions.some((diagram) => diagram.number === selectedDiagram))
+    invalid('display.selectedDiagram')
   return {
     revision: identity(item.revision, 'display.revision'),
     selectedMeasurement,
+    selectedDiagram,
     displayedNames,
     layout: choice(item.layout, 'display.layout', [
       'single',
@@ -179,7 +217,7 @@ export function decodeDisplay(
       'maximized',
     ]),
     presentations,
-    diagrams: diagrams(item.diagrams, displayedNames),
+    diagrams: diagramDefinitions,
   }
 }
 
@@ -224,6 +262,7 @@ function markerProjection(value: unknown): MarkerProjection {
       ['finite', 'open', 'overflow', 'invalid'],
     ),
     interpolated: flag(item.interpolated, 'projection.marker.interpolated'),
+    ...markerAdmittance(item),
   }
   if (
     (result.available && result.frequencyHz === null) ||
@@ -259,6 +298,8 @@ export function decodeProjection(
       2001,
     ).map((value) => choice(value, 'projection.secondaryState', STATES)),
     ...pointImpedance(item, format, count),
+    ...pointAdmittance(item, format, count),
+    ...pointMarkerValues(item, format, count),
     marker,
     ...decodeMarkerProjections(item, marker, markerProjection),
   }
@@ -337,4 +378,172 @@ function pointImpedance(
     }
   }
   return { impedanceRealValues, impedanceImagValues, impedanceStates }
+}
+
+function markerAdmittance(
+  item: Record<string, unknown>,
+): Pick<
+  MarkerProjection,
+  'admittanceReal' | 'admittanceImag' | 'admittanceState'
+> {
+  if (
+    [item.admittanceReal, item.admittanceImag, item.admittanceState].every(
+      (value) => value === undefined,
+    )
+  ) {
+    return {
+      admittanceReal: null,
+      admittanceImag: null,
+      admittanceState: 'invalid',
+    }
+  }
+  const real = nullableNumber(item.admittanceReal, 'marker.admittanceReal')
+  const imag = nullableNumber(item.admittanceImag, 'marker.admittanceImag')
+  const state = choice(item.admittanceState, 'marker.admittanceState', [
+    'finite',
+    'short',
+    'overflow',
+    'invalid',
+  ])
+  if (
+    (real !== null) !== (state === 'finite') ||
+    (imag !== null) !== (state === 'finite')
+  )
+    invalid('marker.admittanceState')
+  return { admittanceReal: real, admittanceImag: imag, admittanceState: state }
+}
+
+function pointAdmittance(
+  item: Record<string, unknown>,
+  format: DisplayFormat,
+  count: number,
+): Pick<
+  TraceProjection,
+  'admittanceRealValues' | 'admittanceImagValues' | 'admittanceStates'
+> {
+  if (
+    [
+      item.admittanceRealValues,
+      item.admittanceImagValues,
+      item.admittanceStates,
+    ].every((value) => value === undefined)
+  ) {
+    return {
+      admittanceRealValues: [],
+      admittanceImagValues: [],
+      admittanceStates: [],
+    }
+  }
+  const admittanceRealValues = array(
+    item.admittanceRealValues,
+    'projection.admittanceRealValues',
+    2001,
+  ).map((value) => nullableNumber(value, 'projection.admittanceReal'))
+  const admittanceImagValues = array(
+    item.admittanceImagValues,
+    'projection.admittanceImagValues',
+    2001,
+  ).map((value) => nullableNumber(value, 'projection.admittanceImag'))
+  const admittanceStates = array(
+    item.admittanceStates,
+    'projection.admittanceStates',
+    2001,
+  ).map((value) =>
+    choice<AdmittanceState>(value, 'projection.admittanceState', [
+      'finite',
+      'short',
+      'overflow',
+      'invalid',
+    ]),
+  )
+  const expected = format === 'invSmith' ? count : 0
+  if (
+    [admittanceRealValues, admittanceImagValues, admittanceStates].some(
+      (values) => values.length !== expected,
+    )
+  )
+    invalid('projection.admittancePointCount')
+  for (let index = 0; index < expected; index++) {
+    const finite = admittanceStates[index] === 'finite'
+    if (
+      (admittanceRealValues[index] !== null) !== finite ||
+      (admittanceImagValues[index] !== null) !== finite
+    )
+      invalid('projection.admittanceState')
+  }
+  return { admittanceRealValues, admittanceImagValues, admittanceStates }
+}
+
+/** 四个 Polar 标记投影字段必须整体出现；旧服务缺省时不在浏览器补算幅相。 */
+function pointMarkerValues(
+  item: Record<string, unknown>,
+  format: DisplayFormat,
+  count: number,
+): Pick<
+  TraceProjection,
+  | 'markerValues'
+  | 'markerSecondaryValues'
+  | 'markerValueStates'
+  | 'markerSecondaryStates'
+> {
+  if (
+    [
+      item.markerValues,
+      item.markerSecondaryValues,
+      item.markerValueStates,
+      item.markerSecondaryStates,
+    ].every((value) => value === undefined)
+  ) {
+    return {
+      markerValues: [],
+      markerSecondaryValues: [],
+      markerValueStates: [],
+      markerSecondaryStates: [],
+    }
+  }
+  const markerValues = array(
+    item.markerValues,
+    'projection.markerValues',
+    2001,
+  ).map((value) => nullableNumber(value, 'projection.markerValue'))
+  const markerSecondaryValues = array(
+    item.markerSecondaryValues,
+    'projection.markerSecondaryValues',
+    2001,
+  ).map((value) => nullableNumber(value, 'projection.markerSecondaryValue'))
+  const markerValueStates = array(
+    item.markerValueStates,
+    'projection.markerValueStates',
+    2001,
+  ).map((value) => choice(value, 'projection.markerValueState', STATES))
+  const markerSecondaryStates = array(
+    item.markerSecondaryStates,
+    'projection.markerSecondaryStates',
+    2001,
+  ).map((value) => choice(value, 'projection.markerSecondaryState', STATES))
+  const expected = format === 'polar' ? count : 0
+  if (
+    [
+      markerValues,
+      markerSecondaryValues,
+      markerValueStates,
+      markerSecondaryStates,
+    ].some((values) => values.length !== expected)
+  )
+    invalid('projection.markerPointCount')
+  for (let index = 0; index < expected; index++) {
+    if (
+      (markerValues[index] !== null) !==
+        (markerValueStates[index] === 'finite') ||
+      (markerSecondaryValues[index] !== null) !==
+        (markerSecondaryStates[index] === 'finite')
+    )
+      invalid('projection.markerValueState')
+  }
+  return {
+    markerValues,
+    markerSecondaryValues,
+    markerValueStates,
+    markerSecondaryStates,
+  }
 }
