@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { AcquiredFrame, Measurement } from '../../api/types'
 import {
   diagramTraceColor,
+  isCircularFormat,
   type DisplayFormat,
   type ScaleValues,
   type LayoutMode,
@@ -10,6 +11,7 @@ import {
 } from '../../domain/presentation'
 import { displayUnit, getTraceScale, numberText } from '../../plot'
 import { measurementState } from '../../domain/measurements'
+import { referenceLevel, scaleCoordinate } from '../../plot/traceMath'
 import { MIN_SMITH_RADIUS, validSmithRadius } from '../../plot/smithMath'
 
 const props = defineProps<{
@@ -31,36 +33,21 @@ const emit = defineEmits<{
   toggleVisibility: []
 }>()
 
-const formats = computed<
-  { id: DisplayFormat; label: string; description: string }[]
->(() => [
-  {
-    id: 'db',
-    label: 'dB Mag',
-    description: `20 log₁₀ |z| · ${displayUnit('db', props.measurement)}`,
-  },
-  {
-    id: 'magnitude',
-    label: 'Lin Mag',
-    description: `|z| · ${props.measurement?.unit ?? 'a.u.'}`,
-  },
-  { id: 'phase', label: 'Phase', description: 'arg(z) · deg' },
-  {
-    id: 'real',
-    label: 'Real',
-    description: `Re(z) · ${props.measurement?.unit ?? 'a.u.'}`,
-  },
-  {
-    id: 'imag',
-    label: 'Imag',
-    description: `Im(z) · ${props.measurement?.unit ?? 'a.u.'}`,
-  },
-  {
-    id: 'realimag',
-    label: 'Real / Imag',
-    description: `Re(z) + Im(z) · ${props.measurement?.unit ?? 'a.u.'}`,
-  },
-])
+const formats: { id: DisplayFormat; label: string }[] = [
+  { id: 'db', label: 'dB Mag' },
+  { id: 'phase', label: 'Phase' },
+  { id: 'smith', label: 'Smith' },
+  { id: 'polar', label: 'Polar' },
+  { id: 'swr', label: 'SWR' },
+  { id: 'unwrappedPhase', label: 'Unwr Phase' },
+  { id: 'magnitude', label: 'Lin Mag' },
+  { id: 'logMagnitude', label: 'Log Mag' },
+  { id: 'real', label: 'Real' },
+  { id: 'imag', label: 'Imag' },
+  { id: 'invSmith', label: 'Inv Smith' },
+  { id: 'delay', label: 'Delay' },
+  { id: 'delayDerivation', label: 'Delay Derivation' },
+]
 
 const trace = computed(
   () => props.measurement && props.presentation && props.canEditDisplay,
@@ -95,10 +82,19 @@ watch(
   ],
   () => {
     const { min, max } = range.value
-    perDivision.value = Number(((max - min) / 10).toPrecision(8))
+    perDivision.value = Number(
+      (
+        (scaleCoordinate(max, props.presentation?.format ?? 'db') -
+          scaleCoordinate(min, props.presentation?.format ?? 'db')) /
+        10
+      ).toPrecision(8),
+    )
     position.value = props.presentation?.scale?.referencePosition ?? 8
     reference.value = Number(
-      (min + position.value * perDivision.value).toPrecision(10),
+      referenceLevel(
+        { ...range.value, referencePosition: position.value },
+        props.presentation?.format ?? 'db',
+      ).toPrecision(10),
     )
     scaleError.value = ''
   },
@@ -107,9 +103,9 @@ watch(
 
 function applyScale() {
   if (!trace.value) return
-  if (props.presentation?.format === 'smith') {
+  if (props.presentation && isCircularFormat(props.presentation.format)) {
     if (!validSmithRadius(smithRadius.value)) {
-      scaleError.value = `请输入有效的外圈幅度：|Γ| ≥ ${MIN_SMITH_RADIUS}。`
+      scaleError.value = `请输入有效的外圈幅度：|z| ≥ ${MIN_SMITH_RADIUS}。`
       return
     }
     scaleError.value = ''
@@ -123,6 +119,7 @@ function applyScale() {
     !Number.isFinite(perDiv) ||
     perDiv <= 0 ||
     !Number.isFinite(ref) ||
+    (props.presentation?.format === 'logMagnitude' && ref <= 0) ||
     !Number.isFinite(pos) ||
     pos < 0 ||
     pos > 10
@@ -165,35 +162,11 @@ function applyScale() {
             !trace || !presentation?.allowedFormats.includes(format.id)
           "
           :aria-pressed="presentation?.format === format.id"
-          :title="format.description"
+          :title="format.label"
           :data-format="format.id"
           @click="emit('format', format.id)"
         >
           {{ format.label }}
-        </button>
-      </div>
-      <div class="softtool-divider" aria-hidden="true" />
-      <h3 class="softtool-section-title">Complex Formats</h3>
-      <div class="softtool-grid">
-        <button
-          class="softtool-choice"
-          type="button"
-          :disabled="!trace || !presentation?.allowedFormats.includes('smith')"
-          :class="{ 'is-active': presentation?.format === 'smith' }"
-          :aria-pressed="presentation?.format === 'smith'"
-          title="仅反射 S11/S22：Γ 与归一化阻抗；未校准"
-          data-format="smith"
-          @click="emit('format', 'smith')"
-        >
-          Smith
-        </button>
-        <button
-          class="softtool-choice"
-          type="button"
-          disabled
-          title="尚未实现极坐标绘图"
-        >
-          Polar
         </button>
       </div>
       <p class="softtool-note">
@@ -208,9 +181,9 @@ function applyScale() {
     <template v-else-if="mode === 'scale'">
       <h3 class="softtool-section-title">Scale Values</h3>
       <form @submit.prevent="applyScale">
-        <template v-if="presentation?.format === 'smith'">
+        <template v-if="presentation && isCircularFormat(presentation.format)">
           <label class="softtool-label" for="trace-smith-radius"
-            >Outer Magnitude |Γ|</label
+            >Outer Magnitude |z|</label
           >
           <input
             id="trace-smith-radius"
@@ -224,7 +197,7 @@ function applyScale() {
             data-testid="smith-radius"
           />
           <p class="softtool-note">
-            圆心保持 Γ = 0；外圈幅度只改变显示，单位圆与阻抗网格按相同投影绘制。
+            圆心保持 z = 0；外圈幅度只改变显示，单位圆与阻抗网格按相同投影绘制。
           </p>
         </template>
         <template v-else>
@@ -242,7 +215,9 @@ function applyScale() {
               required
               data-testid="scale-per-division"
             />
-            <span>{{ unit }}</span>
+            <span>{{
+              presentation?.format === 'logMagnitude' ? 'dec' : unit
+            }}</span>
           </div>
           <label class="softtool-label" for="trace-scale-reference"
             >Reference Value</label
@@ -302,10 +277,12 @@ function applyScale() {
       </button>
       <div class="softtool-readout">
         <span>{{
-          presentation?.format === 'smith' ? 'Outer |Γ|' : 'Range'
+          presentation && isCircularFormat(presentation.format)
+            ? 'Outer |Γ|'
+            : 'Range'
         }}</span
         ><span>{{
-          presentation?.format === 'smith'
+          presentation && isCircularFormat(presentation.format)
             ? numberText(presentation.smithRadius)
             : `${numberText(range.min)} … ${numberText(range.max)}`
         }}</span>

@@ -9,11 +9,16 @@ const props = defineProps<{
   hasTrace: boolean
   canEditDisplay: boolean
   canAddMarker?: boolean
+  canAddTrace?: boolean
+  canDeleteDiagram?: boolean
 }>()
 const emit = defineEmits<{
   activate: []
   layout: [mode: LayoutMode]
   addMarker: []
+  addTrace: [newDiagram: boolean]
+  deleteDiagram: []
+  arrange: [action: 'overlay' | 'split']
 }>()
 const root = ref<HTMLElement>()
 const trigger = ref<HTMLButtonElement>()
@@ -21,7 +26,6 @@ const open = ref(false)
 const choices: { mode: LayoutMode; label: string }[] = [
   { mode: 'grid', label: 'All Diagrams' },
   { mode: 'maximized', label: 'Maximized' },
-  { mode: 'single', label: 'Overlay All' },
 ]
 
 function close(restoreFocus = false) {
@@ -42,7 +46,6 @@ async function toggle() {
     close(true)
     return
   }
-  emit('activate')
   open.value = true
   await nextTick()
   const checked = root.value?.querySelector<HTMLButtonElement>(
@@ -52,7 +55,8 @@ async function toggle() {
 }
 
 async function choose(mode: LayoutMode) {
-  const targetNumber = mode === 'single' ? 1 : props.number
+  if (!props.canEditDisplay) return
+  const targetNumber = props.number
   close()
   emit('layout', mode)
   // 布局变化会重新挂载带键值的绘图区；应将焦点恢复到新触发按钮。
@@ -62,6 +66,24 @@ async function choose(mode: LayoutMode) {
       `[data-testid="diagram-menu-${targetNumber}"]`,
     ) ?? document.querySelector<HTMLButtonElement>('.diagram-menu-trigger')
   nextTrigger?.focus()
+}
+
+function addTrace(newDiagram: boolean) {
+  if (!props.canEditDisplay || props.canAddTrace === false) return
+  emit('addTrace', newDiagram)
+  close(true)
+}
+
+function deleteDiagram() {
+  if (!props.canEditDisplay || props.canDeleteDiagram === false) return
+  emit('deleteDiagram')
+  close()
+}
+
+function arrange(action: 'overlay' | 'split') {
+  if (!props.canEditDisplay) return
+  emit('arrange', action)
+  close()
 }
 
 function addMarker() {
@@ -151,6 +173,54 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
           layout === choice.mode ? '✓' : ''
         }}</span
         ><span>{{ choice.label }}</span>
+      </button>
+      <div class="diagram-menu-separator" role="separator" />
+      <button
+        v-for="action in [
+          { id: 'overlay', label: 'Overlay All' },
+          { id: 'split', label: 'Split All' },
+        ]"
+        :key="action.id"
+        class="diagram-menu-item"
+        type="button"
+        role="menuitem"
+        :disabled="!canEditDisplay"
+        @click.stop="arrange(action.id as 'overlay' | 'split')"
+      >
+        <span class="diagram-menu-check" aria-hidden="true" /><span>{{
+          action.label
+        }}</span>
+      </button>
+      <div class="diagram-menu-separator" role="separator" />
+      <button
+        class="diagram-menu-item"
+        type="button"
+        role="menuitem"
+        :disabled="!canEditDisplay || canAddTrace === false"
+        @click.stop="addTrace(false)"
+      >
+        <span class="diagram-menu-check" aria-hidden="true">+</span
+        ><span>Add Trace</span>
+      </button>
+      <button
+        class="diagram-menu-item"
+        type="button"
+        role="menuitem"
+        :disabled="!canEditDisplay || canAddTrace === false"
+        @click.stop="addTrace(true)"
+      >
+        <span class="diagram-menu-check" aria-hidden="true">+</span
+        ><span>Add Trace + Diagram</span>
+      </button>
+      <button
+        class="diagram-menu-item"
+        type="button"
+        role="menuitem"
+        :disabled="!canEditDisplay || canDeleteDiagram === false"
+        @click.stop="deleteDiagram"
+      >
+        <span class="diagram-menu-check" aria-hidden="true">×</span
+        ><span>Delete Diagram</span>
       </button>
       <div class="diagram-menu-separator" role="separator" />
       <button

@@ -83,9 +83,9 @@ function singleSweep() {
         :disabled="!canEditDisplay"
         :aria-pressed="layout === 'maximized'"
         :title="
-          layout === 'grid'
-            ? 'Maximize active diagram · 仅显示当前迹线'
-            : 'All diagrams · 返回全部图窗'
+          layout === 'maximized'
+            ? 'All diagrams · 返回全部图窗'
+            : 'Maximize active diagram · 最大化当前图窗'
         "
         aria-label="Toggle diagram layout"
         data-testid="toolbar-layout"
@@ -100,7 +100,7 @@ function singleSweep() {
         type="button"
         class="toolbar-button glyph-accent"
         :disabled="!canAddTrace || busy"
-        title="Add Trace · 复制活动迹线"
+        title="Add Trace · 在活动图窗添加默认迹线"
         aria-label="Add trace"
         data-testid="toolbar-add-trace"
         @click="emit('addTrace')"

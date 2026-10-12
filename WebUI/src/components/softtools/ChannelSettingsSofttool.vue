@@ -306,7 +306,7 @@ function applyFromKeyboard(event: KeyboardEvent) {
         Applied · revision {{ status.revision }}
       </p>
       <p v-if="!canConfigure && !busy" class="softtool-note">
-        Hold the sweep and acquire control to apply.
+        Acquire control and wait for the current operation to apply.
       </p>
       <p class="softtool-note">
         {{ status.capabilities.portCount }} ports ·

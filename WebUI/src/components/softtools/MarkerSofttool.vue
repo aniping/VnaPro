@@ -166,6 +166,15 @@ function applyFrequency() {
     >
       Add Marker
     </button>
+    <button
+      class="softtool-button"
+      type="button"
+      :disabled="!editable || !selected?.enabled"
+      data-testid="remove-marker"
+      @click="update({ enabled: false })"
+    >
+      Remove Marker
+    </button>
     <div class="softtool-divider" aria-hidden="true" />
     <button
       class="softtool-button"

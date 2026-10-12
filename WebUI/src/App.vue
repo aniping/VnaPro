@@ -199,10 +199,12 @@ async function deleteActive() {
     )
   }
 }
-async function addTrace() {
-  if (!canChangeMeasurements.value || !status.value || !activeMeasurement.value)
-    return
-  await instrument.cloneMeasurement(activeMeasurement.value.name)
+async function addTrace(destination?: {
+  diagram?: number
+  newDiagram?: boolean
+}) {
+  if (!canChangeMeasurements.value || !status.value) return
+  await instrument.addDefaultMeasurement(destination)
 }
 async function commitMarker(value: MarkerMove): Promise<boolean> {
   return Boolean(
@@ -259,7 +261,9 @@ onBeforeUnmount(() => {
               "
               @select-tool="selectTool"
               @toggle-layout="
-                workspace.setLayout(layout === 'grid' ? 'maximized' : 'grid')
+                workspace.setLayout(
+                  layout === 'maximized' ? 'grid' : 'maximized',
+                )
               "
               @autoscale="workspace.autoscale"
               @toggle-marker="
@@ -278,6 +282,10 @@ onBeforeUnmount(() => {
               :measurements="displayedMeasurements"
               :presentations="presentations"
               :active-trace-name="activeTraceName"
+              :selected-diagram="status?.display.selectedDiagram"
+              :can-add-trace="
+                canChangeMeasurements && measurements.length < MAX_TRACES
+              "
               :layout="layout"
               :config="status?.config ?? emptyConfig"
               :frame-condition="frameCondition"
@@ -285,7 +293,15 @@ onBeforeUnmount(() => {
               :commit-marker="commitMarker"
               @select-trace="workspace.selectTrace"
               @toggle-visibility="workspace.toggleVisibility"
-              @set-layout="workspace.setLayout"
+              @set-layout="workspace.setLayout($event.layout, $event.diagram)"
+              @select-diagram="workspace.selectDiagram"
+              @add-trace="addTrace($event)"
+              @delete-diagram="instrument.deleteDiagram($event)"
+              @arrange="
+                $event.action === 'overlay'
+                  ? workspace.overlayAll($event.diagram)
+                  : workspace.splitAll()
+              "
               @add-marker="workspace.addMarker($event)"
               @select-marker="
                 workspace.selectMarker($event.name, $event.markerId)
