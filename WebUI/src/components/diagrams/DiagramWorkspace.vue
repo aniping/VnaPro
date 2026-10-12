@@ -8,6 +8,7 @@ import type {
   SweepConfiguration,
 } from '../../api/types'
 import type { LayoutMode, TracePresentation } from '../../domain/presentation'
+import type { MarkerMove } from '../../plot/markerDrag'
 import DiagramPane from './DiagramPane.vue'
 
 const props = defineProps<{
@@ -20,18 +21,11 @@ const props = defineProps<{
   config: SweepConfiguration
   frameCondition: FrameCondition
   canEditDisplay: boolean
+  commitMarker: (value: MarkerMove) => Promise<boolean>
 }>()
 const emit = defineEmits<{
   selectTrace: [name: string]
-  moveMarker: [
-    value: {
-      name: string
-      frequencyHz?: number
-      sampleIndex?: number
-      step?: number
-      discrete?: boolean
-    },
-  ]
+  moveMarker: [value: MarkerMove]
   toggleVisibility: [name: string]
   setLayout: [mode: LayoutMode]
   addMarker: [name: string]
@@ -77,6 +71,7 @@ const panes = computed(() =>
       :config="config"
       :frame-condition="frameCondition"
       :can-edit-display="canEditDisplay"
+      :commit-marker="commitMarker"
       @select-trace="emit('selectTrace', $event)"
       @move-marker="emit('moveMarker', $event)"
       @toggle-visibility="emit('toggleVisibility', $event)"

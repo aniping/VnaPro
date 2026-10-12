@@ -39,6 +39,13 @@ import {
   smithViewport,
 } from '../../plot/smithMath'
 import { paintSmithDiagram } from '../../plot/smithRenderer'
+import {
+  MarkerDragController,
+  createMarkerDragGeometry,
+  type DragPoint,
+  type MarkerMove,
+  type MarkerPreviewPoint,
+} from '../../plot/markerDrag'
 import MarkerReadout from './MarkerReadout.vue'
 import TraceStrip from './TraceStrip.vue'
 import DiagramMenu from './DiagramMenu.vue'
@@ -55,18 +62,11 @@ const props = defineProps<{
   config: SweepConfiguration
   frameCondition: FrameCondition
   canEditDisplay: boolean
+  commitMarker: (value: MarkerMove) => Promise<boolean>
 }>()
 const emit = defineEmits<{
   selectTrace: [name: string]
-  moveMarker: [
-    value: {
-      name: string
-      frequencyHz?: number
-      sampleIndex?: number
-      step?: number
-      discrete?: boolean
-    },
-  ]
+  moveMarker: [value: MarkerMove]
   toggleVisibility: [name: string]
   setLayout: [mode: LayoutMode]
   addMarker: [name: string]
@@ -81,12 +81,31 @@ let resolutionQuery: MediaQueryList | undefined
 let paintRequest = 0
 let dragPointer: number | null = null
 let draggingName = ''
-let dragOffsetX = 0
-let dragOffsetY = 0
-let dragStartX = 0
-let dragStartY = 0
-let dragMoved = false
+let dragTarget: HTMLElement | null = null
+let dragCommandAt: ((point: DragPoint) => MarkerMove | null) | null = null
 let suppressMarkerClick = false
+let previewName = ''
+let previewColor = ''
+const dragPreview = ref<{
+  name: string
+  color: string
+  placement: ReturnType<typeof markerPlacement>
+  committing: boolean
+} | null>(null)
+const markerDrag = new MarkerDragController({
+  requestFrame: (callback) => requestAnimationFrame(callback),
+  cancelFrame: (id) => cancelAnimationFrame(id),
+  preview(point, committing) {
+    dragPreview.value = point
+      ? {
+          name: previewName,
+          color: previewColor,
+          placement: markerPlacement(point, rect.value),
+          committing,
+        }
+      : null
+  },
+})
 
 const traces = computed(() =>
   props.measurements.flatMap((measurement) => {
@@ -336,26 +355,40 @@ function watchResolution(): void {
   resolutionQuery.addEventListener('change', resolutionChanged)
 }
 function resolutionChanged(): void {
+  if (markerDrag.dragging) cancelDrag()
   watchResolution()
   schedulePaint()
+}
+
+function resizePlot(): void {
+  if (markerDrag.dragging) cancelDrag()
+  schedulePaint()
+}
+
+function cancelDragKey(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && markerDrag.dragging) cancelDrag()
 }
 
 onMounted(() => {
   observer = new ResizeObserver((entries) => {
     const entry = entries[0]
     if (!entry) return
+    if (markerDrag.dragging) cancelDrag()
     width.value = entry.contentRect.width
     height.value = entry.contentRect.height
     schedulePaint()
   })
   if (plotArea.value) observer.observe(plotArea.value)
-  window.addEventListener('resize', schedulePaint)
+  window.addEventListener('resize', resizePlot)
+  window.addEventListener('keydown', cancelDragKey)
   watchResolution()
   schedulePaint()
 })
 onBeforeUnmount(() => {
+  cancelDrag()
   observer?.disconnect()
-  window.removeEventListener('resize', schedulePaint)
+  window.removeEventListener('resize', resizePlot)
+  window.removeEventListener('keydown', cancelDragKey)
   resolutionQuery?.removeEventListener('change', resolutionChanged)
   cancelAnimationFrame(paintRequest)
 })
@@ -364,16 +397,47 @@ watch(
   schedulePaint,
   { deep: true },
 )
+watch(
+  () => props.canEditDisplay,
+  (editable) => {
+    if (!editable && markerDrag.dragging) cancelDrag()
+  },
+)
+watch(
+  () =>
+    JSON.stringify([
+      props.primaryTraceName,
+      props.frame?.revision,
+      props.frame?.originalPointCount,
+      xRange.value,
+      traces.value.map((trace) => [
+        trace.measurement.name,
+        trace.presentation.format,
+        trace.presentation.visible,
+        trace.presentation.marker.enabled,
+        trace.presentation.smithRadius,
+        trace.scale,
+      ]),
+    ]),
+  () => {
+    // 普通采集帧变化不取消手势，显示几何或采集轴变化则放弃旧坐标。
+    if (markerDrag.dragging) cancelDrag()
+  },
+)
 
 function selectPane(): void {
   if (props.canEditDisplay && !active.value && activeTrace.value)
     emit('selectTrace', activeTrace.value.measurement.name)
 }
 
-function moveMarkerAt(name: string, clientX: number, clientY: number): void {
+function markerMoveAt(
+  name: string,
+  clientX: number,
+  clientY: number,
+): MarkerMove | null {
   const bounds = plotArea.value?.getBoundingClientRect()
   const axis = props.frame?.frequencyHz
-  if (!props.canEditDisplay || !bounds || !axis?.length) return
+  if (!props.canEditDisplay || !bounds || !axis?.length) return null
   const logicalX = ((clientX - bounds.left) * width.value) / bounds.width
   if (isSmith.value) {
     const logicalY = ((clientY - bounds.top) * height.value) / bounds.height
@@ -387,83 +451,167 @@ function moveMarkerAt(name: string, clientX: number, clientY: number): void {
       screenScale.value.x,
       screenScale.value.y,
     )
-    if (index >= 0)
-      emit('moveMarker', {
-        name,
-        sampleIndex: props.frame!.sampleIndexes[index]!,
-        discrete: true,
-      })
-    return
+    return index >= 0
+      ? {
+          name,
+          sampleIndex: props.frame!.sampleIndexes[index]!,
+          discrete: true,
+        }
+      : null
   }
   const fraction = Math.max(
     0,
     Math.min(1, (logicalX - rect.value.left) / rect.value.width),
   )
-  emit('moveMarker', {
+  return {
     name,
     frequencyHz:
       xRange.value.min + fraction * (xRange.value.max - xRange.value.min),
     discrete: true,
-  })
+  }
+}
+
+function moveMarkerAt(name: string, clientX: number, clientY: number): void {
+  const command = markerMoveAt(name, clientX, clientY)
+  if (command) emit('moveMarker', command)
 }
 
 function beginDrag(event: PointerEvent, name: string): void {
-  if (event.button !== 0 || !props.canEditDisplay) return
-  event.preventDefault()
-  event.stopPropagation()
-  dragPointer = event.pointerId
-  draggingName = name
-  dragStartX = event.clientX
-  dragStartY = event.clientY
-  dragMoved = false
-  suppressMarkerClick = false
+  if (
+    event.button !== 0 ||
+    !props.canEditDisplay ||
+    markerDrag.dragging ||
+    markerDrag.pending
+  )
+    return
   const marker = plottedMarkers.value.find((item) => item.name === name)
   const bounds = plotArea.value?.getBoundingClientRect()
-  dragOffsetX =
+  if (!marker || !bounds || !bounds.width || !bounds.height) return
+  const offsetX =
     marker && bounds && width.value > 0
       ? event.clientX -
         (bounds.left +
           ((marker.placement.left + marker.placement.tipX) * bounds.width) /
             width.value)
       : 0
-  dragOffsetY =
+  const offsetY =
     marker && bounds && height.value > 0
       ? event.clientY -
         (bounds.top +
           ((marker.placement.top + marker.placement.tipY) * bounds.height) /
             height.value)
       : 0
-  const target = event.currentTarget as HTMLElement
-  target.setPointerCapture(event.pointerId)
+  const geometry = createMarkerDragGeometry({
+    name,
+    points: markerPreviewPoints(name),
+    smith: isSmith.value,
+    area: rect.value,
+    bounds,
+    size: { width: width.value, height: height.value },
+    scale: screenScale.value,
+    range: xRange.value,
+    offset: { x: offsetX, y: offsetY },
+  })
+  const started = markerDrag.begin(
+    event.pointerId,
+    { x: event.clientX, y: event.clientY },
+    geometry.project,
+  )
+  if (!started) return
+  dragCommandAt = geometry.command
+  event.preventDefault()
+  event.stopPropagation()
+  dragPointer = event.pointerId
+  draggingName = name
+  previewName = name
+  previewColor = marker.color
+  suppressMarkerClick = false
+  dragTarget = event.currentTarget as HTMLElement
+  dragTarget.setPointerCapture(event.pointerId)
 }
 
 function dragMarker(event: PointerEvent): void {
   if (event.pointerId !== dragPointer) return
   event.preventDefault()
-  if (Math.hypot(event.clientX - dragStartX, event.clientY - dragStartY) >= 3)
-    dragMoved = true
-  // 拖动期间只保留鼠标位置；释放时提交一个后端操作，避免连续写入造成 CAS 冲突。
+  markerDrag.move(event.pointerId, { x: event.clientX, y: event.clientY })
 }
 
 function endDrag(event: PointerEvent): void {
   if (event.pointerId !== dragPointer) return
-  if (event.type !== 'pointercancel') {
-    suppressMarkerClick = true
-    if (dragMoved)
-      moveMarkerAt(
-        draggingName,
-        event.clientX - dragOffsetX,
-        event.clientY - dragOffsetY,
-      )
-    else emit('selectTrace', draggingName)
+  if (event.type === 'pointercancel') {
+    cancelDrag()
+    return
   }
-  const target = event.currentTarget as HTMLElement
-  if (target.hasPointerCapture(event.pointerId))
-    target.releasePointerCapture(event.pointerId)
+  suppressMarkerClick = true
+  const name = draggingName
+  const commandAt = dragCommandAt
+  void markerDrag
+    .finish(
+      event.pointerId,
+      { x: event.clientX, y: event.clientY },
+      async (point) => {
+        const command = props.canEditDisplay ? commandAt?.(point) : null
+        return command ? props.commitMarker(command) : false
+      },
+      () => emit('selectTrace', name),
+    )
+    .catch(() => {
+      // 命令入口负责错误提示；失败时手势层只恢复后端权威位置。
+    })
+  releaseDragCapture()
+}
+
+function releaseDragCapture(): void {
+  const pointer = dragPointer
+  const target = dragTarget
   dragPointer = null
+  dragTarget = null
+  dragCommandAt = null
   draggingName = ''
-  dragOffsetX = 0
-  dragOffsetY = 0
+  if (pointer !== null && target?.hasPointerCapture(pointer))
+    target.releasePointerCapture(pointer)
+}
+
+function cancelDrag(): void {
+  markerDrag.cancel()
+  releaseDragCapture()
+}
+
+function lostDragCapture(): void {
+  if (markerDrag.dragging) cancelDrag()
+}
+
+/** 只复制后端已算好的投影到像素，预览不插值或计算测量/阻抗读数。 */
+function markerPreviewPoints(name: string): MarkerPreviewPoint[] {
+  const trace = traces.value.find((item) => item.measurement.name === name)
+  if (!trace) return []
+  if (isSmith.value)
+    return smithSeries(trace.frameTrace).flatMap((point, index) =>
+      point
+        ? [
+            {
+              ...smithPoint(point, smithArea.value, smithRadius.value),
+              sampleIndex: props.frame!.sampleIndexes[index]!,
+            },
+          ]
+        : [],
+    )
+  const values = displaySeries(trace.frameTrace, trace.presentation.format)[0]
+    ?.values
+  return (values ?? []).flatMap((value, index) => {
+    const frequency = props.frame?.frequencyHz[index]
+    if (!Number.isFinite(value) || frequency === undefined) return []
+    return [
+      {
+        x:
+          rect.value.left +
+          normalizedX(frequency, xRange.value.min, xRange.value.max) *
+            rect.value.width,
+        y: rect.value.top + normalizedY(value, trace.scale) * rect.value.height,
+        sampleIndex: props.frame!.sampleIndexes[index]!,
+      },
+    ]
+  })
 }
 
 function markerClick(name: string): void {
@@ -615,7 +763,10 @@ function plotKey(event: KeyboardEvent): void {
         type="button"
         class="marker-handle"
         :disabled="!canEditDisplay"
-        :class="{ active: marker.active }"
+        :class="{
+          active: marker.active,
+          'drag-source': dragPreview?.name === marker.name,
+        }"
         :style="{
           left: `${marker.placement.left}px`,
           top: `${marker.placement.top}px`,
@@ -628,6 +779,7 @@ function plotKey(event: KeyboardEvent): void {
         @pointermove="dragMarker"
         @pointerup="endDrag"
         @pointercancel="endDrag"
+        @lostpointercapture="lostDragCapture"
         @keydown="markerKey($event, marker.name)"
         @click.stop="markerClick(marker.name)"
       >
@@ -643,6 +795,32 @@ function plotKey(event: KeyboardEvent): void {
           <path :d="marker.placement.glyphPath" />
         </svg>
       </button>
+      <div
+        v-if="dragPreview"
+        class="marker-handle marker-drag-preview"
+        aria-hidden="true"
+        :data-marker-drag="dragPreview.committing ? 'committing' : 'moving'"
+        :style="{
+          transform: `translate3d(${dragPreview.placement.left}px, ${dragPreview.placement.top}px, 0)`,
+          width: `${dragPreview.placement.width}px`,
+          height: `${dragPreview.placement.height}px`,
+          color: dragPreview.color,
+        }"
+      >
+        <span :style="{ top: `${dragPreview.placement.labelTop}px` }">M1</span>
+        <svg
+          viewBox="0 0 10 9"
+          :style="{
+            left: `${dragPreview.placement.glyphLeft}px`,
+            top: `${dragPreview.placement.glyphTop}px`,
+          }"
+        >
+          <path :d="dragPreview.placement.glyphPath" />
+        </svg>
+      </div>
+      <span v-if="dragPreview" class="marker-drag-status" role="status">{{
+        dragPreview.committing ? 'Setting M1…' : 'Moving M1'
+      }}</span>
       <div
         v-if="!hasDrawable"
         class="plot-empty"
@@ -827,6 +1005,25 @@ function plotKey(event: KeyboardEvent): void {
 .marker-handle:focus-visible {
   outline: 1px solid #fff;
   outline-offset: 2px;
+}
+.marker-handle.drag-source {
+  opacity: 0;
+}
+.marker-drag-preview {
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+.marker-drag-status {
+  position: absolute;
+  z-index: 5;
+  right: 5px;
+  top: 42px;
+  color: #c9d6dd;
+  background: #000b;
+  font-size: 10px;
+  pointer-events: none;
 }
 .plot-empty {
   position: absolute;
