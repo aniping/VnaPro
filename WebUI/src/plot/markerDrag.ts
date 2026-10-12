@@ -1,3 +1,5 @@
+import type { MarkerResult } from './traceMath'
+
 export interface MarkerMove {
   name: string
   frequencyHz?: number
@@ -11,7 +13,12 @@ export interface DragPoint {
   y: number
 }
 
-export interface MarkerPreviewPoint extends DragPoint {
+export interface MarkerDragPoint extends DragPoint {
+  sampleIndex?: number
+  result?: MarkerResult
+}
+
+export interface MarkerPreviewPoint extends MarkerDragPoint {
   sampleIndex: number
 }
 
@@ -31,7 +38,10 @@ export interface MarkerDragGeometryInput {
 export function createMarkerDragGeometry(input: MarkerDragGeometryInput) {
   const name = input.name
   const smith = input.smith
-  const points = input.points.map((point) => ({ ...point }))
+  const points = input.points.map((point) => ({
+    ...point,
+    ...(point.result ? { result: { ...point.result } } : {}),
+  }))
   const bounds = {
     left: input.bounds.left,
     top: input.bounds.top,
@@ -47,9 +57,9 @@ export function createMarkerDragGeometry(input: MarkerDragGeometryInput) {
     x: ((point.x - offset.x - bounds.left) * size.width) / bounds.width,
     y: ((point.y - offset.y - bounds.top) * size.height) / bounds.height,
   })
-  function project(point: DragPoint): DragPoint & { sampleIndex?: number } {
+  function project(point: DragPoint): MarkerDragPoint {
     const target = requested(point)
-    let closest: DragPoint & { sampleIndex?: number } = target
+    let closest: MarkerDragPoint = target
     let distance = Infinity
     for (const candidate of points) {
       const nextDistance = smith
@@ -67,6 +77,7 @@ export function createMarkerDragGeometry(input: MarkerDragGeometryInput) {
       x: Math.max(area.left, Math.min(area.left + area.width, closest.x)),
       y: Math.max(area.top, Math.min(area.top + area.height, closest.y)),
       sampleIndex: closest.sampleIndex,
+      ...(closest.result ? { result: closest.result } : {}),
     }
   }
   function command(point: DragPoint): MarkerMove | null {
@@ -93,15 +104,15 @@ export function createMarkerDragGeometry(input: MarkerDragGeometryInput) {
 interface DragHooks {
   requestFrame: (callback: () => void) => number
   cancelFrame: (id: number) => void
-  preview: (point: DragPoint | null, committing: boolean) => void
+  preview: (point: MarkerDragPoint | null, committing: boolean) => void
 }
 
-/** 手势只保存暂时的像素坐标；正式标记与读数由提交后的后端快照决定。 */
+/** 手势保存暂时的像素和选点读数；正式标记仍由提交后的后端快照决定。 */
 export class MarkerDragController {
   private pointer: number | null = null
   private origin: DragPoint = { x: 0, y: 0 }
   private latest: DragPoint = { x: 0, y: 0 }
-  private project: (point: DragPoint) => DragPoint = (point) => point
+  private project: (point: DragPoint) => MarkerDragPoint = (point) => point
   private frameRequest: number | null = null
   private moved = false
   private committing = false
@@ -120,7 +131,7 @@ export class MarkerDragController {
   begin(
     pointer: number,
     point: DragPoint,
-    project: (point: DragPoint) => DragPoint,
+    project: (point: DragPoint) => MarkerDragPoint,
   ): boolean {
     if (this.dragging || this.committing) return false
     this.pointer = pointer

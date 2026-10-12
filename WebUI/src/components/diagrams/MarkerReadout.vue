@@ -18,6 +18,7 @@ interface MarkerReadoutItem {
   measurement: Measurement
   result: MarkerResult
   active: boolean
+  preview?: boolean
 }
 defineProps<{ markers: MarkerReadoutItem[]; canEditDisplay: boolean }>()
 const emit = defineEmits<{ select: [name: string] }>()
@@ -38,6 +39,7 @@ const emit = defineEmits<{ select: [name: string] }>()
       :class="{ active: marker.active }"
       :style="{ '--marker-color': marker.color }"
       :aria-current="marker.active ? 'true' : undefined"
+      :data-marker-preview="marker.preview ? 'true' : undefined"
       :aria-label="`${marker.name} M1, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? (marker.format === 'smith' ? smithReadout(marker.result) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit) : 'invalid point'}`"
       :title="`${marker.name}: real ${numberText(marker.result.real ?? NaN, 10)}, imaginary ${numberText(marker.result.imaginary ?? NaN, 10)} ${marker.measurement.unit}`"
       @click.stop="emit('select', marker.name)"

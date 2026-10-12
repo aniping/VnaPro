@@ -30,6 +30,7 @@ import {
   normalizedY,
   referenceLevel,
   usesRelativeAxis,
+  type MarkerResult,
 } from '../../plot/traceMath'
 import {
   nearestSmithIndex,
@@ -39,6 +40,7 @@ import {
   smithViewport,
 } from '../../plot/smithMath'
 import { paintSmithDiagram } from '../../plot/smithRenderer'
+import { createMarkerPreviewPoints } from '../../plot/markerPreview'
 import {
   MarkerDragController,
   createMarkerDragGeometry,
@@ -91,6 +93,7 @@ const dragPreview = ref<{
   color: string
   placement: ReturnType<typeof markerPlacement>
   committing: boolean
+  result: MarkerResult | null
 } | null>(null)
 const markerDrag = new MarkerDragController({
   requestFrame: (callback) => requestAnimationFrame(callback),
@@ -102,6 +105,7 @@ const markerDrag = new MarkerDragController({
           color: previewColor,
           placement: markerPlacement(point, rect.value),
           committing,
+          result: point.result ?? null,
         }
       : null
   },
@@ -185,6 +189,21 @@ const markerModels = computed(() =>
         active: item.measurement.name === props.activeTraceName,
       },
     ]
+  }),
+)
+const markerReadouts = computed(() =>
+  markerModels.value.map((marker) => {
+    const preview = dragPreview.value
+    const result = preview?.name === marker.name ? preview.result : null
+    return {
+      name: marker.name,
+      color: marker.color,
+      format: marker.presentation.format,
+      measurement: marker.measurement,
+      result: result ?? marker.result,
+      active: marker.active,
+      preview: Boolean(result),
+    }
   }),
 )
 const plottedMarkers = computed(() =>
@@ -355,13 +374,13 @@ function watchResolution(): void {
   resolutionQuery.addEventListener('change', resolutionChanged)
 }
 function resolutionChanged(): void {
-  if (markerDrag.dragging) cancelDrag()
+  if (markerDrag.dragging || markerDrag.pending) cancelDrag()
   watchResolution()
   schedulePaint()
 }
 
 function resizePlot(): void {
-  if (markerDrag.dragging) cancelDrag()
+  if (markerDrag.dragging || markerDrag.pending) cancelDrag()
   schedulePaint()
 }
 
@@ -373,7 +392,7 @@ onMounted(() => {
   observer = new ResizeObserver((entries) => {
     const entry = entries[0]
     if (!entry) return
-    if (markerDrag.dragging) cancelDrag()
+    if (markerDrag.dragging || markerDrag.pending) cancelDrag()
     width.value = entry.contentRect.width
     height.value = entry.contentRect.height
     schedulePaint()
@@ -408,6 +427,7 @@ watch(
     JSON.stringify([
       props.primaryTraceName,
       props.frame?.revision,
+      props.frame?.measurementRevision,
       props.frame?.originalPointCount,
       xRange.value,
       traces.value.map((trace) => [
@@ -421,7 +441,7 @@ watch(
     ]),
   () => {
     // 普通采集帧变化不取消手势，显示几何或采集轴变化则放弃旧坐标。
-    if (markerDrag.dragging) cancelDrag()
+    if (markerDrag.dragging || markerDrag.pending) cancelDrag()
   },
 )
 
@@ -487,6 +507,8 @@ function beginDrag(event: PointerEvent, name: string): void {
   const marker = plottedMarkers.value.find((item) => item.name === name)
   const bounds = plotArea.value?.getBoundingClientRect()
   if (!marker || !bounds || !bounds.width || !bounds.height) return
+  const points = markerPreviewPoints(name)
+  if (!points.length) return
   const offsetX =
     marker && bounds && width.value > 0
       ? event.clientX -
@@ -503,7 +525,7 @@ function beginDrag(event: PointerEvent, name: string): void {
       : 0
   const geometry = createMarkerDragGeometry({
     name,
-    points: markerPreviewPoints(name),
+    points,
     smith: isSmith.value,
     area: rect.value,
     bounds,
@@ -581,37 +603,22 @@ function lostDragCapture(): void {
   if (markerDrag.dragging) cancelDrag()
 }
 
-/** 只复制后端已算好的投影到像素，预览不插值或计算测量/阻抗读数。 */
+/** 复制当前快照的投影与读数，持续采集不替换手势选点的数据。 */
 function markerPreviewPoints(name: string): MarkerPreviewPoint[] {
   const trace = traces.value.find((item) => item.measurement.name === name)
   if (!trace) return []
-  if (isSmith.value)
-    return smithSeries(trace.frameTrace).flatMap((point, index) =>
-      point
-        ? [
-            {
-              ...smithPoint(point, smithArea.value, smithRadius.value),
-              sampleIndex: props.frame!.sampleIndexes[index]!,
-            },
-          ]
-        : [],
-    )
-  const values = displaySeries(trace.frameTrace, trace.presentation.format)[0]
-    ?.values
-  return (values ?? []).flatMap((value, index) => {
-    const frequency = props.frame?.frequencyHz[index]
-    if (!Number.isFinite(value) || frequency === undefined) return []
-    return [
-      {
-        x:
-          rect.value.left +
-          normalizedX(frequency, xRange.value.min, xRange.value.max) *
-            rect.value.width,
-        y: rect.value.top + normalizedY(value, trace.scale) * rect.value.height,
-        sampleIndex: props.frame!.sampleIndexes[index]!,
-      },
-    ]
-  })
+  return createMarkerPreviewPoints(
+    props.frame,
+    trace.frameTrace,
+    trace.presentation.format,
+    {
+      area: rect.value,
+      range: xRange.value,
+      scale: trace.scale,
+      smithArea: smithArea.value,
+      smithRadius: smithRadius.value,
+    },
+  )
 }
 
 function markerClick(name: string): void {
@@ -745,16 +752,7 @@ function plotKey(event: KeyboardEvent): void {
       >
       <MarkerReadout
         :can-edit-display="canEditDisplay"
-        :markers="
-          markerModels.map((marker) => ({
-            name: marker.name,
-            color: marker.color,
-            format: marker.presentation.format,
-            measurement: marker.measurement,
-            result: marker.result,
-            active: marker.active,
-          }))
-        "
+        :markers="markerReadouts"
         @select="emit('selectTrace', $event)"
       />
       <button
