@@ -1,0 +1,53 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+#ifndef VNAPRO_BOARD_SWEEP_TYPES_H
+#define VNAPRO_BOARD_SWEEP_TYPES_H
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+namespace VnaBoard {
+
+constexpr std::size_t MAX_SWEEP_BYTES = 64U * 1024U * 1024U;
+constexpr std::size_t MAX_POINT_COUNT = MAX_SWEEP_BYTES / (16U * sizeof(double));
+
+struct SweepPlan {
+    std::vector<std::uint64_t> frequencies;
+    std::vector<std::uint64_t> powers;
+    std::vector<std::uint64_t> bandwidths;
+    std::vector<std::uint32_t> workPorts;
+    std::size_t valuesPerPoint = 0U;
+    std::size_t totalValues = 0U;
+};
+
+struct StagedPlan {
+    SweepPlan plan;
+    bool frequenciesValid = false;
+    bool powersValid = false;
+    bool bandwidthsValid = false;
+    bool portsValid = false;
+};
+
+struct SweepResult {
+    std::shared_ptr<const SweepPlan> plan;
+    std::vector<double> values;
+    std::size_t availablePoints = 0U;
+    bool cancelled = false;
+    std::uint32_t error = 0U;
+};
+
+enum class SignalMode {
+    GOLDEN,
+    NOISE
+};
+
+struct SignalSettings {
+    SignalMode mode = SignalMode::GOLDEN;
+    std::uint64_t seed = 42U;
+};
+
+}  // 命名空间 VnaBoard
+#endif  // VNAPRO_BOARD_SWEEP_TYPES_H
