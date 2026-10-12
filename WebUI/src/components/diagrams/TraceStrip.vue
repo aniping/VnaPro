@@ -12,27 +12,69 @@ defineProps<{
   color: string
   active: boolean
   smithRadius: number
+  canEditDisplay: boolean
 }>()
-const emit = defineEmits<{ select: [name: string]; toggleVisibility: [name: string] }>()
+const emit = defineEmits<{
+  select: [name: string]
+  toggleVisibility: [name: string]
+}>()
 </script>
 
 <template>
-  <div class="trace-strip" :class="{ active, hidden: !presentation.visible }" :style="{ '--trace-color': color }">
-    <button class="trace-select" type="button" :aria-pressed="active"
-      :title="presentation.format === 'smith' ? `${measurement.name} · ${measurement.parameter} · 未校准 · 当前图窗外圈 |Γ| ${smithRadius} · 本迹线保存值 ${presentation.smithRadius} · z 为归一化阻抗` : `${measurement.name} · ${measurement.parameter} · ${measurementState(measurement)} · ${scaleValue((scale.max - scale.min) / 10, presentation.format, 5, measurement)} per division · Ref ${scaleValue(referenceLevel(scale), presentation.format, 9, measurement)}${usesRelativeAxis(scale) ? ' · Δ 刻度为相对 Ref 的偏移' : ''}`"
+  <div
+    class="trace-strip"
+    :class="{ active, hidden: !presentation.visible }"
+    :style="{ '--trace-color': color }"
+  >
+    <button
+      class="trace-select"
+      type="button"
+      :disabled="!canEditDisplay"
+      :aria-pressed="active"
+      :title="
+        presentation.format === 'smith'
+          ? `${measurement.name} · ${measurement.parameter} · 未校准 · 当前图窗外圈 |Γ| ${smithRadius} · 本迹线保存值 ${presentation.smithRadius} · z 为归一化阻抗`
+          : `${measurement.name} · ${measurement.parameter} · ${measurementState(measurement)} · ${scaleValue((scale.max - scale.min) / 10, presentation.format, 5, measurement)} per division · Ref ${scaleValue(referenceLevel(scale), presentation.format, 9, measurement)}${usesRelativeAxis(scale) ? ' · Δ 刻度为相对 Ref 的偏移' : ''}`
+      "
       :aria-label="`Select ${measurement.name}, ${measurement.parameter}, ${measurementState(measurement)}`"
-      @click="emit('select', measurement.name)">
+      @click="emit('select', measurement.name)"
+    >
       <span class="trace-number">{{ measurement.name }}</span>
       <span class="measurement-chip">{{ measurement.parameter }}</span>
-      <span class="trace-format">{{ FORMAT_INFO[presentation.format].label }}</span>
+      <span class="trace-format">{{
+        FORMAT_INFO[presentation.format].label
+      }}</span>
       <template v-if="presentation.format === 'smith'">
-        <span class="trace-reference">Ref {{ smithRadius.toPrecision(4) }} U</span>
+        <span class="trace-reference"
+          >Ref {{ smithRadius.toPrecision(4) }} U</span
+        >
       </template>
       <template v-else>
-        <span class="trace-scale">{{ scaleValue((scale.max - scale.min) / 10, presentation.format, 5, measurement) }}/</span>
-        <span class="trace-reference">Ref {{ scaleValue(referenceLevel(scale), presentation.format, 9, measurement) }}</span>
+        <span class="trace-scale"
+          >{{
+            scaleValue(
+              (scale.max - scale.min) / 10,
+              presentation.format,
+              5,
+              measurement,
+            )
+          }}/</span
+        >
+        <span class="trace-reference"
+          >Ref
+          {{
+            scaleValue(
+              referenceLevel(scale),
+              presentation.format,
+              9,
+              measurement,
+            )
+          }}</span
+        >
       </template>
-      <span v-if="measurement.kind === 'receiver'" class="trace-state">RAW</span>
+      <span v-if="measurement.kind === 'receiver'" class="trace-state"
+        >RAW</span
+      >
     </button>
   </div>
 </template>
@@ -53,7 +95,7 @@ const emit = defineEmits<{ select: [name: string]; toggleVisibility: [name: stri
 }
 
 .trace-strip.hidden {
-  opacity: .5;
+  opacity: 0.5;
 }
 
 .trace-select {
@@ -66,7 +108,10 @@ const emit = defineEmits<{ select: [name: string]; toggleVisibility: [name: stri
   color: inherit;
   background: transparent;
   text-align: left;
-  font: 11px/18px Tahoma, Arial, sans-serif;
+  font:
+    11px/18px Tahoma,
+    Arial,
+    sans-serif;
   white-space: nowrap;
   cursor: pointer;
 }

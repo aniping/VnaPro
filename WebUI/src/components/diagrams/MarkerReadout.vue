@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import type { DisplayFormat } from '../../domain/presentation'
 import type { Measurement } from '../../api/types'
-import { measurementFormatInfo, frequencyText, markerFrequencyText, markerValueText, numberText } from '../../plot/formatting'
+import {
+  measurementFormatInfo,
+  frequencyText,
+  markerFrequencyText,
+  markerValueText,
+  numberText,
+} from '../../plot/formatting'
 import type { MarkerResult } from '../../plot/traceMath'
 import { smithReadout } from '../../plot/smithMath'
 
@@ -13,26 +19,49 @@ interface MarkerReadoutItem {
   result: MarkerResult
   active: boolean
 }
-defineProps<{ markers: MarkerReadoutItem[] }>()
+defineProps<{ markers: MarkerReadoutItem[]; canEditDisplay: boolean }>()
 const emit = defineEmits<{ select: [name: string] }>()
 </script>
 
 <template>
-  <div v-if="markers.length" class="marker-readouts" aria-label="Marker readout">
-    <button v-for="marker in markers" :key="marker.name" type="button" class="marker-row"
-      :class="{ active: marker.active }" :style="{ '--marker-color': marker.color }"
+  <div
+    v-if="markers.length"
+    class="marker-readouts"
+    aria-label="Marker readout"
+  >
+    <button
+      v-for="marker in markers"
+      :key="marker.name"
+      type="button"
+      class="marker-row"
+      :disabled="!canEditDisplay"
+      :class="{ active: marker.active }"
+      :style="{ '--marker-color': marker.color }"
       :aria-current="marker.active ? 'true' : undefined"
-      :aria-label="`${marker.name} M1, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? marker.format === 'smith' ? smithReadout(marker.result.real!, marker.result.imaginary!) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit : 'invalid point'}`"
+      :aria-label="`${marker.name} M1, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? (marker.format === 'smith' ? smithReadout(marker.result) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit) : 'invalid point'}`"
       :title="`${marker.name}: real ${numberText(marker.result.real ?? NaN, 10)}, imaginary ${numberText(marker.result.imaginary ?? NaN, 10)} ${marker.measurement.unit}`"
-      @click.stop="emit('select', marker.name)">
-      <span class="active-dot" aria-hidden="true">{{ marker.active ? '•' : '' }}</span>
+      @click.stop="emit('select', marker.name)"
+    >
+      <span class="active-dot" aria-hidden="true">{{
+        marker.active ? '•' : ''
+      }}</span>
       <span class="marker-number">M1</span>
-      <span class="marker-frequency">{{ markerFrequencyText(marker.result.frequencyHz) }}</span>
+      <span class="marker-frequency">{{
+        markerFrequencyText(marker.result.frequencyHz)
+      }}</span>
       <span v-if="marker.result.valid" class="marker-value">
-        <template v-if="marker.format === 'smith'">{{ smithReadout(marker.result.real!, marker.result.imaginary!) }}</template>
+        <template v-if="marker.format === 'smith'">{{
+          smithReadout(marker.result)
+        }}</template>
         <template v-else>
-        {{ markerValueText(marker.result.value, marker.format) }} {{ measurementFormatInfo(marker.format, marker.measurement).shortUnit }}
-        <template v-if="marker.format === 'realimag'"> / {{ numberText(marker.result.imaginary ?? NaN, 8) }} {{ marker.measurement.unit }}</template>
+          {{ markerValueText(marker.result.value, marker.format) }}
+          {{
+            measurementFormatInfo(marker.format, marker.measurement).shortUnit
+          }}
+          <template v-if="marker.format === 'realimag'">
+            / {{ numberText(marker.result.secondaryValue, 8) }}
+            {{ marker.measurement.unit }}</template
+          >
         </template>
       </span>
       <span v-else class="marker-value invalid">Invalid point</span>
@@ -65,7 +94,10 @@ const emit = defineEmits<{ select: [name: string] }>()
   border: 0;
   color: #fff;
   background: transparent;
-  font: 11px/14px Tahoma, Arial, sans-serif;
+  font:
+    11px/14px Tahoma,
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   white-space: nowrap;
