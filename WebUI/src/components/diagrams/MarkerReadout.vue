@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { DisplayFormat } from '../../domain/presentation'
+import { isCircularFormat } from '../../domain/presentation'
 import type { Measurement } from '../../api/types'
 import {
   measurementFormatInfo,
@@ -9,7 +10,7 @@ import {
   numberText,
 } from '../../plot/formatting'
 import type { MarkerResult } from '../../plot/traceMath'
-import { smithReadout } from '../../plot/smithMath'
+import { circularReadout } from '../../plot/smithMath'
 
 interface MarkerReadoutItem {
   name: string
@@ -43,7 +44,7 @@ const emit = defineEmits<{
       :style="{ '--marker-color': marker.color }"
       :aria-current="marker.active ? 'true' : undefined"
       :data-marker-preview="marker.preview ? 'true' : undefined"
-      :aria-label="`${marker.name} M${marker.markerId}, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? (marker.format === 'smith' ? smithReadout(marker.result) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit) : 'invalid point'}`"
+      :aria-label="`${marker.name} M${marker.markerId}, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? (isCircularFormat(marker.format) ? circularReadout(marker.format, marker.result, marker.measurement.unit) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit) : 'invalid point'}`"
       :title="`${marker.name}: real ${numberText(marker.result.real ?? NaN, 10)}, imaginary ${numberText(marker.result.imaginary ?? NaN, 10)} ${marker.measurement.unit}`"
       @click.stop="
         emit('select', { name: marker.name, markerId: marker.markerId })
@@ -57,8 +58,8 @@ const emit = defineEmits<{
         markerFrequencyText(marker.result.frequencyHz)
       }}</span>
       <span v-if="marker.result.valid" class="marker-value">
-        <template v-if="marker.format === 'smith'">{{
-          smithReadout(marker.result)
+        <template v-if="isCircularFormat(marker.format)">{{
+          circularReadout(marker.format, marker.result, marker.measurement.unit)
         }}</template>
         <template v-else>
           {{ markerValueText(marker.result.value, marker.format) }}

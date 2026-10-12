@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { nextTick, reactive, type Ref } from 'vue'
-import type { DisplayFormat } from '../src/domain/presentation'
+import {
+  isCircularFormat,
+  type DisplayFormat,
+} from '../src/domain/presentation'
+import { circularReadout } from '../src/plot/smithMath'
 import type { MarkerMove, MarkerPreviewPoint } from '../src/plot/markerDrag'
 import type { MarkerResult } from '../src/plot/traceMath'
 import {
@@ -13,10 +17,12 @@ import {
   markerDefinitions,
   markerProjections,
 } from './displayFixtures'
-import { findComponent, sfcHarness } from './sfcHarness'
+import { findComponent, findElements, sfcHarness } from './sfcHarness'
 
 interface PaneBindings {
   plotArea: Ref<unknown>
+  canvas: Ref<unknown>
+  schedulePaint: () => void
   plottedMarkers: Ref<
     {
       name: string
@@ -40,6 +46,8 @@ interface DiagramOptions {
   secondaryValues?: number[]
   commit?: (command: MarkerMove) => Promise<boolean>
   multipleMarkers?: boolean
+  markerValues?: (number | null)[]
+  markerSecondaryValues?: (number | null)[]
 }
 
 async function diagram(options: DiagramOptions = {}) {
@@ -59,8 +67,8 @@ async function diagram(options: DiagramOptions = {}) {
     valid: true,
     frequencyHz: 10e6,
     sampleIndex: 0,
-    real: format === 'smith' ? values[0] : 0.25,
-    imag: format === 'smith' ? secondaryValues[0] : 0,
+    real: isCircularFormat(format) ? values[0] : 0.25,
+    imag: isCircularFormat(format) ? secondaryValues[0] : 0,
     value: values[0],
     secondaryValue: secondaryValues[0],
     valueState: 'finite',
@@ -70,6 +78,25 @@ async function diagram(options: DiagramOptions = {}) {
     impedanceState: 'finite',
     reason: '',
   })
+  if (format === 'polar') {
+    trace.projection.markerValues = options.markerValues ?? [3, 7, 11]
+    trace.projection.markerSecondaryValues = options.markerSecondaryValues ?? [
+      17, 29, 43,
+    ]
+    trace.projection.markerValueStates = trace.projection.markerValues.map(
+      (value) => (value === null ? 'undefined' : 'finite'),
+    )
+    trace.projection.markerSecondaryStates =
+      trace.projection.markerSecondaryValues.map((value) =>
+        value === null ? 'undefined' : 'finite',
+      )
+    trace.projection.marker.value = trace.projection.markerValues[0]!
+    trace.projection.marker.secondaryValue =
+      trace.projection.markerSecondaryValues[0]!
+    trace.projection.marker.valueState = trace.projection.markerValueStates[0]!
+    trace.projection.marker.secondaryState =
+      trace.projection.markerSecondaryStates[0]!
+  }
   const frame = acquiredFrame(trace)
   const view = presentation(format)
   if (format !== 'db')
@@ -127,6 +154,7 @@ async function diagram(options: DiagramOptions = {}) {
     'src/components/diagrams/DiagramPane.vue',
     props,
     {
+      window: { devicePixelRatio: 1 },
       requestAnimationFrame: (callback: () => void) => {
         callbacks.set(++request, callback)
         return request
@@ -195,6 +223,192 @@ async function diagram(options: DiagramOptions = {}) {
     },
   }
 }
+
+test('the active marker glyph is layered above overlapping inactive markers while title order remains unchanged', async () => {
+  const pane = await diagram({ multipleMarkers: true })
+  try {
+    const handles = findElements(
+      pane.render(),
+      (node) =>
+        node.type === 'button' &&
+        String(node.props?.class).includes('marker-handle'),
+    )
+    const active = handles.find((node) =>
+      String(node.props!.class).includes('active'),
+    )!
+    const inactive = handles.find(
+      (node) => !String(node.props!.class).includes('active'),
+    )!
+    assert.ok(active.props!.style.zIndex > inactive.props!.style.zIndex)
+    const titles = findElements(
+      pane.render(),
+      (node) =>
+        typeof node.type === 'object' &&
+        Reflect.get(node.type, 'name') === 'TraceStrip',
+    )
+    assert.deepEqual(
+      titles.map((node) => node.props!.measurement.name),
+      ['Reflect'],
+    )
+  } finally {
+    pane.dispose()
+  }
+})
+
+test('actual Polar dragging uses backend magnitude and phase arrays while the glyph follows the original complex projection', async () => {
+  const pane = await diagram({
+    format: 'polar',
+    values: [0.1, 0.2, 0.3],
+    secondaryValues: [0, 0.1, 0.2],
+    markerValues: [3, 7, 11],
+    markerSecondaryValues: [17, 29, 43],
+  })
+  try {
+    pane.begin()
+    const point = pane.moveTo(2)
+    pane.paint()
+    const result = pane.readout()[0]!.result
+    assert.equal(
+      result.value,
+      11,
+      'Magnitude must be copied from the independent backend marker projection',
+    )
+    assert.equal(result.secondaryValue, 43)
+    assert.equal(result.real, 0.3)
+    assert.equal(result.imaginary, 0.2)
+    assert.equal(result.index, point.sampleIndex)
+    assert.match(circularReadout('polar', result), /\|z\| 11 1 \/ ∠ 43°/)
+    assert.equal(pane.commits.length, 0)
+  } finally {
+    pane.bindings.cancelDrag()
+    pane.dispose()
+  }
+})
+
+test('Polar zero-amplitude dragging keeps the circle center and a zero magnitude with undefined phase', async () => {
+  const pane = await diagram({
+    format: 'polar',
+    values: [0.1, 0, 0.3],
+    secondaryValues: [0, 0, 0.2],
+    markerValues: [3, 0, 11],
+    markerSecondaryValues: [17, null, 43],
+  })
+  try {
+    const zero = pane.bindings
+      .markerPreviewPoints('Reflect')
+      .find((point) => point.sampleIndex === 1)!
+    assert.ok(
+      zero,
+      'Undefined phase must not discard the valid zero-amplitude circle-center point',
+    )
+    pane.begin()
+    pane.moveTo(1)
+    pane.paint()
+    const result = pane.readout()[0]!.result
+    assert.equal(result.value, 0)
+    assert.ok(Number.isNaN(result.secondaryValue))
+    assert.equal(result.real, 0)
+    assert.equal(result.imaginary, 0)
+    assert.match(circularReadout('polar', result), /\|z\| 0 1 \/ ∠ —°/)
+    assert.equal(pane.commits.length, 0)
+  } finally {
+    pane.bindings.cancelDrag()
+    pane.dispose()
+  }
+})
+
+test('the actual pane paints mixed Cartesian and Smith traces in one diagram and keeps per-trace marker coordinates', async () => {
+  const pane = await diagram({
+    format: 'smith',
+    values: [0.1, 0.2, 0.3],
+    secondaryValues: [0, 0.1, 0.2],
+  })
+  try {
+    const other = receiverTrace(
+      { ...pane.props.frame.traces[0]!, name: 'Other' },
+      [0.25, 0.5, 0.75],
+    )
+    other.projection.marker = markerProjection({
+      available: true,
+      valid: true,
+      reason: '',
+      sampleIndex: 0,
+      frequencyHz: 10e6,
+      real: 0.25,
+      imag: 0,
+      value: -13.5,
+      valueState: 'finite',
+    })
+    const view = presentation()
+    view.marker = {
+      enabled: true,
+      frequencyHz: 10e6,
+      sampleIndex: 0,
+      discrete: true,
+    }
+    pane.props.frame.traces.push(other)
+    pane.props.measurements.push(other)
+    pane.props.allMeasurements.push(other)
+    Reflect.set(pane.props.presentations, 'Other', view)
+    const strokes: string[] = []
+    const context = {
+      strokeStyle: '',
+      setTransform() {},
+      clearRect() {},
+      setLineDash() {},
+      fillRect() {},
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      closePath() {},
+      fill() {},
+      save() {},
+      rect() {},
+      clip() {},
+      restore() {},
+      arc() {},
+      fillText() {},
+      stroke() {
+        if (['#60e600', '#ffff26'].includes(this.strokeStyle))
+          strokes.push(this.strokeStyle)
+      },
+    }
+    pane.bindings.canvas.value = {
+      width: 0,
+      height: 0,
+      style: {},
+      getContext: () => context,
+    }
+    pane.bindings.schedulePaint()
+    pane.paint()
+    assert.deepEqual(
+      strokes,
+      ['#ffff26', '#60e600'],
+      'Mixed traces must both draw, with the active Smith trace last',
+    )
+    const marker = pane.bindings.plottedMarkers.value.find(
+      (marker) => marker.name === 'Other',
+    )!
+    assert.equal(
+      marker.placement.left + marker.placement.tipX,
+      1,
+      'Cartesian marker retains the frequency x axis even under Smith grid',
+    )
+    assert.equal(pane.readout().length, 2)
+    const titles = findElements(
+      pane.render(),
+      (node) =>
+        typeof node.type === 'object' &&
+        Reflect.get(node.type, 'name') === 'TraceStrip',
+    )
+    assert.deepEqual(
+      titles.map((node) => node.props!.measurement.name),
+      ['Reflect', 'Other'],
+    )
+  } finally {
+    pane.dispose()
+  }
+})
 
 test('multiple enabled markers retain independent readouts and selecting M2 requests its backend identity', async () => {
   const pane = await diagram({ multipleMarkers: true })

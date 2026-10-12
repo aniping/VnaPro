@@ -1,5 +1,6 @@
 import type { AcquiredFrame } from '../api/types'
 import type { DisplayFormat, DisplayScale } from '../domain/presentation'
+import { isCircularFormat } from '../domain/presentation'
 import type { PlotRect } from './canvasRenderer'
 import type { MarkerPreviewPoint } from './markerDrag'
 import { smithPoint, type SmithViewport } from './smithMath'
@@ -46,40 +47,56 @@ export function createMarkerPreviewPoints(
       sampleIndex < 0 ||
       frequencyHz === undefined ||
       !Number.isFinite(value) ||
-      (format === 'smith' && !Number.isFinite(secondaryValue))
+      (isCircularFormat(format) && !Number.isFinite(secondaryValue))
     )
       return []
     const result: MarkerResult = {
       index: sampleIndex,
       frequencyHz,
       valid: true,
-      value,
-      secondaryValue,
-      real: format === 'smith' ? value : trace.real[index]!,
-      imaginary: format === 'smith' ? secondaryValue : trace.imag[index]!,
+      value:
+        format === 'polar'
+          ? projectedValue(
+              projection.markerValues?.[index] ?? null,
+              projection.markerValueStates?.[index] ?? 'undefined',
+            )
+          : value,
+      secondaryValue:
+        format === 'polar'
+          ? projectedValue(
+              projection.markerSecondaryValues?.[index] ?? null,
+              projection.markerSecondaryStates?.[index] ?? 'undefined',
+            )
+          : secondaryValue,
+      real: isCircularFormat(format) ? value : trace.real[index]!,
+      imaginary: isCircularFormat(format) ? secondaryValue : trace.imag[index]!,
       // 旧服务没有逐点阻抗时显示缺省值，不把旧标记的阻抗拼到新的 Γ。
       impedanceReal: projection.impedanceRealValues?.[index] ?? null,
       impedanceImag: projection.impedanceImagValues?.[index] ?? null,
       impedanceState: projection.impedanceStates?.[index] ?? 'invalid',
+      admittanceReal: projection.admittanceRealValues?.[index] ?? null,
+      admittanceImag: projection.admittanceImagValues?.[index] ?? null,
+      admittanceState: projection.admittanceStates?.[index] ?? 'invalid',
       interpolated: false,
       reason: '',
     }
-    const point =
-      format === 'smith'
-        ? smithPoint(
-            { real: value, imaginary: secondaryValue },
-            geometry.smithArea,
-            geometry.smithRadius,
-          )
-        : {
-            x:
-              geometry.area.left +
-              normalizedX(frequencyHz, geometry.range.min, geometry.range.max) *
-                geometry.area.width,
-            y:
-              geometry.area.top +
-              normalizedY(value, geometry.scale) * geometry.area.height,
-          }
-    return [{ ...point, sampleIndex, result }]
+    const point = isCircularFormat(format)
+      ? smithPoint(
+          { real: value, imaginary: secondaryValue },
+          geometry.smithArea,
+          geometry.smithRadius,
+        )
+      : {
+          x:
+            geometry.area.left +
+            normalizedX(frequencyHz, geometry.range.min, geometry.range.max) *
+              geometry.area.width,
+          y:
+            geometry.area.top +
+            normalizedY(value, geometry.scale, format) * geometry.area.height,
+        }
+    return Number.isFinite(point.x) && Number.isFinite(point.y)
+      ? [{ ...point, sampleIndex, result }]
+      : []
   })
 }
