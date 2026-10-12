@@ -467,11 +467,21 @@ def exercise(http_port, scpi_port):
         assert scpi.query("SYST:ERR:COUN?") == "0"
         assert int(scpi.query("SENS1:SWE:POIN 2501;*OPC?")) == 1
         assert int(scpi.query("SENS1:SWE:MODE SING;*OPC?")) == 1
-        reduced = http.frame()
+        displayed = http.frame()
         status = http.status()
+        assert {trace["name"] for trace in displayed["traces"]} == set(status["display"]["displayedNames"]), (
+            "Default frame follows explicit display slots", status["display"]["displayedNames"]
+        )
+        assert "Web B" not in {trace["name"] for trace in displayed["traces"]}, (
+            "Defining and selecting a hidden measurement does not assign a display slot"
+        )
+        # 隐藏定义可被显式查询；抽点验收读取 SCPI 当前选中的同一完整测量。
+        reduced = http.frame(("Web B",))
         assert reduced["current"] is True and reduced["decimated"] is True, reduced
         assert reduced["originalPointCount"] == 2501 and reduced["displayPointCount"] == 2001, reduced
-        assert reduced["revision"] == status["acquisitionRevision"] and len(reduced["traces"]) <= 4, reduced
+        assert reduced["revision"] == status["acquisitionRevision"] and len(reduced["traces"]) == 1, (
+            "Explicit query returns exactly the requested hidden measurement", reduced["revision"]
+        )
         assert reduced["measurementRevision"] == status["revision"], reduced
         full_axis = [float(value) for value in scpi.query("SENS1:X?").split(",")]
         full_iq = [float(value) for value in scpi.query("CALC1:DATA? RDATA").split(",")]

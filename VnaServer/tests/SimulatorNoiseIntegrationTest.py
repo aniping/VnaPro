@@ -27,15 +27,19 @@ def configure(http):
              "startHz": 2000000, "stopHz": 18000000, "points": 65, "ifBandwidthHz": 1000}
     wait_operation(http, accepted(http, "config", patch, token), token)
     # 原始 IQ 验收显式建立入射波测量，不依赖生产默认 S21 迹线。
-    removed = http.request("DELETE", "/api/v1/measurements/Trc1", {
-        "expectedRevision": http.status()["revision"], "requestId": "remove-default-transmission",
-    }, token, expected=202)
-    wait_operation(http, removed["operationId"], token)
     reference = {
         "name": "NoiseA1", "receiverKind": "a", "receiverPort": 1, "sourcePort": 1,
         "expectedRevision": http.status()["revision"], "requestId": "define-noise-reference",
     }
     wait_operation(http, accepted(http, "measurements", reference, token), token)
+    # 原生操作保护最后迹线；先建立替代测量，再删除默认项并显式显示。
+    removed = http.request("DELETE", "/api/v1/measurements/Trc1", {
+        "expectedRevision": http.status()["revision"], "requestId": "remove-default-transmission",
+    }, token, expected=202)
+    wait_operation(http, removed["operationId"], token)
+    display = {"action": "displayed", "traceName": "NoiseA1", "enabled": True,
+               "expectedDisplayRevision": http.status()["display"]["revision"], "requestId": "display-noise-reference"}
+    wait_operation(http, accepted(http, "display", display, token), token)
     for port in (2, 3, 4):
         measurement = {"name": "NoiseB" + str(port), "receiverKind": "b", "receiverPort": port,
                        "sourcePort": port, "expectedRevision": http.status()["revision"],
