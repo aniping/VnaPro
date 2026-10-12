@@ -4,9 +4,10 @@ import type {
   DisplayScale,
   TracePresentation,
 } from '../domain/presentation'
+import { isCircularFormat } from '../domain/presentation'
 import { FORMAT_INFO, measurementFormatInfo, numberText } from './formatting'
 import { markerResult } from './traceMath'
-import { smithReadout } from './smithMath'
+import { circularReadout } from './smithMath'
 
 export { exportVisibleFrameCsv } from './exportCsv'
 export {
@@ -70,8 +71,8 @@ export function getMarkerReadout(
     value: result.value,
     valueText: !result.valid
       ? 'Invalid point'
-      : presentation.format === 'smith'
-        ? smithReadout(result)
+      : isCircularFormat(presentation.format)
+        ? circularReadout(presentation.format, result, displayed.unit)
         : `${numberText(result.value, 8)} ${measurementFormatInfo(presentation.format, displayed).shortUnit}${suffix}`,
     real: result.real,
     imag: result.imaginary,
