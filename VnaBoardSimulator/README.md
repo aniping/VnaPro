@@ -1,8 +1,8 @@
 # TDC1VN10 单板模拟驱动
 
-本模块按 `demo/DrvDeviceBoardApi.h` 的九个函数签名实现独立动态库 `tdc1vn10_drv_sim`。当前开发以 VN10 接口为基准；旧 TDC1VN08 模拟驱动仍位于 `VnaNativeSimulator`，库名和黄金数据合同保持不变。
+本模块按 `demo/DrvDeviceBoardApi.h` 的九个函数签名实现独立动态库 `tdc1vn10_drv_sim`。当前开发以 VN10 接口为基准；旧 TDC1VN08 模拟驱动仍位于 `VnaNativeSimulator`，统一命名为 `tdc1vn08_drv_sim`，原有函数签名和黄金数据合同保持不变。
 
-VN08 和 VN10 有同名但不同签名的导出函数，必须明确选择接口版本。服务默认使用 VN10；`--board tdc1vn08` 选择旧库和旧适配器。不能只把 VN08 的 DLL 路径替换成 VN10 DLL。未来 VN08 驱动向新接口靠齐后，可继续使用 VN10 接口适配器；这里的选择表示接口合同，不自动探测板卡型号。
+VN08 和 VN10 有同名但不同签名的导出函数，必须明确选择接口版本。服务默认使用 VN10；`--board tdc1vn08` 选择旧库和旧适配器。CLion、命令行和部署路径的具体设置见[模拟驱动切换](../docs/模拟驱动切换.md)。不能只把 VN08 的 DLL 路径替换成 VN10 DLL。未来 VN08 驱动向新接口靠齐后，可继续使用 VN10 接口适配器；这里的选择表示接口合同，不自动探测板卡型号。
 
 ## 调用流程
 

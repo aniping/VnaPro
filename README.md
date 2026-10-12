@@ -47,7 +47,7 @@ clang-format --style=file --dry-run --Werror $cppFiles
 .\build\bin\vna_server.exe --bind 127.0.0.1 --port 5025
 ```
 
-默认加载构建生成的 **TDC1VN10 新接口模拟库**，启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。`--board tdc1vn08` 使用保留的 VN08 旧接口库，`--board tdc1vn10` 显式选择当前基准接口；未来 VN08 驱动对齐新接口后应使用新接口适配器。两个接口有同名异签名函数，不能仅换 DLL 路径。静态根目录为构建时指定的 `WebUI/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时传入与 `--board` 匹配的 `--driver` 绝对路径，并用 `--web-root` 指向部署后的 `WebUI/dist`；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，日志级别须允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认绑定本机；`--no-web` 关闭 Web 入口。
+默认加载构建生成的 **TDC1VN10 新接口模拟库**，启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。`--board tdc1vn08` 使用保留的 VN08 旧接口库 `tdc1vn08_drv_sim`，`--board tdc1vn10` 显式选择当前基准接口 `tdc1vn10_drv_sim`；CLion、命令行和部署路径的具体设置见[模拟驱动切换](docs/模拟驱动切换.md)。未来 VN08 驱动对齐新接口后应使用新接口适配器。两个接口有同名异签名函数，不能仅换 DLL 路径。静态根目录为构建时指定的 `WebUI/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时传入与 `--board` 匹配的 `--driver` 绝对路径，并用 `--web-root` 指向部署后的 `WebUI/dist`；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，日志级别须允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认绑定本机；`--no-web` 关闭 Web 入口。
 
 ## 仪器与日志配置
 
@@ -130,7 +130,8 @@ CALC1:DATA? RDATA
 
 | 目录 | 职责 |
 | --- | --- |
-| `VnaNativeSimulator` | 九个 Drv* ABI、确定性模拟信号、独立合同测试 |
+| `VnaNativeSimulator` | TDC1VN08 旧接口模拟库 `tdc1vn08_drv_sim`、确定性信号及独立合同测试 |
+| `VnaBoardSimulator` | TDC1VN10 新接口模拟库 `tdc1vn10_drv_sim`、异步多源扫描及分段取数 |
 | `VnaLog` / `config/vnapro.yml` | spdlog 日志门面、线程安全滚动目标与启动配置 |
 | `VnaCore/include/vna_core` | 配置、不可变完整帧、异步命令结果与状态视图 |
 | `VnaCore/src` | 命令 FIFO、单 worker 生命周期、Native 加载与帧转换 |

@@ -2,7 +2,7 @@
 
 本目录是独立的原生驱动模拟模块。它只实现当前函数表中的 9 个 `Drv*` C ABI，不依赖 `demo/`、单板或厂商动态库，也不包含 `VnaDriver`、`VnaHal`、校准、DYN 或快扫实现。
 
-这是保留的 TDC1VN08 旧接口，库名、签名和黄金向量保持兼容。当前开发以 [TDC1VN10 新接口](../VnaBoardSimulator/README.md)为准；服务默认 VN10，通过 `--board tdc1vn08` 显式运行本模块。两版同名函数签名不同，不能只替换 DLL 路径；VN08 未来使用新接口后，应明确选择新接口适配器。
+这是保留的 TDC1VN08 旧接口，动态库统一命名为 `tdc1vn08_drv_sim`，原有函数签名和黄金向量保持兼容。当前开发以 [TDC1VN10 新接口](../VnaBoardSimulator/README.md)为准；服务默认 VN10，通过 `--board tdc1vn08` 显式运行本模块。CLion、命令行和部署路径的具体设置见[模拟驱动切换](../docs/模拟驱动切换.md)。两版同名函数签名不同，不能只替换 DLL 路径；VN08 未来使用新接口后，应明确选择新接口适配器。
 
 ## 开发文档
 
@@ -31,11 +31,11 @@ cmake --build build --parallel
 cmake -E chdir build ctest --output-on-failure
 ```
 
-生成的模拟库名称为：
+动态库的 CMake target 为 `tdc1vn08_drv_sim`，内部对象库为 `tdc1vn08_drv_sim_core`，测试程序为 `tdc1vn08_drv_sim_unit_tests` 和 `tdc1vn08_drv_sim_contract_tests`。CTest 的 `native_*` 测试名称保持不变。生成的模拟库名称为：
 
-- macOS：`libvnb_drv_sim.dylib`
-- Linux：`libvnb_drv_sim.so`
-- Windows MinGW：`libvnb_drv_sim.dll`
+- macOS：`libtdc1vn08_drv_sim.dylib`
+- Linux：`libtdc1vn08_drv_sim.so`
+- Windows MinGW：`libtdc1vn08_drv_sim.dll`
 
 Windows PowerShell 可使用 MinGW 和 Ninja，例如：
 
