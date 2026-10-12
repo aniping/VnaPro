@@ -1,11 +1,6 @@
 import type { AcquiredFrame } from '../api/types'
-import {
-  defaultTracePresentation,
-  type TracePresentation,
-} from '../domain/presentation'
+import type { TracePresentation } from '../domain/presentation'
 import { measurementFormatInfo } from './formatting'
-import { displayValue, validAt } from './traceMath'
-import { normalizedImpedance } from './smithMath'
 
 function csvCell(value: unknown): string {
   return `"${String(value ?? '').replaceAll('"', '""')}"`
@@ -17,35 +12,25 @@ export function exportVisibleFrameCsv(
   presentations: Record<string, TracePresentation>,
 ): string {
   const lines = [
-    '# VnaPro 测量显示快照；CSV schema 3',
-    `# frameSeq=${frame.frameSeq},runId=${frame.runId},revision=${frame.revision},channelId=${frame.channelId},measurementRevision=${frame.measurementRevision}`,
+    '# VnaPro 测量显示快照；CSV schema 4',
+    `# frameSeq=${frame.frameSeq},runId=${frame.runId},revision=${frame.revision},channelId=${frame.channelId},measurementRevision=${frame.measurementRevision},displayRevision=${frame.displayRevision}`,
     `# originalPointCount=${frame.originalPointCount},displayPointCount=${frame.displayPointCount},decimated=${frame.decimated}`,
-    '# 此 API 未提供原始采样索引；display_index 对应返回的实际展示数组。',
+    '# source_index 为后端提供的原始采样索引，display_index 为展示数组索引。',
     '# RAW dB 参考为 1 a.u.；S 参数 dB 为无量纲比值幅度的 20 log10，未应用误差校准。',
-    '# Smith 数据为无量纲 Γ 与归一化阻抗 z=(1+Γ)/(1-Γ)，不假定物理参考阻抗。',
-    'measurement,receiver,receiver_port,source_port,display_index,frequency_hz,real,imaginary,valid,format,unit,display_value,display_imaginary,kind,parameter,raw_unit,calibration,gamma_real,gamma_imaginary,normalized_r,normalized_x,impedance_state',
+    '# 显示值、无穷与无效状态均来自后端投影，浏览器不计算测量量。',
+    'measurement,receiver,receiver_port,source_port,display_index,frequency_hz,real,imaginary,valid,format,unit,display_value,display_imaginary,kind,parameter,raw_unit,calibration,source_index,display_state,secondary_state',
   ]
   for (const trace of frame.traces) {
-    const presentation = presentations[trace.name] ?? defaultTracePresentation()
-    if (!presentation.visible) continue
+    const presentation = presentations[trace.name]
+    if (!presentation?.visible) continue
     for (let index = 0; index < frame.frequencyHz.length; ++index) {
-      const valid = validAt(trace, index)
-      const value = valid
-        ? displayValue(
-            trace.real[index]!,
-            trace.imag[index]!,
-            presentation.format,
-          )
-        : NaN
-      const cell = Number.isFinite(value)
-        ? value
-        : value === -Infinity
+      const valid = trace.valid[index] === true
+      const projection = trace.projection
+      const format = projection.format
+      const cell =
+        projection.valueStates[index] === 'negativeInfinity'
           ? '-Infinity'
-          : ''
-      const smith = presentation.format === 'smith' && valid
-      const impedance = smith
-        ? normalizedImpedance(trace.real[index]!, trace.imag[index]!)
-        : null
+          : (projection.values[index] ?? '')
       lines.push(
         [
           csvCell(trace.name),
@@ -57,19 +42,19 @@ export function exportVisibleFrameCsv(
           valid ? trace.real[index] : '',
           valid ? trace.imag[index] : '',
           valid,
-          presentation.format,
-          csvCell(measurementFormatInfo(presentation.format, trace).unit),
+          format,
+          csvCell(measurementFormatInfo(format, trace).unit),
           cell,
-          presentation.format === 'realimag' && valid ? trace.imag[index] : '',
+          projection.secondaryStates[index] === 'negativeInfinity'
+            ? '-Infinity'
+            : (projection.secondaryValues[index] ?? ''),
           trace.kind,
           csvCell(trace.parameter),
           csvCell(trace.unit),
           trace.calibration,
-          smith ? trace.real[index] : '',
-          smith ? trace.imag[index] : '',
-          impedance?.real ?? '',
-          impedance?.imaginary ?? '',
-          impedance?.state ?? '',
+          frame.sampleIndexes[index],
+          projection.valueStates[index],
+          projection.secondaryStates[index],
         ].join(','),
       )
     }
