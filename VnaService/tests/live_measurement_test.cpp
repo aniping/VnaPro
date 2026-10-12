@@ -286,7 +286,7 @@ void ContinuousCatalogEditsReuseCurrentAcquisition()
         "连续扫描时删除已有迹线");
     const auto after = fixture.service.Snapshot();
     RequireContinuousRun(before, after);
-    Require(after.settings.measurements.size() == 1U && after.settings.selectedMeasurement == "Trc1" &&
+    Require(after.settings.measurements.size() == 1U && after.display.selectedMeasurement == "Trc1" &&
                 after.settings.revision == before.settings.revision + 2U &&
                 after.settings.acquisitionRevision == before.settings.acquisitionRevision &&
                 after.core.configRevision == before.core.configRevision && after.core.frame == before.core.frame,

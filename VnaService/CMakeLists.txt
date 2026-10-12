@@ -1,14 +1,19 @@
 add_library(vna_service STATIC
     src/instrument_profile.cpp
     src/instrument_service.cpp
+    src/instrument_display.cpp
 )
 target_include_directories(vna_service PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(vna_service PUBLIC vna_core vna_measurement)
+target_link_libraries(vna_service PUBLIC vna_core vna_measurement vna_display)
 target_link_libraries(vna_service PRIVATE vna_log)
 target_compile_features(vna_service PUBLIC cxx_std_14)
 target_compile_options(vna_service PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)
+    add_executable(vna_service_display_tests tests/display_service_test.cpp)
+    target_link_libraries(vna_service_display_tests PRIVATE vna_service_test_support)
+    add_test(NAME service_display COMMAND vna_service_display_tests)
+    set_tests_properties(service_display PROPERTIES TIMEOUT 20)
     add_library(vna_service_test_support STATIC tests/controlled_device.cpp tests/fixture.cpp)
     target_include_directories(vna_service_test_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_link_libraries(vna_service_test_support PUBLIC vna_service)

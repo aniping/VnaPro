@@ -51,6 +51,8 @@ const char *TaskName(Detail::ServiceTaskKind kind) noexcept
             return "CONFIGURE";
         case Detail::ServiceTaskKind::MEASUREMENTS:
             return "MEASUREMENTS";
+        case Detail::ServiceTaskKind::DISPLAY:
+            return "DISPLAY";
         case Detail::ServiceTaskKind::SOURCE:
             return "SOURCE";
         case Detail::ServiceTaskKind::MODE:
@@ -155,9 +157,33 @@ bool CoversPlan(const VnaCore::SweepPlan &active, const VnaCore::SweepPlan &requ
                requested.sourcePorts.end());
 }
 
+OperationResult ApplyCenterSpanPatch(
+    const ConfigPatch &patch, InstrumentSettings &settings, const InstrumentProfile &profile)
+{
+    if (patch.hasStartHz || patch.hasStopHz) {
+        return Result(false, Detail::INVALID_PARAMETER_ERROR, "Center/span cannot be mixed with start/stop");
+    }
+    const double center = patch.hasCenterHz ? patch.centerHz : (settings.startHz + settings.stopHz) / 2.0;
+    const double span = patch.hasSpanHz ? patch.spanHz : settings.stopHz - settings.startHz;
+    if (!std::isfinite(center) || !std::isfinite(span) || span < 0.0) {
+        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Invalid center or span frequency");
+    }
+    const double start = std::round(center - span / 2.0);
+    const double stop = std::round(center + span / 2.0);
+    if (!ValidFrequency(start, profile) || !ValidFrequency(stop, profile)) {
+        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Center/span exceeds instrument frequency range");
+    }
+    settings.startHz = start;
+    settings.stopHz = stop;
+    return Result(true);
+}
+
 OperationResult ApplyFrequencyPatch(
     const ConfigPatch &patch, InstrumentSettings &settings, const InstrumentProfile &profile)
 {
+    if (patch.hasCenterHz || patch.hasSpanHz) {
+        return ApplyCenterSpanPatch(patch, settings, profile);
+    }
     const double span = settings.stopHz - settings.startHz;
     double start = settings.startHz;
     double stop = settings.stopHz;
@@ -193,7 +219,8 @@ OperationResult ApplyFrequencyPatch(
 OperationResult ApplySettingsPatch(
     const ConfigPatch &patch, InstrumentSettings &settings, const InstrumentProfile &profile)
 {
-    if (!patch.hasStartHz && !patch.hasStopHz && !patch.hasPoints && !patch.hasIfBandwidthHz) {
+    if (!patch.hasStartHz && !patch.hasStopHz && !patch.hasCenterHz && !patch.hasSpanHz && !patch.hasPoints &&
+        !patch.hasIfBandwidthHz) {
         return Result(false, Detail::MISSING_PARAMETER_ERROR, "Configuration patch is empty");
     }
     const OperationResult frequency = ApplyFrequencyPatch(patch, settings, profile);
@@ -402,6 +429,8 @@ void InstrumentService::PollTask()
     }
     if (task.kind == Detail::ServiceTaskKind::CONFIGURE || task.kind == Detail::ServiceTaskKind::MEASUREMENTS) {
         PollConfiguration(task);
+    } else if (task.kind == Detail::ServiceTaskKind::DISPLAY) {
+        PollDisplay(task);
     } else if (task.kind == Detail::ServiceTaskKind::TRIGGER) {
         PollTrigger(task);
     } else {
@@ -442,12 +471,17 @@ bool InstrumentService::PrepareConfiguration(Detail::ServiceTask &task)
     }
     task.candidate.revision = settings_.revision + 1U;
     task.plan = MakePlan(task.candidate);
+    if (!PrepareDisplayConfiguration(task)) {
+        return false;
+    }
     return true;
 }
 
 void InstrumentService::CommitConfiguration(Detail::ServiceTask &task)
 {
+    task.displayCandidate.BindAcquisitionRevision(task.candidate.acquisitionRevision);
     settings_ = std::move(task.candidate);
+    display_ = std::move(task.displayCandidate);
     Finish(Result(true));
 }
 
@@ -627,7 +661,12 @@ bool InstrumentService::BootstrapMockProfile(std::string &error)
     initial.receiverPort = profile_.portCount >= 2U ? 2U : 1U;
     InstrumentSettings candidate = settings_;
     candidate.measurements.push_back(initial);
-    candidate.selectedMeasurement = initial.name;
+    VnaDisplay::DisplayWorkspace initialDisplay;
+    const auto reconciled = initialDisplay.Reconcile(candidate.measurements);
+    if (!reconciled.ok) {
+        error = reconciled.error;
+        return false;
+    }
     auto plan = MakePlan(candidate);
     const auto configured = core_.Configure(plan).get();
     if (!configured.ok) {
@@ -638,6 +677,7 @@ bool InstrumentService::BootstrapMockProfile(std::string &error)
     candidate.acquisitionRevision = configured.configRevision;
     activePlan_ = std::move(plan);
     settings_ = std::move(candidate);
+    display_ = std::move(initialDisplay);
     mockReady_ = true;
     VnaLog::Info(
         VnaLog::Module::SERVICE, "模拟设备配置已就绪，revision={}，points={}", settings_.revision, settings_.points);
@@ -714,6 +754,7 @@ InstrumentSnapshot InstrumentService::Snapshot() const
 {
     InstrumentSnapshot value;
     value.settings = settings_;
+    value.display = display_.Snapshot();
     value.core = core_.ReadView();
     value.controlOwner = owner_;
     value.releasing = releasing_;
@@ -835,9 +876,6 @@ Operation InstrumentService::DefineMeasurement(
                 }
             }
             settings.measurements.push_back(measurement);
-            if (settings.selectedMeasurement.empty()) {
-                settings.selectedMeasurement = measurement.name;
-            }
             return Result(true);
         },
         expected, owner);
@@ -878,10 +916,6 @@ Operation InstrumentService::DeleteMeasurement(
                 return Result(false, Detail::INVALID_PARAMETER_ERROR, "Measurement name does not exist");
             }
             settings.measurements.erase(found);
-            if (settings.selectedMeasurement == name) {
-                settings.selectedMeasurement =
-                    settings.measurements.empty() ? std::string() : settings.measurements.front().name;
-            }
             return Result(true);
         },
         expected, owner);
@@ -949,18 +983,17 @@ Operation InstrumentService::RunContinuous(const std::string &owner)
 
 bool InstrumentService::SelectMeasurement(const std::string &name)
 {
-    if (owner_ != "SCPI" || releasing_ || HasConfiguration()) {
+    if (owner_ != "SCPI" || releasing_ || HasPending()) {
         Error(Detail::SETTINGS_CONFLICT_ERROR, "Measurement selection requires control and no pending configuration");
         return false;
     }
-    for (const auto &measurement : settings_.measurements) {
-        if (measurement.name == name) {
-            settings_.selectedMeasurement = name;
-            return true;
-        }
+    VnaDisplay::DisplayChange select;
+    select.name = name;
+    const auto result = display_.Apply(select, settings_.measurements, DisplayFrame());
+    if (!result.ok) {
+        Error(Detail::INVALID_PARAMETER_ERROR, result.error);
     }
-    Error(Detail::INVALID_PARAMETER_ERROR, "Measurement name does not exist");
-    return false;
+    return result.ok;
 }
 
 bool InstrumentService::SetCurrentTriggerScope(bool current)
@@ -994,7 +1027,7 @@ DataResult InstrumentService::MeasurementData() const
         value.error = "Finite measurement has not completed";
         return value;
     }
-    const std::string selected = settings_.selectedMeasurement;
+    const std::string selected = display_.State().selectedMeasurement;
     const auto found = std::find_if(
         settings_.measurements.begin(), settings_.measurements.end(), [&selected](const Measurement &measurement) {
             return measurement.name == selected;

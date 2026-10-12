@@ -26,10 +26,14 @@ enum class SweepMode {
 struct ConfigPatch final {
     bool hasStartHz = false;
     bool hasStopHz = false;
+    bool hasCenterHz = false;
+    bool hasSpanHz = false;
     bool hasPoints = false;
     bool hasIfBandwidthHz = false;
     double startHz = 0;
     double stopHz = 0;
+    double centerHz = 0;
+    double spanHz = 0;
     unsigned points = 0;
     double ifBandwidthHz = 0;
 };
@@ -43,7 +47,6 @@ struct InstrumentSettings final {
     SweepMode sweepMode = SweepMode::HOLD;
     bool currentTriggerScope = false;
     std::vector<Measurement> measurements;
-    std::string selectedMeasurement;
     // 服务配置与测量目录的逻辑版本，用于写操作的预期版本校验。
     std::uint64_t revision = 0U;
     // 核心实际下发的采集计划版本；纯测量目录更新不会改变此值。

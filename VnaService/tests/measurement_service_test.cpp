@@ -250,7 +250,7 @@ void MeasurementUpdatePreservesCatalogAndInvalidatesFrame()
     Require(Finish(fixture, service.UpdateMeasurement(updated, revision)).ok, "原位将默认 S21 更新为 S22");
     const auto &settings = service.Settings();
     Require(settings.revision == revision + 1U && settings.measurements.size() == 2U &&
-                settings.selectedMeasurement == "Trc1" && settings.measurements[0].name == "Trc1" &&
+                service.Display().selectedMeasurement == "Trc1" && settings.measurements[0].name == "Trc1" &&
                 settings.measurements[0].Parameter() == "S22" && settings.measurements[0].receiverKind == 'b' &&
                 settings.measurements[1].name == "OtherReflection",
         "更新仅增加一个版本，保留数量、名称、目录顺序和当前选择");
@@ -287,7 +287,7 @@ void RejectedMeasurementUpdatesAreAtomic()
     Require(Finish(fixture, service.SetSweepMode(VnaService::SweepMode::HOLD)).ok, "完成连续采集停止屏障");
     Require(service.Settings().revision == revision && service.Settings().measurements.size() == 1U &&
                 service.Settings().measurements.front().Parameter() == "S21" &&
-                service.Settings().selectedMeasurement == "Trc1",
+                service.Display().selectedMeasurement == "Trc1",
         "所有拒绝保持版本、目录和选择不变");
     fixture.device->FailNextPlanPreparation();
     Require(!Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 2U, 2U), revision)).ok,
@@ -310,7 +310,7 @@ void FullCatalogSupportsInPlaceUpdates()
     Require(Finish(fixture, service.UpdateMeasurement(SParameter("Trc1", 2U, 2U), revision)).ok,
         "满目录仍能原位切换已有测量");
     Require(service.Settings().measurements.size() == TEST_CATALOG_CAPACITY &&
-                service.Settings().revision == revision + 1U && service.Settings().selectedMeasurement == "Trc1" &&
+                service.Settings().revision == revision + 1U && service.Display().selectedMeasurement == "Trc1" &&
                 service.Settings().measurements.front().Parameter() == "S22",
         "满目录更新没有先删后加的空窗或容量变化");
 }

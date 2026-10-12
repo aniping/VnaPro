@@ -14,6 +14,8 @@
 
 #include "vna_core/acquisition_core.h"
 #include "vna_core/sweep_plan.h"
+#include "vna_display/display_workspace.h"
+#include "vna_display/trace_projection.h"
 #include "vna_service/data_result.h"
 #include "vna_service/instrument_error.h"
 #include "vna_service/instrument_profile.h"
@@ -62,6 +64,16 @@ public:
 
     // 返回已提交的设置；返回的引用仅在本服务存活期间有效。
     const InstrumentSettings &Settings() const noexcept;
+    // 所有协议读取同一份显示域状态，返回引用仅在服务存活期间有效。
+    const VnaDisplay::DisplayState &Display() const noexcept;
+    // 显示操作复用控制权与有限 FIFO；不改变采集计划或扫描模式。
+    Operation ApplyDisplay(VnaDisplay::DisplayChange change, std::uint64_t expectedDisplayRevision = 0U,
+        const std::string &owner = "SCPI");
+    // 从当前完整帧计算格式值及独立 Marker 读数；名称为空时读取当前选中测量。
+    VnaDisplay::ProjectedTrace DisplayData(const std::string &name = std::string()) const;
+    // 后端分配新名称并原子添加、选择副本，前端无需复制目录控制规则。
+    Operation CloneMeasurement(const std::string &sourceName, std::uint64_t expectedRevision,
+        std::uint64_t expectedDisplayRevision, const std::string &owner);
     // 返回启动时已验证的仪器能力，引用在本服务存活期间有效。
     const InstrumentProfile &Profile() const noexcept;
     // 返回已验证的模拟设备标识，或明确标注为未验证的后端标识。
@@ -96,7 +108,7 @@ public:
     Operation RunContinuous(const std::string &owner);
     // 为当前已准备的扫描轮次排入手动 INIT；拒绝与现有有限测量重叠的请求。
     Operation Trigger(const std::string &owner = "SCPI");
-    // 立即选择区分大小写的已有测量名称；要求持有 SCPI 控制权且没有待处理配置。
+    // 原生同步入口仅在持有 SCPI 控制权且 FIFO 为空时可用；协议写调用 ApplyDisplay。
     bool SelectMeasurement(const std::string &name);
     // 更新单通道作用域标志；要求持有 SCPI 控制权且没有待处理配置。
     bool SetCurrentTriggerScope(bool current);
@@ -148,6 +160,9 @@ private:
     void CommitMode(Detail::ServiceTask &task);
     void PollTask();
     void PollConfiguration(Detail::ServiceTask &task);
+    void PollDisplay(Detail::ServiceTask &task);
+    VnaDisplay::FrameContext DisplayFrame(bool reachedBarrier = false) const;
+    bool PrepareDisplayConfiguration(Detail::ServiceTask &task);
     bool PrepareConfiguration(Detail::ServiceTask &task);
     void CommitConfiguration(Detail::ServiceTask &task);
     void PollTrigger(Detail::ServiceTask &task);
@@ -158,6 +173,7 @@ private:
     VnaCore::AcquisitionCore &core_;
     const InstrumentProfile profile_;
     InstrumentSettings settings_;
+    VnaDisplay::DisplayWorkspace display_;
     // 缓存核心最后成功下发的真实计划，其源和接收需求可以覆盖当前目录的子集。
     VnaCore::SweepPlan activePlan_;
     std::deque<Detail::ServiceTask> tasks_;

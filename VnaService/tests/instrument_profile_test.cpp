@@ -49,7 +49,7 @@ void DefaultMeasurementIsUncalibratedSParameter()
         VnaServiceTest::Fixture fixture(profile);
         const auto snapshot = fixture.service.Snapshot();
         const auto &settings = snapshot.settings;
-        Require(settings.measurements.size() == 1U && settings.selectedMeasurement == "Trc1",
+        Require(settings.measurements.size() == 1U && snapshot.display.selectedMeasurement == "Trc1",
             "全新仪器应只创建并选择第一条标准 S 参数迹线");
         const auto &measurement = settings.measurements.front();
         const unsigned receiverPort = portCount >= 2U ? 2U : 1U;

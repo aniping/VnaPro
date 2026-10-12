@@ -11,6 +11,7 @@
 
 #include "vna_core/core_types.h"
 #include "vna_core/sweep_plan.h"
+#include "vna_display/display_workspace.h"
 #include "vna_service/instrument_settings.h"
 #include "vna_service/operation_result.h"
 
@@ -19,6 +20,7 @@ namespace Detail {
 enum class ServiceTaskKind {
     CONFIGURE,
     MEASUREMENTS,
+    DISPLAY,
     SOURCE,
     MODE,
     TRIGGER
@@ -48,6 +50,11 @@ struct ServiceTask final {
     bool checkRevision = false;
     std::function<OperationResult(InstrumentSettings &)> mutate;
     InstrumentSettings candidate;
+    VnaDisplay::DisplayWorkspace displayCandidate;
+    VnaDisplay::DisplayChange displayChange;
+    bool selectClonedMeasurement = false;
+    std::uint64_t expectedDisplayRevision = 0U;
+    bool checkDisplayRevision = false;
     VnaCore::SweepPlan plan;
     VnaCore::Ticket ticket;
     std::promise<OperationResult> promise;
