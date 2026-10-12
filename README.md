@@ -17,7 +17,7 @@ cmake --build build --parallel
 cmake -E chdir build ctest --output-on-failure
 ```
 
-替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立模拟器构建仍见 [VnaNativeSimulator/README.md](VnaNativeSimulator/README.md)。本轮已验证 Windows MinGW/GCC 10.3 和 WSL/Linux GCC 13.3 的全目标 ThreadSanitizer；macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
+替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立构建见 [TDC1VN10 模拟驱动](VnaBoardSimulator/README.md)及保留的 [TDC1VN08 模拟驱动](VnaNativeSimulator/README.md)。本轮已验证 Windows MinGW/GCC 10.3 和 WSL/Linux GCC 13.3 的全目标 ThreadSanitizer；macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
 
 `npm run build` 包含 Vue/TypeScript 类型检查，产物在 `WebUI/dist`。本次仅打包 C++ 库，WebUI 的首次 `npm ci` 仍需访问 npm 仓库；前端依赖不包含在这些压缩包内。公司离线环境具备 C++ 工具链后，可直接执行上述 CMake 命令，无需依赖源码路径覆盖参数。只构建或运行 SCPI 服务可跳过 Node/npm 步骤，并以 `--no-web` 启动；Web HTTP 集成测试需要先生成前端产物。旧 `FETCHCONTENT_SOURCE_DIR_*` 参数不再生效。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
 
@@ -32,7 +32,7 @@ C++ 开发统一遵守 [C++语言编程规范](docs/C++语言编程规范.md)。
 先正常编写代码，再直接运行 clang-format 程序，使用根目录 `.clang-format` 自动格式化，排版依据上述规范第 3 章。单条语句的条件、循环也自动补上 `{}`（InsertBraces: true）；短函数体展开，类、结构体和函数定义之间自动留一空行（SeparateDefinitionBlocks: Always）；120 列由格式器处理，不为满足提交行数压缩代码。按功能拆分提交，不通过省略换行缩小差异。使用 clang-format 18.1.8，在根目录运行：
 
 ```powershell
-$cppFiles = rg --files VnaCore VnaMeasurement VnaService VnaServer VnaNativeSimulator VnaLog -g '*.h' -g '*.cpp'
+$cppFiles = rg --files VnaCore VnaMeasurement VnaService VnaServer VnaNativeSimulator VnaBoardSimulator VnaLog -g '*.h' -g '*.cpp'
 clang-format --style=file -i $cppFiles
 clang-format --style=file --dry-run --Werror $cppFiles
 ```
@@ -47,7 +47,7 @@ clang-format --style=file --dry-run --Werror $cppFiles
 .\build\bin\vna_server.exe --bind 127.0.0.1 --port 5025
 ```
 
-默认加载构建生成的模拟动态库，并启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。静态根目录为构建时指定的 `WebUI/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时显式传入 `--driver` 的模拟库绝对路径，并用 `--web-root` 指向部署后的 `WebUI/dist`；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，查看前应保证日志级别允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认仅绑定本机；`--no-web` 关闭 Web 入口。
+默认加载构建生成的 **TDC1VN10 新接口模拟库**，启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。`--board tdc1vn08` 使用保留的 VN08 旧接口库，`--board tdc1vn10` 显式选择当前基准接口；未来 VN08 驱动对齐新接口后应使用新接口适配器。两个接口有同名异签名函数，不能仅换 DLL 路径。静态根目录为构建时指定的 `WebUI/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时传入与 `--board` 匹配的 `--driver` 绝对路径，并用 `--web-root` 指向部署后的 `WebUI/dist`；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，日志级别须允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认绑定本机；`--no-web` 关闭 Web 入口。
 
 ## 仪器与日志配置
 
