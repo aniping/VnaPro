@@ -1,170 +1,160 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { effectScope, nextTick, ref } from 'vue'
-import type { AcquiredFrame, Measurement } from '../src/api/types'
+import { ref } from 'vue'
+import type { DisplayCommand } from '../src/api/types'
 import { useWorkspace } from '../src/composables/useWorkspace'
-import { getTraceScale } from '../src/plot'
-import { displayValue, referenceLevel, usesRelativeAxis } from '../src/plot/traceMath'
-import { FORMAT_INFO } from '../src/plot/formatting'
+import {
+  instrumentStatus,
+  acquiredFrame,
+  reflection,
+  transmission,
+} from './displayFixtures'
+import { referenceLevel, usesRelativeAxis } from '../src/plot/traceMath'
 
-const reflect: Measurement = {
-  name: 'Reflect', kind: 'sParameter', receiverKind: 'b', receiverPort: 1, sourcePort: 1,
-  parameter: 'S11', unit: '1', calibration: 'uncalibrated',
+function workspaceFixture() {
+  const status = ref(instrumentStatus())
+  const frame = ref(acquiredFrame())
+  const commands: DisplayCommand[] = []
+  const workspace = useWorkspace(
+    () => status.value,
+    () => frame.value,
+    (command) => commands.push(command),
+  )
+  return { status, frame, commands, workspace }
 }
-const transmit: Measurement = { ...reflect, name: 'Transmit', receiverPort: 2, parameter: 'S21' }
 
-function acquired(real: number[], imaginary = real.map(() => 0)): AcquiredFrame {
-  return {
-    available: true, current: true, channelId: 1, runId: '1', revision: '1', measurementRevision: '1', frameSeq: '1',
-    originalPointCount: real.length, displayPointCount: real.length, decimated: false,
-    frequencyHz: real.map((_, index) => (index + 1) * 1e6),
-    traces: [
-      { ...reflect, available: true, real, imag: imaginary, valid: real.map(() => true) },
-      { ...transmit, available: true, real: real.map(() => 0.05), imag: real.map(() => 0), valid: real.map(() => true) },
+test('all display actions remain requests until authoritative backend readback', () => {
+  const { status, workspace, commands } = workspaceFixture()
+  const before = JSON.parse(JSON.stringify(status.value.display))
+  workspace.selectTrace(transmission.name)
+  workspace.setDisplayed(transmission.name, false)
+  workspace.setFormat('phase')
+  workspace.setScale({
+    perDivision: 4,
+    referenceLevel: 0,
+    referencePosition: 5,
+  })
+  workspace.setSmithRadius(2)
+  workspace.setMarker({ enabled: true, frequencyHz: 15e6 })
+  workspace.toggleVisibility()
+  workspace.setLayout('grid')
+  workspace.autoscale()
+  assert.deepEqual(status.value.display, before)
+  assert.deepEqual(
+    commands.map((command) => command.action),
+    [
+      'select',
+      'displayed',
+      'format',
+      'scale',
+      'smithRadius',
+      'marker',
+      'visible',
+      'layout',
+      'autoscale',
     ],
+  )
+  assert.equal(workspace.activeTraceName.value, reflection.name)
+  assert.equal(workspace.activePresentation.value!.format, 'db')
+})
+
+test('backend snapshots synchronize independent workspaces and a recreated observer', () => {
+  const { status, frame, workspace } = workspaceFixture()
+  const observer = useWorkspace(
+    () => status.value,
+    () => frame.value,
+    () => assert.fail('Observer must not write'),
+  )
+  const updated = JSON.parse(JSON.stringify(status.value))
+  updated.display.revision = '2'
+  updated.display.selectedMeasurement = transmission.name
+  updated.display.presentations[transmission.name]!.format = 'phase'
+  updated.display.presentations[transmission.name]!.scale = {
+    min: -180,
+    max: 180,
+    referencePosition: 5,
   }
-}
-
-test('Autoscale fixes the range, division and reference while continuous frames change', async context => {
-  const scope = effectScope()
-  context.after(() => scope.stop())
-  const currentFrame = ref(acquired([0.2, 0.2001, 0.1999]))
-  const catalog = ref([reflect, transmit])
-  const workspace = scope.run(() => useWorkspace(() => catalog.value, () => currentFrame.value))!
-  workspace.autoscale()
-  const fitted = getTraceScale(currentFrame.value, reflect, workspace.activePresentation.value)
-  currentFrame.value = acquired([0.1, 0.3, 0.2])
-  catalog.value = [{ ...reflect }, { ...transmit }]
-  await nextTick()
-  const later = getTraceScale(currentFrame.value, reflect, workspace.activePresentation.value)
-  assert.deepEqual(later, fitted)
-  assert.equal((later.max - later.min) / 10, (fitted.max - fitted.min) / 10)
-  assert.equal(referenceLevel(later), referenceLevel(fitted))
-})
-
-test('another Autoscale click refits only the active trace using the latest displayed frame', context => {
-  const scope = effectScope()
-  context.after(() => scope.stop())
-  const currentFrame = ref(acquired([0.2, 0.2001, 0.1999]))
-  const workspace = scope.run(() => useWorkspace(() => [reflect, transmit], () => currentFrame.value))!
-  const otherScale = { ...workspace.presentations[transmit.name]!.scale }
-  workspace.autoscale()
-  const firstScale = { ...workspace.activePresentation.value!.scale }
-  currentFrame.value = acquired([0.1, 0.3, 0.2])
-  workspace.autoscale()
-  const refitted = workspace.activePresentation.value!.scale
-  assert.notDeepEqual(refitted, firstScale)
-  assert.ok(refitted.min <= displayValue(0.1, 0, 'db'))
-  assert.ok(refitted.max >= displayValue(0.3, 0, 'db'))
-  assert.deepEqual(workspace.presentations[transmit.name]!.scale, otherScale)
-  workspace.selectTrace(transmit.name)
-  workspace.autoscale()
-  assert.deepEqual(workspace.presentations[reflect.name]!.scale, refitted)
-})
-
-test('manual scale and format changes replace the fixed range without following later frames', context => {
-  const scope = effectScope()
-  context.after(() => scope.stop())
-  const currentFrame = ref(acquired([0.2, 0.2001, 0.1999]))
-  const workspace = scope.run(() => useWorkspace(() => [reflect], () => currentFrame.value))!
-  workspace.autoscale()
-  const manual = { min: -30, max: -10, referencePosition: 9 }
-  workspace.setScale(manual)
-  manual.min = -100
-  currentFrame.value = acquired([0.01, 0.3, 0.4])
-  assert.deepEqual(getTraceScale(currentFrame.value, reflect, workspace.activePresentation.value),
-    { min: -30, max: -10, referencePosition: 9 })
-  workspace.setFormat('phase')
-  assert.deepEqual(workspace.activePresentation.value!.scale, FORMAT_INFO.phase.fallback)
-  currentFrame.value = acquired([0.2, 0.2, 0.2], [0.1, 0.2, 0.3])
-  assert.deepEqual(getTraceScale(currentFrame.value, reflect, workspace.activePresentation.value), FORMAT_INFO.phase.fallback)
-})
-
-test('Autoscale without finite display values preserves the applied range and becomes unavailable', context => {
-  const scope = effectScope()
-  context.after(() => scope.stop())
-  const currentFrame = ref<AcquiredFrame | null>(null)
-  const workspace = scope.run(() => useWorkspace(() => [reflect], () => currentFrame.value))!
-  workspace.setScale({ min: -20, max: -10, referencePosition: 9 })
-  const applied = { ...workspace.activePresentation.value!.scale }
-  const missing = acquired([0.2, 0.3, 0.4])
-  missing.traces = []
-  const unavailable = acquired([0.2, 0.3, 0.4])
-  unavailable.traces[0]!.available = false
-  const invalid = acquired([0.2, 0.3, 0.4])
-  invalid.traces[0]!.valid.fill(false)
-  for (const snapshot of [null, missing, unavailable, invalid, acquired([0, 0, 0])]) {
-    currentFrame.value = snapshot
-    assert.equal(workspace.canAutoscale.value, false)
-    workspace.autoscale()
-    assert.deepEqual(workspace.activePresentation.value!.scale, applied)
-  }
-  currentFrame.value = acquired([0.2, 0.3, 0.4])
-  assert.equal(workspace.canAutoscale.value, true)
-  workspace.setFormat('phase')
-  currentFrame.value = acquired([0, 0, 0])
-  assert.equal(workspace.canAutoscale.value, false)
-  workspace.autoscale()
-  assert.deepEqual(workspace.activePresentation.value!.scale, FORMAT_INFO.phase.fallback)
-})
-
-test('Real / Imag Autoscale fits both components once and holds their common range', context => {
-  const scope = effectScope()
-  context.after(() => scope.stop())
-  const currentFrame = ref(acquired([1, 2, 3], [-5, 6, 1]))
-  const workspace = scope.run(() => useWorkspace(() => [reflect], () => currentFrame.value))!
-  workspace.setFormat('realimag')
-  workspace.autoscale()
-  const fitted = { ...workspace.activePresentation.value!.scale }
-  assert.ok(fitted.min <= -5 && fitted.max >= 6)
-  currentFrame.value = acquired([10, 20, 30], [-50, 60, 10])
-  assert.deepEqual(getTraceScale(currentFrame.value, reflect, workspace.activePresentation.value), fitted)
-})
-
-test('fixed tiny ranges retain relative ticks independently of how their scale was applied', () => {
-  assert.equal(usesRelativeAxis({ min: 0.9064, max: 0.90645 }), true)
-  assert.equal(usesRelativeAxis({ min: -1000.1, max: -1000 }), true)
-  assert.equal(usesRelativeAxis({ min: -0.00001, max: 0.00001 }), true)
-  assert.equal(usesRelativeAxis({ min: -14.01, max: -13.91 }), false)
-  assert.equal(usesRelativeAxis(FORMAT_INFO.db.fallback), false)
-})
-
-test('unrepresentable Autoscale ranges cannot replace a fixed scale or reactivate per-frame fitting', context => {
-  const scope = effectScope()
-  context.after(() => scope.stop())
-  const currentFrame = ref(acquired([1e20, 1e20]))
-  const workspace = scope.run(() => useWorkspace(() => [reflect], () => currentFrame.value))!
-  workspace.setFormat('real')
-  workspace.setScale({ min: -10, max: 10, referencePosition: 8 })
-  const applied = { ...workspace.activePresentation.value!.scale }
-  for (const real of [[1e20, 1e20], [-1e308, 1e308]]) {
-    currentFrame.value = acquired(real)
-    workspace.autoscale()
-    assert.deepEqual(workspace.activePresentation.value!.scale, applied)
-    assert.deepEqual(getTraceScale(currentFrame.value, reflect, workspace.activePresentation.value), applied)
-    assert.equal(workspace.canAutoscale.value, false)
+  updated.display.presentations[transmission.name]!.marker.enabled = true
+  updated.display.layout = 'grid'
+  status.value = updated
+  const refreshed = useWorkspace(
+    () => status.value,
+    () => frame.value,
+    () => undefined,
+  )
+  for (const current of [workspace, observer, refreshed]) {
+    assert.equal(current.activeTraceName.value, transmission.name)
+    assert.equal(current.activePresentation.value!.format, 'phase')
+    assert.equal(current.activePresentation.value!.marker.enabled, true)
+    assert.equal(current.layout.value, 'grid')
+    assert.deepEqual(
+      current.activePresentation.value!.scale,
+      updated.display.presentations[transmission.name]!.scale,
+    )
   }
 })
 
-test('display selection keeps a larger catalog, replaces only the active slot and permits an empty display', async context => {
-  const scope = effectScope()
-  context.after(() => scope.stop())
-  const catalog = ref(Array.from({ length: 5 }, (_, index) => ({ ...reflect, name: `Trace ${index + 1}` })))
-  const workspace = scope.run(() => useWorkspace(() => catalog.value, () => null))!
-  assert.deepEqual(workspace.displayedNames.value, ['Trace 1', 'Trace 2', 'Trace 3', 'Trace 4'])
-  workspace.selectTrace('Trace 2')
-  workspace.selectTrace('Trace 5')
-  assert.deepEqual(workspace.displayedNames.value, ['Trace 1', 'Trace 5', 'Trace 3', 'Trace 4'])
-  assert.equal(catalog.value.length, 5)
-  assert.ok(workspace.presentations['Trace 2'])
-  for (const name of [...workspace.displayedNames.value]) workspace.setDisplayed(name, false)
-  catalog.value = catalog.value.map(item => ({ ...item }))
-  await nextTick()
-  assert.deepEqual(workspace.displayedNames.value, [])
+test('Autoscale submits the acquisition identity without deriving any scale from local samples', () => {
+  const { status, frame, workspace, commands } = workspaceFixture()
+  const scale = JSON.parse(
+    JSON.stringify(workspace.activePresentation.value!.scale),
+  )
+  frame.value.traces[0]!.real = [1e300, -1e300]
+  status.value.acquisitionRevision = '9007199254740993'
+  workspace.autoscale()
+  assert.deepEqual(commands, [
+    {
+      action: 'autoscale',
+      traceName: reflection.name,
+      acquisitionRevision: '9007199254740993',
+    },
+  ])
+  assert.deepEqual(workspace.activePresentation.value!.scale, scale)
+})
+
+test('marker keyboard commands use original source steps instead of display array indexes', () => {
+  const { status, workspace, commands } = workspaceFixture()
+  status.value.acquisitionRevision = '4'
+  workspace.setMarker({ step: 1, discrete: true })
+  workspace.setMarker({ sampleIndex: 10000, discrete: true })
+  assert.deepEqual(commands, [
+    {
+      action: 'marker',
+      traceName: reflection.name,
+      step: 1,
+      discrete: true,
+      acquisitionRevision: '4',
+    },
+    {
+      action: 'marker',
+      traceName: reflection.name,
+      sampleIndex: 10000,
+      discrete: true,
+      acquisitionRevision: '4',
+    },
+  ])
+})
+
+test('empty display and catalog changes are rendered exactly as the backend reports', () => {
+  const { status, workspace } = workspaceFixture()
+  status.value.display.displayedNames = []
+  status.value.display.selectedMeasurement = ''
+  assert.equal(workspace.displayedMeasurements.value.length, 0)
   assert.equal(workspace.activeTraceName.value, '')
-  workspace.setDisplayed('Trace 5', true)
-  assert.deepEqual(workspace.displayedMeasurements.value.map(item => item.name), ['Trace 5'])
-  catalog.value = catalog.value.filter(item => item.name !== 'Trace 5')
-  await nextTick()
+  status.value.measurements = status.value.measurements.map((trace) => ({
+    ...trace,
+  }))
   assert.deepEqual(workspace.displayedNames.value, [])
+  status.value.display.displayedNames = [transmission.name]
+  status.value.display.selectedMeasurement = transmission.name
+  assert.deepEqual(
+    workspace.displayedMeasurements.value.map((trace) => trace.name),
+    [transmission.name],
+  )
+})
+
+test('relative-axis labels depend only on the authoritative fixed scale', () => {
+  assert.equal(usesRelativeAxis({ min: 0.9064, max: 0.90645 }), true)
+  assert.equal(usesRelativeAxis({ min: -14.01, max: -13.91 }), false)
+  assert.equal(referenceLevel({ min: -80, max: 20, referencePosition: 9 }), 10)
 })
