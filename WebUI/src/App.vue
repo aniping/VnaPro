@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import InstrumentToolbar from './components/instrument/InstrumentToolbar.vue'
 import HardkeyPanel from './components/instrument/HardkeyPanel.vue'
 import InstrumentStatusBar from './components/instrument/InstrumentStatusBar.vue'
@@ -14,7 +14,6 @@ import SystemSofttool from './components/softtools/SystemSofttool.vue'
 import { useInstrument } from './composables/useInstrument'
 import { useWorkspace } from './composables/useWorkspace'
 import { exportVisibleFrameCsv } from './plot'
-import { cloneMeasurementCandidate } from './domain/measurements'
 
 const instrument = useInstrument()
 const {
@@ -25,6 +24,7 @@ const {
   canWrite,
   canConfigure,
   canChangeMeasurements,
+  canEditDisplay,
   pendingOperation,
   writeInFlight,
   controlBusy,
@@ -34,8 +34,9 @@ const {
 } = instrument
 const measurements = computed(() => status.value?.measurements ?? [])
 const workspace = useWorkspace(
-  () => measurements.value,
+  () => status.value,
   () => frame.value,
+  instrument.display,
 )
 const {
   presentations,
@@ -47,9 +48,6 @@ const {
   canAutoscale,
 } = workspace
 const { displayedNames, displayedMeasurements } = workspace
-watch(displayedNames, (names) => instrument.setDisplayedMeasurements(names), {
-  flush: 'sync',
-})
 const displayedMeasurement = computed(
   () =>
     frame.value?.traces.find((trace) => trace.name === activeTraceName.value) ??
@@ -160,7 +158,7 @@ function keydown(event: KeyboardEvent) {
 }
 function exportCsv() {
   if (!frame.value) return
-  const csv = exportVisibleFrameCsv(frame.value, presentations)
+  const csv = exportVisibleFrameCsv(frame.value, presentations.value)
   const url = URL.createObjectURL(
     new Blob([csv], { type: 'text/csv;charset=utf-8' }),
   )
@@ -186,16 +184,7 @@ async function deleteActive() {
 async function addTrace() {
   if (!canChangeMeasurements.value || !status.value || !activeMeasurement.value)
     return
-  const candidate = cloneMeasurementCandidate(
-    activeMeasurement.value,
-    measurements.value,
-  )
-  if (
-    candidate &&
-    (await instrument.addMeasurement(candidate, status.value.revision))
-  ) {
-    workspace.selectTrace(candidate.name)
-  }
+  await instrument.cloneMeasurement(activeMeasurement.value.name)
 }
 onMounted(() => {
   fitCanvas()
@@ -225,7 +214,8 @@ onBeforeUnmount(() => {
             <InstrumentToolbar
               :layout="layout"
               :has-trace="Boolean(activeMeasurement)"
-              :can-autoscale="canAutoscale"
+              :can-autoscale="canEditDisplay && canAutoscale"
+              :can-edit-display="canEditDisplay"
               :marker-enabled="activePresentation?.marker.enabled ?? false"
               :can-export="Boolean(frame)"
               :can-write="canWrite"
@@ -233,7 +223,9 @@ onBeforeUnmount(() => {
               :can-delete="canChangeMeasurements && measurements.length > 1"
               :can-add-trace="canChangeMeasurements && measurements.length < 32"
               @select-tool="selectTool"
-              @toggle-layout="layout = layout === 'grid' ? 'maximized' : 'grid'"
+              @toggle-layout="
+                workspace.setLayout(layout === 'grid' ? 'maximized' : 'grid')
+              "
               @autoscale="workspace.autoscale"
               @toggle-marker="
                 workspace.setMarker({
@@ -246,6 +238,7 @@ onBeforeUnmount(() => {
               @delete-trace="deleteActive"
             />
             <DiagramWorkspace
+              :diagrams="status?.display.diagrams ?? []"
               :frame="frame"
               :measurements="displayedMeasurements"
               :presentations="presentations"
@@ -253,16 +246,19 @@ onBeforeUnmount(() => {
               :layout="layout"
               :config="status?.config ?? emptyConfig"
               :frame-condition="frameCondition"
+              :can-edit-display="canEditDisplay"
               @select-trace="workspace.selectTrace"
               @toggle-visibility="workspace.toggleVisibility"
-              @set-layout="layout = $event"
-              @add-marker="workspace.setMarker({ enabled: true })"
+              @set-layout="workspace.setLayout"
+              @add-marker="workspace.setMarker({ enabled: true }, $event)"
               @move-marker="
                 workspace.setMarker(
                   {
                     enabled: true,
                     frequencyHz: $event.frequencyHz,
                     sampleIndex: $event.sampleIndex,
+                    step: $event.step,
+                    discrete: $event.discrete,
                   },
                   $event.name,
                 )
@@ -301,7 +297,8 @@ onBeforeUnmount(() => {
               :busy="busy"
               :active-trace-name="activeTraceName"
               :displayed-names="displayedNames"
-              :add="instrument.addMeasurement"
+              :can-edit-display="canEditDisplay"
+              :clone="instrument.cloneMeasurement"
               :remove="instrument.deleteMeasurement"
               @select-trace="workspace.selectTrace"
               @display="workspace.setDisplayed($event.name, $event.enabled)"
@@ -314,7 +311,8 @@ onBeforeUnmount(() => {
               :frame="frame"
               :index="activeIndex"
               :layout="layout"
-              :can-autoscale="canAutoscale"
+              :can-autoscale="canEditDisplay && canAutoscale"
+              :can-edit-display="canEditDisplay"
               @format="workspace.setFormat"
               @scale="workspace.setScale"
               @smith-radius="workspace.setSmithRadius"
@@ -338,7 +336,8 @@ onBeforeUnmount(() => {
               :connected="connected"
               :has-control="hasControl"
               :control-busy="controlBusy"
-              @layout="layout = $event"
+              :can-edit-display="canEditDisplay"
+              @layout="workspace.setLayout"
               @export="exportCsv"
               @acquire="instrument.claim()"
               @release="instrument.release()"

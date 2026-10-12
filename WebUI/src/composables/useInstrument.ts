@@ -10,7 +10,8 @@ import type {
   MeasurementCandidate,
   PendingOperation,
   RunAction,
-  SweepConfiguration,
+  SweepPatch,
+  DisplayCommand,
 } from '../api/types'
 
 interface InstrumentOptions {
@@ -33,7 +34,7 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : '服务请求失败'
 }
 
-/** 统一轮询循环负责读取服务端状态；组件只管理本地编辑草稿和显示设置。 */
+/** 统一轮询循环负责读取服务端状态；组件只管理未提交草稿与浏览器窗口状态。 */
 export function useInstrument(options: InstrumentOptions = {}) {
   const api = options.api ?? new InstrumentApi()
   const now = options.now ?? Date.now
@@ -53,7 +54,6 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const writeInFlight = shallowRef(false)
   const uncertainWrite = shallowRef(false)
   const renewing = shallowRef(false)
-  const displayedNames = shallowRef<readonly string[] | undefined>(undefined)
 
   let active = false
   let generation = 0
@@ -62,7 +62,6 @@ export function useInstrument(options: InstrumentOptions = {}) {
   let pollAgain = false
   let runningPoll = Promise.resolve()
   let writeEpoch = 0
-  let displayEpoch = 0
   let initialClaimAttempted = false
   let lastRenewed = 0
   let resolveOperation: ((value: InstrumentStatus | null) => void) | null = null
@@ -131,7 +130,15 @@ export function useInstrument(options: InstrumentOptions = {}) {
       return {
         kind: 'stale',
         label: 'PREVIOUS CONFIG',
-        detail: 'Retained frame · acquire data for the applied configuration',
+        detail:
+          'Retained frame · waiting for the applied measurement projection',
+      }
+    }
+    if (currentFrame.displayRevision !== currentStatus.display.revision) {
+      return {
+        kind: 'stale',
+        label: 'PREVIOUS DISPLAY',
+        detail: 'Retained projection · waiting for the shared display state',
       }
     }
     if (currentFrame.runId !== currentStatus.runId) {
@@ -287,11 +294,10 @@ export function useInstrument(options: InstrumentOptions = {}) {
   async function pollCycle(epoch: number): Promise<void> {
     const wasConnected = connected.value
     const epochAtRead = writeEpoch
-    const displayAtRead = displayEpoch
     try {
       const [statusResult, frameResult] = await Promise.allSettled([
         api.status(),
-        api.frame(displayedNames.value),
+        api.frame(),
       ])
       if (epoch !== generation || !active) return
       if (statusResult.status === 'fulfilled') {
@@ -308,9 +314,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
         if (wasConnected || !initialized.value)
           notify(message(statusResult.reason), 'error')
       }
-      if (displayAtRead !== displayEpoch) {
-        pollAgain = true
-      } else if (frameResult.status === 'fulfilled') {
+      if (frameResult.status === 'fulfilled') {
         if (frameResult.value.available) {
           frame.value = frameResult.value
           frameCurrent.value = frameResult.value.current
@@ -463,24 +467,6 @@ export function useInstrument(options: InstrumentOptions = {}) {
     schedule(0)
   }
 
-  /** 显示集合与测量目录分离；旧集合的迟到帧不能覆盖新选择。 */
-  function setDisplayedMeasurements(names: readonly string[]): void {
-    if (names.length > 4 || new Set(names).size !== names.length)
-      throw new Error('最多显示四条不同迹线')
-    if (JSON.stringify(names) === JSON.stringify(displayedNames.value)) return
-    displayedNames.value = [...names]
-    ++displayEpoch
-    if (frame.value)
-      frame.value = {
-        ...frame.value,
-        traces: frame.value.traces.filter((trace) =>
-          names.includes(trace.name),
-        ),
-      }
-    frameCurrent.value = false
-    schedule(0)
-  }
-
   function stop(): void {
     if (!active) return
     active = false
@@ -515,17 +501,17 @@ export function useInstrument(options: InstrumentOptions = {}) {
     canWrite,
     canConfigure,
     canChangeMeasurements,
+    canEditDisplay: canWrite,
     frameCondition,
     start,
     stop,
     refresh,
-    setDisplayedMeasurements,
     claim: () => claim(false),
     release,
     dismissNotice: () => {
       notice.value = null
     },
-    configure: (candidate: SweepConfiguration, expectedRevision: string) =>
+    configure: (candidate: SweepPatch, expectedRevision: string) =>
       submit('Apply configuration', 'config', () =>
         api.configure(candidate, expectedRevision),
       ),
@@ -547,6 +533,26 @@ export function useInstrument(options: InstrumentOptions = {}) {
       submit('Delete measurement', 'measurement', () =>
         api.deleteMeasurement(name, expectedRevision),
       ),
+    display: (command: DisplayCommand) => {
+      const revision = status.value?.display.revision
+      return revision
+        ? submit('Apply display', 'display', () =>
+            api.display(command, revision),
+          )
+        : Promise.resolve(null)
+    },
+    cloneMeasurement: (sourceName: string) => {
+      const snapshot = status.value
+      return snapshot
+        ? submit('Add trace', 'measurement', () =>
+            api.cloneMeasurement(
+              sourceName,
+              snapshot.revision,
+              snapshot.display.revision,
+            ),
+          )
+        : Promise.resolve(null)
+    },
     run: (action: RunAction) =>
       submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)),
   }
