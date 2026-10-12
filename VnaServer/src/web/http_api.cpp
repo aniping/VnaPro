@@ -611,8 +611,8 @@ Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService
     trace["real"] = std::move(real);
     trace["imag"] = std::move(imaginary);
     trace["valid"] = std::move(validity);
-    const auto projection =
-        VnaDisplay::TraceProjection::Calculate(presentation, result, frame.plan.frequencyHz, frame.configRevision);
+    const auto projection = VnaDisplay::TraceProjection::Calculate(
+        presentation, result, frame.plan.frequencyHz, measurement, frame.configRevision);
     trace["projection"] = DisplayJson::Projection(projection, presentation.format, indexes);
     return trace;
 }

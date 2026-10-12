@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "trace_sequence_formatter.h"
+
 namespace VnaDisplay {
 namespace Detail {
 namespace {
@@ -111,9 +113,10 @@ bool ApplySamplePosition(
     return true;
 }
 
-MarkerReadout ReadPoint(
-    const VnaMeasurement::TraceResult &trace, const std::vector<double> &axis, std::size_t index, DisplayFormat format)
+MarkerReadout ReadPoint(const MarkerProjectionContext &context, std::size_t index)
 {
+    const auto &trace = context.trace;
+    const auto &axis = context.frequencyHz;
     MarkerReadout result;
     result.available = true;
     result.sampleIndex = index;
@@ -122,22 +125,27 @@ MarkerReadout ReadPoint(
     result.valid = point.valid && std::isfinite(point.real) && std::isfinite(point.imag);
     result.real = point.real;
     result.imag = point.imag;
-    result.value = TraceProjection::Format(point, format);
-    if (result.valid) {
+    result.value = TraceSequenceFormatter::RequiresSequence(context.format) &&
+                           context.formattedPoints.size() == trace.points.size()
+                       ? context.formattedPoints[index]
+                       : TraceProjection::MarkerValue(point, context.format);
+    if (result.valid && context.reflectionInterpretation) {
         result.impedance = TraceProjection::Impedance(point.real, point.imag);
+        result.admittance = TraceProjection::Admittance(point.real, point.imag);
     }
     return result;
 }
 
-MarkerReadout Interpolate(
-    const VnaMeasurement::TraceResult &trace, const std::vector<double> &axis, double requested, DisplayFormat format)
+MarkerReadout Interpolate(const MarkerProjectionContext &context, double requested)
 {
+    const auto &trace = context.trace;
+    const auto &axis = context.frequencyHz;
     const auto upper = std::lower_bound(axis.begin(), axis.end(), requested);
     const auto index = upper == axis.end() ? axis.size() - 1U : static_cast<std::size_t>(upper - axis.begin());
     if (index == 0U || axis[index] == requested) {
-        return ReadPoint(trace, axis, index, format);
+        return ReadPoint(context, index);
     }
-    MarkerReadout result = ReadPoint(trace, axis, index - 1U, format);
+    MarkerReadout result = ReadPoint(context, index - 1U);
     const auto &left = trace.points[index - 1U];
     const auto &right = trace.points[index];
     const double weight = (requested - axis[index - 1U]) / (axis[index] - axis[index - 1U]);
@@ -150,8 +158,25 @@ MarkerReadout Interpolate(
     result.valid = point.valid;
     result.real = point.real;
     result.imag = point.imag;
-    result.value = TraceProjection::Format(point, format);
-    result.impedance = point.valid ? TraceProjection::Impedance(point.real, point.imag) : NormalizedImpedance{};
+    result.value = TraceProjection::MarkerValue(point, context.format);
+    if (point.valid && TraceSequenceFormatter::RequiresSequence(context.format) &&
+        context.formattedPoints.size() == trace.points.size()) {
+        const auto &leftValue = context.formattedPoints[index - 1U];
+        const auto &rightValue = context.formattedPoints[index];
+        result.value.state = DisplayValueState::UNDEFINED;
+        if (leftValue.state == DisplayValueState::FINITE && rightValue.state == DisplayValueState::FINITE) {
+            // 序列格式沿同一完整帧投影插值，不能对插值后的单个复数重新求导。
+            result.value.primary = (1.0 - weight) * leftValue.primary + weight * rightValue.primary;
+            result.value.state =
+                std::isfinite(result.value.primary) ? DisplayValueState::FINITE : DisplayValueState::OVERFLOW;
+        }
+    }
+    result.impedance = point.valid && context.reflectionInterpretation
+                           ? TraceProjection::Impedance(point.real, point.imag)
+                           : NormalizedImpedance{};
+    result.admittance = point.valid && context.reflectionInterpretation
+                            ? TraceProjection::Admittance(point.real, point.imag)
+                            : NormalizedAdmittance{};
     return result;
 }
 
@@ -234,22 +259,23 @@ bool MarkerResolver::Apply(
     return true;
 }
 
-MarkerReadout MarkerResolver::Resolve(const MarkerSettings &settings, DisplayFormat format,
-    const VnaMeasurement::TraceResult &trace, const std::vector<double> &axis, std::uint64_t acquisitionRevision)
+MarkerReadout MarkerResolver::Resolve(const MarkerSettings &settings, const MarkerProjectionContext &context)
 {
+    const auto &trace = context.trace;
+    const auto &axis = context.frequencyHz;
     if (!settings.enabled || !trace.available || trace.points.size() != axis.size() || !ValidAxis(axis)) {
         return {};
     }
     if (settings.hasSampleIndex && settings.sampleIndex < axis.size() &&
-        (acquisitionRevision == 0U || settings.acquisitionRevision == acquisitionRevision)) {
-        return ReadPoint(trace, axis, settings.sampleIndex, format);
+        (context.acquisitionRevision == 0U || settings.acquisitionRevision == context.acquisitionRevision)) {
+        return ReadPoint(context, settings.sampleIndex);
     }
     const double requested = settings.hasFrequency ? settings.frequencyHz : axis.front() / 2.0 + axis.back() / 2.0;
     const double frequency = std::max(axis.front(), std::min(axis.back(), requested));
     if (!settings.interpolate || axis.front() == axis.back()) {
-        return ReadPoint(trace, axis, NearestIndex(axis, frequency), format);
+        return ReadPoint(context, NearestIndex(axis, frequency));
     }
-    return Interpolate(trace, axis, frequency, format);
+    return Interpolate(context, frequency);
 }
 
 }  // 命名空间 Detail

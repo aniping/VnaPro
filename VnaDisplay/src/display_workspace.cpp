@@ -230,7 +230,8 @@ DisplayResult Autoscale(
         return Failure("Autoscale requires a current complete frame");
     }
     const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(*context.frame, measurement);
-    if (!TraceProjection::Autoscale(trace, presentation.format, presentation.scale, presentation.smithRadius)) {
+    if (!TraceProjection::Autoscale(trace, presentation.format, presentation.scale, presentation.smithRadius,
+            context.frame->plan.frequencyHz)) {
         return Failure("Autoscale does not have a finite representable range");
     }
     return Success();
@@ -244,7 +245,9 @@ DisplayResult ApplyTrace(TracePresentation &presentation, const DisplayChange &c
         case DisplayChangeKind::FORMAT:
             return ChangeFormat(presentation, change.format, measurement);
         case DisplayChangeKind::SCALE:
-            return Detail::ScaleCalculator::Apply(presentation.scale, change.scale, error) ? Success() : Failure(error);
+            return Detail::ScaleCalculator::Apply(presentation.scale, change.scale, error, presentation.format)
+                       ? Success()
+                       : Failure(error);
         case DisplayChangeKind::AUTOSCALE:
             return Autoscale(presentation, measurement, context);
         case DisplayChangeKind::SMITH_RADIUS:
@@ -304,40 +307,6 @@ DisplayResult ReconcileCandidate(DisplayState &candidate, const std::vector<VnaM
 }
 
 }  // 匿名命名空间
-
-const char *DisplayFormatName(DisplayFormat format) noexcept
-{
-    switch (format) {
-        case DisplayFormat::DB:
-            return "db";
-        case DisplayFormat::MAGNITUDE:
-            return "magnitude";
-        case DisplayFormat::PHASE:
-            return "phase";
-        case DisplayFormat::REAL:
-            return "real";
-        case DisplayFormat::IMAG:
-            return "imag";
-        case DisplayFormat::REALIMAG:
-            return "realimag";
-        case DisplayFormat::SMITH:
-            return "smith";
-        default:
-            return nullptr;
-    }
-}
-
-bool ParseDisplayFormat(const std::string &value, DisplayFormat &format) noexcept
-{
-    for (const auto candidate : {DisplayFormat::DB, DisplayFormat::MAGNITUDE, DisplayFormat::PHASE, DisplayFormat::REAL,
-             DisplayFormat::IMAG, DisplayFormat::REALIMAG, DisplayFormat::SMITH}) {
-        if (value == DisplayFormatName(candidate)) {
-            format = candidate;
-            return true;
-        }
-    }
-    return false;
-}
 
 const char *LayoutModeName(LayoutMode layout) noexcept
 {

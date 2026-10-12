@@ -132,7 +132,7 @@ VnaDisplay::ProjectedTrace InstrumentService::DisplayData(const std::string &nam
     }
     const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(*context.frame, *measurement);
     return VnaDisplay::TraceProjection::Calculate(
-        *presentation, trace, context.frame->plan.frequencyHz, context.acquisitionRevision);
+        *presentation, trace, context.frame->plan.frequencyHz, *measurement, context.acquisitionRevision);
 }
 
 Operation InstrumentService::CloneMeasurement(const std::string &sourceName, std::uint64_t expectedRevision,

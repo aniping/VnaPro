@@ -38,6 +38,8 @@ private:
     static Json MarkerConfiguration(const VnaDisplay::MarkerSettings &marker);
     static void PointImpedance(Json &projection, const VnaDisplay::ProjectedTrace &trace,
         VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes);
+    static void PointMarkerValues(Json &projection, const VnaDisplay::ProjectedTrace &trace,
+        VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes);
 };
 
 }  // 命名空间 VnaWeb

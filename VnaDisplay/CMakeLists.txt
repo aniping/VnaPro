@@ -1,6 +1,8 @@
 add_library(vna_display STATIC
     src/display_workspace.cpp
+    src/display_format.cpp
     src/trace_projection.cpp
+    src/trace_sequence_formatter.cpp
     src/scale_calculator.cpp
     src/marker_resolver.cpp
     src/marker_collection.cpp

@@ -40,7 +40,10 @@ void SmithPointReadoutsFollowTransportIndexes()
 {
     VnaDisplay::TracePresentation presentation;
     presentation.format = VnaDisplay::DisplayFormat::SMITH;
-    const auto projected = VnaDisplay::TraceProjection::Calculate(presentation, Trace(), {1, 2, 3, 4, 5, 6, 7});
+    VnaMeasurement::Measurement reflection;
+    Require(reflection.SetParameter("S11"), "逐点阻抗验收必须明确使用反射 S 参数");
+    const auto projected =
+        VnaDisplay::TraceProjection::Calculate(presentation, Trace(), {1, 2, 3, 4, 5, 6, 7}, reflection);
     const auto json = VnaWeb::DisplayJson::Projection(projected, presentation.format, {2U, 3U, 4U, 0U, 5U, 6U});
     const auto &real = Field(json, "impedanceRealValues").array;
     const auto &imag = Field(json, "impedanceImagValues").array;
@@ -70,7 +73,8 @@ void NonSmithAndUnavailableTraceHaveNoPointImpedance()
         const auto projected = VnaDisplay::TraceProjection::Calculate(presentation, Trace(), {1, 2, 3, 4, 5, 6, 7});
         const auto json = VnaWeb::DisplayJson::Projection(projected, format, {0U, 2U});
         Require(Field(json, "impedanceRealValues").array.empty() && Field(json, "impedanceImagValues").array.empty() &&
-                    Field(json, "impedanceStates").array.empty(),
+                    Field(json, "impedanceStates").array.empty() && Field(json, "markerValues").array.empty() &&
+                    Field(json, "markerSecondaryValues").array.empty(),
             "非 Smith 格式不能额外计算或传输逐点阻抗");
     }
     const auto json = VnaWeb::DisplayJson::Projection({}, VnaDisplay::DisplayFormat::SMITH, {0U, 2U});
@@ -80,6 +84,36 @@ void NonSmithAndUnavailableTraceHaveNoPointImpedance()
         "不可用的 Smith 数据保留同长的无效占位，不冒用旧帧");
 }
 
+void PolarPreviewReadoutsFollowTheSameIndexes()
+{
+    VnaDisplay::TracePresentation presentation;
+    presentation.format = VnaDisplay::DisplayFormat::POLAR;
+    presentation.markers.Active().enabled = true;
+    presentation.markers.Active().hasFrequency = true;
+    presentation.markers.Active().frequencyHz = 3.0;
+    const auto projected = VnaDisplay::TraceProjection::Calculate(presentation, Trace(), {1, 2, 3, 4, 5, 6, 7});
+    const auto json = VnaWeb::DisplayJson::Projection(projected, presentation.format, {2U, 1U, 0U, 4U});
+    const auto &magnitude = Field(json, "markerValues").array;
+    const auto &phase = Field(json, "markerSecondaryValues").array;
+    const auto &states = Field(json, "markerValueStates").array;
+    Require(magnitude.size() == 4U && phase.size() == 4U && states.size() == 4U && magnitude[0].number == 1.0 &&
+                phase[0].number == 90.0 && Field(json, "values").array[0].number == 0.0 &&
+                Field(json, "secondaryValues").array[0].number == 1.0,
+        "Polar 抽点混淆幅相读数和实虚绘图坐标");
+    Require(Field(Field(json, "marker"), "value").number == magnitude[0].number &&
+                Field(Field(json, "marker"), "secondaryValue").number == phase[0].number,
+        "预览点与正式标记采用不同的 Polar 默认转换");
+    Require(states[2].string == "finite" && states[3].string == "undefined" && magnitude[2].number == 0.0 &&
+                phase[2].type == VnaWeb::Json::Type::NULL_VALUE &&
+                Field(json, "markerSecondaryStates").array[2].string == "undefined" &&
+                phase[3].type == VnaWeb::Json::Type::NULL_VALUE,
+        "零幅值丢失有效幅值，或零幅值/无效采样仍生成可用预览相位");
+    const auto unavailable = VnaWeb::DisplayJson::Projection({}, presentation.format, {1U});
+    Require(Field(unavailable, "markerValues").array.size() == 1U &&
+                Field(unavailable, "markerValueStates").array.front().string == "undefined",
+        "不可用 Polar 缺少与曲线同长的预览占位");
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -87,7 +121,8 @@ int main()
     try {
         SmithPointReadoutsFollowTransportIndexes();
         NonSmithAndUnavailableTraceHaveNoPointImpedance();
-        std::cout << "PASS 同帧逐点阻抗、抽点映射、特殊状态与只读语义\n";
+        PolarPreviewReadoutsFollowTheSameIndexes();
+        std::cout << "PASS 同帧逐点阻抗、Polar 幅相预览、抽点映射、特殊状态与只读语义\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

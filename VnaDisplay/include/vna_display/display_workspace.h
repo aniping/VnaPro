@@ -25,10 +25,17 @@ enum class DisplayFormat {
     DB,
     MAGNITUDE,
     PHASE,
+    SWR,
+    UNWRAPPED_PHASE,
+    LOG_MAGNITUDE,
     REAL,
     IMAG,
     REALIMAG,
-    SMITH
+    DELAY,
+    DELAY_DERIVATION,
+    POLAR,
+    SMITH,
+    INV_SMITH
 };
 
 enum class LayoutMode {

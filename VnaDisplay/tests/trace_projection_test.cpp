@@ -56,9 +56,9 @@ void TestSmithProjectionAndImpedance()
     const auto smith = TraceProjection::Format(Trace({2.0}, {0.5}).points.front(), DisplayFormat::SMITH);
     Near(smith.primary, 2.0);
     Near(smith.secondary, 0.5);
-    Require(smith.hasSecondary && TraceProjection::AllowedFormats(DisplayTest::Measurement()).size() == 7U &&
-                TraceProjection::AllowedFormats(DisplayTest::Measurement("Transmission", 2U)).size() == 6U,
-        "格式能力与反射支持不一致");
+    Require(smith.hasSecondary && TraceProjection::AllowedFormats(DisplayTest::Measurement()).size() == 13U &&
+                TraceProjection::AllowedFormats(DisplayTest::Measurement("Transmission", 2U)).size() == 13U,
+        "常规格式未同时提供给反射和传输测量");
 }
 
 void TestComplexInterpolationAndDiscreteMode()
@@ -95,7 +95,8 @@ void TestSmithPointImpedanceSharesTheImmutableProjection()
     presentation.markers.Active().enabled = true;
     presentation.markers.Active().hasSampleIndex = true;
     presentation.markers.Active().sampleIndex = 2U;
-    const auto result = TraceProjection::Calculate(presentation, trace, {1, 2, 3, 4, 5});
+    const auto reflection = DisplayTest::Measurement();
+    const auto result = TraceProjection::Calculate(presentation, trace, {1, 2, 3, 4, 5}, reflection);
     Require(result.impedancePoints.size() == trace.points.size(), "Smith 阻抗必须覆盖完整原始点数组");
     Near(result.impedancePoints[0].real, 1.0);
     Near(result.impedancePoints[1].real, 0.0);

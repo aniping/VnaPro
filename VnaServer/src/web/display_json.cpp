@@ -29,6 +29,20 @@ const char *ImpedanceState(VnaDisplay::ImpedanceState state) noexcept
     }
 }
 
+const char *AdmittanceState(VnaDisplay::AdmittanceState state) noexcept
+{
+    switch (state) {
+        case VnaDisplay::AdmittanceState::FINITE:
+            return "finite";
+        case VnaDisplay::AdmittanceState::SHORT:
+            return "short";
+        case VnaDisplay::AdmittanceState::OVERFLOW:
+            return "overflow";
+        default:
+            return "invalid";
+    }
+}
+
 const char *ValueState(VnaDisplay::DisplayValueState state) noexcept
 {
     if (state == VnaDisplay::DisplayValueState::FINITE) {
@@ -276,14 +290,20 @@ Json DisplayJson::Marker(const VnaDisplay::MarkerReadout &marker)
     result["real"] = marker.valid ? Json(marker.real) : Json();
     result["imag"] = marker.valid ? Json(marker.imag) : Json();
     result["value"] = Value(marker.value.primary, marker.value.state);
-    result["secondaryValue"] = marker.value.hasSecondary ? Value(marker.value.secondary, marker.value.state) : Json();
+    result["secondaryValue"] =
+        marker.value.hasSecondary ? Value(marker.value.secondary, marker.value.secondaryState) : Json();
     result["valueState"] = Json(ValueState(marker.value.state));
-    result["secondaryState"] = Json(marker.value.hasSecondary ? ValueState(marker.value.state) : "undefined");
+    result["secondaryState"] = Json(marker.value.hasSecondary ? ValueState(marker.value.secondaryState) : "undefined");
     const bool impedance =
         marker.available && marker.valid && marker.impedance.state == VnaDisplay::ImpedanceState::FINITE;
     result["impedanceReal"] = impedance ? Json(marker.impedance.real) : Json();
     result["impedanceImag"] = impedance ? Json(marker.impedance.imag) : Json();
     result["impedanceState"] = Json(ImpedanceState(marker.impedance.state));
+    const bool admittance =
+        marker.available && marker.valid && marker.admittance.state == VnaDisplay::AdmittanceState::FINITE;
+    result["admittanceReal"] = admittance ? Json(marker.admittance.real) : Json();
+    result["admittanceImag"] = admittance ? Json(marker.admittance.imag) : Json();
+    result["admittanceState"] = Json(AdmittanceState(marker.admittance.state));
     return result;
 }
 
@@ -310,14 +330,15 @@ Json DisplayJson::Projection(
         const auto point =
             trace.available && index < trace.points.size() ? trace.points[index] : VnaDisplay::FormattedPoint{};
         primary.array.push_back(Value(point.primary, point.state));
-        secondary.array.push_back(point.hasSecondary ? Value(point.secondary, point.state) : Json());
+        secondary.array.push_back(point.hasSecondary ? Value(point.secondary, point.secondaryState) : Json());
         states.array.emplace_back(ValueState(point.state));
-        secondaryStates.array.emplace_back(point.hasSecondary ? ValueState(point.state) : "undefined");
+        secondaryStates.array.emplace_back(point.hasSecondary ? ValueState(point.secondaryState) : "undefined");
     }
     result["values"] = std::move(primary);
     result["secondaryValues"] = std::move(secondary);
     result["valueStates"] = std::move(states);
     result["secondaryStates"] = std::move(secondaryStates);
+    PointMarkerValues(result, trace, format, indexes);
     PointImpedance(result, trace, format, indexes);
     result["activeMarkerId"] = Json(trace.activeMarkerId);
     Json markers = Json::MakeArray();
@@ -330,6 +351,29 @@ Json DisplayJson::Projection(
     result["markers"] = std::move(markers);
     result["marker"] = Marker(trace.marker);
     return result;
+}
+
+void DisplayJson::PointMarkerValues(Json &projection, const VnaDisplay::ProjectedTrace &trace,
+    VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes)
+{
+    Json primary = Json::MakeArray();
+    Json secondary = Json::MakeArray();
+    Json states = Json::MakeArray();
+    Json secondaryStates = Json::MakeArray();
+    if (format == VnaDisplay::DisplayFormat::POLAR) {
+        for (const auto index : indexes) {
+            const auto point = trace.available && index < trace.markerPoints.size() ? trace.markerPoints[index]
+                                                                                    : VnaDisplay::FormattedPoint{};
+            primary.array.push_back(Value(point.primary, point.state));
+            secondary.array.push_back(point.hasSecondary ? Value(point.secondary, point.secondaryState) : Json());
+            states.array.emplace_back(ValueState(point.state));
+            secondaryStates.array.emplace_back(point.hasSecondary ? ValueState(point.secondaryState) : "undefined");
+        }
+    }
+    projection["markerValues"] = std::move(primary);
+    projection["markerSecondaryValues"] = std::move(secondary);
+    projection["markerValueStates"] = std::move(states);
+    projection["markerSecondaryStates"] = std::move(secondaryStates);
 }
 
 void DisplayJson::PointImpedance(Json &projection, const VnaDisplay::ProjectedTrace &trace,
@@ -352,6 +396,23 @@ void DisplayJson::PointImpedance(Json &projection, const VnaDisplay::ProjectedTr
     projection["impedanceRealValues"] = std::move(real);
     projection["impedanceImagValues"] = std::move(imaginary);
     projection["impedanceStates"] = std::move(states);
+    Json conductance = Json::MakeArray();
+    Json susceptance = Json::MakeArray();
+    Json admittanceStates = Json::MakeArray();
+    if (format == VnaDisplay::DisplayFormat::INV_SMITH) {
+        for (const auto index : indexes) {
+            const auto point = trace.available && index < trace.admittancePoints.size()
+                                   ? trace.admittancePoints[index]
+                                   : VnaDisplay::NormalizedAdmittance{};
+            const bool finite = point.state == VnaDisplay::AdmittanceState::FINITE;
+            conductance.array.push_back(finite ? Json(point.real) : Json());
+            susceptance.array.push_back(finite ? Json(point.imag) : Json());
+            admittanceStates.array.emplace_back(AdmittanceState(point.state));
+        }
+    }
+    projection["admittanceRealValues"] = std::move(conductance);
+    projection["admittanceImagValues"] = std::move(susceptance);
+    projection["admittanceStates"] = std::move(admittanceStates);
 }
 
 void DisplayJson::WorkspaceChange(VnaDisplay::DisplayChange &change, const Json &body, const std::string &action)

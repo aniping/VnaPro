@@ -16,9 +16,10 @@ namespace Detail {
 class ScaleCalculator final {
 public:
     ScaleCalculator() = delete;
-    static bool Apply(DisplayScale &scale, const ScaleChange &change, std::string &error);
-    static bool Autoscale(
-        const VnaMeasurement::TraceResult &trace, DisplayFormat format, DisplayScale &scale, double &smithRadius);
+    static bool Apply(
+        DisplayScale &scale, const ScaleChange &change, std::string &error, DisplayFormat format = DisplayFormat::DB);
+    static bool Autoscale(const VnaMeasurement::TraceResult &trace, DisplayFormat format, DisplayScale &scale,
+        double &smithRadius, const std::vector<double> &frequencyHz = {});
 };
 
 }  // 命名空间 Detail
