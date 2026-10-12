@@ -14,6 +14,8 @@ import type {
   SweepConfiguration,
 } from '../src/api/types'
 import { useInstrument } from '../src/composables/useInstrument'
+import { displaySnapshot, projection } from './displayFixtures'
+import type { DisplayCommand } from '../src/api/types'
 
 function snapshot(revision = '1'): InstrumentStatus {
   return {
@@ -53,6 +55,7 @@ function snapshot(revision = '1'): InstrumentStatus {
         calibration: 'raw',
       },
     ],
+    display: displaySnapshot([{ name: 'DefaultA' }]),
     control: {
       owner: 'web',
       hasControl: true,
@@ -128,6 +131,16 @@ class FakeGateway implements InstrumentGateway {
     return this.submitter()
   }
   deleteMeasurement(_name: string, _revision: string) {
+    return this.submitter()
+  }
+  display(_command: DisplayCommand, _revision: string) {
+    return this.submitter()
+  }
+  cloneMeasurement(
+    _source: string,
+    _revision: string,
+    _displayRevision: string,
+  ) {
     return this.submitter()
   }
   abortRequests() {
@@ -209,6 +222,8 @@ test('frame freshness pairs acquisition and measurement revisions separately acr
     channelId: 1,
     runId: '1',
     revision: '3',
+    displayRevision: '1',
+    sampleIndexes: [0, 1],
     measurementRevision: '9',
     frameSeq: '12',
     originalPointCount: 2,
@@ -222,6 +237,7 @@ test('frame freshness pairs acquisition and measurement revisions separately acr
         real: [1, 1],
         imag: [0, 0],
         valid: [true, true],
+        projection: projection([0, 0]),
       },
     ],
   }
@@ -277,6 +293,8 @@ test('transport keeps uint64 identities as strings and rejects malformed receive
     channelId: 1,
     runId: '9007199254740993',
     revision: '1',
+    displayRevision: '1',
+    sampleIndexes: [0, 1],
     measurementRevision: '1',
     frameSeq: '18446744073709551615',
     originalPointCount: 2,
@@ -290,6 +308,7 @@ test('transport keeps uint64 identities as strings and rejects malformed receive
         real: [1, null],
         imag: [0, 0],
         valid: [true, false],
+        projection: projection([0, null]),
       },
     ],
   }
@@ -488,58 +507,150 @@ test('frame requests encode an explicit display set and an empty set separately 
   ])
 })
 
-test('late responses from a previous display set cannot replace the newly selected frame', async (context) => {
+test('late frame projection is stale until its display revision matches backend status', async (context) => {
   const api = new FakeGateway()
-  api.current.measurements.push({
-    ...api.current.measurements[0]!,
-    name: 'Other',
-  })
   const model = await ready(api)
   context.after(() => model.stop())
-  const delayed = deferred<FrameResponse>()
-  const requested: (readonly string[] | undefined)[] = []
-  api.frame = (names?: readonly string[]) => {
-    requested.push(names)
-    return delayed.promise
-  }
-  const oldRead = model.refresh()
-  model.setDisplayedMeasurements(['Other'])
-  const acquired = {
-    available: true as const,
-    current: true,
-    channelId: 1,
-    runId: '1',
-    revision: '1',
-    measurementRevision: '1',
-    frameSeq: '1',
-    originalPointCount: 2,
-    displayPointCount: 2,
-    decimated: false,
-    frequencyHz: [10e6, 20e6],
-    traces: [
-      {
-        ...api.current.measurements[0]!,
-        available: true,
-        real: [1, 1],
-        imag: [0, 0],
-        valid: [true, true],
-      },
-    ],
-  }
-  delayed.resolve(acquired)
-  await oldRead
-  assert.equal(model.frame.value, null)
-  api.frame = (names?: readonly string[]) => {
-    requested.push(names)
-    return Promise.resolve({
-      ...acquired,
-      traces: [{ ...acquired.traces[0]!, name: 'Other' }],
-    })
-  }
+  const { acquiredFrame, receiverTrace } = await import('./displayFixtures')
+  const frame = acquiredFrame(receiverTrace(api.current.measurements[0]!))
+  api.frame = async () => frame
   await model.refresh()
-  assert.deepEqual(model.frame.value, {
-    ...acquired,
-    traces: [{ ...acquired.traces[0]!, name: 'Other' }],
+  assert.equal(model.frameCondition.value.kind, 'current')
+  api.current.display.revision = '2'
+  api.current.display.presentations.DefaultA!.format = 'phase'
+  await model.refresh()
+  assert.equal(model.frameCondition.value.kind, 'stale')
+  api.frame = async () => ({ ...frame, displayRevision: '2' })
+  await model.refresh()
+  assert.equal(model.frameCondition.value.kind, 'current')
+})
+
+test('display operations require control and wait for successful authoritative readback', async (context) => {
+  const api = new FakeGateway()
+  api.current.state = 'Running'
+  api.current.config.sweepMode = 'CONT'
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const before = structuredClone(model.status.value!.display)
+  const changing = model.display({
+    action: 'format',
+    traceName: 'DefaultA',
+    format: 'phase',
   })
-  assert.deepEqual(requested, [undefined, ['Other']])
+  await microtasks()
+  assert.equal(model.pendingOperation.value?.kind, 'display')
+  assert.deepEqual(model.status.value!.display, before)
+  api.current.display.revision = '2'
+  api.current.display.presentations.DefaultA!.format = 'phase'
+  api.operationLoader = async () => ({
+    operationId: 'op-1',
+    state: 'completed',
+    result: { ok: true, errorCode: 0, message: '' },
+  })
+  await model.refresh()
+  assert.equal(
+    (await changing)!.display.presentations.DefaultA!.format,
+    'phase',
+  )
+  assert.equal(model.status.value!.display.revision, '2')
+  api.current.control.hasControl = false
+  await model.refresh()
+  assert.equal(model.canEditDisplay.value, false)
+  assert.equal(await model.display({ action: 'layout', layout: 'grid' }), null)
+})
+
+test('display decoder rejects missing projection provenance and accepts an invalid marker without losing the frame', async () => {
+  const { acquiredFrame, markerProjection, receiverTrace } = await import(
+    './displayFixtures'
+  )
+  const current = acquiredFrame(receiverTrace(snapshot().measurements[0]!))
+  const marker = markerProjection({
+    available: true,
+    valid: false,
+    reason: 'Invalid reference',
+    frequencyHz: 15e6,
+    sampleIndex: 1,
+  })
+  current.traces[0]!.projection.marker = marker
+  assert.deepEqual(decodeFrame(current), current)
+  assert.throws(() => decodeFrame({ ...current, displayRevision: undefined }))
+  assert.throws(() => decodeFrame({ ...current, sampleIndexes: [0, 0] }))
+  assert.throws(() =>
+    decodeFrame({
+      ...current,
+      traces: [{ ...current.traces[0], projection: undefined }],
+    }),
+  )
+  assert.throws(() => decodeStatus({ ...snapshot(), display: undefined }))
+  const status = snapshot()
+  assert.throws(() =>
+    decodeStatus({
+      ...status,
+      display: { ...status.display, diagrams: undefined },
+    }),
+  )
+  assert.throws(() =>
+    decodeStatus({
+      ...status,
+      display: {
+        ...status.display,
+        diagrams: [
+          {
+            number: 1,
+            measurementNames: ['DefaultA'],
+            primaryMeasurement: 'Missing',
+          },
+        ],
+      },
+    }),
+  )
+  assert.throws(() =>
+    decodeStatus({
+      ...status,
+      display: {
+        ...status.display,
+        diagrams: [
+          {
+            number: 1,
+            measurementNames: ['Missing'],
+            primaryMeasurement: 'Missing',
+          },
+        ],
+      },
+    }),
+  )
+})
+
+test('scale and center/span requests preserve the raw control parameters for backend execution', async () => {
+  const bodies: Record<string, unknown>[] = []
+  const api = new InstrumentApi({
+    storage: null,
+    fetch: async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return new Response(
+        JSON.stringify({ operationId: 'op-1', state: 'pending' }),
+        { status: 202 },
+      )
+    },
+  })
+  await api.configure({ centerHz: 4e9, spanHz: 2e9 }, '3')
+  await api.display(
+    {
+      action: 'scale',
+      traceName: 'DefaultA',
+      perDivision: 2,
+      referenceLevel: -5,
+      referencePosition: 3,
+    },
+    '7',
+  )
+  assert.equal(bodies[0]!.centerHz, 4e9)
+  assert.equal(bodies[0]!.spanHz, 2e9)
+  assert.equal(bodies[0]!.startHz, undefined)
+  assert.equal(bodies[0]!.stopHz, undefined)
+  assert.equal(bodies[1]!.perDivision, 2)
+  assert.equal(bodies[1]!.referenceLevel, -5)
+  assert.equal(bodies[1]!.min, undefined)
+  assert.equal(bodies[1]!.max, undefined)
+  assert.equal(bodies[1]!.expectedDisplayRevision, '7')
 })
