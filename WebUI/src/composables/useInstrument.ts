@@ -247,9 +247,11 @@ export function useInstrument(options: InstrumentOptions = {}) {
   async function observeOperation(epoch: number): Promise<void> {
     const pending = pendingOperation.value
     if (!pending) return
+    let queryingOperation = true
     try {
       // 已受理操作的凭据始终属于原令牌，释放或重新获取控制租约后也不转移。
       const result = await api.operation(pending.id, pending.ownerSessionId)
+      queryingOperation = false
       if (
         epoch !== generation ||
         pendingOperation.value?.id !== pending.id ||
@@ -271,6 +273,27 @@ export function useInstrument(options: InstrumentOptions = {}) {
       const readback = await api.status()
       if (epoch !== generation || pendingOperation.value?.id !== pending.id)
         return
+      if (
+        pending.kind === 'display' &&
+        readback.display.displayedNames.length
+      ) {
+        // 周期轮询可能已收到旧投影；显示操作须读回同一显示版本后才撤销手势预览。
+        const projection = await api.frame()
+        if (epoch !== generation || pendingOperation.value?.id !== pending.id)
+          return
+        if (projection.available) {
+          if (projection.displayRevision !== readback.display.revision) return
+          // HOLD 保留旧采集帧也能更新显示；采集新鲜度继续交由 frameCondition 判断。
+          frame.value = projection
+          frameCurrent.value = projection.current
+          frameError.value = ''
+        } else {
+          // 后端明确确认尚无物理帧时，旧窗口缓存不能继续提供标记投影。
+          frame.value = null
+          frameCurrent.value = false
+          frameError.value = projection.reason
+        }
+      }
       status.value = readback
       connected.value = true
       pendingOperation.value = null
@@ -279,7 +302,11 @@ export function useInstrument(options: InstrumentOptions = {}) {
       settleOperation(readback)
     } catch (failure) {
       if (epoch !== generation) return
-      if (failure instanceof ApiError && failure.status === 404) {
+      if (
+        queryingOperation &&
+        failure instanceof ApiError &&
+        failure.status === 404
+      ) {
         pendingOperation.value = null
         notify(
           '操作结果已过期；请根据设备读回状态判断结果，未自动重发。',

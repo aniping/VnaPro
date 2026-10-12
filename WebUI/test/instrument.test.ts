@@ -14,7 +14,13 @@ import type {
   SweepConfiguration,
 } from '../src/api/types'
 import { useInstrument } from '../src/composables/useInstrument'
-import { displaySnapshot, projection } from './displayFixtures'
+import {
+  acquiredFrame,
+  displaySnapshot,
+  markerProjection,
+  projection,
+  receiverTrace,
+} from './displayFixtures'
 import type { DisplayCommand } from '../src/api/types'
 
 function snapshot(revision = '1'): InstrumentStatus {
@@ -557,6 +563,276 @@ test('display operations require control and wait for successful authoritative r
   await model.refresh()
   assert.equal(model.canEditDisplay.value, false)
   assert.equal(await model.display({ action: 'layout', layout: 'grid' }), null)
+})
+
+test('completed marker operations keep drag feedback pending until the matching frame projection has been read back', async (context) => {
+  const api = new FakeGateway()
+  const initial = acquiredFrame(receiverTrace(api.current.measurements[0]!))
+  api.frame = async () => initial
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const freshFrame = deferred<FrameResponse>()
+  const changed = structuredClone(initial)
+  changed.displayRevision = '2'
+  changed.traces[0]!.projection.marker = markerProjection({
+    available: true,
+    valid: true,
+    frequencyHz: 20e6,
+    sampleIndex: 1,
+    value: -13.5,
+    valueState: 'finite',
+  })
+  let frameRequests = 0
+  api.frame = () =>
+    ++frameRequests === 1 ? Promise.resolve(initial) : freshFrame.promise
+  api.current.display.revision = '2'
+  api.operationLoader = async () => ({
+    operationId: 'op-1',
+    state: 'completed',
+    result: { ok: true, errorCode: 0, message: '' },
+  })
+  let settled = false
+  const changing = model
+    .display({ action: 'marker', traceName: 'DefaultA', frequencyHz: 20e6 })
+    .then((value) => {
+      settled = true
+      return value
+    })
+  await microtasks()
+  const polling = model.refresh()
+  await microtasks()
+  await microtasks()
+  await microtasks()
+  assert.equal(
+    settled,
+    false,
+    'Marker commit must not remove drag feedback while the rendered projection is still old',
+  )
+  assert.equal(model.pendingOperation.value?.readingBack, true)
+  assert.equal(frameRequests, 2)
+  freshFrame.resolve(changed)
+  await polling
+  await changing
+  assert.equal(
+    model.frame.value?.displayRevision,
+    model.status.value?.display.revision,
+  )
+  assert.equal(
+    model.frame.value!.traces[0]!.projection.marker.frequencyHz,
+    20e6,
+  )
+  assert.equal(settled, true)
+})
+
+function completedOperation(api: FakeGateway) {
+  api.operationLoader = async () => ({
+    operationId: 'op-1',
+    state: 'completed',
+    result: { ok: true, errorCode: 0, message: '' },
+  })
+}
+
+test('display readback keeps mismatched projections pending and retries without resending the command', async (context) => {
+  const api = new FakeGateway()
+  const initial = acquiredFrame(receiverTrace(api.current.measurements[0]!))
+  api.frame = async () => initial
+  const model = await ready(api)
+  context.after(() => model.stop())
+  let writes = 0
+  api.submitter = async () => {
+    writes += 1
+    return { operationId: 'op-1', state: 'pending' }
+  }
+  let settled = false
+  const changing = model
+    .display({ action: 'marker', traceName: 'DefaultA', frequencyHz: 20e6 })
+    .then((value) => {
+      settled = true
+      return value
+    })
+  await microtasks()
+  api.current.display.revision = '2'
+  completedOperation(api)
+  await model.refresh()
+  assert.equal(settled, false)
+  assert.equal(model.pendingOperation.value?.readingBack, true)
+  assert.equal(model.frame.value?.displayRevision, '1')
+  api.frame = async () => ({ ...initial, displayRevision: '2' })
+  await model.refresh()
+  assert.equal((await changing)?.display.revision, '2')
+  assert.equal(model.frame.value?.displayRevision, '2')
+  assert.equal(writes, 1)
+})
+
+for (const statusCode of [0, 404]) {
+  test(`display frame readback failure (${statusCode}) preserves operation credentials for a later retry`, async (context) => {
+    const api = new FakeGateway()
+    const initial = acquiredFrame(receiverTrace(api.current.measurements[0]!))
+    api.frame = async () => initial
+    const model = await ready(api)
+    context.after(() => model.stop())
+    const changing = model.display({
+      action: 'marker',
+      traceName: 'DefaultA',
+      frequencyHz: 20e6,
+    })
+    await microtasks()
+    api.current.display.revision = '2'
+    completedOperation(api)
+    let reads = 0
+    api.frame = async () => {
+      if (++reads === 1) return initial
+      throw new ApiError('Frame readback temporarily unavailable', statusCode)
+    }
+    await model.refresh()
+    assert.equal(model.pendingOperation.value?.id, 'op-1')
+    assert.equal(model.pendingOperation.value?.readingBack, true)
+    api.frame = async () => ({ ...initial, displayRevision: '2' })
+    await model.refresh()
+    assert.equal((await changing)?.display.revision, '2')
+    assert.equal(model.frame.value?.displayRevision, '2')
+  })
+}
+
+test('display readback can complete on a retained HOLD projection from an earlier acquisition and run', async (context) => {
+  const api = new FakeGateway()
+  const initial = acquiredFrame(receiverTrace(api.current.measurements[0]!))
+  api.frame = async () => initial
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const changing = model.display({
+    action: 'marker',
+    traceName: 'DefaultA',
+    frequencyHz: 20e6,
+  })
+  await microtasks()
+  api.current.revision = '5'
+  api.current.acquisitionRevision = '3'
+  api.current.runId = '4'
+  api.current.display.revision = '2'
+  completedOperation(api)
+  api.frame = async () => ({ ...initial, displayRevision: '2', current: false })
+  await model.refresh()
+  assert.equal((await changing)?.display.revision, '2')
+  assert.equal(model.frame.value?.revision, '1')
+  assert.equal(model.frame.value?.runId, '1')
+  assert.equal(model.frameCondition.value.kind, 'stale')
+})
+
+for (const emptyDisplay of [false, true]) {
+  test(`display readback without an acquired frame completes with an authoritative status (empty display ${emptyDisplay})`, async (context) => {
+    const api = new FakeGateway()
+    const model = await ready(api)
+    context.after(() => model.stop())
+    const changing = model.display({ action: 'layout', layout: 'grid' })
+    await microtasks()
+    api.current.display.revision = '2'
+    if (emptyDisplay) {
+      api.current.display.displayedNames = []
+      api.current.display.diagrams = []
+    }
+    completedOperation(api)
+    await model.refresh()
+    assert.equal((await changing)?.display.revision, '2')
+    assert.equal(model.frame.value, null)
+    assert.equal(model.pendingOperation.value, null)
+  })
+}
+
+test('configuration operation completion retains its status-only readback behavior', async (context) => {
+  const api = new FakeGateway()
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const changing = model.configure(api.current.config, '1')
+  await microtasks()
+  let frames = 0
+  api.frame = async () => {
+    frames += 1
+    return { available: false, current: false, reason: 'No completed frame' }
+  }
+  completedOperation(api)
+  api.current = snapshot('2')
+  await model.refresh()
+  assert.equal((await changing)?.revision, '2')
+  assert.equal(frames, 1)
+})
+
+test('removing the last displayed trace completes from status without waiting for an unusable frame endpoint', async (context) => {
+  const api = new FakeGateway()
+  api.frame = async () =>
+    acquiredFrame(receiverTrace(api.current.measurements[0]!))
+  const model = await ready(api)
+  context.after(() => model.stop())
+  let settled = false
+  const changing = model
+    .display({ action: 'displayed', traceName: 'DefaultA', enabled: false })
+    .then((value) => {
+      settled = true
+      return value
+    })
+  await microtasks()
+  api.current.display.revision = '2'
+  api.current.display.displayedNames = []
+  api.current.display.diagrams = []
+  completedOperation(api)
+  let frames = 0
+  api.frame = async () => {
+    frames += 1
+    throw new ApiError('Frame endpoint temporarily unavailable', 404)
+  }
+  await model.refresh()
+  assert.equal(
+    settled,
+    true,
+    'Empty display has no marker projection to wait for',
+  )
+  assert.equal((await changing)?.display.revision, '2')
+  assert.equal(model.pendingOperation.value, null)
+  assert.equal(frames, 1)
+})
+
+test('an explicit no-frame display readback clears the previously cached marker projection', async (context) => {
+  const api = new FakeGateway()
+  const initial = acquiredFrame(receiverTrace(api.current.measurements[0]!))
+  api.frame = async () => initial
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const changing = model.display({
+    action: 'format',
+    traceName: 'DefaultA',
+    format: 'phase',
+  })
+  await microtasks()
+  api.current.display.revision = '2'
+  completedOperation(api)
+  let frames = 0
+  api.frame = async () =>
+    ++frames === 1
+      ? initial
+      : { available: false, current: false, reason: 'No completed frame' }
+  await model.refresh()
+  assert.equal((await changing)?.display.revision, '2')
+  assert.equal(
+    model.frame.value,
+    null,
+    'Confirmed no acquired frame must not reveal a cached old marker',
+  )
+  assert.equal(model.frameCondition.value.kind, 'empty')
+})
+
+test('operation lookup expiration still ends observation without retrying the write', async (context) => {
+  const api = new FakeGateway()
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const changing = model.display({ action: 'layout', layout: 'grid' })
+  await microtasks()
+  api.operationLoader = async () => {
+    throw new ApiError('Operation expired', 404)
+  }
+  await model.refresh()
+  assert.equal(await changing, null)
+  assert.equal(model.pendingOperation.value, null)
+  assert.match(model.notice.value?.text ?? '', /操作结果已过期/)
 })
 
 test('display decoder rejects missing projection provenance and accepts an invalid marker without losing the frame', async () => {
