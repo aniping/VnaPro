@@ -101,7 +101,8 @@ void SelectionFormatAndFifo(const std::string &driver)
                Trace(fixture.service, "Second").format == VnaDisplay::DisplayFormat::PHASE,
         "SCPI 格式未提交到后端的各迹线状态");
     const std::vector<std::pair<std::string, std::string>> formats = {{"MLOGarithmic", "MLOG"}, {"MLINear", "MLIN"},
-        {"PHASe", "PHAS"}, {"REAL", "REAL"}, {"IMAGinary", "IMAG"}, {"SMITh", "SMIT"}};
+        {"PHASe", "PHAS"}, {"REAL", "REAL"}, {"IMAGinary", "IMAG"}, {"SMITh", "SMIT"}, {"SWR", "SWR"},
+        {"UPHase", "UPH"}, {"GDELay", "GDEL"}, {"POLar", "POL"}};
     for (const auto &format : formats) {
         Expect(Command(engine, "CALC:FORM " + format.first + ";FORM?") == format.second + "\n",
             "正式长格式未读回标准短格式");
@@ -203,6 +204,11 @@ void MarkerErrorsAndSmithPairs(const std::string &driver)
     Expect(raw.ok && marker.size() == 2U, "Smith Marker 响应缺少复数对");
     Near(marker[0], raw.values[0]);
     Near(marker[1], raw.values[1]);
+    Command(engine, "CALC:FORM POLar");
+    const auto polar = Numbers(Command(engine, "CALC:MARK:Y?"));
+    Expect(polar.size() == 2U, "Polar 标记应返回标准复数对");
+    Near(polar[0], raw.values[0]);
+    Near(polar[1], raw.values[1]);
     Command(engine, "CALC:MARK:STAT OFF");
     Expect(Command(engine, "CALC:MARK:Y?").empty(), "关闭 Marker 后不应生成读数");
     Expect(Command(engine, "SYST:ERR?").find("-221,") == 0U, "关闭 Marker 应记录状态冲突");
@@ -294,17 +300,20 @@ void UnsupportedFormatsAndActions(const std::string &driver)
 {
     VnaScpiTest::NativeFixture fixture(driver);
     VnaScpi::ScpiEngine engine(fixture.service);
-    for (const auto &format : {"REALIMAG", "COMP", "SLOG", "SCOM", "POL"}) {
+    for (const auto &format :
+        {"REALIMAG", "COMP", "SLOG", "SCOM", "LOGMagnitude", "DelayDerivation", "InvSmith", "SWRat"}) {
         Command(engine, std::string("CALC:FORM ") + format);
         Expect(Command(engine, "SYST:ERR?").find("-224,") == 0U, "不支持的格式不能伪装兼容");
     }
     Command(engine, "CALC:PAR:SEL 'Trc1',FAST");
     Expect(Command(engine, "SYST:ERR?").find("-108,") == 0U, "未实现 FAST 不应接受");
     const auto revision = fixture.service.Display().revision;
-    for (const auto &command : {"CALC:MARK11:STAT ON", "DISP:WIND2:TRAC1:STAT ON", "DISP:WIND:TRAC:Y:AUTO?"}) {
+    for (const auto &command : {"CALC:MARK11:STAT ON", "DISP:WIND:TRAC:Y:AUTO?"}) {
         Command(engine, command);
         Expect(Command(engine, "SYST:ERR?").find("-113,") == 0U, "不支持的 Marker 或窗口应拒绝命令头");
     }
+    Command(engine, "DISP:WIND2:TRAC1:STAT ON");
+    Expect(Command(engine, "SYST:ERR?").find("-222,") == 0U, "未创建图窗的标准路径应拒绝状态而非命令头");
     Expect(fixture.service.Display().revision == revision, "不支持的操作修改了共享状态");
 }
 

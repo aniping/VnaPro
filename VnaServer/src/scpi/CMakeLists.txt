@@ -16,6 +16,12 @@ if(BUILD_TESTING)
     add_test(NAME service_scpi_display COMMAND vna_scpi_display_tests $<TARGET_FILE:tdc1vn08_drv_sim>)
     set_tests_properties(service_scpi_display PROPERTIES TIMEOUT 20)
 
+    add_executable(vna_scpi_window_tests tests/window_scpi_test.cpp tests/native_fixture.cpp)
+    target_link_libraries(vna_scpi_window_tests PRIVATE vna_scpi)
+    target_compile_options(vna_scpi_window_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME service_scpi_windows COMMAND vna_scpi_window_tests $<TARGET_FILE:tdc1vn08_drv_sim>)
+    set_tests_properties(service_scpi_windows PROPERTIES TIMEOUT 20)
+
     add_executable(vna_scpi_observer_tests tests/scpi_observer_test.cpp)
     target_link_libraries(vna_scpi_observer_tests PRIVATE vna_scpi vna_service_test_support)
     add_test(NAME service_scpi_observer COMMAND vna_scpi_observer_tests)

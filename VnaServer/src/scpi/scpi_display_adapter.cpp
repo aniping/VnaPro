@@ -4,6 +4,7 @@
 #include "scpi/scpi_display_adapter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <limits>
 #include <locale>
@@ -12,6 +13,7 @@
 
 #include "scpi/scpi_constants.h"
 #include "scpi/scpi_parser.h"
+#include "vna_display/diagram_collection.h"
 #include "vna_display/display_workspace.h"
 #include "vna_display/marker_collection.h"
 #include "vna_display/trace_projection.h"
@@ -74,6 +76,31 @@ const VnaDisplay::TracePresentation *Presentation(const VnaDisplay::DisplayState
     return found == state.traces.end() ? nullptr : &*found;
 }
 
+const VnaDisplay::DisplayDiagram *Diagram(const VnaDisplay::DisplayState &state, unsigned number)
+{
+    const auto found = std::find_if(state.diagrams.begin(), state.diagrams.end(), [number](const auto &diagram) {
+        return diagram.number == number;
+    });
+    return found == state.diagrams.end() ? nullptr : &*found;
+}
+
+std::string TraceCatalog(const VnaDisplay::DisplayDiagram &diagram)
+{
+    if (diagram.measurementNames.empty()) {
+        return Quote("EMPTY");
+    }
+    std::string catalog;
+    auto slots = diagram.traceSlots;
+    std::sort(slots.begin(), slots.end());
+    for (std::size_t index = 0U; index < slots.size(); ++index) {
+        if (index != 0U) {
+            catalog += ',';
+        }
+        catalog += std::to_string(slots[index]);
+    }
+    return Quote(catalog);
+}
+
 const char *FormatName(VnaDisplay::DisplayFormat format)
 {
     switch (format) {
@@ -83,6 +110,14 @@ const char *FormatName(VnaDisplay::DisplayFormat format)
             return "MLIN";
         case VnaDisplay::DisplayFormat::PHASE:
             return "PHAS";
+        case VnaDisplay::DisplayFormat::SWR:
+            return "SWR";
+        case VnaDisplay::DisplayFormat::UNWRAPPED_PHASE:
+            return "UPH";
+        case VnaDisplay::DisplayFormat::DELAY:
+            return "GDEL";
+        case VnaDisplay::DisplayFormat::POLAR:
+            return "POL";
         case VnaDisplay::DisplayFormat::REAL:
             return "REAL";
         case VnaDisplay::DisplayFormat::IMAG:
@@ -102,7 +137,11 @@ bool FormatArgument(const std::string &text, VnaDisplay::DisplayFormat &format)
         {"MLINEAR", VnaDisplay::DisplayFormat::MAGNITUDE}, {"PHAS", VnaDisplay::DisplayFormat::PHASE},
         {"PHASE", VnaDisplay::DisplayFormat::PHASE}, {"REAL", VnaDisplay::DisplayFormat::REAL},
         {"IMAG", VnaDisplay::DisplayFormat::IMAG}, {"IMAGINARY", VnaDisplay::DisplayFormat::IMAG},
-        {"SMIT", VnaDisplay::DisplayFormat::SMITH}, {"SMITH", VnaDisplay::DisplayFormat::SMITH}};
+        {"SMIT", VnaDisplay::DisplayFormat::SMITH}, {"SMITH", VnaDisplay::DisplayFormat::SMITH},
+        {"SWR", VnaDisplay::DisplayFormat::SWR}, {"UPH", VnaDisplay::DisplayFormat::UNWRAPPED_PHASE},
+        {"UPHASE", VnaDisplay::DisplayFormat::UNWRAPPED_PHASE}, {"GDEL", VnaDisplay::DisplayFormat::DELAY},
+        {"GDELAY", VnaDisplay::DisplayFormat::DELAY}, {"POL", VnaDisplay::DisplayFormat::POLAR},
+        {"POLAR", VnaDisplay::DisplayFormat::POLAR}};
     for (const auto &entry : names) {
         if (parameter == entry.first) {
             format = entry.second;
@@ -149,11 +188,19 @@ ScpiDisplayResult ScpiDisplayAdapter::Execute(const ParsedCommand &command) cons
     if (IndexedRoute(command.path, "CALC1:MARK", slot, leaf)) {
         return Marker(command, slot, leaf.empty() ? "STAT" : leaf);
     }
-    if (IndexedRoute(command.path, "DISP:WIND1:TRAC", slot, leaf)) {
-        if (leaf.compare(0U, 7U, "Y:SCAL:") == 0) {
-            leaf.erase(2U, 5U);
+    unsigned diagram = 0U;
+    if (IndexedRoute(command.path, "DISP:WIND", diagram, leaf)) {
+        if (diagram == 0U || diagram > VnaDisplay::MAX_DISPLAY_DIAGRAMS) {
+            return Failure(DATA_OUT_OF_RANGE, "Display window suffix is outside the supported range");
         }
-        return Trace(command, slot, leaf);
+        std::string traceLeaf;
+        if (IndexedRoute(leaf, "TRAC", slot, traceLeaf)) {
+            if (traceLeaf.compare(0U, 7U, "Y:SCAL:") == 0) {
+                traceLeaf.erase(2U, 5U);
+            }
+            return Trace(command, diagram, slot, traceLeaf);
+        }
+        return Window(command, diagram, leaf);
     }
     return ScpiDisplayResult();
 }
@@ -169,7 +216,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Selection(const ParsedCommand &command) co
         return result;
     }
     VnaDisplay::DisplayChange change;
-    change.kind = VnaDisplay::DisplayChangeKind::SELECT;
+    change.kind = VnaDisplay::DisplayChangeKind::MEASUREMENT_SELECT;
     if (!StringArgument(command.arguments.front(), change.name)) {
         return Failure(DATA_TYPE_ERROR, "Measurement name requires a string");
     }
@@ -298,10 +345,10 @@ ScpiDisplayResult ScpiDisplayAdapter::ReadMarker(
         marker->value.state != VnaDisplay::DisplayValueState::FINITE) {
         return Failure(DATA_CORRUPT_OR_STALE, "Marker value is not available for the current measurement");
     }
-    if (trace.format == VnaDisplay::DisplayFormat::REALIMAG) {
+    if (FormatName(trace.format) == nullptr) {
         return Failure(SETTINGS_CONFLICT, "Current format is outside the supported PNA subset");
     }
-    result.response = trace.format == VnaDisplay::DisplayFormat::SMITH
+    result.response = VnaDisplay::TraceProjection::IsCircular(trace.format)
                           ? Number(marker->real) + ',' + Number(marker->imag)
                           : Number(marker->value.primary) + ",0";
     return result;
@@ -326,34 +373,115 @@ ScpiDisplayResult ScpiDisplayAdapter::SetMarkerFrequency(
     return result;
 }
 
-ScpiDisplayResult ScpiDisplayAdapter::Trace(const ParsedCommand &command, unsigned slot, const std::string &leaf) const
+ScpiDisplayResult ScpiDisplayAdapter::Window(
+    const ParsedCommand &command, unsigned diagram, const std::string &leaf) const
 {
-    if (leaf != "SEL" && !leaf.empty() && leaf != "STAT" && leaf != "Y:AUTO" && leaf != "Y:PDIV" && leaf != "Y:RLEV" &&
-        leaf != "Y:RPOS") {
+    if (!leaf.empty() && leaf != "STAT" && leaf != "CAT" && leaf != "SIZE") {
         return ScpiDisplayResult();
     }
-    if (command.query && (leaf == "SEL" || leaf == "Y:AUTO")) {
+    if (leaf == "CAT" && !command.query) {
+        return Failure(UNDEFINED_HEADER, "Window catalog is query-only");
+    }
+    auto result = Handled();
+    if (!Arguments(command, command.query ? 0U : 1U, result)) {
+        return result;
+    }
+    const auto &state = service_.Display();
+    const auto *window = Diagram(state, diagram);
+    const bool existence = leaf.empty() || leaf == "STAT";
+    if (command.query && existence) {
+        result.response = window == nullptr ? "0" : "1";
+        return result;
+    }
+    VnaDisplay::DisplayChange change;
+    change.diagram = diagram;
+    if (existence) {
+        bool enabled = false;
+        if (!Boolean(command.arguments.front(), enabled)) {
+            return Failure(ILLEGAL_PARAMETER_VALUE, "Window state requires ON or OFF");
+        }
+        if (enabled == (window != nullptr)) {
+            return result;
+        }
+        change.kind =
+            enabled ? VnaDisplay::DisplayChangeKind::DIAGRAM_ADD : VnaDisplay::DisplayChangeKind::DIAGRAM_REMOVE;
+    } else {
+        if (window == nullptr) {
+            return Failure(DATA_OUT_OF_RANGE, "Display window does not exist");
+        }
+        if (command.query) {
+            if (leaf == "CAT") {
+                result.response = TraceCatalog(*window);
+            } else {
+                const bool maximized =
+                    state.layout == VnaDisplay::LayoutMode::MAXIMIZED && state.selectedDiagram == diagram;
+                result.response = maximized ? "MAX" : "NORM";
+            }
+            return result;
+        }
+        const auto size = Upper(command.arguments.front());
+        if (size != "MAX" && size != "NORM") {
+            return Failure(ILLEGAL_PARAMETER_VALUE, "Window size requires MAX or NORM");
+        }
+        change.kind = VnaDisplay::DisplayChangeKind::LAYOUT;
+        change.layout = size == "MAX" ? VnaDisplay::LayoutMode::MAXIMIZED : VnaDisplay::LayoutMode::GRID;
+    }
+    result.operation = service_.ApplyDisplay(std::move(change));
+    return result;
+}
+
+ScpiDisplayResult ScpiDisplayAdapter::Trace(
+    const ParsedCommand &command, unsigned diagram, unsigned slot, const std::string &leaf) const
+{
+    if (leaf != "SEL" && !leaf.empty() && leaf != "STAT" && leaf != "Y:AUTO" && leaf != "Y:PDIV" && leaf != "Y:RLEV" &&
+        leaf != "Y:RPOS" && leaf != "FEED" && leaf != "DEL") {
+        return ScpiDisplayResult();
+    }
+    if (command.query && (leaf == "SEL" || leaf == "Y:AUTO" || leaf == "FEED" || leaf == "DEL")) {
         return Failure(UNDEFINED_HEADER, "Display action is write-only");
     }
     auto result = Handled();
-    const bool action = leaf == "SEL" || leaf == "Y:AUTO";
+    const bool action = leaf == "SEL" || leaf == "Y:AUTO" || leaf == "DEL";
     if (!Arguments(command, command.query || action ? 0U : 1U, result)) {
         return result;
     }
     const auto &state = service_.Display();
-    if (slot == 0U || slot > VnaDisplay::MAX_DISPLAY_TRACES || slot > state.displayedNames.size()) {
+    const auto *window = Diagram(state, diagram);
+    if (window == nullptr) {
+        return Failure(DATA_OUT_OF_RANGE, "Display window does not exist");
+    }
+    if (slot == 0U || slot > VnaDisplay::MAX_DISPLAY_TRACES) {
         return Failure(DATA_OUT_OF_RANGE, "Display trace slot does not exist");
     }
-    const auto *trace = Presentation(state, state.displayedNames[slot - 1U]);
+    VnaDisplay::DisplayChange change;
+    change.diagram = diagram;
+    change.hasSlot = true;
+    change.slot = slot;
+    if (leaf == "FEED") {
+        change.kind = VnaDisplay::DisplayChangeKind::SELECT;
+        if (!StringArgument(command.arguments.front(), change.name)) {
+            return Failure(DATA_TYPE_ERROR, "Measurement name requires a string");
+        }
+        result.operation = service_.ApplyDisplay(std::move(change));
+        return result;
+    }
+    const auto *name = VnaDisplay::DiagramCollection::NameAtSlot(*window, slot);
+    if (name == nullptr) {
+        return Failure(DATA_OUT_OF_RANGE, "Display trace slot does not exist");
+    }
+    const auto *trace = Presentation(state, *name);
     if (trace == nullptr) {
         return Failure(SETTINGS_CONFLICT, "Displayed measurement does not exist");
     }
     if (command.query) {
         return ReadTrace(*trace, leaf);
     }
-    VnaDisplay::DisplayChange change;
-    change.hasSlot = true;
-    change.slot = slot;
+    if (leaf == "DEL") {
+        change.kind = VnaDisplay::DisplayChangeKind::DISPLAYED;
+        change.enabled = false;
+        result.operation = service_.ApplyDisplay(std::move(change));
+        return result;
+    }
     return SetTrace(command, *trace, std::move(change), leaf);
 }
 
@@ -361,15 +489,19 @@ ScpiDisplayResult ScpiDisplayAdapter::ReadTrace(
     const VnaDisplay::TracePresentation &trace, const std::string &leaf) const
 {
     auto result = Handled();
-    const double division = (trace.scale.max - trace.scale.min) / 10.0;
+    const bool logarithmic = trace.format == VnaDisplay::DisplayFormat::LOG_MAGNITUDE;
+    const double minimum = logarithmic ? std::log10(trace.scale.min) : trace.scale.min;
+    const double maximum = logarithmic ? std::log10(trace.scale.max) : trace.scale.max;
+    const double division = (maximum - minimum) / 10.0;
     if (leaf.empty() || leaf == "STAT") {
         result.response = trace.visible ? "1" : "0";
     } else if (leaf == "Y:PDIV") {
-        result.response = Number(trace.format == VnaDisplay::DisplayFormat::SMITH ? trace.smithRadius : division);
-    } else if (trace.format == VnaDisplay::DisplayFormat::SMITH) {
-        return Failure(SETTINGS_CONFLICT, "Smith format does not use reference level or position");
+        result.response = Number(VnaDisplay::TraceProjection::IsCircular(trace.format) ? trace.smithRadius : division);
+    } else if (VnaDisplay::TraceProjection::IsCircular(trace.format)) {
+        return Failure(SETTINGS_CONFLICT, "Circular format does not use reference level or position");
     } else if (leaf == "Y:RLEV") {
-        result.response = Number(trace.scale.min + trace.scale.referencePosition * division);
+        const double reference = minimum + trace.scale.referencePosition * division;
+        result.response = Number(logarithmic ? std::pow(10.0, reference) : reference);
     } else {
         result.response = Number(trace.scale.referencePosition);
     }
@@ -397,15 +529,15 @@ ScpiDisplayResult ScpiDisplayAdapter::SetTrace(const ParsedCommand &command, con
 ScpiDisplayResult ScpiDisplayAdapter::SetScale(const ParsedCommand &command, const VnaDisplay::TracePresentation &trace,
     VnaDisplay::DisplayChange change, const std::string &leaf) const
 {
-    if (trace.format == VnaDisplay::DisplayFormat::SMITH && leaf != "Y:PDIV") {
-        return Failure(SETTINGS_CONFLICT, "Smith format does not use reference level or position");
+    if (VnaDisplay::TraceProjection::IsCircular(trace.format) && leaf != "Y:PDIV") {
+        return Failure(SETTINGS_CONFLICT, "Circular format does not use reference level or position");
     }
     double value = 0.0;
     if (!Numeric(command.arguments.front(), value)) {
         return Failure(DATA_TYPE_ERROR, "Scale requires a finite numeric value");
     }
     change.kind = VnaDisplay::DisplayChangeKind::SCALE;
-    if (trace.format == VnaDisplay::DisplayFormat::SMITH) {
+    if (VnaDisplay::TraceProjection::IsCircular(trace.format)) {
         change.kind = VnaDisplay::DisplayChangeKind::SMITH_RADIUS;
         change.smithRadius = value;
     } else if (leaf == "Y:PDIV") {

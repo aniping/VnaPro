@@ -33,7 +33,9 @@ private:
     ScpiDisplayResult Format(const ParsedCommand &command) const;
     ScpiDisplayResult Marker(const ParsedCommand &command, unsigned id, const std::string &leaf) const;
     ScpiDisplayResult AllMarkersOff(const ParsedCommand &command) const;
-    ScpiDisplayResult Trace(const ParsedCommand &command, unsigned slot, const std::string &leaf) const;
+    ScpiDisplayResult Window(const ParsedCommand &command, unsigned diagram, const std::string &leaf) const;
+    ScpiDisplayResult Trace(
+        const ParsedCommand &command, unsigned diagram, unsigned slot, const std::string &leaf) const;
     ScpiDisplayResult ReadMarker(
         const VnaDisplay::TracePresentation &trace, unsigned id, const std::string &leaf) const;
     ScpiDisplayResult SetMarkerFrequency(const ParsedCommand &command, VnaDisplay::DisplayChange change) const;

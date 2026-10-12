@@ -28,13 +28,30 @@ bool ValidIndex(const std::string &path, std::size_t begin, unsigned maximum, st
 
 bool DisplayQuery(const std::string &path) noexcept
 {
-    const char prefix[] = "DISP:WIND1:TRAC";
+    const char prefix[] = "DISP:WIND";
     constexpr std::size_t prefixLength = sizeof(prefix) - 1U;
     if (path.compare(0U, prefixLength, prefix) != 0) {
         return false;
     }
     std::size_t separator = 0U;
-    if (!ValidIndex(path, prefixLength, VnaDisplay::MAX_DISPLAY_TRACES, separator)) {
+    if (!ValidIndex(path, prefixLength, VnaDisplay::MAX_DISPLAY_DIAGRAMS, separator)) {
+        return false;
+    }
+    if (separator == path.size()) {
+        return true;
+    }
+    if (path[separator] != ':') {
+        return false;
+    }
+    if (path.compare(separator + 1U, std::string::npos, "STAT") == 0 ||
+        path.compare(separator + 1U, std::string::npos, "CAT") == 0 ||
+        path.compare(separator + 1U, std::string::npos, "SIZE") == 0) {
+        return true;
+    }
+    const char tracePrefix[] = ":TRAC";
+    constexpr std::size_t tracePrefixLength = sizeof(tracePrefix) - 1U;
+    if (path.compare(separator, tracePrefixLength, tracePrefix) != 0 ||
+        !ValidIndex(path, separator + tracePrefixLength, VnaDisplay::MAX_DISPLAY_TRACES, separator)) {
         return false;
     }
     if (separator == path.size()) {
