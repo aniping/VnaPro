@@ -41,6 +41,10 @@ def configure(http):
                        "sourcePort": port, "expectedRevision": http.status()["revision"],
                        "requestId": "define-noise-" + str(port)}
         wait_operation(http, accepted(http, "measurements", measurement, token), token)
+        display = {"action": "displayed", "traceName": measurement["name"], "enabled": True,
+                   "expectedDisplayRevision": http.status()["display"]["revision"],
+                   "requestId": "display-noise-" + str(port)}
+        wait_operation(http, accepted(http, "display", display, token), token)
     return token
 
 
@@ -127,7 +131,11 @@ def exercise(http, scpi_port, pressure=False):
             expected = [value for pair in zip(trace["real"], trace["imag"]) for value in pair]
             assert actual == expected, "SCPI must read exactly the held noisy IQ, without generating new noise"
         assert scpi.query("SYST:ERR?").startswith("0,"), "Noise must not cause data errors"
-        assert http.frame() == held, "Protocol handover must retain the complete noisy frame"
+        actual_frame = http.frame()
+        assert actual_frame["displayRevision"] == http.status()["display"]["revision"]
+        assert {key: value for key, value in actual_frame.items() if key != "displayRevision"} == {
+            key: value for key, value in held.items() if key != "displayRevision"
+        }, "Selection changes display identity but preserves the complete noisy samples"
     finally:
         scpi.close()
     return scans

@@ -55,8 +55,9 @@ class HttpClient:
     def status(self, token=None):
         return self.request("GET", "/api/v1/status", token=token)
 
-    def frame(self):
-        return self.request("GET", "/api/v1/frame")
+    def frame(self, names=None):
+        query = "" if names is None else "?" + "&".join("trace=" + quote(name, safe="") for name in names)
+        return self.request("GET", "/api/v1/frame" + query)
 
 
 class AssetLinks(HTMLParser):
@@ -107,12 +108,16 @@ def connect_scpi(port):
             time.sleep(0.01)
 
 
-def assert_scpi_rejected(port):
+def assert_scpi_observer(port, http, token):
     client = None
     try:
         client = ScpiClient(port)
-        client.socket.sendall(b"*IDN?\n")
-        assert client.socket.recv(32) == b"", "Web control must exclude a SCPI controller"
+        before = http.status(token)
+        assert client.query("*IDN?").startswith("VnaPro,"), "SCPI observer can read while Web holds control"
+        assert client.query("CALC1:PAR:SEL?") == '"' + before["display"]["selectedMeasurement"] + '"'
+        assert client.query("CALC1:FORM?") == "MLOG"
+        client.socket.sendall(b"*IDN?;:CALC1:FORM PHAS\n")
+        assert client.socket.recv(32) == b"", "Mixed observer write closes without executing a query prefix"
     except OSError as error:
         assert error.errno in (errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE) or getattr(
             error, "winerror", None
@@ -120,6 +125,9 @@ def assert_scpi_rejected(port):
     finally:
         if client is not None:
             client.close()
+    after = http.status(token)
+    assert after["control"]["hasControl"] and after["control"]["owner"] == "web"
+    assert after["display"] == before["display"], "Observer write attempt preserves authoritative display"
 
 
 def identity_number(value):
@@ -200,10 +208,10 @@ def define_receiver(http, token, name, wave, receiver, source):
     wait_operation(http, accepted(http, "measurements", body, token), token)
 
 
-def wait_current_frame(http, revision):
+def wait_current_frame(http, revision, names=None):
     deadline = time.monotonic() + 8
     while True:
-        frame = http.frame()
+        frame = http.frame(names)
         if frame["available"] and frame["current"] and frame["measurementRevision"] == revision:
             return frame
         assert time.monotonic() < deadline, frame
@@ -228,7 +236,7 @@ def switch_live_parameter(http, token, before, receiver, source, request_id):
     assert identity_number(after["revision"]) == identity_number(before["revision"]) + 1, after
     assert [item["name"] for item in after["measurements"]] == [item["name"] for item in before["measurements"]]
     assert after["activeConfigValid"], after
-    frame = wait_current_frame(http, after["revision"])
+    frame = wait_current_frame(http, after["revision"], ("Trc1", "Live a1", "Live b1", "Live b2"))
     assert frame["revision"] == after["acquisitionRevision"], frame
     assert frame["runId"] == before["runId"], frame
     stale = dict(body, requestId=request_id + "-stale")
@@ -264,7 +272,7 @@ def exercise_live_measurements(http, token):
         "action": "continuous", "requestId": "live-start-continuous",
     }, token), token)
     before = http.status()
-    original = wait_current_frame(http, before["revision"])
+    original = wait_current_frame(http, before["revision"], ("Trc1", "Live a1", "Live b1", "Live b2"))
     assert_trace_ratio(original, "Live a1", "Live b2", "S21")
     same_source, switched = switch_live_parameter(http, token, before, 1, 1, "live-S11")
     assert same_source["acquisitionRevision"] == before["acquisitionRevision"], "Covered inputs keep the hardware plan"
@@ -378,7 +386,7 @@ def exercise(http_port, scpi_port):
     assert control["owner"] == "web" and control["hasControl"] is True and control["leaseRemainingMs"] > 0, control
     renewed = http.request("POST", "/api/v1/control/claim", {"sessionId": token}, token)
     assert renewed["sessionId"] == token and renewed["hasControl"] is True, renewed
-    assert_scpi_rejected(scpi_port)
+    assert_scpi_observer(scpi_port, http, token)
 
     before = http.status(token)
     patch = {
@@ -430,7 +438,7 @@ def exercise(http_port, scpi_port):
     wait_operation(http, single, token)
     status = http.status()
     assert status["config"]["sweepMode"] == "HOLD", status
-    frame = http.frame()
+    frame = http.frame(("Web A", "Web B"))
     check_frame(frame, status, 17)
     assert http.frame()["frameSeq"] == frame["frameSeq"], "HOLD observers must retain one complete logical frame"
 
@@ -449,7 +457,7 @@ def exercise(http_port, scpi_port):
     scpi = connect_scpi(scpi_port)
     try:
         status = http.status()
-        traces = check_frame(http.frame(), status, 19)
+        traces = check_frame(http.frame(("Web A", "Web B")), status, 19)
         assert float(scpi.query("SENS1:SWE:POIN?")) == 19, "The next owner inherits committed settings"
         assert scpi.query('CALC1:PAR:SEL "Web B";:SYST:ERR:COUN?') == "1"
         actual = [float(value) for value in scpi.query("CALC1:DATA? RDATA").split(",")]

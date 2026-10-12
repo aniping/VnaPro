@@ -67,20 +67,20 @@ def exercise(http_port, scpi_port, vectors):
         assert all(selected[key] == initial[key] for key in ("revision", "runId", "frameSeq")), \
             "Selection must retain the complete frame identity"
 
-        # HTTP 只显示前四条轨迹；分批删除已验证的测量项，直到检查完全部 32 项。
+        # 诊断读取显式选择本批四条；默认 frame 已改为仪器保存的显示集合。
         for offset in range(0, len(measurements), 4):
             if offset:
                 for name, _, _, _ in measurements[offset - 4:offset]:
                     assert int(client.query(f'CALC1:PAR:DEL "{name}";*OPC?')) == 1
                 assert int(client.query("SENS1:SWE:MODE SING;*OPC?")) == 1
-            status, frame = http.status(), http.frame()
+            batch = measurements[offset:offset + 4]
+            status, frame = http.status(), http.frame([item[0] for item in batch])
             assert frame["available"] is True and frame["current"] is True, frame
             assert frame["revision"] == status["acquisitionRevision"] and frame["runId"] == status["runId"]
             assert frame["measurementRevision"] == status["revision"]
             assert all(identity_number(frame[key]) > 0 for key in ("revision", "measurementRevision", "runId", "frameSeq"))
             assert frame["originalPointCount"] == frame["displayPointCount"] == 2 and not frame["decimated"]
             assert frame["frequencyHz"] == [1e9, 1e9]
-            batch = measurements[offset:offset + 4]
             assert [trace["name"] for trace in frame["traces"]] == [item[0] for item in batch]
             for trace, (name, source, kind, receiver) in zip(frame["traces"], batch):
                 assert (trace["sourcePort"], trace["receiverKind"], trace["receiverPort"]) == (source, kind, receiver)

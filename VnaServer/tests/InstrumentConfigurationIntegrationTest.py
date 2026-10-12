@@ -82,6 +82,7 @@ def define_supported(http, client, port_count):
     for name, parameter in definitions:
         assert int(client.query(f'CALC1:PAR:DEF:EXT "{name}","{parameter}";*OPC?')) == 1
         assert client.query("SYST:ERR?").startswith("0,"), parameter
+        assert int(client.query(f'CALC1:PAR:SEL "{name}";*OPC?')) == 1
     frame = assert_frame(http, client)
     traces = {trace["name"]: trace for trace in frame["traces"]}
     assert all(name in traces for name, _ in definitions), traces

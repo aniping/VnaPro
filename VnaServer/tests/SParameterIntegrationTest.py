@@ -47,7 +47,7 @@ def prepare(client, noise):
 
 
 def held_frame(http, client, golden=None):
-    frame = http.frame()
+    frame = http.frame(("Reflect", "Transmit", "Reference", "Received"))
     assert frame["available"] and frame["current"]
     traces = {trace["name"]: trace for trace in frame["traces"]}
     reference = trace_complex(traces["Reference"])
@@ -101,7 +101,7 @@ def continuous_frames(http, client):
     previous_ratio = None
     changed = False
     while len(sequences) < 12:
-        frame = http.frame()
+        frame = http.frame(("Reflect", "Transmit", "Reference", "Received"))
         assert time.monotonic() < deadline, "Continuous S-parameter frames stopped"
         if not frame["available"] or not frame["current"]:
             # CONT 完成只代表核心已启动；首轮完整帧尚未发布属于正常状态。
@@ -160,7 +160,7 @@ def four_parameter_held_frame(http, client, golden=None):
 
 def selected_reverse_traces_preserve_identity(http, client):
     ordinary = http.frame()
-    assert [trace["name"] for trace in ordinary["traces"]] == ["DefaultA", "Reflect", "Transmit", "ReverseTransmit"]
+    assert [trace["name"] for trace in ordinary["traces"]] == http.status()["display"]["displayedNames"]
     selected = http.request("GET", "/api/v1/frame?trace=ReverseReflect&trace=ReverseTransmit")
     assert selected["available"] and selected["current"]
     assert [trace["name"] for trace in selected["traces"]] == ["ReverseReflect", "ReverseTransmit"]
