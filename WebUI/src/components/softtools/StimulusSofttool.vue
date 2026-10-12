@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import type { InstrumentStatus, SweepConfiguration } from '../../api/types'
+import type {
+  InstrumentStatus,
+  SweepConfiguration,
+  SweepPatch,
+} from '../../api/types'
 import { sweepWithinCapabilities } from '../../domain/sweep'
 import { frequencyText } from '../../plot/formatting'
 import FrequencyField from '../shared/FrequencyField.vue'
@@ -10,14 +14,25 @@ const props = defineProps<{
   canConfigure: boolean
   busy: boolean
   focusField?: 'start' | 'stop' | 'center' | 'span' | 'bandwidth'
-  apply: (candidate: SweepConfiguration, expectedRevision: string) => Promise<InstrumentStatus | null>
+  apply: (
+    candidate: SweepPatch,
+    expectedRevision: string,
+  ) => Promise<InstrumentStatus | null>
 }>()
 
-const draft = reactive<SweepConfiguration>({ startHz: 0, stopHz: 0, points: 0, ifBandwidthHz: 0 })
+const draft = reactive<SweepConfiguration>({
+  startHz: 0,
+  stopHz: 0,
+  points: 0,
+  ifBandwidthHz: 0,
+})
 const dirty = ref(false)
 const applying = ref(false)
 const editRevision = ref('')
 const validation = ref('')
+const frequencyMode = ref<'edges' | 'centerSpan'>('edges')
+const centerDraft = ref(0)
+const spanDraft = ref(0)
 let baseline: SweepConfiguration | null = null
 
 function configuration(status: InstrumentStatus): SweepConfiguration {
@@ -26,7 +41,12 @@ function configuration(status: InstrumentStatus): SweepConfiguration {
 }
 
 function signature(value: SweepConfiguration): string {
-  return JSON.stringify([value.startHz, value.stopHz, value.points, value.ifBandwidthHz])
+  return JSON.stringify([
+    value.startHz,
+    value.stopHz,
+    value.points,
+    value.ifBandwidthHz,
+  ])
 }
 
 function load(status: InstrumentStatus) {
@@ -35,41 +55,87 @@ function load(status: InstrumentStatus) {
   editRevision.value = status.revision
   dirty.value = false
   validation.value = ''
+  frequencyMode.value = 'edges'
+  centerDraft.value = (status.config.startHz + status.config.stopHz) / 2
+  spanDraft.value = status.config.stopHz - status.config.startHz
 }
 
-watch(() => props.status, (status) => {
-  if (status && !dirty.value && !applying.value) load(status)
-}, { immediate: true })
+watch(
+  () => props.status,
+  (status) => {
+    if (status && !dirty.value && !applying.value) load(status)
+  },
+  { immediate: true },
+)
 
-watch(() => props.focusField, async (field) => {
-  if (!field) return
-  await nextTick()
-  const input = document.getElementById(`stimulus-${field}`)
-  if (input instanceof HTMLInputElement) { input.focus(); input.select() }
-  else input?.focus()
-}, { immediate: true })
+watch(
+  () => props.focusField,
+  async (field) => {
+    if (!field) return
+    await nextTick()
+    const input = document.getElementById(`stimulus-${field}`)
+    if (input instanceof HTMLInputElement) {
+      input.focus()
+      input.select()
+    } else input?.focus()
+  },
+  { immediate: true },
+)
 
 function update() {
-  dirty.value = baseline === null || signature(draft) !== signature(baseline)
+  dirty.value =
+    baseline === null ||
+    signature(previewConfiguration()) !== signature(baseline)
   validation.value = ''
 }
 
-const centerHz = computed(() => (draft.startHz + draft.stopHz) / 2)
-const spanHz = computed(() => draft.stopHz - draft.startHz)
-const revisionChanged = computed(() => dirty.value && props.status?.revision !== editRevision.value)
+const centerHz = computed(() =>
+  frequencyMode.value === 'centerSpan'
+    ? centerDraft.value
+    : (draft.startHz + draft.stopHz) / 2,
+)
+const spanHz = computed(() =>
+  frequencyMode.value === 'centerSpan'
+    ? spanDraft.value
+    : draft.stopHz - draft.startHz,
+)
+const revisionChanged = computed(
+  () => dirty.value && props.status?.revision !== editRevision.value,
+)
 const locked = computed(() => props.busy || applying.value)
 
+/** 只为草稿预览换算边界；实际命令发送 Center/Span，由后端执行联动。 */
+function previewConfiguration(): SweepConfiguration {
+  return frequencyMode.value === 'centerSpan'
+    ? {
+        ...draft,
+        startHz: centerDraft.value - spanDraft.value / 2,
+        stopHz: centerDraft.value + spanDraft.value / 2,
+      }
+    : { ...draft }
+}
+function beginCenterSpan() {
+  if (frequencyMode.value === 'centerSpan') return
+  centerDraft.value = centerHz.value
+  spanDraft.value = spanHz.value
+  frequencyMode.value = 'centerSpan'
+}
 function setCenter(value: number) {
-  const halfSpan = spanHz.value / 2
-  draft.startHz = value - halfSpan
-  draft.stopHz = value + halfSpan
+  beginCenterSpan()
+  centerDraft.value = value
   update()
 }
-
 function setSpan(value: number) {
-  const center = centerHz.value
-  draft.startHz = center - value / 2
-  draft.stopHz = center + value / 2
+  beginCenterSpan()
+  spanDraft.value = value
+  update()
+}
+function setEdge(edge: 'startHz' | 'stopHz', value: number) {
+  const preview = previewConfiguration()
+  draft.startHz = preview.startHz
+  draft.stopHz = preview.stopHz
+  frequencyMode.value = 'edges'
+  draft[edge] = value
   update()
 }
 
@@ -78,28 +144,39 @@ function discard() {
 }
 
 async function commit() {
-  if (!dirty.value || !props.canConfigure || locked.value || !props.status) return
-  const candidate = { ...draft }
+  if (!dirty.value || !props.canConfigure || locked.value || !props.status)
+    return
+  const candidate: SweepPatch =
+    frequencyMode.value === 'centerSpan'
+      ? {
+          centerHz: centerDraft.value,
+          spanHz: spanDraft.value,
+          points: draft.points,
+          ifBandwidthHz: draft.ifBandwidthHz,
+        }
+      : { ...draft }
   const expectedRevision = editRevision.value
   const limits = props.status.capabilities
-  if (!sweepWithinCapabilities(candidate, limits)) {
+  if (!sweepWithinCapabilities(previewConfiguration(), limits)) {
     validation.value = `Start ≤ Stop · ${frequencyText(limits.minFrequencyHz)}–${frequencyText(limits.maxFrequencyHz)} · ${limits.minSweepPoints}–${limits.maxSweepPoints} points · Span 0 = CW`
     return
   }
-  const submitted = signature(candidate)
+  const submitted = signature(previewConfiguration())
   applying.value = true
   validation.value = ''
   try {
     const result = await props.apply(candidate, expectedRevision)
     if (result) {
-      if (signature(draft) === submitted) load(result)
+      if (signature(previewConfiguration()) === submitted) load(result)
       else {
         baseline = configuration(result)
         editRevision.value = result.revision
         dirty.value = signature(draft) !== signature(baseline)
       }
     }
-  } finally { applying.value = false }
+  } finally {
+    applying.value = false
+  }
 }
 
 function applyFromKeyboard(event: KeyboardEvent) {
@@ -111,42 +188,109 @@ function applyFromKeyboard(event: KeyboardEvent) {
 </script>
 
 <template>
-  <section class="softtool-section" aria-label="Stimulus settings" @keydown.enter="applyFromKeyboard">
+  <section
+    class="softtool-section"
+    aria-label="Stimulus settings"
+    @keydown.enter="applyFromKeyboard"
+  >
     <template v-if="status">
       <h3 class="softtool-section-title">Frequency</h3>
-      <FrequencyField id="stimulus-start" label="Start" :model-value="draft.startHz"
-        @update:model-value="draft.startHz = $event; update()" />
-      <FrequencyField id="stimulus-stop" label="Stop" :model-value="draft.stopHz"
-        @update:model-value="draft.stopHz = $event; update()" />
+      <FrequencyField
+        id="stimulus-start"
+        label="Start"
+        :model-value="previewConfiguration().startHz"
+        @update:model-value="setEdge('startHz', $event)"
+      />
+      <FrequencyField
+        id="stimulus-stop"
+        label="Stop"
+        :model-value="previewConfiguration().stopHz"
+        @update:model-value="setEdge('stopHz', $event)"
+      />
       <div class="softtool-divider" />
-      <FrequencyField id="stimulus-center" label="Center" :model-value="centerHz" @update:model-value="setCenter" />
-      <FrequencyField id="stimulus-span" label="Span" :model-value="spanHz" @update:model-value="setSpan" />
+      <FrequencyField
+        id="stimulus-center"
+        label="Center"
+        :model-value="centerHz"
+        @update:model-value="setCenter"
+      />
+      <FrequencyField
+        id="stimulus-span"
+        label="Span"
+        :model-value="spanHz"
+        @update:model-value="setSpan"
+      />
       <div class="softtool-divider" />
       <h3 class="softtool-section-title">Sweep settings</h3>
       <label class="field-row" for="stimulus-points">
         <span class="softtool-label">Points</span>
-        <input id="stimulus-points" v-model.number="draft.points" data-testid="points" class="field-input"
-          type="number" :min="status.capabilities.minSweepPoints" :max="status.capabilities.maxSweepPoints" step="1" @input="update" />
+        <input
+          id="stimulus-points"
+          v-model.number="draft.points"
+          data-testid="points"
+          class="field-input"
+          type="number"
+          :min="status.capabilities.minSweepPoints"
+          :max="status.capabilities.maxSweepPoints"
+          step="1"
+          @input="update"
+        />
       </label>
       <label class="field-row" for="stimulus-bandwidth">
         <span class="softtool-label">IF bandwidth</span>
-        <select id="stimulus-bandwidth" v-model.number="draft.ifBandwidthHz" class="field-input" @change="update">
-          <option :value="10">10 Hz</option><option :value="100">100 Hz</option>
-          <option :value="1000">1 kHz</option><option :value="10000">10 kHz</option>
+        <select
+          id="stimulus-bandwidth"
+          v-model.number="draft.ifBandwidthHz"
+          class="field-input"
+          @change="update"
+        >
+          <option :value="10">10 Hz</option>
+          <option :value="100">100 Hz</option>
+          <option :value="1000">1 kHz</option>
+          <option :value="10000">10 kHz</option>
           <option :value="100000">100 kHz</option>
         </select>
       </label>
       <div class="softtool-apply">
-        <button class="softtool-button softtool-primary" data-testid="apply-config" type="button"
-          :disabled="!dirty || !canConfigure || locked" @click="commit">{{ applying ? 'Applying…' : 'Apply' }}</button>
-        <button class="softtool-button" type="button" :disabled="!dirty || locked" @click="discard">Reload</button>
+        <button
+          class="softtool-button softtool-primary"
+          data-testid="apply-config"
+          type="button"
+          :disabled="!dirty || !canConfigure || locked"
+          @click="commit"
+        >
+          {{ applying ? 'Applying…' : 'Apply' }}
+        </button>
+        <button
+          class="softtool-button"
+          type="button"
+          :disabled="!dirty || locked"
+          @click="discard"
+        >
+          Reload
+        </button>
       </div>
-      <p v-if="validation" class="softtool-note" role="status">{{ validation }}</p>
-      <p v-else-if="revisionChanged" class="softtool-note" role="status">Device configuration changed. Reload to edit current settings.</p>
-      <p v-else-if="dirty" class="softtool-note">Draft · revision {{ editRevision }}</p>
-      <p v-else class="softtool-note">Applied · revision {{ status.revision }}</p>
-      <p v-if="!canConfigure && !busy" class="softtool-note">Hold the sweep and acquire control to apply.</p>
-      <p class="softtool-note">{{ status.capabilities.portCount }} ports · {{ frequencyText(status.capabilities.minFrequencyHz) }}–{{ frequencyText(status.capabilities.maxFrequencyHz) }}</p>
+      <p v-if="validation" class="softtool-note" role="status">
+        {{ validation }}
+      </p>
+      <p v-else-if="revisionChanged" class="softtool-note" role="status">
+        Device configuration changed. Reload to edit current settings.
+      </p>
+      <p v-else-if="dirty" class="softtool-note">
+        Draft · revision {{ editRevision }}
+      </p>
+      <p v-else class="softtool-note">
+        Applied · revision {{ status.revision }}
+      </p>
+      <p v-if="!canConfigure && !busy" class="softtool-note">
+        Hold the sweep and acquire control to apply.
+      </p>
+      <p class="softtool-note">
+        {{ status.capabilities.portCount }} ports ·
+        {{ frequencyText(status.capabilities.minFrequencyHz) }}–{{
+          frequencyText(status.capabilities.maxFrequencyHz)
+        }}
+      </p>
     </template>
     <p v-else class="softtool-note">Waiting for instrument settings…</p>
   </section>

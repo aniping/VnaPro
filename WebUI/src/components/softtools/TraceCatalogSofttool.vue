@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { InstrumentStatus, MeasurementCandidate } from '../../api/types'
-import {
-  cloneMeasurementCandidate,
-  measurementState,
-} from '../../domain/measurements'
+import type { InstrumentStatus } from '../../api/types'
+import { measurementState } from '../../domain/measurements'
 
 const props = defineProps<{
   status: InstrumentStatus | null
@@ -12,10 +9,8 @@ const props = defineProps<{
   displayedNames: string[]
   canChangeMeasurements: boolean
   busy: boolean
-  add: (
-    candidate: MeasurementCandidate,
-    expectedRevision: string,
-  ) => Promise<InstrumentStatus | null>
+  canEditDisplay: boolean
+  clone: (sourceName: string) => Promise<InstrumentStatus | null>
   remove: (
     name: string,
     expectedRevision: string,
@@ -36,12 +31,9 @@ const disabled = computed(
 
 async function clone() {
   if (disabled.value || !active.value || !props.status) return
-  const candidate = cloneMeasurementCandidate(active.value, catalog.value)
-  if (!candidate) return
   working.value = true
   try {
-    if (await props.add(candidate, props.status.revision))
-      emit('selectTrace', candidate.name)
+    await props.clone(active.value.name)
   } finally {
     working.value = false
   }
@@ -78,6 +70,7 @@ async function remove() {
           class="softtool-button"
           :class="{ 'is-active': activeTraceName === measurement.name }"
           :aria-pressed="activeTraceName === measurement.name"
+          :disabled="!canEditDisplay"
           @click="emit('selectTrace', measurement.name)"
         >
           {{ measurement.name }}<small>{{ measurement.parameter }}</small>
@@ -88,8 +81,9 @@ async function remove() {
             :aria-label="`Display ${measurement.name}`"
             :checked="displayedNames.includes(measurement.name)"
             :disabled="
-              !displayedNames.includes(measurement.name) &&
-              displayedNames.length >= 4
+              !canEditDisplay ||
+              (!displayedNames.includes(measurement.name) &&
+                displayedNames.length >= 4)
             "
             @change="
               emit('display', {

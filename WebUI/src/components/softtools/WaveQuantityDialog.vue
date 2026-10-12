@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import type { Measurement, MeasurementCandidate } from '../../api/types'
+import type { Measurement, ReceiverCandidate } from '../../api/types'
 
 const props = defineProps<{
   measurement: Measurement
@@ -9,11 +9,11 @@ const props = defineProps<{
   error: string
 }>()
 const emit = defineEmits<{
-  apply: [candidate: MeasurementCandidate]
+  apply: [candidate: ReceiverCandidate]
   close: []
 }>()
 const dialog = ref<HTMLDialogElement | null>(null)
-const draft = reactive<MeasurementCandidate>({
+const draft = reactive<ReceiverCandidate>({
   name: props.measurement.name,
   kind: 'receiver',
   receiverKind: props.measurement.receiverKind,

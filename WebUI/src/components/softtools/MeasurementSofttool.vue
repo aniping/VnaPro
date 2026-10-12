@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { InstrumentStatus, MeasurementCandidate } from '../../api/types'
-import {
-  measurementCandidate,
-  type MeasurementChoice,
-} from '../../domain/measurements'
+import { type MeasurementChoice } from '../../domain/measurements'
 import WaveQuantityDialog from './WaveQuantityDialog.vue'
 
 const props = defineProps<{
@@ -53,13 +50,6 @@ function supports(parameter: MeasurementChoice) {
 
 async function change(candidate: MeasurementCandidate) {
   if (disabled.value || !props.status || !active.value) return false
-  if (
-    candidate.kind === active.value.kind &&
-    candidate.receiverKind === active.value.receiverKind &&
-    candidate.receiverPort === active.value.receiverPort &&
-    candidate.sourcePort === active.value.sourcePort
-  )
-    return true
   working.value = true
   validation.value = ''
   try {
@@ -73,7 +63,7 @@ async function change(candidate: MeasurementCandidate) {
 
 function selectParameter(parameter: MeasurementChoice) {
   if (!active.value || !supports(parameter)) return
-  void change(measurementCandidate(parameter, active.value))
+  void change({ name: active.value.name, parameter })
 }
 
 function selectParameterEvent(event: Event) {
