@@ -116,8 +116,7 @@ std::string Keyword(std::string token)
     if (found != names.end()) {
         token = found->second;
     }
-    if (suffix.empty() &&
-        (token == "SENS" || token == "CALC" || token == "WIND" || token == "TRAC" || token == "MARK")) {
+    if (suffix.empty() && (token == "SENS" || token == "CALC" || token == "WIND" || token == "TRAC")) {
         suffix = "1";
     }
     return token + suffix;
@@ -146,6 +145,12 @@ bool ParseHeader(const std::string &header, std::vector<std::string> &parent, Pa
         command.errorCode = SYNTAX_ERROR;
         command.error = "Missing header";
         return false;
+    }
+    for (std::size_t index = 0U; index < tokens.size(); ++index) {
+        // AOFF 属于标记组；只有普通标记路径省略编号时才采用默认 M1。
+        if (tokens[index] == "MARK" && (index + 1U == tokens.size() || tokens[index + 1U] != "AOFF")) {
+            tokens[index] = "MARK1";
+        }
     }
     parent = tokens;
     parent.pop_back();

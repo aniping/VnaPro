@@ -65,22 +65,22 @@ void TestComplexInterpolationAndDiscreteMode()
 {
     TracePresentation presentation;
     presentation.format = DisplayFormat::REALIMAG;
-    presentation.marker.enabled = true;
-    presentation.marker.hasFrequency = true;
-    presentation.marker.frequencyHz = 1.5e6;
+    presentation.markers.Active().enabled = true;
+    presentation.markers.Active().hasFrequency = true;
+    presentation.markers.Active().frequencyHz = 1.5e6;
     const auto trace = Trace({0.0, 2.0}, {0.0, 4.0});
     auto result = TraceProjection::Calculate(presentation, trace, {1e6, 2e6});
     Require(result.marker.available && result.marker.valid && result.marker.interpolated, "复数插值标记不可用");
     Near(result.marker.real, 1.0);
     Near(result.marker.imag, 2.0);
     Near(result.marker.frequencyHz, 1.5e6);
-    presentation.marker.interpolate = false;
+    presentation.markers.Active().interpolate = false;
     result = TraceProjection::Calculate(presentation, trace, {1e6, 2e6});
     Require(!result.marker.interpolated && result.marker.sampleIndex == 0U, "离散标记没有确定吸附真实点");
     Near(result.marker.frequencyHz, 1e6);
     auto invalid = trace;
     invalid.points[1].valid = false;
-    presentation.marker.interpolate = true;
+    presentation.markers.Active().interpolate = true;
     result = TraceProjection::Calculate(presentation, invalid, {1e6, 2e6});
     Require(!result.marker.valid && result.marker.value.state == DisplayValueState::INVALID,
         "插值跨过无效点补造了有效数据");
@@ -92,9 +92,9 @@ void TestSmithPointImpedanceSharesTheImmutableProjection()
     trace.points.back().valid = false;
     TracePresentation presentation;
     presentation.format = DisplayFormat::SMITH;
-    presentation.marker.enabled = true;
-    presentation.marker.hasSampleIndex = true;
-    presentation.marker.sampleIndex = 2U;
+    presentation.markers.Active().enabled = true;
+    presentation.markers.Active().hasSampleIndex = true;
+    presentation.markers.Active().sampleIndex = 2U;
     const auto result = TraceProjection::Calculate(presentation, trace, {1, 2, 3, 4, 5});
     Require(result.impedancePoints.size() == trace.points.size(), "Smith 阻抗必须覆盖完整原始点数组");
     Near(result.impedancePoints[0].real, 1.0);
@@ -106,7 +106,8 @@ void TestSmithPointImpedanceSharesTheImmutableProjection()
         "逐点阻抗保留开路和无效点状态");
     Near(result.marker.impedance.real, result.impedancePoints[2].real);
     Near(result.marker.impedance.imag, result.impedancePoints[2].imag);
-    Require(presentation.marker.sampleIndex == 2U && !trace.points.back().valid, "投影不得修改正式标记配置或测量数据");
+    Require(presentation.markers.Active().sampleIndex == 2U && !trace.points.back().valid,
+        "投影不得修改正式标记配置或测量数据");
     presentation.format = DisplayFormat::REALIMAG;
     Require(TraceProjection::Calculate(presentation, trace, {1, 2, 3, 4, 5}).impedancePoints.empty(),
         "非 Smith 格式不计算阻抗数组");
@@ -116,10 +117,10 @@ void TestOriginalIndexSurvivesCwAndTransportDecimation()
 {
     TracePresentation presentation;
     presentation.format = DisplayFormat::REAL;
-    presentation.marker.enabled = true;
-    presentation.marker.hasSampleIndex = true;
-    presentation.marker.sampleIndex = 7777U;
-    presentation.marker.acquisitionRevision = 7U;
+    presentation.markers.Active().enabled = true;
+    presentation.markers.Active().hasSampleIndex = true;
+    presentation.markers.Active().sampleIndex = 7777U;
+    presentation.markers.Active().acquisitionRevision = 7U;
     const std::vector<double> axis(10001U, 10e6);
     std::vector<double> values;
     for (std::size_t index = 0U; index < axis.size(); ++index) {

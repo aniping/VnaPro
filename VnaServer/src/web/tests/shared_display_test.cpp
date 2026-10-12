@@ -276,6 +276,69 @@ void ScpiObserverSeesWebWritesWhileLeaseHeld()
     Require(Query(observer, "CALC1:MARK1:STAT?") == "1\n", "SCPI sees Web marker state");
     Require(fixture.service.ControlOwner() == owner, "Queries retain the Web lease");
 }
+
+void NumberedMarkersAreSharedAndAtomic()
+{
+    Fixture fixture;
+    HttpApi writer(fixture.service);
+    HttpApi observer(fixture.service);
+    const auto token = Claim(writer);
+    Single(writer, token);
+    const auto name = Field(Display(writer), "selectedMeasurement").string;
+    for (unsigned id = 1U; id <= VnaDisplay::MAX_MARKERS; ++id) {
+        auto add = Action(writer, "marker", name, "numbered-add-" + std::to_string(id));
+        add["markerAction"] = Json("add");
+        Apply(writer, add, token);
+        const auto display = Display(observer);
+        const auto &presentation = Presentation(display, name);
+        const auto &markers = Field(presentation, "markers").array;
+        Require(markers.size() == VnaDisplay::MAX_MARKERS && Field(presentation, "activeMarkerId").number == id,
+            "观察器必须读到十个独立标记及本次新增的活动编号");
+        Require(Field(markers[id - 1U], "id").number == id && Field(markers[id - 1U], "enabled").boolean,
+            "新增不能反复覆盖 M1");
+    }
+    const auto full = VnaWeb::StringifyJson(Display(writer));
+    auto extra = Action(writer, "marker", name, "numbered-full");
+    extra["markerAction"] = Json("add");
+    Complete(writer, Accepted(Request(writer, "POST", "/api/v1/display", extra, token)), token, false);
+    Require(VnaWeb::StringifyJson(Display(writer)) == full, "满十个后新增失败不能部分提交");
+    auto move = Action(writer, "marker", name, "numbered-move-m2");
+    move["markerId"] = Json(2U);
+    move["sampleIndex"] = Json(37U);
+    move["discrete"] = Json(true);
+    move["acquisitionRevision"] = Field(Status(writer), "acquisitionRevision");
+    Apply(writer, move, token);
+    Shared(writer, observer);
+    const auto moved = Display(observer);
+    const auto &presentation = Presentation(moved, name);
+    const auto &markers = Field(presentation, "markers").array;
+    Require(Field(presentation, "activeMarkerId").number == 2.0 && Field(markers[1U], "sampleIndex").number == 37.0 &&
+                Field(markers[0U], "sampleIndex").number != 37.0,
+        "M2 移动与激活不能改变 M1 位置");
+    const auto frame = Request(observer, "GET", "/api/v1/frame").json;
+    const auto &projection = Field(Field(frame, "traces").array.front(), "projection");
+    Require(Field(projection, "activeMarkerId").number == 2.0 &&
+                Field(Field(projection, "markers").array[1U], "sampleIndex").number == 37.0 &&
+                Field(Field(projection, "marker"), "sampleIndex").number == 37.0,
+        "帧的活动别名与编号读数必须来自同一完整帧");
+    const auto beforeInvalid = VnaWeb::StringifyJson(Display(observer));
+    move["requestId"] = Json("numbered-invalid-id");
+    move["expectedDisplayRevision"] = Field(Display(writer), "revision");
+    move["markerId"] = Json(VnaDisplay::MAX_MARKERS + 1U);
+    Require(Request(writer, "POST", "/api/v1/display", move, token).status == 400U &&
+                VnaWeb::StringifyJson(Display(observer)) == beforeInvalid,
+        "协议拒绝非法编号，权威状态不改变");
+    auto allOff = Action(writer, "marker", name, "numbered-all-off");
+    allOff["markerAction"] = Json("allOff");
+    Apply(writer, allOff, token);
+    const auto disabled = Display(observer);
+    const auto &saved = Field(Presentation(disabled, name), "markers").array;
+    for (const auto &marker : saved) {
+        Require(!Field(marker, "enabled").boolean, "All Off 关闭当前迹线全部标记");
+    }
+    Require(Field(saved[1U], "sampleIndex").number == 37.0, "关闭后保留原始位置供重新开启");
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -284,7 +347,8 @@ int main()
         {"shared-authoritative-display", ObserversShareAuthoritativeDisplay},
         {"shared-actions-and-refresh", SharedActionsAndRefresh},
         {"shared-display-read-only-and-cas", ReadOnlyAndStaleRevision},
-        {"shared-scpi-observer-sees-web-writes", ScpiObserverSeesWebWritesWhileLeaseHeld}};
+        {"shared-scpi-observer-sees-web-writes", ScpiObserverSeesWebWritesWhileLeaseHeld},
+        {"shared-numbered-markers", NumberedMarkersAreSharedAndAtomic}};
     unsigned failures = 0U;
     for (const auto &test : tests) {
         try {

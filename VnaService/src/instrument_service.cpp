@@ -24,7 +24,6 @@ namespace VnaService {
 namespace {
 constexpr std::size_t TASK_QUEUE_CAPACITY = 32U;
 constexpr std::size_t ERROR_QUEUE_CAPACITY = 32U;
-constexpr std::size_t MEASUREMENT_CAPACITY = 32U;
 constexpr std::size_t MAX_MEASUREMENT_NAME_LENGTH = 128U;
 constexpr std::uint64_t SETTINGS_REVISION_MAX = (std::numeric_limits<std::uint64_t>::max)();
 constexpr unsigned COMMAND_ERROR_EVENT = 32U;
@@ -867,7 +866,7 @@ Operation InstrumentService::DefineMeasurement(
             if (!ValidMeasurement(measurement, profile_)) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Unsupported measurement definition");
             }
-            if (settings.measurements.size() >= MEASUREMENT_CAPACITY) {
+            if (settings.measurements.size() >= VnaDisplay::MAX_DISPLAY_TRACES) {
                 return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Measurement catalog is full");
             }
             for (const auto &existing : settings.measurements) {

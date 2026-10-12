@@ -6,9 +6,12 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "fixture.h"
 #include "scpi/scpi_engine.h"
+#include "scpi/scpi_parser.h"
+#include "scpi/scpi_query_policy.h"
 #include "vna_service/instrument_service.h"
 
 namespace {
@@ -106,6 +109,46 @@ void UnknownAndMalformedQueriesDoNotPolluteInstrument()
     }
 }
 
+void ObserverReadsNumberedMarkersWithoutTakingControl()
+{
+    VnaServiceTest::Fixture fixture;
+    VnaScpi::ScpiEngine writer(fixture.service);
+    Expect(Query(writer,
+               "CALC:MARK1:STAT ON;X MIN;:CALC:MARK2:STAT ON;X MAX;:CALC:MARK10:STAT ON;X 25MHz;"
+               ":CALC:MARK10:DISC OFF;*OPC?") == "+1\n",
+        "控制者未成功设置多个标记");
+    VnaScpi::ScpiEngine observer(fixture.service);
+    const auto revision = fixture.service.Display().revision;
+    Expect(
+        Query(observer, "CALC:MARK2:STAT?;:CALC:MARK10:STAT?;DISC?") == "1;1;0\n", "观察者未读取各编号的共享标记状态");
+    Expect(
+        std::stod(Query(observer, "CALC:MARK2:X?")) == fixture.service.Settings().stopHz, "观察者读取了错误标记的频率");
+    Expect(Query(observer, "CALC:MARK1?") == "1\n", "省略 STAT 的标记查询未允许观察访问");
+    Expect(!observer.HasControl() && fixture.service.ControlOwner() == "SCPI" &&
+               fixture.service.Display().revision == revision &&
+               fixture.service.Display().traces.front().markers.Selected() == 10U,
+        "显式标记查询修改了控制权、活动标记或显示版本");
+    const std::vector<std::string> rejected = {"CALC:MARK0:STAT?", "CALC:MARK11:X?", "CALC:MARK42949672960:Y?",
+        "CALC:MARK:AOFF?", "CALC:MARK:AOFF",
+        "DISP:WIND:TRAC" + std::to_string(VnaDisplay::MAX_DISPLAY_TRACES + 1U) + ":STAT?"};
+    for (const auto &line : rejected) {
+        Expect(!observer.SubmitLine(line), "超范围或写入命令不能通过观察查询准入");
+        observer.Poll();
+        Expect(observer.TakeOutput().empty() && fixture.service.ErrorCount() == 0U &&
+                   fixture.service.Display().revision == revision,
+            "拒绝的观察请求污染了控制者状态");
+    }
+    const std::vector<std::string> allowed = {"CALC:MARK2:Y?", "CALC:MARK10:Y?",
+        "DISP:WIND:TRAC" + std::to_string(VnaDisplay::MAX_DISPLAY_TRACES) + ":Y:SCAL:PDIV?"};
+    for (const auto &line : allowed) {
+        std::vector<std::string> parent;
+        Expect(VnaScpi::IsObserverQuery(VnaScpi::ParseCommand(line, parent)), "合法编号的数据查询被观察准入规则阻挡");
+    }
+    observer.Disconnect();
+    observer.Poll();
+    Expect(writer.HasControl() && fixture.service.ControlOwner() == "SCPI", "观察连接断开误释放控制权");
+}
+
 void QueriesRemainResponsiveAndOpcWaitsForFiniteOperation()
 {
     VnaServiceTest::Fixture fixture;
@@ -148,6 +191,7 @@ int main()
         ObserverCannotConsumeRegistersOrErrors();
         ObserverDoesNotUpgradeAfterControllerLeaves();
         UnknownAndMalformedQueriesDoNotPolluteInstrument();
+        ObserverReadsNumberedMarkersWithoutTakingControl();
         QueriesRemainResponsiveAndOpcWaitsForFiniteOperation();
         std::cout << "PASS SCPI 只读观察与独占写控制权\n";
         return 0;

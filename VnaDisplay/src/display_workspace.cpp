@@ -18,7 +18,6 @@
 namespace VnaDisplay {
 namespace {
 
-constexpr std::size_t DISPLAY_TRACE_LIMIT = 4U;
 constexpr double MIN_SMITH_RADIUS = 0.01;
 
 DisplayResult Success(bool changed = false)
@@ -53,22 +52,12 @@ TracePresentation *FindPresentation(DisplayState &state, const std::string &name
     return found == state.traces.end() ? nullptr : &*found;
 }
 
-bool EqualMarker(const MarkerSettings &left, const MarkerSettings &right)
-{
-    return left.enabled == right.enabled && left.hasFrequency == right.hasFrequency &&
-           (!left.hasFrequency || left.frequencyHz == right.frequencyHz) &&
-           left.hasSampleIndex == right.hasSampleIndex &&
-           (!left.hasSampleIndex ||
-               (left.sampleIndex == right.sampleIndex && left.acquisitionRevision == right.acquisitionRevision)) &&
-           left.interpolate == right.interpolate;
-}
-
 bool EqualTrace(const TracePresentation &left, const TracePresentation &right)
 {
     return left.name == right.name && left.format == right.format && left.cartesianFormat == right.cartesianFormat &&
            left.scale.min == right.scale.min && left.scale.max == right.scale.max &&
            left.scale.referencePosition == right.scale.referencePosition && left.smithRadius == right.smithRadius &&
-           left.visible == right.visible && EqualMarker(left.marker, right.marker);
+           left.visible == right.visible && left.markers.SameSettings(right.markers);
 }
 
 bool EqualState(const DisplayState &left, const DisplayState &right)
@@ -98,12 +87,47 @@ bool UsesSmith(const DisplayState &state, const std::string &name)
     return trace != state.traces.end() && trace->format == DisplayFormat::SMITH;
 }
 
+void AppendDiagramGroups(std::vector<DisplayDiagram> &diagrams, const std::vector<std::string> &names,
+    std::size_t groupCount, const std::string &selected)
+{
+    for (std::size_t group = 0U; group < groupCount; ++group) {
+        std::vector<std::string> grouped;
+        for (std::size_t index = group; index < names.size(); index += groupCount) {
+            grouped.push_back(names[index]);
+        }
+        diagrams.push_back(Diagram(static_cast<unsigned>(diagrams.size() + 1U), grouped, selected));
+    }
+}
+
+std::vector<DisplayDiagram> GridDiagrams(const DisplayState &state, const std::vector<std::string> &names)
+{
+    std::vector<DisplayDiagram> diagrams;
+    if (names.size() <= MAX_DISPLAY_DIAGRAMS) {
+        for (const auto &name : names) {
+            diagrams.push_back(Diagram(static_cast<unsigned>(diagrams.size() + 1U), {name}, state.selectedMeasurement));
+        }
+        return diagrams;
+    }
+    std::vector<std::string> smith;
+    std::vector<std::string> cartesian;
+    for (const auto &name : names) {
+        (UsesSmith(state, name) ? smith : cartesian).push_back(name);
+    }
+    // 坐标类型不混合；两种类型同时存在时，各类尽量获得两个图窗。
+    std::size_t cartesianCount = std::min(cartesian.size(), MAX_DISPLAY_DIAGRAMS / 2U);
+    const std::size_t smithCount = std::min(smith.size(), MAX_DISPLAY_DIAGRAMS - cartesianCount);
+    cartesianCount = std::min(cartesian.size(), MAX_DISPLAY_DIAGRAMS - smithCount);
+    AppendDiagramGroups(diagrams, cartesian, cartesianCount, state.selectedMeasurement);
+    AppendDiagramGroups(diagrams, smith, smithCount, state.selectedMeasurement);
+    return diagrams;
+}
+
 DisplayResult SelectTrace(DisplayState &state, const std::string &name, const DisplayChange &change)
 {
     auto &names = state.displayedNames;
     const auto existing = std::find(names.begin(), names.end(), name);
     if (change.hasSlot) {
-        if (change.slot == 0U || change.slot > DISPLAY_TRACE_LIMIT || change.slot > names.size() + 1U) {
+        if (change.slot == 0U || change.slot > MAX_DISPLAY_TRACES || change.slot > names.size() + 1U) {
             return Failure("Display slot does not exist");
         }
         const auto target = static_cast<std::size_t>(change.slot - 1U);
@@ -120,11 +144,10 @@ DisplayResult SelectTrace(DisplayState &state, const std::string &name, const Di
             }
         }
     } else if (existing == names.end()) {
-        if (names.size() < DISPLAY_TRACE_LIMIT) {
+        if (names.size() < MAX_DISPLAY_TRACES) {
             names.push_back(name);
         } else {
-            const auto selected = std::find(names.begin(), names.end(), state.selectedMeasurement);
-            names[static_cast<std::size_t>(selected == names.end() ? 0 : selected - names.begin())] = name;
+            return Failure("Displayed trace capacity exhausted");
         }
     }
     state.selectedMeasurement = name;
@@ -134,8 +157,8 @@ DisplayResult SelectTrace(DisplayState &state, const std::string &name, const Di
 DisplayResult ReplaceDisplayed(
     DisplayState &state, const std::vector<std::string> &names, const std::vector<VnaMeasurement::Measurement> &catalog)
 {
-    if (names.size() > DISPLAY_TRACE_LIMIT) {
-        return Failure("At most four measurements can be displayed");
+    if (names.size() > MAX_DISPLAY_TRACES) {
+        return Failure("Displayed trace capacity exhausted");
     }
     std::set<std::string> seen;
     for (const auto &name : names) {
@@ -155,8 +178,8 @@ DisplayResult SetDisplayed(DisplayState &state, const std::string &name, const D
     auto &names = state.displayedNames;
     const auto found = std::find(names.begin(), names.end(), name);
     if (change.enabled) {
-        if (found == names.end() && names.size() == DISPLAY_TRACE_LIMIT) {
-            return Failure("All four display slots are occupied");
+        if (found == names.end() && names.size() == MAX_DISPLAY_TRACES) {
+            return Failure("Displayed trace capacity exhausted");
         }
         return SelectTrace(state, name, change);
     }
@@ -234,8 +257,7 @@ DisplayResult ApplyTrace(TracePresentation &presentation, const DisplayChange &c
             presentation.visible = change.visible;
             return Success();
         case DisplayChangeKind::MARKER:
-            return Detail::MarkerResolver::Apply(presentation.marker, change.marker, context, error) ? Success()
-                                                                                                     : Failure(error);
+            return presentation.markers.Apply(change.marker, context, error) ? Success() : Failure(error);
         default:
             return Failure("Display operation is not supported");
     }
@@ -243,6 +265,9 @@ DisplayResult ApplyTrace(TracePresentation &presentation, const DisplayChange &c
 
 DisplayResult ReconcileCandidate(DisplayState &candidate, const std::vector<VnaMeasurement::Measurement> &catalog)
 {
+    if (catalog.size() > MAX_DISPLAY_TRACES) {
+        return Failure("Measurement catalog capacity exhausted");
+    }
     const bool initial = candidate.traces.empty();
     std::set<std::string> names;
     std::vector<TracePresentation> traces;
@@ -266,7 +291,7 @@ DisplayResult ReconcileCandidate(DisplayState &candidate, const std::vector<VnaM
                         }),
         displayed.end());
     if (initial) {
-        for (std::size_t index = 0U; index < std::min(catalog.size(), DISPLAY_TRACE_LIMIT); ++index) {
+        for (std::size_t index = 0U; index < catalog.size(); ++index) {
             displayed.push_back(catalog[index].name);
         }
     }
@@ -357,18 +382,17 @@ std::vector<DisplayDiagram> DisplayWorkspace::ArrangeDiagrams(const DisplayState
 {
     const std::vector<std::string> names(state.displayedNames.begin(),
         state.displayedNames.begin() +
-            static_cast<std::ptrdiff_t>(std::min(state.displayedNames.size(), DISPLAY_TRACE_LIMIT)));
+            static_cast<std::ptrdiff_t>(std::min(state.displayedNames.size(), MAX_DISPLAY_TRACES)));
     if (state.layout == LayoutMode::GRID && !names.empty()) {
-        std::vector<DisplayDiagram> diagrams;
-        for (std::size_t index = 0U; index < names.size(); ++index) {
-            diagrams.push_back(Diagram(static_cast<unsigned>(index + 1U), {names[index]}, state.selectedMeasurement));
-        }
-        return diagrams;
+        return GridDiagrams(state, names);
     }
     if (state.layout == LayoutMode::MAXIMIZED && !names.empty()) {
-        const auto selected = std::find(names.begin(), names.end(), state.selectedMeasurement);
-        const auto index = static_cast<std::size_t>(selected == names.end() ? 0 : selected - names.begin());
-        return {Diagram(static_cast<unsigned>(index + 1U), {names[index]}, state.selectedMeasurement)};
+        const auto diagrams = GridDiagrams(state, names);
+        const auto selected = std::find_if(diagrams.begin(), diagrams.end(), [&state](const DisplayDiagram &diagram) {
+            return std::find(diagram.measurementNames.begin(), diagram.measurementNames.end(),
+                       state.selectedMeasurement) != diagram.measurementNames.end();
+        });
+        return {selected == diagrams.end() ? diagrams.front() : *selected};
     }
     std::vector<std::string> smith;
     std::vector<std::string> cartesian;
@@ -401,6 +425,29 @@ DisplayResult DisplayWorkspace::Reconcile(const std::vector<VnaMeasurement::Meas
     return result.ok ? Commit(std::move(candidate)) : result;
 }
 
+DisplayResult DisplayWorkspace::ClonePresentation(const std::string &sourceName, const std::string &targetName,
+    const std::vector<VnaMeasurement::Measurement> &catalog)
+{
+    if (sourceName == targetName || FindMeasurement(catalog, sourceName) == nullptr) {
+        return Failure("Trace clone requires a distinct catalog source and destination");
+    }
+    DisplayState candidate = state_;
+    const auto source = FindPresentation(candidate, sourceName);
+    const auto target = FindPresentation(candidate, targetName);
+    const auto measurement = FindMeasurement(catalog, targetName);
+    if (source == nullptr || target == nullptr || measurement == nullptr) {
+        return Failure("Trace clone source or destination does not exist");
+    }
+    if (source->format == DisplayFormat::SMITH && !TraceProjection::SupportsSmith(*measurement)) {
+        return Failure("Cloned Smith settings require a reflection measurement");
+    }
+    // 全部成员均为值语义；复制后移动或关闭目标标记，不会改变源迹线。
+    *target = *source;
+    target->name = targetName;
+    const auto selected = SelectTrace(candidate, targetName, DisplayChange{});
+    return selected.ok ? Commit(std::move(candidate)) : selected;
+}
+
 DisplayResult DisplayWorkspace::ReconcileAxis(const std::vector<double> &frequencyHz, bool preserveSampleIndexes)
 {
     if (!Detail::MarkerResolver::ValidAxis(frequencyHz)) {
@@ -408,7 +455,7 @@ DisplayResult DisplayWorkspace::ReconcileAxis(const std::vector<double> &frequen
     }
     DisplayState candidate = state_;
     for (auto &trace : candidate.traces) {
-        Detail::MarkerResolver::Reconcile(trace.marker, frequencyHz, preserveSampleIndexes);
+        trace.markers.ReconcileAxis(frequencyHz, preserveSampleIndexes);
     }
     return Commit(std::move(candidate));
 }
@@ -416,9 +463,7 @@ DisplayResult DisplayWorkspace::ReconcileAxis(const std::vector<double> &frequen
 void DisplayWorkspace::BindAcquisitionRevision(std::uint64_t acquisitionRevision) noexcept
 {
     for (auto &trace : state_.traces) {
-        if (trace.marker.hasSampleIndex) {
-            trace.marker.acquisitionRevision = acquisitionRevision;
-        }
+        trace.markers.BindAcquisitionRevision(acquisitionRevision);
     }
 }
 

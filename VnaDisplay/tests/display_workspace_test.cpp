@@ -79,7 +79,9 @@ void TestDisplaySlotsAndHiddenSelection()
     Require(workspace.Reconcile(catalog).ok, "初始目录失败");
     auto select = Change(DisplayChangeKind::SELECT, "Trc5");
     Require(workspace.Apply(select, catalog, {}).ok, "选择非显示测量失败");
-    Require(workspace.Snapshot().displayedNames.front() == "Trc5", "已满显示集没有替换活动槽");
+    Require(workspace.Snapshot().displayedNames.size() == 5U && workspace.Snapshot().displayedNames.front() == "Trc1" &&
+                workspace.Snapshot().displayedNames.back() == "Trc5",
+        "第五条迹线不能替换已有显示槽");
     auto hide = Change(DisplayChangeKind::DISPLAYED);
     hide.hasDisplayedNames = true;
     Require(workspace.Apply(hide, catalog, {}).ok, "空显示集被拒绝");
@@ -155,15 +157,17 @@ void TestMarkerSampleStepAndStalePlan()
     marker.marker.hasSampleIndex = true;
     marker.marker.sampleIndex = 7777U;
     Require(workspace.Apply(marker, catalog, frame).ok, "CW 原始采样标记失败");
-    const auto point = workspace.Snapshot().traces.front().marker;
+    const auto point = workspace.Snapshot().traces.front().markers.Active();
     Require(point.hasSampleIndex && point.sampleIndex == 7777U && !point.interpolate, "CW 采样身份丢失");
     marker.marker = {};
     marker.marker.hasStep = true;
     marker.marker.step = 1;
-    Require(workspace.Apply(marker, catalog, frame).ok && workspace.State().traces.front().marker.sampleIndex == 7778U,
+    Require(workspace.Apply(marker, catalog, frame).ok &&
+                workspace.State().traces.front().markers.Active().sampleIndex == 7778U,
         "标记没有移动一个真实原始点");
     marker.marker.step = std::numeric_limits<int>::min();
-    Require(workspace.Apply(marker, catalog, frame).ok && workspace.State().traces.front().marker.sampleIndex == 0U,
+    Require(workspace.Apply(marker, catalog, frame).ok &&
+                workspace.State().traces.front().markers.Active().sampleIndex == 0U,
         "标记负步长没有安全钳制");
     const auto revision = workspace.State().revision;
     marker.marker.checkAcquisitionRevision = true;
@@ -207,14 +211,14 @@ void TestMarkerFrequencyBeforeFirstFrame()
     marker.marker.frequencyHz = 9e6;
     const auto revision = workspace.State().revision;
     Require(!workspace.Apply(marker, catalog, context).ok && workspace.State().revision == revision &&
-                !workspace.State().traces.front().marker.enabled,
+                !workspace.State().traces.front().markers.Active().enabled,
         "首帧前超扫描范围频率没有原子拒绝");
     marker.marker.frequencyHz = 15e6;
     Require(workspace.Apply(marker, catalog, context).ok, "首帧前合法频率不能保存");
-    Near(workspace.State().traces.front().marker.frequencyHz, 15e6);
+    Near(workspace.State().traces.front().markers.Active().frequencyHz, 15e6);
     marker.marker.frequencyHz = 21e6;
     Require(!workspace.Apply(marker, catalog, context).ok, "首帧前大于扫描终点的频率被钳制接受");
-    Near(workspace.State().traces.front().marker.frequencyHz, 15e6);
+    Near(workspace.State().traces.front().markers.Active().frequencyHz, 15e6);
     marker.marker.frequencyHz = 10e6;
     Require(workspace.Apply(marker, catalog, context).ok, "扫描起点频率被拒绝");
 }
@@ -238,12 +242,12 @@ void TestAxisReconcileKeepsSavedAndActualCoordinatesConsistent()
     DisplayWorkspace exhausted(exhaustedState);
     const std::vector<double> newAxis{1e6, 5e6, 10e6};
     Require(!exhausted.ReconcileAxis(newAxis, false).ok, "版本耗尽后协调刺激轴仍成功");
-    Near(exhausted.State().traces.front().marker.frequencyHz, 90e6);
+    Near(exhausted.State().traces.front().markers.Active().frequencyHz, 90e6);
     Require(workspace.ReconcileAxis(newAxis, false).ok, "新刺激轴协调失败");
     const auto projection =
         TraceProjection::Calculate(workspace.State().traces.front(), DisplayTest::Trace({0.1, 0.2, 0.3}), newAxis, 8U);
-    Near(workspace.State().traces.front().marker.frequencyHz, 10e6);
-    Near(projection.marker.frequencyHz, workspace.State().traces.front().marker.frequencyHz);
+    Near(workspace.State().traces.front().markers.Active().frequencyHz, 10e6);
+    Near(projection.marker.frequencyHz, workspace.State().traces.front().markers.Active().frequencyHz);
     const auto revision = workspace.State().revision;
     Require(workspace.ReconcileAxis(newAxis, false).ok && workspace.State().revision == revision,
         "重复协调同一位置增加显示版本");
@@ -268,7 +272,8 @@ void TestSameAxisHardwareRevisionPreservesCwSample()
     const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(*frame.frame, catalog.front());
     const auto projection =
         TraceProjection::Calculate(workspace.State().traces.front(), trace, frame.frame->plan.frequencyHz, 8U);
-    Require(workspace.State().revision == revision && workspace.State().traces.front().marker.sampleIndex == 7777U &&
+    Require(workspace.State().revision == revision &&
+                workspace.State().traces.front().markers.Active().sampleIndex == 7777U &&
                 projection.marker.sampleIndex == 7777U,
         "IFBW 等同轴配置变更使 CW 标记跳回中点或修改显示版本");
     workspace.BindAcquisitionRevision(9U);
@@ -361,6 +366,93 @@ void TestGridAndMaximizedRetainOriginalDiagramNumber()
     Require(state.selectedMeasurement == "HiddenSelection", "纯派生图窗改变全局选中项");
 }
 
+void TestManyTracesUseBoundedFormatSafeDiagrams()
+{
+    DisplayWorkspace workspace;
+    std::vector<VnaMeasurement::Measurement> catalog;
+    for (std::size_t number = 1U; number <= MAX_DISPLAY_TRACES; ++number) {
+        catalog.push_back(Measurement("Trc" + std::to_string(number)));
+    }
+    Require(workspace.Reconcile(catalog).ok && workspace.State().displayedNames.size() == MAX_DISPLAY_TRACES,
+        "目录预算内所有迹线均应进入显示集");
+    auto format = Change(DisplayChangeKind::FORMAT);
+    format.format = DisplayFormat::SMITH;
+    for (std::size_t index = 1U; index < catalog.size(); index += 2U) {
+        format.name = catalog[index].name;
+        Require(workspace.Apply(format, catalog, {}).ok, "配置交错坐标格式");
+    }
+    auto layout = Change(DisplayChangeKind::LAYOUT);
+    layout.layout = LayoutMode::GRID;
+    Require(workspace.Apply(layout, catalog, {}).ok, "配置多迹线网格布局");
+    const auto grid = DisplayWorkspace::ArrangeDiagrams(workspace.State());
+    Require(grid.size() == MAX_DISPLAY_DIAGRAMS, "图窗数量与迹线容量必须独立");
+    std::vector<std::string> grouped;
+    for (const auto &diagram : grid) {
+        Require(diagram.measurementNames.size() == MAX_DISPLAY_TRACES / MAX_DISPLAY_DIAGRAMS,
+            "同格式迹线应均匀分组，不能遗漏第五条及后续迹线");
+        const bool smith = std::stoul(diagram.measurementNames.front().substr(3U)) % 2U == 0U;
+        for (const auto &name : diagram.measurementNames) {
+            Require((std::stoul(name.substr(3U)) % 2U == 0U) == smith, "一个图窗不能混用矩形和 Smith 坐标");
+            grouped.push_back(name);
+        }
+    }
+    std::sort(grouped.begin(), grouped.end());
+    auto displayed = workspace.State().displayedNames;
+    std::sort(displayed.begin(), displayed.end());
+    Require(grouped == displayed, "分组必须恰好覆盖全部显示迹线");
+    const auto lastName = "Trc" + std::to_string(MAX_DISPLAY_TRACES);
+    Require(workspace.Apply(Change(DisplayChangeKind::SELECT, lastName), catalog, {}).ok, "选择末尾迹线");
+    layout.layout = LayoutMode::MAXIMIZED;
+    Require(workspace.Apply(layout, catalog, {}).ok, "最大化末尾迹线所在图窗");
+    const auto maximized = DisplayWorkspace::ArrangeDiagrams(workspace.State());
+    Require(maximized.size() == 1U && maximized.front().number == 4U &&
+                maximized.front().primaryMeasurement == lastName &&
+                maximized.front().measurementNames.size() == MAX_DISPLAY_TRACES / MAX_DISPLAY_DIAGRAMS,
+        "最大化必须保留选中组、原图号及同窗叠加迹线");
+    const auto revision = workspace.State().revision;
+    catalog.push_back(Measurement("Overflow"));
+    Require(!workspace.Reconcile(catalog).ok && workspace.State().revision == revision &&
+                workspace.State().traces.size() == MAX_DISPLAY_TRACES,
+        "超过迹线预算必须原子拒绝，不能产生不显示的目录项");
+}
+
+void TestPresentationCloneIsAtomicAndOwnsMarkers()
+{
+    DisplayWorkspace workspace;
+    const std::vector<VnaMeasurement::Measurement> catalog{Measurement(), Measurement("Trc2"), Measurement("Trc3", 2U)};
+    Require(workspace.Reconcile(catalog).ok, "准备显示复制目录");
+    auto format = Change(DisplayChangeKind::FORMAT);
+    format.format = DisplayFormat::SMITH;
+    Require(workspace.Apply(format, catalog, {}).ok, "设置源 Smith 格式");
+    auto marker = Change(DisplayChangeKind::MARKER);
+    marker.marker.id = 2U;
+    marker.marker.hasEnabled = true;
+    marker.marker.enabled = true;
+    marker.marker.hasSampleIndex = true;
+    marker.marker.sampleIndex = 1U;
+    Require(workspace.Apply(marker, catalog, Frame()).ok, "准备源 M2");
+    const auto before = workspace.Snapshot();
+    Require(workspace.ClonePresentation("Trc1", "Trc2", catalog).changed, "复制显示并选择目标");
+    Require(workspace.State().revision == before.revision + 1U && workspace.State().selectedMeasurement == "Trc2" &&
+                workspace.State().traces[1U].format == DisplayFormat::SMITH &&
+                workspace.State().traces[1U].markers.SameSettings(before.traces[0U].markers),
+        "显示设置与选择必须在同一次显示域提交中完成");
+    const auto revision = workspace.State().revision;
+    Require(!workspace.ClonePresentation("Trc1", "Trc3", catalog).ok &&
+                !workspace.ClonePresentation("Missing", "Trc2", catalog).ok &&
+                !workspace.ClonePresentation("Trc1", "Missing", catalog).ok &&
+                !workspace.ClonePresentation("Trc1", "Trc1", catalog).ok && workspace.State().revision == revision &&
+                workspace.State().selectedMeasurement == "Trc2" &&
+                workspace.State().traces[2U].format == DisplayFormat::DB,
+        "格式不兼容、名称不存在或同名复制必须原子拒绝");
+    marker.name = "Trc2";
+    marker.marker.sampleIndex = 2U;
+    Require(workspace.Apply(marker, catalog, Frame()).ok &&
+                workspace.State().traces[0U].markers.SameSettings(before.traces[0U].markers) &&
+                workspace.State().traces[1U].markers.Find(2U)->sampleIndex == 2U,
+        "显示域中的源、目标标记集合必须互相独立");
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -379,7 +471,9 @@ int main()
         TestEmptyAndMergedDiagramsArePureProjections();
         TestMixedFormatsUseBackendDiagramGroups();
         TestGridAndMaximizedRetainOriginalDiagramNumber();
-        std::cout << "13 个共享显示状态验收用例通过\n";
+        TestManyTracesUseBoundedFormatSafeDiagrams();
+        TestPresentationCloneIsAtomicAndOwnsMarkers();
+        std::cout << "15 个共享显示状态验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

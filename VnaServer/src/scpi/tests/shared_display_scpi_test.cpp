@@ -208,6 +208,88 @@ void MarkerErrorsAndSmithPairs(const std::string &driver)
     Expect(Command(engine, "SYST:ERR?").find("-221,") == 0U, "关闭 Marker 应记录状态冲突");
 }
 
+void NumberedMarkersAreIndependentAndAllOffIsScoped(const std::string &driver)
+{
+    VnaScpiTest::NativeFixture fixture(driver);
+    VnaScpi::ScpiEngine engine(fixture.service);
+    Command(engine, "CALC:FORM REAL;:SENS:SWE:MODE SING;*OPC?");
+    const auto frame = fixture.core.ReadView().frame;
+    const auto raw = fixture.service.MeasurementData();
+    Expect(frame && raw.ok, "多标记测试需要完整帧");
+    Command(engine, "CALC:MARK1:STAT ON;X MIN;DISC ON;:CALC:MARK2:STAT ON;X MAX;DISC ON");
+    Expect(Command(engine, "CALC:MARK1:STAT?;:CALC:MARK2:STAT?") == "1;1\n", "M1/M2 未独立启用");
+    Near(std::stod(Command(engine, "CALC:MARK1:X?")), frame->plan.frequencyHz.front());
+    Near(std::stod(Command(engine, "CALC:MARK2:X?")), frame->plan.frequencyHz.back());
+    Near(Numbers(Command(engine, "CALC:MARK1:Y?")).at(0), raw.values.front());
+    Near(Numbers(Command(engine, "CALC:MARK2:Y?")).at(0), raw.values[raw.values.size() - 2U]);
+    Expect(Trace(fixture.service, "Trc1").markers.Selected() == 2U, "显式 M1 查询不应改动当前活动 M2");
+    Command(engine, "CALCulate:MARKer10:STATe ON;X 25MHz;DISCrete OFF");
+    Expect(Command(engine, "CALC:MARK10:STAT?;DISC?") == "1;0\n", "M10 边界编号或长命令未正确处理");
+    Expect(Command(engine, "CALC:MARK1:DISC?;:CALC:MARK2:DISC?;:CALC:MARK10:DISC?") == "1;1;0\n",
+        "改变 M10 的插值不能覆盖 M1/M2 的离散设置");
+    Near(std::stod(Command(engine, "CALC:MARK10:X?")), 25000000.0);
+    for (unsigned id = 1U; id <= 10U; ++id) {
+        const auto expected = id == 1U || id == 2U || id == 10U ? "1\n" : "0\n";
+        Expect(Command(engine, "CALC:MARK" + std::to_string(id) + ":STAT?") == expected, "不同编号的状态相互污染");
+    }
+    Command(engine, "CALC:MARK2:STAT OFF");
+    Expect(Command(engine, "CALC:MARK1:STAT?;:CALC:MARK2:STAT?;:CALC:MARK10:STAT?") == "1;0;1\n",
+        "关闭 M2 不应关闭 M1 或 M10");
+    Command(engine, "CALC:MARK2 ON");
+    Near(std::stod(Command(engine, "CALC:MARK2:X?")), frame->plan.frequencyHz.back());
+    Command(engine,
+        "CALC:PAR:DEF:EXT 'Other','S21';:CALC:PAR:SEL 'Other';:CALC:MARK3:STAT ON;"
+        ":CALC:PAR:SEL 'Trc1';:CALC:MARK:AOFF");
+    for (unsigned id = 1U; id <= 10U; ++id) {
+        Expect(
+            Command(engine, "CALC:MARK" + std::to_string(id) + ":STAT?") == "0\n", "AOFF 未关闭当前迹线全部普通标记");
+    }
+    Expect(Command(engine, "CALC:PAR:SEL 'Other';:CALC:MARK3:STAT?") == "1\n", "AOFF 错误地修改了另一迹线标记");
+    Command(engine, "CALC:PAR:SEL 'Trc1';:CALC:MARK2:STAT ON");
+    Near(std::stod(Command(engine, "CALC:MARK2:X?")), frame->plan.frequencyHz.back());
+    Expect(Command(engine, "SYST:ERR?").find("0,") == 0U, "合法多标记操作产生错误");
+    Expect(fixture.core.ReadView().frame == frame, "多标记操作不应修改完整采集帧");
+}
+
+void NumberedMarkerHeadersRejectUnsupportedActions(const std::string &driver)
+{
+    VnaScpiTest::NativeFixture fixture(driver);
+    VnaScpi::ScpiEngine engine(fixture.service);
+    const auto revision = fixture.service.Display().revision;
+    for (const auto &command : {"CALC:MARK0:STAT ON", "CALC:MARK11:STAT ON", "CALC:MARK42949672960:STAT ON",
+             "CALC:MARK2:Y 1", "CALC:MARK2:AOFF", "CALC:MARK1:AOFF", "CALC:MARK:AOFF?", "CALC:MARK:SEL 2"}) {
+        Command(engine, command);
+        Expect(Command(engine, "SYST:ERR?").find("-113,") == 0U, "超范围或不支持的标记命令头应明确拒绝");
+    }
+    Command(engine, "CALC:MARK:AOFF ON");
+    Expect(Command(engine, "SYST:ERR?").find("-108,") == 0U, "AOFF 不应接受额外参数");
+    Expect(fixture.service.Display().revision == revision, "非法多标记操作修改了共享状态");
+}
+
+void DisplaySlotsReachConfiguredTraceCapacity(const std::string &driver)
+{
+    VnaScpiTest::NativeFixture fixture(driver);
+    VnaScpi::ScpiEngine engine(fixture.service);
+    VnaDisplay::DisplayChange displayed;
+    displayed.kind = VnaDisplay::DisplayChangeKind::DISPLAYED;
+    displayed.hasDisplayedNames = true;
+    displayed.displayedNames.push_back("Trc1");
+    for (unsigned id = 2U; id <= VnaDisplay::MAX_DISPLAY_TRACES; ++id) {
+        const auto name = "Trc" + std::to_string(id);
+        Command(engine, "CALC:PAR:DEF:EXT '" + name + "','S21'");
+        displayed.displayedNames.push_back(name);
+    }
+    Await(fixture.service, fixture.service.ApplyDisplay(displayed));
+    const auto lastSlot = std::to_string(VnaDisplay::MAX_DISPLAY_TRACES);
+    Expect(Command(engine, "DISP:WIND:TRAC" + lastSlot + ":SEL;:CALC:PAR:SEL?") == "\"Trc" + lastSlot + "\"\n",
+        "超过四条迹线后的显示槽未映射到后端迹线");
+    Command(engine, "DISP:WIND:TRAC" + lastSlot + ":STAT OFF");
+    Expect(Command(engine, "DISP:WIND:TRAC" + lastSlot + ":STAT?") == "0\n", "末尾显示槽不能独立读写");
+    Expect(Trace(fixture.service, "Trc1").visible, "末尾显示槽修改污染了第一条迹线");
+    Command(engine, "DISP:WIND:TRAC" + std::to_string(VnaDisplay::MAX_DISPLAY_TRACES + 1U) + ":STAT ON");
+    Expect(Command(engine, "SYST:ERR?").find("-222,") == 0U, "超出资源容量的显示槽应拒绝");
+}
+
 void UnsupportedFormatsAndActions(const std::string &driver)
 {
     VnaScpiTest::NativeFixture fixture(driver);
@@ -219,7 +301,7 @@ void UnsupportedFormatsAndActions(const std::string &driver)
     Command(engine, "CALC:PAR:SEL 'Trc1',FAST");
     Expect(Command(engine, "SYST:ERR?").find("-108,") == 0U, "未实现 FAST 不应接受");
     const auto revision = fixture.service.Display().revision;
-    for (const auto &command : {"CALC:MARK2:STAT ON", "DISP:WIND2:TRAC1:STAT ON", "DISP:WIND:TRAC:Y:AUTO?"}) {
+    for (const auto &command : {"CALC:MARK11:STAT ON", "DISP:WIND2:TRAC1:STAT ON", "DISP:WIND:TRAC:Y:AUTO?"}) {
         Command(engine, command);
         Expect(Command(engine, "SYST:ERR?").find("-113,") == 0U, "不支持的 Marker 或窗口应拒绝命令头");
     }
@@ -268,6 +350,9 @@ int main(int argc, char **argv)
         ScaleAndSmithContracts(argv[1]);
         MarkerInterpolatesAndUsesFullFrame(argv[1]);
         MarkerErrorsAndSmithPairs(argv[1]);
+        NumberedMarkersAreIndependentAndAllOffIsScoped(argv[1]);
+        NumberedMarkerHeadersRejectUnsupportedActions(argv[1]);
+        DisplaySlotsReachConfiguredTraceCapacity(argv[1]);
         UnsupportedFormatsAndActions(argv[1]);
         AutoscaleIsOneActionDuringContinuous(argv[1]);
         std::cout << "PASS SCPI 与共享显示状态合同\n";

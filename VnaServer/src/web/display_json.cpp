@@ -118,6 +118,28 @@ VnaDisplay::ScaleChange Scale(const Json &body)
 VnaDisplay::MarkerChange MarkerChange(const Json &body)
 {
     VnaDisplay::MarkerChange marker;
+    if (body.Find("markerId") != nullptr) {
+        const auto id = Number(body, "markerId");
+        if (id < 1.0 || id > VnaDisplay::MAX_MARKERS || std::floor(id) != id) {
+            throw std::invalid_argument("Marker number must be between 1 and 10");
+        }
+        marker.id = static_cast<unsigned>(id);
+    }
+    if (body.Find("markerAction") != nullptr) {
+        const auto action = Text(body, "markerAction");
+        if (action == "add") {
+            marker.action = VnaDisplay::MarkerAction::ADD;
+        } else if (action == "select") {
+            marker.action = VnaDisplay::MarkerAction::SELECT;
+            if (marker.id == 0U) {
+                throw std::invalid_argument("Selecting a marker requires markerId");
+            }
+        } else if (action == "allOff") {
+            marker.action = VnaDisplay::MarkerAction::ALL_OFF;
+        } else if (action != "update") {
+            throw std::invalid_argument("Unsupported marker action");
+        }
+    }
     marker.hasEnabled = body.Find("enabled") != nullptr;
     marker.hasFrequency = body.Find("frequencyHz") != nullptr;
     marker.hasSampleIndex = body.Find("sampleIndex") != nullptr;
@@ -187,13 +209,15 @@ Json DisplayJson::Presentation(
     result["scale"] = std::move(scale);
     result["smithRadius"] = Json(trace.smithRadius);
     result["visible"] = Json(trace.visible);
-    Json marker = Json::MakeObject();
-    marker["enabled"] = Json(trace.marker.enabled);
-    marker["frequencyHz"] = trace.marker.hasFrequency ? Json(trace.marker.frequencyHz) : Json();
-    marker["sampleIndex"] =
-        trace.marker.hasSampleIndex ? Json(static_cast<unsigned>(trace.marker.sampleIndex)) : Json();
-    marker["discrete"] = Json(!trace.marker.interpolate);
-    result["marker"] = std::move(marker);
+    result["activeMarkerId"] = Json(trace.markers.Selected());
+    result["marker"] = MarkerConfiguration(trace.markers.Active());
+    Json markers = Json::MakeArray();
+    for (unsigned id = 1U; id <= VnaDisplay::MAX_MARKERS; ++id) {
+        auto marker = MarkerConfiguration(*trace.markers.Find(id));
+        marker["id"] = Json(id);
+        markers.array.push_back(std::move(marker));
+    }
+    result["markers"] = std::move(markers);
     Json formats = Json::MakeArray();
     for (auto format : VnaDisplay::TraceProjection::AllowedFormats(measurement)) {
         formats.array.emplace_back(VnaDisplay::DisplayFormatName(format));
@@ -263,6 +287,16 @@ Json DisplayJson::Marker(const VnaDisplay::MarkerReadout &marker)
     return result;
 }
 
+Json DisplayJson::MarkerConfiguration(const VnaDisplay::MarkerSettings &marker)
+{
+    Json result = Json::MakeObject();
+    result["enabled"] = Json(marker.enabled);
+    result["frequencyHz"] = marker.hasFrequency ? Json(marker.frequencyHz) : Json();
+    result["sampleIndex"] = marker.hasSampleIndex ? Json(static_cast<unsigned>(marker.sampleIndex)) : Json();
+    result["discrete"] = Json(!marker.interpolate);
+    return result;
+}
+
 Json DisplayJson::Projection(
     const VnaDisplay::ProjectedTrace &trace, VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes)
 {
@@ -285,6 +319,15 @@ Json DisplayJson::Projection(
     result["valueStates"] = std::move(states);
     result["secondaryStates"] = std::move(secondaryStates);
     PointImpedance(result, trace, format, indexes);
+    result["activeMarkerId"] = Json(trace.activeMarkerId);
+    Json markers = Json::MakeArray();
+    for (unsigned id = 1U; id <= VnaDisplay::MAX_MARKERS; ++id) {
+        const auto readout = id <= trace.markers.size() ? trace.markers[id - 1U] : VnaDisplay::MarkerReadout{};
+        auto marker = Marker(readout);
+        marker["id"] = Json(id);
+        markers.array.push_back(std::move(marker));
+    }
+    result["markers"] = std::move(markers);
     result["marker"] = Marker(trace.marker);
     return result;
 }
@@ -353,7 +396,8 @@ void DisplayJson::TraceChange(VnaDisplay::DisplayChange &change, const Json &bod
         change.kind = VnaDisplay::DisplayChangeKind::SMITH_RADIUS;
         change.smithRadius = Number(body, "radius");
     } else if (action == "marker") {
-        Members(body, {"enabled", "frequencyHz", "sampleIndex", "step", "discrete", "acquisitionRevision"});
+        Members(body, {"enabled", "frequencyHz", "sampleIndex", "step", "discrete", "acquisitionRevision", "markerId",
+                          "markerAction"});
         change.kind = VnaDisplay::DisplayChangeKind::MARKER;
         change.marker = MarkerChange(body);
     } else {

@@ -5,8 +5,26 @@
 
 #include <string>
 
+#include "vna_display/display_workspace.h"
+#include "vna_display/marker_collection.h"
+
 namespace VnaScpi {
 namespace {
+
+bool ValidIndex(const std::string &path, std::size_t begin, unsigned maximum, std::size_t &end) noexcept
+{
+    unsigned value = 0U;
+    end = begin;
+    while (end < path.size() && path[end] >= '0' && path[end] <= '9') {
+        const auto digit = static_cast<unsigned>(path[end] - '0');
+        if (value > maximum / 10U || value * 10U + digit > maximum) {
+            return false;
+        }
+        value = value * 10U + digit;
+        ++end;
+    }
+    return end > begin && value != 0U;
+}
 
 bool DisplayQuery(const std::string &path) noexcept
 {
@@ -15,17 +33,41 @@ bool DisplayQuery(const std::string &path) noexcept
     if (path.compare(0U, prefixLength, prefix) != 0) {
         return false;
     }
-    const auto separator = path.find_first_not_of("0123456789", prefixLength);
-    if (separator == prefixLength) {
+    std::size_t separator = 0U;
+    if (!ValidIndex(path, prefixLength, VnaDisplay::MAX_DISPLAY_TRACES, separator)) {
         return false;
     }
-    if (separator == std::string::npos) {
-        return path.size() > prefixLength;
+    if (separator == path.size()) {
+        return true;
     }
     if (path[separator] != ':') {
         return false;
     }
     const char * const leaves[] = {"STAT", "Y:PDIV", "Y:RLEV", "Y:RPOS", "Y:SCAL:PDIV", "Y:SCAL:RLEV", "Y:SCAL:RPOS"};
+    for (const auto *leaf : leaves) {
+        if (path.compare(separator + 1U, std::string::npos, leaf) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MarkerQuery(const std::string &path) noexcept
+{
+    const char prefix[] = "CALC1:MARK";
+    constexpr std::size_t prefixLength = sizeof(prefix) - 1U;
+    std::size_t separator = 0U;
+    if (path.compare(0U, prefixLength, prefix) != 0 ||
+        !ValidIndex(path, prefixLength, VnaDisplay::MAX_MARKERS, separator)) {
+        return false;
+    }
+    if (separator == path.size()) {
+        return true;
+    }
+    if (path[separator] != ':') {
+        return false;
+    }
+    const char * const leaves[] = {"STAT", "X", "Y", "DISC"};
     for (const auto *leaf : leaves) {
         if (path.compare(separator + 1U, std::string::npos, leaf) == 0) {
             return true;
@@ -45,14 +87,13 @@ bool IsObserverQuery(const ParsedCommand &command) noexcept
         "SENS1:FREQ:STOP", "SENS1:SWE:POIN", "SENS1:BAND", "SENS1:BAND:RES", "SENS1:BWID", "SENS1:BWID:RES",
         "SENS1:SWE:TYPE", "TRIG:SOUR", "TRIG:SEQ:SOUR", "TRIG:SCOP", "TRIG:SEQ:SCOP", "INIT:CONT", "INIT1:CONT",
         "SENS1:SWE:MODE", "CALC1:PAR:SEL", "CALC1:PAR:CAT:EXT", "FORM", "FORM:DATA", "SENS1:X", "SENS1:X:VAL",
-        "CALC1:DATA", "CALC1:FORM", "CALC1:MARK1", "CALC1:MARK1:STAT", "CALC1:MARK1:X", "CALC1:MARK1:Y",
-        "CALC1:MARK1:DISC"};
+        "CALC1:DATA", "CALC1:FORM"};
     for (const auto *path : paths) {
         if (command.path == path) {
             return true;
         }
     }
-    return DisplayQuery(command.path);
+    return DisplayQuery(command.path) || MarkerQuery(command.path);
 }
 
 }  // 命名空间 VnaScpi

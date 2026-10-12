@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 #include "marker_resolver.h"
 #include "scale_calculator.h"
@@ -140,6 +141,14 @@ ProjectedTrace TraceProjection::Calculate(const TracePresentation &presentation,
     const VnaMeasurement::TraceResult &trace, const std::vector<double> &frequencyHz, std::uint64_t acquisitionRevision)
 {
     ProjectedTrace projected;
+    projected.activeMarkerId = presentation.markers.Selected();
+    for (unsigned id = 1U; id <= MAX_MARKERS; ++id) {
+        auto readout = Detail::MarkerResolver::Resolve(
+            *presentation.markers.Find(id), presentation.format, trace, frequencyHz, acquisitionRevision);
+        readout.id = id;
+        projected.markers.push_back(std::move(readout));
+    }
+    projected.marker = projected.markers[projected.activeMarkerId - 1U];
     if (!trace.available || trace.points.size() != frequencyHz.size() ||
         !Detail::MarkerResolver::ValidAxis(frequencyHz)) {
         projected.error = trace.error.empty() ? "No complete trace with a valid physical frequency axis" : trace.error;
@@ -158,8 +167,6 @@ ProjectedTrace TraceProjection::Calculate(const TracePresentation &presentation,
                 point.valid ? Impedance(point.real, point.imag) : NormalizedImpedance{});
         }
     }
-    projected.marker = Detail::MarkerResolver::Resolve(
-        presentation.marker, presentation.format, trace, frequencyHz, acquisitionRevision);
     return projected;
 }
 

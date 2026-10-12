@@ -35,6 +35,9 @@ void MarkerKeywordsAndDefaults()
     ExpectPath("CALC:MARK1:X?", "CALC1:MARK1:X");
     ExpectPath("CALCulate2:MARKer3:Y?", "CALC2:MARK3:Y");
     ExpectPath("CALCulate:MARKer:DISCrete ON", "CALC1:MARK1:DISC");
+    ExpectPath("CALCulate:MARKer10:STATe ON", "CALC1:MARK10:STAT");
+    ExpectPath("CALCulate:MARKer:AOFF", "CALC1:MARK:AOFF");
+    ExpectPath("CALCulate:MARKer1:AOFF", "CALC1:MARK1:AOFF");
     ExpectPath("CALCulate:FORMat MLOGarithmic", "CALC1:FORM");
 }
 
@@ -53,6 +56,21 @@ void RelativeDisplayPaths()
     }
 }
 
+void OmittedMarkerStateHasItsWrittenParent()
+{
+    std::vector<std::string> parent;
+    const auto enabled = VnaScpi::ParseCommand("CALC:MARK2 ON", parent);
+    const auto relative = VnaScpi::ParseCommand("X MAX", parent);
+    if (enabled.path != "CALC1:MARK2" || relative.path != "CALC1:X") {
+        throw std::runtime_error("相对路径应使用实际写出的父节点，不能凭空补入省略的 STAT");
+    }
+    const auto explicitState = VnaScpi::ParseCommand(":CALC:MARK2:STAT ON", parent);
+    const auto markerPosition = VnaScpi::ParseCommand("X MAX", parent);
+    if (explicitState.path != "CALC1:MARK2:STAT" || markerPosition.path != "CALC1:MARK2:X") {
+        throw std::runtime_error("显式 STAT 后的 X 应保持在对应标记下");
+    }
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -61,6 +79,7 @@ int main()
         DisplayKeywordsAndDefaults();
         MarkerKeywordsAndDefaults();
         RelativeDisplayPaths();
+        OmittedMarkerStateHasItsWrittenParent();
         std::cout << "PASS 显示与 Marker 命令头规范化\n";
         return 0;
     } catch (const std::exception &error) {

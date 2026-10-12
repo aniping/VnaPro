@@ -16,6 +16,11 @@
 
 namespace VnaDisplay {
 
+// 迹线容量是仪器目录的资源预算，与物理端口数量无关。
+constexpr std::size_t MAX_DISPLAY_TRACES = 128U;
+// 网格图窗数量独立于迹线数量，更多迹线叠加到格式相同的图窗。
+constexpr std::size_t MAX_DISPLAY_DIAGRAMS = 4U;
+
 enum class DisplayFormat {
     DB,
     MAGNITUDE,
@@ -45,7 +50,7 @@ struct TracePresentation final {
     DisplayScale scale;
     double smithRadius = 1.0;
     bool visible = true;
-    MarkerSettings marker;
+    MarkerCollection markers;
 };
 
 struct DisplayState final {
@@ -143,6 +148,9 @@ public:
     static std::vector<DisplayDiagram> ArrangeDiagrams(const DisplayState &state);
     // 目录提交后保留同名设置，并原子移除无效项和不再适用的显示格式。
     DisplayResult Reconcile(const std::vector<VnaMeasurement::Measurement> &catalog);
+    // 复制已协调源迹线的全部显示设置并选择目标；失败不改变任何状态，标记集合独立持有。
+    DisplayResult ClonePresentation(const std::string &sourceName, const std::string &targetName,
+        const std::vector<VnaMeasurement::Measurement> &catalog);
     // 按候选真实刺激轴协调标记；轴未改变时保留合法离散下标，否则按保存的频率重新吸附。
     DisplayResult ReconcileAxis(const std::vector<double> &frequencyHz, bool preserveSampleIndexes);
     // 核心成功提交后，仅绑定已验证下标的隐藏版本，不改变显示版本或可见设置。

@@ -13,6 +13,7 @@
 #include "scpi/scpi_constants.h"
 #include "scpi/scpi_parser.h"
 #include "vna_display/display_workspace.h"
+#include "vna_display/marker_collection.h"
 #include "vna_display/trace_projection.h"
 
 namespace VnaScpi {
@@ -111,9 +112,8 @@ bool FormatArgument(const std::string &text, VnaDisplay::DisplayFormat &format)
     return false;
 }
 
-bool TraceRoute(const std::string &path, unsigned &slot, std::string &leaf)
+bool IndexedRoute(const std::string &path, const std::string &prefix, unsigned &slot, std::string &leaf)
 {
-    const std::string prefix = "DISP:WIND1:TRAC";
     if (path.compare(0U, prefix.size(), prefix) != 0) {
         return false;
     }
@@ -124,9 +124,6 @@ bool TraceRoute(const std::string &path, unsigned &slot, std::string &leaf)
         return false;
     }
     leaf = separator == std::string::npos ? std::string() : path.substr(separator + 1U);
-    if (leaf.compare(0U, 7U, "Y:SCAL:") == 0) {
-        leaf.erase(2U, 5U);
-    }
     return true;
 }
 
@@ -144,16 +141,18 @@ ScpiDisplayResult ScpiDisplayAdapter::Execute(const ParsedCommand &command) cons
     if (command.path == "CALC1:FORM") {
         return Format(command);
     }
-    if (command.path == "CALC1:MARK1") {
-        return Marker(command, "STAT");
-    }
-    const std::string markerPrefix = "CALC1:MARK1:";
-    if (command.path.compare(0U, markerPrefix.size(), markerPrefix) == 0) {
-        return Marker(command, command.path.substr(markerPrefix.size()));
+    if (command.path == "CALC1:MARK:AOFF") {
+        return AllMarkersOff(command);
     }
     unsigned slot = 0U;
     std::string leaf;
-    if (TraceRoute(command.path, slot, leaf)) {
+    if (IndexedRoute(command.path, "CALC1:MARK", slot, leaf)) {
+        return Marker(command, slot, leaf.empty() ? "STAT" : leaf);
+    }
+    if (IndexedRoute(command.path, "DISP:WIND1:TRAC", slot, leaf)) {
+        if (leaf.compare(0U, 7U, "Y:SCAL:") == 0) {
+            leaf.erase(2U, 5U);
+        }
         return Trace(command, slot, leaf);
     }
     return ScpiDisplayResult();
@@ -206,8 +205,11 @@ ScpiDisplayResult ScpiDisplayAdapter::Format(const ParsedCommand &command) const
     return result;
 }
 
-ScpiDisplayResult ScpiDisplayAdapter::Marker(const ParsedCommand &command, const std::string &leaf) const
+ScpiDisplayResult ScpiDisplayAdapter::Marker(const ParsedCommand &command, unsigned id, const std::string &leaf) const
 {
+    if (id == 0U || id > VnaDisplay::MAX_MARKERS) {
+        return Failure(UNDEFINED_HEADER, "Marker suffix is outside the supported range");
+    }
     if (leaf != "STAT" && leaf != "DISC" && leaf != "X" && leaf != "Y") {
         return ScpiDisplayResult();
     }
@@ -224,10 +226,11 @@ ScpiDisplayResult ScpiDisplayAdapter::Marker(const ParsedCommand &command, const
         return Failure(SETTINGS_CONFLICT, "No measurement selected");
     }
     if (command.query) {
-        return ReadMarker(*trace, leaf);
+        return ReadMarker(*trace, id, leaf);
     }
     VnaDisplay::DisplayChange change;
     change.kind = VnaDisplay::DisplayChangeKind::MARKER;
+    change.marker.id = id;
     if (leaf == "X") {
         return SetMarkerFrequency(command, std::move(change));
     }
@@ -243,39 +246,64 @@ ScpiDisplayResult ScpiDisplayAdapter::Marker(const ParsedCommand &command, const
     return result;
 }
 
+ScpiDisplayResult ScpiDisplayAdapter::AllMarkersOff(const ParsedCommand &command) const
+{
+    if (command.query) {
+        return Failure(UNDEFINED_HEADER, "All markers off is write-only");
+    }
+    auto result = Handled();
+    if (!Arguments(command, 0U, result)) {
+        return result;
+    }
+    VnaDisplay::DisplayChange change;
+    change.kind = VnaDisplay::DisplayChangeKind::MARKER;
+    change.marker.action = VnaDisplay::MarkerAction::ALL_OFF;
+    result.operation = service_.ApplyDisplay(std::move(change));
+    return result;
+}
+
 ScpiDisplayResult ScpiDisplayAdapter::ReadMarker(
-    const VnaDisplay::TracePresentation &trace, const std::string &leaf) const
+    const VnaDisplay::TracePresentation &trace, unsigned id, const std::string &leaf) const
 {
     auto result = Handled();
+    const auto *settings = trace.markers.Find(id);
+    if (settings == nullptr) {
+        return Failure(DATA_OUT_OF_RANGE, "Marker does not exist");
+    }
     if (leaf == "STAT" || leaf == "DISC") {
-        const bool value = leaf == "STAT" ? trace.marker.enabled : !trace.marker.interpolate;
+        const bool value = leaf == "STAT" ? settings->enabled : !settings->interpolate;
         result.response = value ? "1" : "0";
         return result;
     }
-    if (!trace.marker.enabled) {
+    if (!settings->enabled) {
         return Failure(SETTINGS_CONFLICT, "Marker is disabled");
     }
     const auto data = service_.DisplayData(trace.name);
+    // 显式编号查询读取各自投影，不改变 Web 当前活动标记或其他编号的设置。
+    const auto found = std::find_if(data.markers.begin(), data.markers.end(), [id](const auto &marker) {
+        return marker.id == id;
+    });
+    const auto *marker = found == data.markers.end() ? nullptr : &*found;
     if (leaf == "X") {
-        if (data.marker.available) {
-            result.response = Number(data.marker.frequencyHz);
-        } else if (trace.marker.hasFrequency) {
-            result.response = Number(trace.marker.frequencyHz);
+        if (marker != nullptr && marker->available) {
+            result.response = Number(marker->frequencyHz);
+        } else if (settings->hasFrequency) {
+            result.response = Number(settings->frequencyHz);
         } else {
             return Failure(DATA_CORRUPT_OR_STALE, "Marker position requires a current frequency axis");
         }
         return result;
     }
-    if (!data.available || !data.marker.available || !data.marker.valid ||
-        data.marker.value.state != VnaDisplay::DisplayValueState::FINITE) {
+    if (!data.available || marker == nullptr || !marker->available || !marker->valid ||
+        marker->value.state != VnaDisplay::DisplayValueState::FINITE) {
         return Failure(DATA_CORRUPT_OR_STALE, "Marker value is not available for the current measurement");
     }
     if (trace.format == VnaDisplay::DisplayFormat::REALIMAG) {
         return Failure(SETTINGS_CONFLICT, "Current format is outside the supported PNA subset");
     }
     result.response = trace.format == VnaDisplay::DisplayFormat::SMITH
-                          ? Number(data.marker.real) + ',' + Number(data.marker.imag)
-                          : Number(data.marker.value.primary) + ",0";
+                          ? Number(marker->real) + ',' + Number(marker->imag)
+                          : Number(marker->value.primary) + ",0";
     return result;
 }
 
@@ -313,7 +341,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Trace(const ParsedCommand &command, unsign
         return result;
     }
     const auto &state = service_.Display();
-    if (slot == 0U || slot > state.displayedNames.size()) {
+    if (slot == 0U || slot > VnaDisplay::MAX_DISPLAY_TRACES || slot > state.displayedNames.size()) {
         return Failure(DATA_OUT_OF_RANGE, "Display trace slot does not exist");
     }
     const auto *trace = Presentation(state, state.displayedNames[slot - 1U]);

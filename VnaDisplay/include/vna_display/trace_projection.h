@@ -43,6 +43,7 @@ struct NormalizedImpedance final {
 };
 
 struct MarkerReadout final {
+    unsigned id = 1U;
     bool available = false;
     bool valid = false;
     bool interpolated = false;
@@ -60,6 +61,8 @@ struct ProjectedTrace final {
     std::vector<FormattedPoint> points;
     // 仅 Smith 格式按完整原始点序计算，协议抽点时与投影值使用相同下标。
     std::vector<NormalizedImpedance> impedancePoints;
+    unsigned activeMarkerId = 1U;
+    std::vector<MarkerReadout> markers;
     MarkerReadout marker;
 };
 
