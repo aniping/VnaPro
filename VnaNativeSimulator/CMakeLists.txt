@@ -61,51 +61,51 @@ set(VNA_SIM_CORE_SOURCES
     src/native_sim/signal_model.cpp
 )
 
-add_library(vnb_drv_sim_core OBJECT ${VNA_SIM_CORE_SOURCES})
-set_target_properties(vnb_drv_sim_core PROPERTIES
+add_library(tdc1vn08_drv_sim_core OBJECT ${VNA_SIM_CORE_SOURCES})
+set_target_properties(tdc1vn08_drv_sim_core PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     POSITION_INDEPENDENT_CODE ON
     VISIBILITY_INLINES_HIDDEN YES
 )
-target_include_directories(vnb_drv_sim_core
+target_include_directories(tdc1vn08_drv_sim_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/src/native_sim
 )
-target_link_libraries(vnb_drv_sim_core PUBLIC Threads::Threads)
-vna_apply_compile_settings(vnb_drv_sim_core)
+target_link_libraries(tdc1vn08_drv_sim_core PUBLIC Threads::Threads)
+vna_apply_compile_settings(tdc1vn08_drv_sim_core)
 
-add_library(vnb_drv_sim SHARED
-    $<TARGET_OBJECTS:vnb_drv_sim_core>
+add_library(tdc1vn08_drv_sim SHARED
+    $<TARGET_OBJECTS:tdc1vn08_drv_sim_core>
     src/native_sim/native_function_exports.cpp
 )
-set_target_properties(vnb_drv_sim PROPERTIES
+set_target_properties(tdc1vn08_drv_sim PROPERTIES
     CXX_VISIBILITY_PRESET hidden
-    OUTPUT_NAME vnb_drv_sim
+    OUTPUT_NAME tdc1vn08_drv_sim
     VISIBILITY_INLINES_HIDDEN YES
     WINDOWS_EXPORT_ALL_SYMBOLS OFF
 )
-target_compile_definitions(vnb_drv_sim PRIVATE VNA_NATIVE_BUILD_SHARED)
-target_include_directories(vnb_drv_sim PRIVATE
+target_compile_definitions(tdc1vn08_drv_sim PRIVATE VNA_NATIVE_BUILD_SHARED)
+target_include_directories(tdc1vn08_drv_sim PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/native_sim
 )
-target_link_libraries(vnb_drv_sim PRIVATE Threads::Threads)
-vna_apply_compile_settings(vnb_drv_sim)
-vna_apply_link_settings(vnb_drv_sim)
+target_link_libraries(tdc1vn08_drv_sim PRIVATE Threads::Threads)
+vna_apply_compile_settings(tdc1vn08_drv_sim)
+vna_apply_link_settings(tdc1vn08_drv_sim)
 
 if(UNIX AND NOT APPLE)
-    target_link_options(vnb_drv_sim PRIVATE
-        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/vnb_drv_sim.map"
+    target_link_options(tdc1vn08_drv_sim PRIVATE
+        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/tdc1vn08_drv_sim.map"
     )
-    set_property(TARGET vnb_drv_sim APPEND PROPERTY LINK_DEPENDS
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/vnb_drv_sim.map
+    set_property(TARGET tdc1vn08_drv_sim APPEND PROPERTY LINK_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/tdc1vn08_drv_sim.map
     )
 endif()
 
 if(BUILD_TESTING)
-    add_executable(vnb_drv_sim_unit_tests
-        $<TARGET_OBJECTS:vnb_drv_sim_core>
+    add_executable(tdc1vn08_drv_sim_unit_tests
+        $<TARGET_OBJECTS:tdc1vn08_drv_sim_core>
         tests/test_failure.cpp
         tests/joined_threads.cpp
         tests/test_runner.cpp
@@ -118,20 +118,20 @@ if(BUILD_TESTING)
         tests/native_unit/normal_frame_decoder_test.cpp
         tests/native_unit/signal_model_test.cpp
     )
-    set_target_properties(vnb_drv_sim_unit_tests PROPERTIES
+    set_target_properties(tdc1vn08_drv_sim_unit_tests PROPERTIES
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN YES
     )
-    target_include_directories(vnb_drv_sim_unit_tests PRIVATE
+    target_include_directories(tdc1vn08_drv_sim_unit_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/src/native_sim
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
-    target_link_libraries(vnb_drv_sim_unit_tests PRIVATE Threads::Threads)
-    vna_apply_compile_settings(vnb_drv_sim_unit_tests)
-    vna_apply_link_settings(vnb_drv_sim_unit_tests)
+    target_link_libraries(tdc1vn08_drv_sim_unit_tests PRIVATE Threads::Threads)
+    vna_apply_compile_settings(tdc1vn08_drv_sim_unit_tests)
+    vna_apply_link_settings(tdc1vn08_drv_sim_unit_tests)
 
-    add_executable(vnb_drv_sim_contract_tests
+    add_executable(tdc1vn08_drv_sim_contract_tests
         tests/joined_threads.cpp
         tests/test_failure.cpp
         tests/test_runner.cpp
@@ -142,27 +142,27 @@ if(BUILD_TESTING)
         tests/native_contract/native_normal_sweep_test.cpp
         tests/native_contract/native_noise_mode_test.cpp
     )
-    target_include_directories(vnb_drv_sim_contract_tests PRIVATE
+    target_include_directories(tdc1vn08_drv_sim_contract_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/native_contract
     )
-    target_link_libraries(vnb_drv_sim_contract_tests PRIVATE
+    target_link_libraries(tdc1vn08_drv_sim_contract_tests PRIVATE
         ${CMAKE_DL_LIBS}
         Threads::Threads
     )
-    vna_apply_compile_settings(vnb_drv_sim_contract_tests)
-    vna_apply_link_settings(vnb_drv_sim_contract_tests)
+    vna_apply_compile_settings(tdc1vn08_drv_sim_contract_tests)
+    vna_apply_link_settings(tdc1vn08_drv_sim_contract_tests)
 
-    add_test(NAME native_unit COMMAND vnb_drv_sim_unit_tests)
+    add_test(NAME native_unit COMMAND tdc1vn08_drv_sim_unit_tests)
     add_test(
         NAME native_contract
-        COMMAND vnb_drv_sim_contract_tests $<TARGET_FILE:vnb_drv_sim>
+        COMMAND tdc1vn08_drv_sim_contract_tests $<TARGET_FILE:tdc1vn08_drv_sim>
     )
     add_test(
         NAME native_export_symbols
         COMMAND ${CMAKE_COMMAND}
-            -DLIBRARY_FILE=$<TARGET_FILE:vnb_drv_sim>
+            -DLIBRARY_FILE=$<TARGET_FILE:tdc1vn08_drv_sim>
             -DNM_TOOL=${CMAKE_NM}
             -DOBJDUMP_TOOL=${CMAKE_OBJDUMP}
             -DHOST_SYSTEM=${CMAKE_SYSTEM_NAME}

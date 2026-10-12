@@ -177,7 +177,7 @@ int main(int argc, char **argv)
 {
     VnaTest::ScopedSimulatorEnvironment environment(nullptr, nullptr);
     if (argc != 2) {
-        std::cerr << "用法：" << argv[0] << " /absolute/path/libvnb_drv_sim\n";
+        std::cerr << "用法：" << argv[0] << " /absolute/path/libtdc1vn08_drv_sim\n";
         return 2;
     }
 
@@ -185,12 +185,15 @@ int main(int argc, char **argv)
     VnaTest::NativeLibraryProbe library;
     std::string openError;
     runner.Run("拒绝依赖当前工作目录的动态库路径", [&library, &openError]() {
-        VnaTest::Expect(!(library.Open("libvnb_drv_sim", openError)), VnaTest::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(!(library.Open("libtdc1vn08_drv_sim", openError)), VnaTest::TestLocation{__FILE__, __LINE__});
         VnaTest::Expect(!(library.IsOpen()), VnaTest::TestLocation{__FILE__, __LINE__});
 #if defined(_WIN32)
-        VnaTest::Expect(!(library.Open("C:libvnb_drv_sim.dll", openError)), VnaTest::TestLocation{__FILE__, __LINE__});
-        VnaTest::Expect(!(library.Open("\\libvnb_drv_sim.dll", openError)), VnaTest::TestLocation{__FILE__, __LINE__});
-        VnaTest::Expect(!(library.Open("/libvnb_drv_sim.dll", openError)), VnaTest::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(
+            !(library.Open("C:libtdc1vn08_drv_sim.dll", openError)), VnaTest::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(
+            !(library.Open("\\libtdc1vn08_drv_sim.dll", openError)), VnaTest::TestLocation{__FILE__, __LINE__});
+        VnaTest::Expect(
+            !(library.Open("/libtdc1vn08_drv_sim.dll", openError)), VnaTest::TestLocation{__FILE__, __LINE__});
 #endif
     });
     runner.Run("按绝对路径打开模拟动态库", [&library, &openError, argv]() {

@@ -39,6 +39,8 @@ void PrintHelp()
                  "                  [--web-bind IPv4] [--web-port 0..65535] [--web-root directory] [--no-web]\n"
                  "                  [--config yaml-file]\n"
                  "Defaults: TDC1VN10 simulator, SCPI 127.0.0.1:5025, Web http://127.0.0.1:8080.\n"
+                 "Simulators: tdc1vn08_drv_sim and tdc1vn10_drv_sim.\n"
+                 "--board selects the API and default library; an explicit --driver path overrides that library.\n"
                  "Port 0 selects an available port. Only the VnaPro mock profile is implemented.\n";
 }
 
