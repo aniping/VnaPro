@@ -1,80 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { AcquiredFrame, ReceiverTrace } from '../src/api/types'
-import { defaultTracePresentation } from '../src/domain/presentation'
 import { exportVisibleFrameCsv } from '../src/plot/exportCsv'
 import { markerPlacement, plotRect } from '../src/plot/canvasRenderer'
-import { displaySeries, displayValue, markerResult, nearestIndex, normalizedY, referenceLevel, traceScale } from '../src/plot/traceMath'
-
-function receiver(real: (number | null)[], imaginary = real.map(() => 0)): ReceiverTrace {
-  return { name: 'Receiver A', kind: 'receiver', receiverKind: 'a', receiverPort: 1, sourcePort: 1,
-    parameter: 'a1,1', unit: 'a.u.', calibration: 'raw',
-    available: true, real, imag: imaginary, valid: real.map(() => true) }
-}
-
-function frame(trace = receiver([1, 1.001, 1.002])): AcquiredFrame {
-  return { available: true, current: true, channelId: 1,
-    runId: '18446744073709551613', revision: '18446744073709551614', measurementRevision: '18446744073709551615', frameSeq: '18446744073709551615',
-    originalPointCount: 10001, displayPointCount: 3, decimated: true,
-    frequencyHz: [1e6, 2e6, 9e6], traces: [trace] }
-}
-
-test('nearest marker uses actual nonuniform display samples and survives shorter frames', () => {
-  assert.equal(nearestIndex([1e6, 2e6, 9e6], 2.1e6), 1)
-  assert.equal(nearestIndex([1e6, 2e6, 9e6], -5), 0)
-  assert.equal(nearestIndex([1e6, 2e6, 9e6], 100e6), 2)
-  assert.equal(nearestIndex([], 2e6), -1)
-  const shorter = frame(receiver([1, 1]))
-  shorter.frequencyHz = [1e6, 2e6]
-  shorter.displayPointCount = 2
-  const marker = markerResult(shorter, shorter.traces[0], 9e6, 'db')
-  assert.equal(marker?.index, 1)
-  assert.equal(marker?.frequencyHz, 2e6)
-})
-
-test('invalid raw points remain gaps in both real and imaginary display series', () => {
-  const trace = receiver([1, null, 2, 3], [0, 1, 2, Infinity])
-  trace.valid[2] = false
-  const series = displaySeries(trace, 'realimag')
-  assert.equal(series.length, 2)
-  assert.equal(series[0]!.values[0], 1)
-  for (const component of series) {
-    assert.ok(Number.isNaN(component.values[1]))
-    assert.ok(Number.isNaN(component.values[2]))
-    assert.ok(Number.isNaN(component.values[3]))
-  }
-  assert.equal(markerResult(frame(trace), trace, 2e6, 'db')?.valid, false)
-})
-
-test('raw display format values preserve their units and zero magnitude is negative infinity dB', () => {
-  assert.equal(displayValue(3, 4, 'magnitude'), 5)
-  assert.equal(displayValue(3, 4, 'real'), 3)
-  assert.equal(displayValue(3, 4, 'imag'), 4)
-  assert.equal(displayValue(0, 1, 'phase'), 90)
-  assert.equal(displayValue(0, 0, 'db'), -Infinity)
-  assert.ok(Number.isNaN(displayValue(NaN, 0, 'phase')))
-})
-
-test('normal startup scale stays wide, explicit Autoscale fits the real small variation', () => {
-  const trace = receiver([1, 1.000001, 1.000002])
-  const defaultPresentation = defaultTracePresentation()
-  const initialScale = traceScale(trace, 'db', defaultPresentation.scale)
-  assert.deepEqual(initialScale, { min: -90, max: 10, referencePosition: 9 })
-  assert.equal(referenceLevel(initialScale), 0)
-  assert.equal(normalizedY(0, initialScale), 0.1)
-  const fitted = traceScale(trace, 'db', null)
-  assert.ok(fitted.min <= 0)
-  assert.ok(fitted.max >= displayValue(1.000002, 0, 'db'))
-  assert.ok(fitted.max - fitted.min < 0.001)
-  const constant = traceScale(receiver([1, 1, 1]), 'db', null)
-  assert.ok(constant.max > constant.min)
-  const zero = traceScale(receiver([0, 0, 0]), 'db', null)
-  assert.deepEqual(zero, { min: -90, max: 10, referencePosition: 9 })
-})
+import {
+  displaySeries,
+  markerResult,
+  normalizedY,
+  referenceLevel,
+} from '../src/plot/traceMath'
+import {
+  acquiredFrame,
+  markerProjection,
+  presentation,
+  projection,
+  receiverTrace,
+} from './displayFixtures'
 
 test('reference position uses divisions from the bottom, including non-default triangle position', () => {
   assert.equal(referenceLevel({ min: -80, max: 20 }), 0)
-  const scale = traceScale(undefined, 'db', { min: -80, max: 20, referencePosition: 9 })
+  const scale = { min: -80, max: 20, referencePosition: 9 }
   assert.equal(referenceLevel(scale), 10)
   assert.equal(normalizedY(referenceLevel(scale), scale), 0.1)
   assert.equal(referenceLevel({ min: -80, max: 20, referencePosition: 0 }), -80)
@@ -82,7 +26,10 @@ test('reference position uses divisions from the bottom, including non-default t
 })
 
 test('instrument grid occupies the plot viewport with only its one-pixel border inset', () => {
-  for (const [width, height] of [[846, 658], [421, 305]]) {
+  for (const [width, height] of [
+    [846, 658],
+    [421, 305],
+  ]) {
     const rect = plotRect(width!, height!)
     assert.equal(rect.left, 1)
     assert.equal(rect.top, 1)
@@ -118,20 +65,60 @@ test('M1 keeps a full hit target at both frequency endpoints and scale edges wit
   }
 })
 
-test('CSV preserves uint64 identities, sample provenance, gaps and each visible trace format', () => {
-  const trace = receiver([0, null, 2])
-  const snapshot = frame(trace)
-  const hidden = { ...receiver([10, 10, 10]), name: 'Hidden' }
-  snapshot.traces.push(hidden)
-  const csv = exportVisibleFrameCsv(snapshot, {
-    [trace.name]: defaultTracePresentation(), Hidden: { ...defaultTracePresentation(), visible: false },
+test('Cartesian rendering uses backend values and preserves the supplied invalid gaps', () => {
+  const trace = receiverTrace()
+  trace.real = [900, 900, 900]
+  trace.imag = [900, 900, 900]
+  trace.valid = [true, true, true]
+  trace.projection = projection([12, null, -4], 'realimag', [-8, null, 5])
+  const series = displaySeries(trace, 'realimag')
+  assert.deepEqual(series[0]!.values, [12, NaN, -4])
+  assert.deepEqual(series[1]!.values, [-8, NaN, 5])
+  assert.deepEqual(displaySeries(trace, 'phase'), [])
+})
+
+test('marker readout consumes a full-frame backend sample outside the display array', () => {
+  const frame = acquiredFrame()
+  frame.originalPointCount = 10001
+  frame.decimated = true
+  frame.sampleIndexes = [0, 10000]
+  const trace = frame.traces[0]!
+  trace.projection.marker = markerProjection({
+    available: true,
+    valid: true,
+    reason: '',
+    sampleIndex: 4567,
+    frequencyHz: 3e9,
+    real: 3,
+    imag: 4,
+    value: 13.9794,
+    valueState: 'finite',
   })
-  assert.match(csv, /frameSeq=18446744073709551615,runId=18446744073709551613,revision=18446744073709551614/)
-  assert.match(csv, /measurementRevision=18446744073709551615/)
-  assert.match(csv, /originalPointCount=10001,displayPointCount=3,decimated=true/)
-  assert.match(csv, /未提供原始采样索引；display_index 对应返回的实际展示数组/)
-  assert.match(csv, /"Receiver A",a,1,1,0,1000000,0,0,true,db,"dB re 1 a.u.",-Infinity,/)
-  assert.match(csv, /"Receiver A",a,1,1,1,2000000,,,false,db/)
-  assert.doesNotMatch(csv, /Hidden/)
-  assert.equal(csv.split('\r\n').filter(line => line.startsWith('"Receiver A"')).length, 3)
+  const marker = markerResult(frame, trace, 3e9, 'db')
+  assert.equal(marker!.index, 4567)
+  assert.equal(marker!.frequencyHz, 3e9)
+  assert.equal(marker!.value, 13.9794)
+})
+
+test('CSV schema 4 preserves backend projections, uint64 versions and original sample indexes', () => {
+  const trace = receiverTrace()
+  trace.projection = projection([null, 37], 'db')
+  trace.projection.valueStates[0] = 'negativeInfinity'
+  const frame = acquiredFrame(trace)
+  frame.frameSeq = '18446744073709551615'
+  frame.measurementRevision = '9007199254740993'
+  frame.displayRevision = '9007199254740994'
+  frame.originalPointCount = 10001
+  frame.sampleIndexes = [0, 10000]
+  frame.decimated = true
+  const csv = exportVisibleFrameCsv(frame, { [trace.name]: presentation() })
+  assert.match(csv, /CSV schema 4/)
+  assert.match(
+    csv,
+    /measurementRevision=9007199254740993,displayRevision=9007199254740994/,
+  )
+  assert.match(csv, /source_index,display_state,secondary_state/)
+  assert.match(csv, /-Infinity,.*0,negativeInfinity,undefined/)
+  assert.match(csv, /37,.*10000,finite,undefined/)
+  assert.doesNotMatch(csv, /normalized_r|normalized_x|impedance_state/)
 })
