@@ -4,6 +4,7 @@ import type {
   DiagramDefinition,
   MarkerProjection,
   Measurement,
+  ImpedanceState,
   ProjectionState,
   TraceProjection,
 } from './types'
@@ -32,6 +33,12 @@ const STATES: readonly ProjectionState[] = [
   'finite',
   'negativeInfinity',
   'undefined',
+]
+const IMPEDANCE_STATES: readonly ImpedanceState[] = [
+  'finite',
+  'open',
+  'overflow',
+  'invalid',
 ]
 
 function nullableNumber(value: unknown, field: string): number | null {
@@ -235,8 +242,9 @@ export function decodeProjection(
   count: number,
 ): TraceProjection {
   const item = object(value, 'projection')
+  const format = choice(item.format, 'projection.format', FORMATS)
   const result: TraceProjection = {
-    format: choice(item.format, 'projection.format', FORMATS),
+    format,
     values: array(item.values, 'projection.values', 2001).map((value) =>
       nullableNumber(value, 'projection.value'),
     ),
@@ -253,6 +261,7 @@ export function decodeProjection(
       'projection.secondaryStates',
       2001,
     ).map((value) => choice(value, 'projection.secondaryState', STATES)),
+    ...pointImpedance(item, format, count),
     marker: markerProjection(item.marker),
   }
   if (
@@ -274,4 +283,60 @@ export function decodeProjection(
       invalid('projection.valueState')
   }
   return result
+}
+
+function pointImpedance(
+  item: Record<string, unknown>,
+  format: DisplayFormat,
+  count: number,
+): Pick<
+  TraceProjection,
+  'impedanceRealValues' | 'impedanceImagValues' | 'impedanceStates'
+> {
+  const fields = [
+    item.impedanceRealValues,
+    item.impedanceImagValues,
+    item.impedanceStates,
+  ]
+  // 新字段可整体缺省以兼容旧服务；部分缺省属于损坏响应，不能拼接旧标记的阻抗。
+  if (fields.every((value) => value === undefined)) {
+    return {
+      impedanceRealValues: [],
+      impedanceImagValues: [],
+      impedanceStates: [],
+    }
+  }
+  const impedanceRealValues = array(
+    item.impedanceRealValues,
+    'projection.impedanceRealValues',
+    2001,
+  ).map((value) => nullableNumber(value, 'projection.impedanceRealValue'))
+  const impedanceImagValues = array(
+    item.impedanceImagValues,
+    'projection.impedanceImagValues',
+    2001,
+  ).map((value) => nullableNumber(value, 'projection.impedanceImagValue'))
+  const impedanceStates = array(
+    item.impedanceStates,
+    'projection.impedanceStates',
+    2001,
+  ).map((value) => choice(value, 'projection.impedanceState', IMPEDANCE_STATES))
+  const expected = format === 'smith' ? count : 0
+  if (
+    [impedanceRealValues, impedanceImagValues, impedanceStates].some(
+      (values) => values.length !== expected,
+    )
+  ) {
+    invalid('projection.impedancePointCount')
+  }
+  for (let index = 0; index < expected; index++) {
+    const finite = impedanceStates[index] === 'finite'
+    if (
+      (impedanceRealValues[index] !== null) !== finite ||
+      (impedanceImagValues[index] !== null) !== finite
+    ) {
+      invalid('projection.impedanceState')
+    }
+  }
+  return { impedanceRealValues, impedanceImagValues, impedanceStates }
 }

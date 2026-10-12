@@ -58,6 +58,8 @@ struct ProjectedTrace final {
     bool available = false;
     std::string error;
     std::vector<FormattedPoint> points;
+    // 仅 Smith 格式按完整原始点序计算，协议抽点时与投影值使用相同下标。
+    std::vector<NormalizedImpedance> impedancePoints;
     MarkerReadout marker;
 };
 

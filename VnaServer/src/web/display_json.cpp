@@ -284,8 +284,31 @@ Json DisplayJson::Projection(
     result["secondaryValues"] = std::move(secondary);
     result["valueStates"] = std::move(states);
     result["secondaryStates"] = std::move(secondaryStates);
+    PointImpedance(result, trace, format, indexes);
     result["marker"] = Marker(trace.marker);
     return result;
+}
+
+void DisplayJson::PointImpedance(Json &projection, const VnaDisplay::ProjectedTrace &trace,
+    VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes)
+{
+    Json real = Json::MakeArray();
+    Json imaginary = Json::MakeArray();
+    Json states = Json::MakeArray();
+    if (format == VnaDisplay::DisplayFormat::SMITH) {
+        for (const auto index : indexes) {
+            const auto point = trace.available && index < trace.impedancePoints.size()
+                                   ? trace.impedancePoints[index]
+                                   : VnaDisplay::NormalizedImpedance{};
+            const bool finite = point.state == VnaDisplay::ImpedanceState::FINITE;
+            real.array.push_back(finite ? Json(point.real) : Json());
+            imaginary.array.push_back(finite ? Json(point.imag) : Json());
+            states.array.emplace_back(ImpedanceState(point.state));
+        }
+    }
+    projection["impedanceRealValues"] = std::move(real);
+    projection["impedanceImagValues"] = std::move(imaginary);
+    projection["impedanceStates"] = std::move(states);
 }
 
 void DisplayJson::WorkspaceChange(VnaDisplay::DisplayChange &change, const Json &body, const std::string &action)

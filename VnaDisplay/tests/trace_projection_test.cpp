@@ -86,6 +86,32 @@ void TestComplexInterpolationAndDiscreteMode()
         "插值跨过无效点补造了有效数据");
 }
 
+void TestSmithPointImpedanceSharesTheImmutableProjection()
+{
+    auto trace = Trace({0.0, -1.0, 0.0, 1.0, 0.5}, {0.0, 0.0, 1.0, 0.0, 0.0});
+    trace.points.back().valid = false;
+    TracePresentation presentation;
+    presentation.format = DisplayFormat::SMITH;
+    presentation.marker.enabled = true;
+    presentation.marker.hasSampleIndex = true;
+    presentation.marker.sampleIndex = 2U;
+    const auto result = TraceProjection::Calculate(presentation, trace, {1, 2, 3, 4, 5});
+    Require(result.impedancePoints.size() == trace.points.size(), "Smith 阻抗必须覆盖完整原始点数组");
+    Near(result.impedancePoints[0].real, 1.0);
+    Near(result.impedancePoints[1].real, 0.0);
+    Near(result.impedancePoints[2].real, 0.0);
+    Near(result.impedancePoints[2].imag, 1.0);
+    Require(result.impedancePoints[3].state == ImpedanceState::OPEN &&
+                result.impedancePoints[4].state == ImpedanceState::INVALID,
+        "逐点阻抗保留开路和无效点状态");
+    Near(result.marker.impedance.real, result.impedancePoints[2].real);
+    Near(result.marker.impedance.imag, result.impedancePoints[2].imag);
+    Require(presentation.marker.sampleIndex == 2U && !trace.points.back().valid, "投影不得修改正式标记配置或测量数据");
+    presentation.format = DisplayFormat::REALIMAG;
+    Require(TraceProjection::Calculate(presentation, trace, {1, 2, 3, 4, 5}).impedancePoints.empty(),
+        "非 Smith 格式不计算阻抗数组");
+}
+
 void TestOriginalIndexSurvivesCwAndTransportDecimation()
 {
     TracePresentation presentation;
@@ -138,9 +164,10 @@ int main()
         TestFormatsAndExceptionalValues();
         TestSmithProjectionAndImpedance();
         TestComplexInterpolationAndDiscreteMode();
+        TestSmithPointImpedanceSharesTheImmutableProjection();
         TestOriginalIndexSurvivesCwAndTransportDecimation();
         TestAutoscaleOverflowAndInvalidData();
-        std::cout << "5 个完整频轴显示投影验收用例通过\n";
+        std::cout << "6 个完整频轴显示投影验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

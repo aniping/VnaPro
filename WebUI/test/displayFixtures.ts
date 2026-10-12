@@ -112,6 +112,9 @@ export function projection(
     secondaryStates: secondaryValues.map((value) =>
       value === null ? 'undefined' : 'finite',
     ),
+    impedanceRealValues: format === 'smith' ? values.map(() => null) : [],
+    impedanceImagValues: format === 'smith' ? values.map(() => null) : [],
+    impedanceStates: format === 'smith' ? values.map(() => 'invalid') : [],
     marker: markerProjection(),
   }
 }

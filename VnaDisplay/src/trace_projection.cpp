@@ -147,8 +147,16 @@ ProjectedTrace TraceProjection::Calculate(const TracePresentation &presentation,
     }
     projected.available = true;
     projected.points.reserve(trace.points.size());
+    const bool smith = presentation.format == DisplayFormat::SMITH;
+    if (smith) {
+        projected.impedancePoints.reserve(trace.points.size());
+    }
     for (const auto &point : trace.points) {
         projected.points.push_back(Format(point, presentation.format));
+        if (smith) {
+            projected.impedancePoints.push_back(
+                point.valid ? Impedance(point.real, point.imag) : NormalizedImpedance{});
+        }
     }
     projected.marker = Detail::MarkerResolver::Resolve(
         presentation.marker, presentation.format, trace, frequencyHz, acquisitionRevision);

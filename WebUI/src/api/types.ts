@@ -90,6 +90,7 @@ export type DisplayCommand =
     }
 
 export type ProjectionState = 'finite' | 'negativeInfinity' | 'undefined'
+export type ImpedanceState = 'finite' | 'open' | 'overflow' | 'invalid'
 
 export interface MarkerProjection {
   available: boolean
@@ -105,7 +106,7 @@ export interface MarkerProjection {
   secondaryState: ProjectionState
   impedanceReal: number | null
   impedanceImag: number | null
-  impedanceState: 'finite' | 'open' | 'overflow' | 'invalid'
+  impedanceState: ImpedanceState
   interpolated: boolean
 }
 
@@ -115,6 +116,10 @@ export interface TraceProjection {
   secondaryValues: (number | null)[]
   valueStates: ProjectionState[]
   secondaryStates: ProjectionState[]
+  /** Smith 每个显示点的 C++ 阻抗投影；旧服务或其他格式为空。 */
+  impedanceRealValues: (number | null)[]
+  impedanceImagValues: (number | null)[]
+  impedanceStates: ImpedanceState[]
   marker: MarkerProjection
 }
 
