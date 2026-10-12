@@ -1,6 +1,6 @@
 # VnaPro Web 前端
 
-独立的 Vue 3 + TypeScript + Vite 工程，用于验证模拟器的真实采数、配置更新和控制竞争。界面参考 ZNB8 的仪器布局，显示 RAW A/B 接收波和未校准 S11/S21/S12/S22；S11/S22 支持 Smith。界面风格不代表具备罗德硬件或完整 ZNB 功能，SCPI 仍使用已实现的 Keysight 命令子集。
+独立的 Vue 3 + TypeScript + Vite 工程，用于验证模拟器的真实采数、配置更新和控制竞争。界面参考 ZNB8 的仪器布局，显示 RAW A/B 接收波和未校准 S11/S21/S12/S22；所有测量均可选择 Smith、Polar 和 Inv Smith。界面风格不代表具备罗德硬件或完整 ZNB 功能，SCPI 仍使用已实现的 Keysight 命令子集。
 
 ## 安装、构建与运行
 
@@ -89,15 +89,17 @@ flowchart TB
 
 `useInstrument` 维护一个不重叠的轮询周期。在线约每 200 ms 读取状态及帧，断线后约每 1 s 重试；一个周期完成后再调度下一次。控制权空闲时初次连接尝试取得租约，持权页面每 10 s 续租服务的 30 s 租约。释放意图立即停止续租，旧的持权响应不能让页面重新自动抢占。
 
-配置与测量定义携带逻辑 `expectedRevision`。`canConfigure` 将物理扫频配置限制在 Ready/HOLD；独立的 `canChangeMeasurements` 允许在 Ready/Running 修改测量目录，CONT 不再禁用 Meas、Add Trace 或 Delete Trace。两类写操作仍要求控制权，且已有受理操作、只读或故障状态不允许重复写入。写入返回 HTTP 202 仅表示受理：保留 operationId 和受理时的原始 token，观察到完成后再次读取权威状态，再更新生效配置。释放或换 token 后也按原 token 观察已受理操作；遇到不确定的网络失败不会自动重发写入。停止界面轮询只终止 HTTP 观察，不宣称取消设备已接受的任务。
+配置与测量定义携带逻辑 `expectedRevision`。`canConfigure` 和 `canChangeMeasurements` 均允许在 Ready/Running 下提交配置或测量目录修改；CONT 中可编辑频率、点数与 IFBW，前端不自行 Hold/Resume，后端在完整帧边界切换采集计划。两类写操作仍要求控制权，且已有受理操作、只读或故障状态不允许重复写入。写入返回 HTTP 202 仅表示受理：保留 operationId 和受理时的原始 token，观察到完成后再次读取权威状态，再更新生效配置。释放或换 token 后也按原 token 观察已受理操作；遇到不确定的网络失败不会自动重发写入。停止界面轮询只终止 HTTP 观察，不宣称取消设备已接受的任务。
 
 状态的 `revision` 是逻辑配置 CAS 版本，`acquisitionRevision` 是已提交的采集计划版本，`display.revision` 是共享仪器显示版本。帧携带实际采集 `revision`、计算时的 `measurementRevision` 与 `displayRevision`；三组身份及 runId、服务 current 状态全部匹配后才显示 CURRENT。迟到响应保留旧版本并标记旧帧，不把旧投影冒充新格式。
 
-`status.display` 返回活动测量、显示集合、布局和每条迹线的 Format/Scale/标记集合/可见性及 `allowedFormats`。每条迹线的 `markers` 保存 M1～M10，`activeMarkerId` 标识活动成员；旧 `marker` 字段由后端从活动成员派生，前端不另存一份仪器状态。`display.diagrams` 直接给出图号、测量分组与主坐标迹线，前端不按布局或 Smith 类型重新分组。`useWorkspace` 仅适配这些读回值，没有本地默认迹线、目录 watch 修复或乐观修改。动作写入 `POST /api/v1/display`，携带 `requestId` 和 `expectedDisplayRevision`，经同一控制租约与操作完成机制执行；`canEditDisplay` 允许 CONT 中操作，旁观窗口禁写但同步显示。刷新重建页面继续读取已有仪器显示状态；不宣称进程重启后的磁盘持久化。
+`status.display` 返回活动测量、显示集合、布局和每条迹线的 Format/Scale/标记集合/可见性及 `allowedFormats`。每条迹线的 `markers` 保存 M1～M10，`activeMarkerId` 标识活动成员；旧 `marker` 字段由后端从活动成员派生，前端不另存一份仪器状态。`display.diagrams` 返回全部显式图窗、各窗迹线顺序与主坐标迹线，`selectedDiagram` 表示当前图窗；删除后图号可重排，前端不缓存固定图号，也不按格式创建或拆分图窗。`useWorkspace` 仅适配这些读回值，没有本地默认迹线、目录 watch 修复或乐观修改。动作写入 `POST /api/v1/display`，携带 `requestId` 和 `expectedDisplayRevision`，经同一控制租约与操作完成机制执行；`canEditDisplay` 允许 CONT 中操作，旁观窗口禁写但同步显示。刷新重建页面继续读取已有仪器显示状态；不宣称进程重启后的磁盘持久化。
 
-测量目录和显示集合均最多 128 项，这是项目资源预算，不是 ZNB 最大容量。选择、插入/移除显示槽位、格式能力、一次 Autoscale、标记选点以及布局/可见性均由 C++ 决定。Add Trace 通过 `/api/v1/measurement-actions/clone` 由后端复制活动定义及显示设置，以最小未占用正整数分配 `Trc<n>`，追加并原子选中；删除后允许复用编号，新增第五条不会替换第四条。复制设置后曲线可能重合。前端不实现命名或容量规则。默认帧请求不携带浏览器私有显示集合，使用后端已提交集合；显式 trace 查询只用于读取指定测量。S 参数请求发送规范参数文本，由后端解析接收端与源端；Center/Span 操作发送原始 centerHz/spanHz，由后端完成频率联动。
+测量目录、显示集合和显式图窗均最多 128 项，这是项目资源预算，不是 ZNB 最大容量。菜单或工具栏 Add Trace 使用 `/api/v1/measurement-actions/add` 添加默认 S21/dB Mag 迹线；单端口时为 S11。Add Trace + Diagram 在同一后端事务中创建新图窗和默认迹线。Trace Config 的 Add Trace 使用 `/api/v1/measurement-actions/clone` 复制活动定义及显示设置；编号由后端选取最小空闲 `Trc<n>`，新增不会替换之前的迹线。图窗右键动作携带目标 `diagram`，不通过浏览器连续发两次写请求实现组合操作。
 
-标记请求使用 `action:"marker"`、`markerAction:"update" | "add" | "select" | "allOff"`。update 可附 `markerId`（1～10）及启停、频率、原始下标、步进或离散模式；select 必须指定编号并启用该成员，add 由后端分配最小空闲编号，allOff 关闭当前迹线所有成员并保留属性。除 update 外不混入位置或状态更新，位置操作携带 acquisitionRevision。SCPI 的 `CALC1:MARK1`～`MARK10:STAT/X/Y/DISC` 和 `CALC1:MARK:AOFF` 操作同一后端集合，缺省 MARKer 编号为 1，查询不读取浏览器临时预览。
+Delete Diagram 使用 `/api/v1/measurement-actions/delete-diagram` 原子删除该图窗及其迹线定义，不能删除最后一个图窗；Delete Trace 不能删除最后一条迹线，并清理因删除变空的图窗。Overlay All 和 Split All 分别发送 `overlay`、`split` 显示命令，由 C++ 合并全部迹线到目标图窗或为每条迹线创建独立图窗。前端不自行命名、分配容量或改变归属。默认帧请求采用后端已提交显示集合；S 参数请求发送规范参数文本，由后端解析接收端与源端，Center/Span 请求只发送原始意图。
+
+标记请求使用 `action:"marker"`、`markerAction:"update" | "add" | "select" | "allOff"`。update 可附 `markerId`（1～10）及启停、频率、原始下标、步进或离散模式；select 必须指定编号并启用该成员，add 由后端分配最小空闲编号，allOff 关闭当前迹线所有成员并保留属性。Remove Marker 等同于针对活动编号的 update enabled:false，关闭后仍保留位置和 Discrete 设置，可再次启用。除 update 外不混入位置或状态更新，位置操作携带 acquisitionRevision。SCPI 的 `CALC1:MARK1`～`MARK10:STAT/X/Y/DISC` 和 `CALC1:MARK:AOFF` 操作同一后端集合，缺省 MARKer 编号为 1，查询不读取浏览器临时预览。
 
 Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设置同步；200 ms 帧轮询即使返回新的对象，也不能重置用户尚未应用的刻度或频率草稿。
 
@@ -107,28 +109,30 @@ Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设
 
 基准画布为 1280 × 800。工具栏高 42 px，底部菜单状态栏高 32 px；主区 848 px、软工具 272 px、右侧两列硬键 160 px。软工具的标签列在右侧，宽 70 px，文字横排。视口改变时整体等比缩放；按 Esc 收起软工具，主区扩大到 1120 px，点击硬键重新打开。
 
-新服务启动后已有活动迹线 `Trc1 / S21`，使用仪器配置的完整频段、默认 201 点；单端口配置使用 S11。启动状态为 HOLD，无初始采集帧，图中显示网格和“无帧”状态；执行 Single sweep 或 Continuous 才获得真实曲线。浏览器刷新读取已有设备目录和配置，不重新创建 RAW a1,1，也不覆盖其他客户端已选择的测量。
+新服务启动后已有活动迹线 `Trc1 / S21`，使用仪器配置的完整频段、默认 201 点；单端口配置使用 S11。无已恢复状态的新服务器默认自动启动 CONT；`instrument.sweep.defaultSweepMode` 可设为 HOLD，此时等待 Single sweep 或 Continuous 才获得曲线。服务领域初始化仍为 HOLD，服务器在监听前应用配置的启动模式。浏览器刷新读取已有设备目录和配置，不重新创建 RAW a1,1，也不覆盖其他客户端已选择的测量。
 
 1. 在 Setup 或底栏取得控制权；若 SCPI 或另一页面持权，本页可只读查看。
-2. 在 HOLD 下设置通道采集参数：Start/Stop/Center/Span 硬键打开 `Stimulus → Stimulus` 的频率设置；`Channel → Sweep → Sweep Params` 设置 `Number of Points`；`Channel → Power / Bw / Avg → Bandwidth` 设置 `IF Bandwidth`，软工具标题为 `Pwr Bw Avg`。每页保留独立输入草稿，Apply 只发送本页字段并等待后端完成及读回，切换菜单或帧轮询不会清除尚未应用的草稿。允许 Start = Stop，或把 Span 设为 0，进行 CW 定频采样；返回频轴允许同一频率重复。
+2. 在 CONT 或 HOLD 下设置通道采集参数：Start/Stop/Center/Span 硬键打开 `Stimulus → Stimulus` 的频率设置；`Channel → Sweep → Sweep Params` 设置 `Number of Points`；`Channel → Power / Bw / Avg → Bandwidth` 设置 `IF Bandwidth`，软工具标题为 `Pwr Bw Avg`。每页保留独立输入草稿，Apply 只发送本页字段并等待后端完成及读回，切换菜单或帧轮询不会清除尚未应用的草稿。允许 Start = Stop，或把 Span 设为 0，进行 CW 定频采样；返回频轴允许同一频率重复。
 3. Meas 的 S-Params 页直接选择 S11/S12/S21/S22，修改活动迹线的测量量，不要求输入新名称。S11/S21 在源端口 1 的同帧波量上计算 `b1/a1`、`b2/a1`；S12/S22 在源端口 2 的同帧波量上计算 `b1/a2`、`b2/a2`。Wave 页提供六个标准两端口波量快捷选择；More Wave Quantities 对话框可按仪器能力指定 a/b、接收端口和激励端口，确认后修改活动迹线。超出当前端口能力的快捷选择禁用。CONT 中可以直接切换测量量；已有采集计划覆盖所需波量时复算同一完整帧，缺少源或接收机时由后台在完整帧边界更新计划，保持 CONT 和 runId。
 4. Sweep 硬键默认打开 `Sweep Params`；在 `Sweep Control` 页签中，Single sweep 采一帧并进入 HOLD，Continuous 连续采集，Hold 等待当前完整帧收尾。`Trigger` 页签和 Trigger 硬键显示触发源及 Manual trigger；仅在实际 MAN 触发并已 armed 时允许手动触发。
 5. 点击图内迹线条选择当前迹线。Format、Scale、Marker 改变后端共享显示设置。Trace Config 管理测量目录和共享 Display 集合，Add Trace 由后端复制并命名，Delete 删除定义；全部仪器写动作要求控制权，CONT 中仍可执行。另一观察窗口及 SCPI 能读取相同状态。`Marker → Markers` 用 Mkr 1～10 选择/启用普通标记，Add Marker 新增下一空闲成员，On 单独关闭当前标记，All Off 关闭活动迹线全部标记。图上符号及右上角读数行也可选择活动成员。
 6. 在 File/Print、Tools 或工具栏导出当前显示的 CSV。
 
-点数与 IF 带宽菜单位置依据 [ZNB8 官方手册核对](../docs/research/ZNB8点数与中频带宽菜单核对.md)。本项目保留 Apply / Reload 作为草稿提交与重读交互，这组按钮并非原机软工具的复刻。当前驱动的 HOLD 配置限制与控制权检查仍由后端决定；功率、数字 IF 滤波器和平均尚未实现，不提供可操作的占位控件。
+点数与 IF 带宽菜单位置依据 [ZNB8 官方手册核对](../docs/research/ZNB8点数与中频带宽菜单核对.md)。本项目保留 Apply / Reload 作为草稿提交与重读交互，这组按钮并非原机软工具的复刻。CONT 下配置修改由后端在完整帧边界执行，并复核控制权及版本；功率、数字 IF 滤波器和平均尚未实现，不提供可操作的占位控件。
 
 图窗采用 10 × 10 网格，网格铺满绘图区，仅留 1 px 边线；纵轴数值和单位叠在网格内，普通刻度使用 `#4b5f6c`，如 `10dB` 不增加数值与单位之间的空格。频率 Start/Stop 显示在 20 px 黑色通道行，`Bw` 使用实际 IFBW，扫频点数使用真实配置或当前帧；不填充未实现的 Pwr。18 px 迹线条紧凑排列，如 `Trc1 S21 dB Mag 10 dB/ Ref 0 dB`，当前迹线选中呈 `#0d75bf` 蓝底。图内文字使用 Tahoma/Arial 近似参考截图，未确认原机字体。每条可见迹线保留自己的参考虚线与右侧同色向左三角；当前坐标所对应迹线的 Ref 虚线及对齐刻度用浅色 `#dbe2e6` 强调，其他叠加迹线的参考虚线使用自己的颜色。普通标记使用带编号的小填充三角；右上角按已启用成员显示读数，使用实心 `#323f48` 背景、白色数值，圆点用迹线色指示活动标记。频率以工程单位显示六位小数，对应的实际采样索引不变，高精度提示仍可读取。靠近顶部时三角反向、文字移到下方；频率端点处目标向内收，尖点仍对应真实采样位置，单击不会跳频。
 
 刻度文字直接叠在绘图区，不添加半透明背景。Canvas 位图按最终屏幕尺寸和设备像素比生成，显示边界也对齐到物理像素，避免非整数缩放时再次插值；绘图偏移补偿保持样本和标记在原绘图区的实际位置。网格、边线和参考虚线占 1 个物理像素，曲线保持 1 个屏幕 CSS 像素宽，不因选中或整机缩放加粗。视口尺寸或设备像素比变化时重新绘制，包括 HOLD 状态。曲线保留真实样本及无效点断线，不通过平滑或滤波改变采集数据。
 
-图窗右上角的 `▼ 图号` 菜单支持 All Diagrams（最多四个图窗；超过四条时由后端按坐标类型分组，多条共窗）、Maximized（当前迹线独占主区，保留原图号）、Overlay All（按坐标类型叠加）和 Add Marker（为当前迹线启用下一空闲标记）。矩形与 Smith 不共用坐标网格，避免把复平面与频率轴混画。工具栏最大化按钮切换 All Diagrams/Maximized；菜单支持方向键、Home/End、Enter、Esc 和外部点击。只有显示集合中的真实测量才生成图窗，不额外填充空窗。配色按每个图窗重新开始并循环使用颜色，颜色数量不限制迹线数量；这是本项目选定配色，ZNB 手册允许用户配置颜色和字体。
+图窗右上角 `▼ 图号` 菜单提供 All Diagrams、Maximized、Overlay All、Split All、Add Trace、Add Trace + Diagram、Delete Diagram 和 Add Marker。All Diagrams 显示所有后端图窗，Maximized 只放大当前图窗且保留完整迹线归属。Split All 为每条迹线创建独立图窗，不限为四个；图窗较多时可滚动查看。Overlay All 允许矩形与圆图共窗，网格由活动迹线决定，每条迹线仍按自己的格式投影。切换 Format 不创建、删除或移动图窗。工具栏最大化按钮切换 All Diagrams/Maximized；菜单支持方向键、Home/End、Enter、Esc 和外部点击。活动曲线最终绘制、活动标记在更高像素层显示，标题和目录顺序不改变。配色按每个图窗重新开始并循环使用颜色，颜色数量不限制迹线数量；这是本项目选定配色，ZNB 手册允许用户配置颜色和字体。
 
-初始对数刻度按手册示例采用 −90…10 dB、10 dB/div、Ref 0 dB 在第 9 格。Autoscale 才放大实际数据的细小变化；极小变化采用 `Δ` 刻度，迹线条和刻度提示保留真实 Ref。Scale 的参考位置从底部 0 到顶部 10；标记图上点击、释放拖动和方向键请求后端使用完整原始帧选择离散频点，并携带目标 markerId；在 Marker 中输入频率则遵循该成员的后端 Discrete 模式。聚焦图区后，←/→ 移动一点，Shift 移动十点，Home/End 到两端。六种格式为 dB Mag、Lin Mag、Phase、Real、Imag、Real/Imag；RAW dB 参考 1 a.u.，S 参数为 `20 log₁₀ |S|`，线性幅度和实虚部使用无量纲单位 `1`，相位使用度数。RAW 迹线条保留 RAW 标签；S 参数的“未校准”状态在全局状态、测量提示及可访问文本中可见，避免重复占满迹线标题。尚未应用误差校准，不标成 dBm。
+初始对数刻度按手册示例采用 −90…10 dB、10 dB/div、Ref 0 dB 在第 9 格。Autoscale 才放大实际数据的细小变化；极小变化采用 `Δ` 刻度，迹线条和刻度提示保留真实 Ref。Scale 的参考位置从底部 0 到顶部 10；标记图上点击、释放拖动和方向键请求后端使用完整原始帧选择离散频点，并携带目标 markerId；在 Marker 中输入频率则遵循该成员的后端 Discrete 模式。聚焦图区后，←/→ 移动一点，Shift 移动十点，Home/End 到两端。Format 菜单包含十三种原机格式：dB Mag、Phase、Smith、Polar、SWR、Unwr Phase、Lin Mag、Log Mag、Real、Imag、Inv Smith、Delay、Delay Derivation；旧 Real/Imag 仅保留协议兼容。Log Mag 刻度使用正幅值 min/max，每格跨度为 decade，Ref 与刻度标签仍为正幅值；非正幅值保留读数，但不绘制不存在的对数坐标。Delay 的单位为 s，Delay Derivation 为 s²；RAW dB 参考 1 a.u.，S 参数为 `20 log₁₀ |S|`，线性幅度和实虚部使用无量纲单位 `1`，相位使用度数。RAW 迹线条保留 RAW 标签；S 参数的“未校准”状态在全局状态、测量提示及可访问文本中可见，避免重复占满迹线标题。尚未应用误差校准，不标成 dBm。
 
 复数点的 `valid` 表示后端采样或比值计算有效，与当前格式能否给出有限显示值不同。有效的 `0+0i` 在线性幅度下为 0，dB 为 −∞，相位未定义；相位曲线留空，标记显示 `—`，CSV 保留实虚部 0 和 `valid=true`、显示值留空。这些格式结果及状态由 C++ 后端投影返回，浏览器不重复计算。
 
-Smith 仅向反射 S11/S22 开放，按复数 Γ 直接投影，不在前端重复计算接收波比值。圆心是 Γ=0，单位圆是 |Γ|=1；`|Γ|>1` 保留真实坐标，不钳制或误标无效。宽屏、窄窗和非整数缩放保持圆形。Scale 的 Outer Magnitude 控制显示半径，最小为 0.01；Autoscale 根据当前有效点适配一次并固定半径，后续帧不能改变它。同一 Smith 图窗的所有曲线、标记与点击吸附使用活动迹线半径；迹线条展示当前有效半径，提示同时列出各迹线保存值。切换活动迹线时整窗切换半径，独立图窗各自使用保存值，不能把同一 Γ 绘在共享网格的不同位置。矩形刻度与圆图半径各自保留；从 Smith 返回之前的矩形格式会恢复原刻度。
+Smith、Polar 和 Inv Smith 可用于所有复数测量。S21 与 RAW 的圆图显示复数 Re/Im；只有反射 S 参数提供具有物理意义的归一化阻抗或导纳。Inv Smith 改用导纳网格，不翻转复数迹线。圆心是复数 0；超出单位圆的值保留真实坐标，不钳制或误标无效。宽屏、窄窗和非整数缩放保持圆形。Scale 的 Outer Magnitude 控制显示半径，最小为 0.01；Autoscale 根据有效点适配一次并固定半径，后续帧不能改变它。圆图为活动坐标时，各圆图迹线、标记及命中采用活动圆图半径；矩形网格下的圆图迹线使用自己的保存半径。所有刻度与格式修改均由 C++ 保存，格式变化不改变图窗归属，也不承诺恢复旧格式刻度。
+
+Polar 的默认标记读数为幅值 `|z|` 与相位（度），曲线位置仍采用复数 Re/Im。后端分别下发 `markerValues/markerSecondaryValues/markerValueStates/markerSecondaryStates`，拖动直接读取这组幅相投影，不在浏览器执行 hypot 或 atan2。零幅值保留 0，未定义相位显示 `—`；该点仍可在圆心选中。旧响应完整缺少四数组时保留曲线，拖动不借用旧标记的读数；尚未提供单独 Marker Format 的显式设置。
 
 Smith 图上点击/拖动按屏幕距离命中实际渲染点，再通过 `sampleIndexes` 发送其原始索引和 markerId；实际标记计算由后端执行。方向键发送原始点 step，Home/End 发送完整帧两端索引，抽取不改变移动单位。各标记的独立读数可落在展示数组以外或两个原始频点之间。Γ 与归一化阻抗均读取后端值，不假定物理参考阻抗，也不声称校准。
 
@@ -138,7 +142,7 @@ Smith 的 Γ 和归一化阻抗均由后端随正常帧下发，拖动期间直�
 
 所有图来自一个完整帧。无帧仍显示网格；断线、配置已变或新 run 尚未发布数据时保留旧帧并明确标记。旧帧的频轴和点数来自该帧，IFBW 显示 `—`，因为该 API 帧不携带采集带宽，不能用新配置冒充旧数据的带宽。
 
-Web 单条最多返回 2001 个均匀选取的真实点，总迹线采样预算为 8004；请求 N 条时共同绘图点数不超过 `min(2001, floor(8004 / N))`，保留端点并显示原始/展示点数。曲线和 CSV 使用这些真实展示点及其原始索引；所有标记使用后端完整帧结果，不受显示抽取限制。参考波过小或无效时，后端将对应 S 参数点标为无效；图线断开、标记显示 Invalid point，前端不补造比值。SCPI 读取完整扫描数组。误差校准、Polar、Reference/Delta/Coupled 标记、RF 开关和预设尚未实现，相关入口禁用。普通多标记的交互依据见[ZNB8 官方行为核对](../docs/research/ZNB8迹线与标记行为核对.md)，不宣称完整标记能力 1:1。
+Web 单条最多返回 2001 个均匀选取的真实点，总迹线采样预算为 8004；请求 N 条时共同绘图点数不超过 `min(2001, floor(8004 / N))`，保留端点并显示原始/展示点数。曲线和 CSV 使用这些真实展示点及其原始索引；所有标记使用后端完整帧结果，不受显示抽取限制。参考波过小或无效时，后端将对应 S 参数点标为无效；图线断开、标记显示 Invalid point，前端不补造比值。SCPI 读取完整扫描数组。误差校准、Reference/Delta/Coupled 标记、RF 开关和预设尚未实现，相关入口禁用。普通多标记的交互依据见[ZNB8 官方行为核对](../docs/research/ZNB8迹线与标记行为核对.md)，不宣称完整标记能力 1:1。
 
 CSV 使用 schema 4，记录采集、目录、显示版本、抽取信息及后端 Re/Im、格式投影。追加 `source_index,display_state,secondary_state`；移除前端计算的逐点归一化阻抗列。`display_value` 与 `display_imaginary` 直接使用后端 primary/secondary 投影，Smith 对应 Γ 实虚部；负无穷写为 `-Infinity`，未定义留空并保留状态。原始有效位与格式状态分离。读取旧格式的程序必须检查 schema/表头。
 
@@ -146,7 +150,7 @@ CSV 使用 schema 4，记录采集、目录、显示版本、抽取信息及后�
 
 `npm test` 覆盖严格解码、uint64 身份、202 等待与权威读回、控制租约、旧响应及不确定写入竞争；共享工作区的两个观察器与刷新、所有动作不乐观改状态、后端 displayRevision 竞争、格式投影及完整帧标记读数、原始 sampleIndexes 与 CSV schema 4 均有回归。渲染测试覆盖网格/标记几何、非方形 CSS 缩放与 DPR、屏幕命中及无效断线。格式数学、Autoscale 和标记插值移至 C++ VnaDisplay 的测试职责；前端用与原始复数刻意不同的投影验证没有本地重算。`npm run build` 负责 Vue/TypeScript 类型检查和生产构建。HTTP/SCPI 共享状态与真实浏览器另由集成测试验收。
 
-通道菜单测试执行真实 `ChannelSettingsSofttool.vue` 的 setup，覆盖三页字段隔离、原始 Center/Span 意图、轮询保留草稿、HOLD 权限与无效点数拒绝，以及异步提交期间新编辑不会被读回覆盖。
+通道菜单测试执行真实 `ChannelSettingsSofttool.vue` 的 setup，覆盖三页字段隔离、原始 Center/Span 意图、轮询保留草稿、控制权/待处理操作限制、CONT 配置提交与无效点数拒绝，以及异步提交期间新编辑不会被读回覆盖。
 
 标记回归覆盖每帧事件合并、释放单次提交、取消及失败恢复、冻结 Smith 原始索引和屏幕几何。实际客户端另验证显示操作状态先到、旧投影晚到时仍保持提交等待，直到匹配版本的投影读回；投影读取失败只重试读取，不重复写命令。无帧、空显示集合及 HOLD 保留旧采集帧仍可完成显示设置。
 
