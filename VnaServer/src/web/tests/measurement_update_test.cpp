@@ -94,8 +94,12 @@ Json UpdateBody(std::uint64_t revision, const std::string &requestId, unsigned r
 
 void PrepareS21(Fixture &fixture, HttpApi &api, const std::string &token)
 {
-    // 显式建立唯一 S21，兼容保留低频黄金向量的独立测试配置。
+    // 先保留一个替代定义，再移除启动迹线，遵守不能删除最后一条迹线的合同。
     const auto measurements = fixture.service.Settings().measurements;
+    auto temporary = UpdateBody(fixture.service.Settings().revision, "prepare-keep-S21", 2U, 1U);
+    temporary["name"] = Json("PreparingS21");
+    Complete(
+        api, Accepted(Request(api, "POST", "/api/v1/measurements", VnaWeb::StringifyJson(temporary), token)), token);
     for (const auto &measurement : measurements) {
         auto body = Json::MakeObject();
         body["requestId"] = Json("delete-" + measurement.name);
@@ -108,6 +112,27 @@ void PrepareS21(Fixture &fixture, HttpApi &api, const std::string &token)
     body["name"] = Json("Trc1");
     const auto id = Accepted(Request(api, "POST", "/api/v1/measurements", VnaWeb::StringifyJson(body), token));
     Complete(api, id, token);
+    auto removeTemporary = Json::MakeObject();
+    removeTemporary["requestId"] = Json("prepare-remove-S21");
+    removeTemporary["expectedRevision"] = Json(std::to_string(fixture.service.Settings().revision));
+    Complete(api,
+        Accepted(
+            Request(api, "DELETE", "/api/v1/measurements/PreparingS21", VnaWeb::StringifyJson(removeTemporary), token)),
+        token);
+
+    // Define 只建立隐藏目录项；显示槽位和活动选择必须另外显式提交。
+    auto display = Json::MakeObject();
+    display["requestId"] = Json("prepare-display-S21");
+    display["expectedDisplayRevision"] = Json(std::to_string(fixture.service.Display().revision));
+    display["action"] = Json("displayed");
+    display["traceName"] = Json("Trc1");
+    display["enabled"] = Json(true);
+    Complete(api, Accepted(Request(api, "POST", "/api/v1/display", VnaWeb::StringifyJson(display), token)), token);
+    display.object.erase("enabled");
+    display["requestId"] = Json("prepare-select-S21");
+    display["expectedDisplayRevision"] = Json(std::to_string(fixture.service.Display().revision));
+    display["action"] = Json("select");
+    Complete(api, Accepted(Request(api, "POST", "/api/v1/display", VnaWeb::StringifyJson(display), token)), token);
 }
 
 void Single(HttpApi &api, const std::string &token, const std::string &requestId)

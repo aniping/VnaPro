@@ -27,6 +27,12 @@
 
 namespace VnaService {
 
+// 新增或复制的显示目标，与目录及显示版本共同构成一个事务。
+struct TraceCreationOptions final {
+    unsigned diagram = 0U;
+    bool newDiagram = false;
+};
+
 // 线程约束：启动后的所有调用均由服务执行线程完成。
 // 引用的核心必须比服务存活更久；协议状态不随客户端断开而销毁。
 class InstrumentService final {
@@ -73,7 +79,13 @@ public:
     VnaDisplay::ProjectedTrace DisplayData(const std::string &name = std::string()) const;
     // 后端分配新名称并原子添加、选择副本，前端无需复制目录控制规则。
     Operation CloneMeasurement(const std::string &sourceName, std::uint64_t expectedRevision,
-        std::uint64_t expectedDisplayRevision, const std::string &owner);
+        std::uint64_t expectedDisplayRevision, const std::string &owner, TraceCreationOptions options = {});
+    // 原生图窗菜单新增默认 S21，与图窗创建、选择一并原子提交。
+    Operation AddMeasurement(std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision,
+        const std::string &owner, TraceCreationOptions options = {});
+    // 原生图窗删除连同所属测量定义一起提交，并保护最后图窗和最后迹线。
+    Operation DeleteDiagram(unsigned diagram, std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision,
+        const std::string &owner);
     // 返回启动时已验证的仪器能力，引用在本服务存活期间有效。
     const InstrumentProfile &Profile() const noexcept;
     // 返回已验证的模拟设备标识，或明确标注为未验证的后端标识。
@@ -86,7 +98,7 @@ public:
     Operation SetPoints(unsigned value, std::uint64_t expectedRevision = 0U);
     // 将正带宽加入队列，并向上取整为模拟设备支持的带宽值。
     Operation SetIfBandwidthHz(double value, std::uint64_t expectedRevision = 0U);
-    // 将一个原子配置候选加入队列；改变设备状态前重新校验所有者及预期版本。
+    // 在 READY 或 RUNNING 下排入原子配置；完整帧边界提交，保留运行模式、控制权与版本校验。
     Operation ApplyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string &owner);
     // 添加唯一的 1～128 字节测量名称；采集中允许更新目录，新增硬件需求在完整帧边界提交。
     // 端口必须在仪器能力内；未校准 S 参数目前支持 S11、S21、S12、S22。
@@ -163,6 +175,8 @@ private:
     void PollDisplay(Detail::ServiceTask &task);
     VnaDisplay::FrameContext DisplayFrame(bool reachedBarrier = false) const;
     bool PrepareDisplayConfiguration(Detail::ServiceTask &task);
+    Operation CreateMeasurement(const std::string &sourceName, std::uint64_t expectedRevision,
+        std::uint64_t expectedDisplayRevision, const std::string &owner, TraceCreationOptions options);
     bool PrepareConfiguration(Detail::ServiceTask &task);
     void CommitConfiguration(Detail::ServiceTask &task);
     void PollTrigger(Detail::ServiceTask &task);

@@ -24,6 +24,7 @@
 #include "web/frame_selection.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
+#include "web/trace_action_adapter.h"
 
 namespace VnaWeb {
 HttpResponse HttpError(unsigned status, const std::string &code, const std::string &message)
@@ -471,7 +472,7 @@ HttpResponse HttpApi::Write(const HttpRequest &request, const Json &body)
 HttpResponse HttpApi::Route(const HttpRequest &request)
 {
     Poll();  // 即使处于两次事件循环之间，也处理租约过期。
-    if ((request.path == "/api/v1/display" || request.path == "/api/v1/measurement-actions/clone") &&
+    if ((request.path == "/api/v1/display" || request.path.find("/api/v1/measurement-actions/") == 0U) &&
         request.method != "POST") {
         return HttpError(405, "method_not_allowed", "Instrument display actions require POST");
     }
@@ -625,10 +626,11 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
         return StartConfigurationWrite(body, id);
     } else if (request.path == "/api/v1/display" && request.method == "POST") {
         return StartDisplayWrite(body, id);
-    } else if (request.path == "/api/v1/measurement-actions/clone" && request.method == "POST") {
-        Allowed(body, {"requestId", "expectedRevision", "expectedDisplayRevision", "sourceName"});
-        operationValue = service_.CloneMeasurement(
-            Text(body, "sourceName", true), Revision(body), DisplayJson::Revision(body, "expectedDisplayRevision"), id);
+    } else if ((request.path == "/api/v1/measurement-actions/clone" ||
+                   request.path == "/api/v1/measurement-actions/add" ||
+                   request.path == "/api/v1/measurement-actions/delete-diagram") &&
+               request.method == "POST") {
+        operationValue = TraceActionAdapter::Execute(service_, request.path, body, id);
     } else if (request.path == "/api/v1/operations" && request.method == "POST") {
         Allowed(body, {"requestId", "action"});
         operationValue = StartAction(body, id);

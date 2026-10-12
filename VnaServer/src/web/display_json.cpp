@@ -245,6 +245,7 @@ Json DisplayJson::State(const VnaDisplay::DisplayState &state, const std::vector
     Json result = Json::MakeObject();
     result["revision"] = Json(std::to_string(state.revision));
     result["selectedMeasurement"] = Json(state.selectedMeasurement);
+    result["selectedDiagram"] = Json(state.selectedDiagram);
     result["layout"] = Json(VnaDisplay::LayoutModeName(state.layout));
     Json names = Json::MakeArray();
     for (const auto &name : state.displayedNames) {
@@ -272,6 +273,11 @@ Json DisplayJson::State(const VnaDisplay::DisplayState &state, const std::vector
             measurements.array.emplace_back(name);
         }
         item["measurementNames"] = std::move(measurements);
+        Json slots = Json::MakeArray();
+        for (const auto slot : diagram.traceSlots) {
+            slots.array.emplace_back(slot);
+        }
+        item["traceSlots"] = std::move(slots);
         diagrams.array.push_back(std::move(item));
     }
     result["diagrams"] = std::move(diagrams);
@@ -418,20 +424,31 @@ void DisplayJson::PointImpedance(Json &projection, const VnaDisplay::ProjectedTr
 void DisplayJson::WorkspaceChange(VnaDisplay::DisplayChange &change, const Json &body, const std::string &action)
 {
     if (action == "select") {
-        Members(body, {});
+        Members(body, {"diagram"});
         change.name = Text(body, "traceName");
     } else if (action == "displayed" || action == "visible") {
-        Members(body, {"enabled"});
+        Members(body, {"enabled", "diagram"});
         change.kind =
             action == "displayed" ? VnaDisplay::DisplayChangeKind::DISPLAYED : VnaDisplay::DisplayChangeKind::VISIBLE;
         change.enabled = Boolean(body, "enabled");
         change.visible = change.enabled;
     } else if (action == "layout") {
-        Members(body, {"layout"});
+        Members(body, {"layout", "diagram"});
         change.kind = VnaDisplay::DisplayChangeKind::LAYOUT;
         if (!VnaDisplay::ParseLayoutMode(Text(body, "layout"), change.layout)) {
             throw std::invalid_argument("Unknown display layout");
         }
+    } else if (action == "diagramSelect") {
+        Members(body, {"diagram"});
+        change.kind = VnaDisplay::DisplayChangeKind::DIAGRAM_SELECT;
+        if (change.diagram == 0U) {
+            throw std::invalid_argument("Selecting a diagram requires diagram number");
+        }
+    } else if (action == "overlay" || action == "split") {
+        Members(body, action == "overlay" ? std::initializer_list<const char *>{"diagram"}
+                                          : std::initializer_list<const char *>{});
+        change.kind =
+            action == "overlay" ? VnaDisplay::DisplayChangeKind::OVERLAY : VnaDisplay::DisplayChangeKind::SPLIT;
     }
 }
 
@@ -473,7 +490,15 @@ VnaDisplay::DisplayChange DisplayJson::Change(const Json &body)
     if (body.Find("traceName")) {
         change.name = Text(body, "traceName");
     }
-    if (action == "select" || action == "displayed" || action == "visible" || action == "layout") {
+    if (body.Find("diagram")) {
+        const auto number = Number(body, "diagram");
+        if (number < 1.0 || number > VnaDisplay::MAX_DISPLAY_DIAGRAMS || std::floor(number) != number) {
+            throw std::invalid_argument("diagram must be a positive window number");
+        }
+        change.diagram = static_cast<unsigned>(number);
+    }
+    if (action == "select" || action == "displayed" || action == "visible" || action == "layout" ||
+        action == "diagramSelect" || action == "overlay" || action == "split") {
         WorkspaceChange(change, body, action);
     } else {
         TraceChange(change, body, action);

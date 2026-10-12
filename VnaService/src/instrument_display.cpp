@@ -6,6 +6,7 @@
 #include <chrono>
 #include <utility>
 
+#include "vna_display/diagram_collection.h"
 #include "vna_measurement/measurement_processor.h"
 #include "vna_service/instrument_service.h"
 #include "vna_service/service_error_code.h"
@@ -46,19 +47,43 @@ bool InstrumentService::PrepareDisplayConfiguration(Detail::ServiceTask &task)
 {
     // 显示候选预先验证；核心成功后以无失败的移动同时提交目录与显示。
     task.displayCandidate = display_;
-    auto result = task.displayCandidate.Reconcile(task.candidate.measurements);
+    VnaDisplay::DisplayResult result;
+    result.ok = true;
+    if ((task.selectNewMeasurement || task.selectClonedMeasurement || task.deletedDiagram != 0U) &&
+        task.expectedDisplayRevision != display_.State().revision) {
+        result.ok = false;
+        result.error = "Display revision changed";
+    }
+    if (result.ok && task.deletedDiagram != 0U) {
+        result = task.displayCandidate.RemoveDiagram(task.deletedDiagram, true);
+    }
+    if (result.ok) {
+        result = task.displayCandidate.Reconcile(task.candidate.measurements);
+    }
+    // 改变测量量时采用该量的默认格式；仅改变显示格式不触碰采集需求。
+    for (const auto &measurement : task.candidate.measurements) {
+        const auto old = std::find_if(
+            settings_.measurements.begin(), settings_.measurements.end(), [&measurement](const Measurement &value) {
+                return value.name == measurement.name;
+            });
+        if (result.ok && old != settings_.measurements.end() && old->Parameter() != measurement.Parameter()) {
+            VnaDisplay::DisplayChange format;
+            format.kind = VnaDisplay::DisplayChangeKind::FORMAT;
+            format.name = measurement.name;
+            format.format = VnaDisplay::DisplayFormat::DB;
+            result = task.displayCandidate.Apply(format, task.candidate.measurements, {});
+        }
+    }
     if (result.ok) {
         result = task.displayCandidate.ReconcileAxis(
             task.plan.frequencyHz, task.plan.frequencyHz == activePlan_.frequencyHz);
     }
     if (result.ok && task.selectClonedMeasurement) {
-        if (task.expectedDisplayRevision != display_.State().revision) {
-            result.ok = false;
-            result.error = "Display revision changed";
-        } else {
-            result = task.displayCandidate.ClonePresentation(
-                task.cloneSourceName, task.candidate.measurements.back().name, task.candidate.measurements);
-        }
+        result = task.displayCandidate.ClonePresentation(task.cloneSourceName, task.candidate.measurements.back().name,
+            task.candidate.measurements, task.targetDiagram, task.newDiagram);
+    } else if (result.ok && task.selectNewMeasurement) {
+        result = task.displayCandidate.AddPresentation(
+            task.candidate.measurements.back().name, task.candidate.measurements, task.targetDiagram, task.newDiagram);
     }
     if (!result.ok) {
         auto failure = DisplayResult(result);
@@ -136,23 +161,40 @@ VnaDisplay::ProjectedTrace InstrumentService::DisplayData(const std::string &nam
 }
 
 Operation InstrumentService::CloneMeasurement(const std::string &sourceName, std::uint64_t expectedRevision,
-    std::uint64_t expectedDisplayRevision, const std::string &owner)
+    std::uint64_t expectedDisplayRevision, const std::string &owner, TraceCreationOptions options)
 {
     const auto source = sourceName.empty() ? display_.State().selectedMeasurement : sourceName;
+    return CreateMeasurement(source, expectedRevision, expectedDisplayRevision, owner, options);
+}
+
+Operation InstrumentService::AddMeasurement(std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision,
+    const std::string &owner, TraceCreationOptions options)
+{
+    return CreateMeasurement({}, expectedRevision, expectedDisplayRevision, owner, options);
+}
+
+Operation InstrumentService::CreateMeasurement(const std::string &source, std::uint64_t expectedRevision,
+    std::uint64_t expectedDisplayRevision, const std::string &owner, TraceCreationOptions options)
+{
     auto operation = ConfigureMeasurements(
-        [source](InstrumentSettings &candidate) {
+        [this, source](InstrumentSettings &candidate) {
             OperationResult result;
             const auto measurement = std::find_if(
                 candidate.measurements.begin(), candidate.measurements.end(), [&source](const Measurement &item) {
                     return item.name == source;
                 });
-            if (measurement == candidate.measurements.end() ||
+            if ((!source.empty() && measurement == candidate.measurements.end()) ||
                 candidate.measurements.size() >= VnaDisplay::MAX_DISPLAY_TRACES) {
                 result.errorCode = Detail::INVALID_PARAMETER_ERROR;
                 result.message = "Clone source is missing or measurement catalog is full";
                 return result;
             }
-            auto cloned = *measurement;
+            Measurement cloned;
+            if (source.empty()) {
+                cloned.SetParameter(profile_.portCount == 1U ? "S11" : "S21");
+            } else {
+                cloned = *measurement;
+            }
             cloned.name = NextMeasurementName(candidate.measurements);
             candidate.measurements.push_back(std::move(cloned));
             result.ok = true;
@@ -161,8 +203,48 @@ Operation InstrumentService::CloneMeasurement(const std::string &sourceName, std
         expectedRevision, owner);
     if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
         auto &task = tasks_.back();
-        task.selectClonedMeasurement = true;
+        task.selectClonedMeasurement = !source.empty();
+        task.selectNewMeasurement = source.empty();
         task.cloneSourceName = source;
+        task.targetDiagram = options.diagram;
+        task.newDiagram = options.newDiagram;
+        task.expectedDisplayRevision = expectedDisplayRevision;
+    }
+    return operation;
+}
+
+Operation InstrumentService::DeleteDiagram(
+    unsigned diagram, std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision, const std::string &owner)
+{
+    auto operation = ConfigureMeasurements(
+        [this, diagram](InstrumentSettings &candidate) {
+            OperationResult result;
+            const auto &state = display_.State();
+            const auto *window = VnaDisplay::DiagramCollection::Find(state, diagram);
+            if (window == nullptr || state.diagrams.size() <= 1U) {
+                result.errorCode = Detail::SETTINGS_CONFLICT_ERROR;
+                result.message = "Cannot delete a missing or the last diagram";
+                return result;
+            }
+            const auto &names = window->measurementNames;
+            candidate.measurements.erase(std::remove_if(candidate.measurements.begin(), candidate.measurements.end(),
+                                             [&names](const Measurement &measurement) {
+                                                 return std::find(names.begin(), names.end(), measurement.name) !=
+                                                        names.end();
+                                             }),
+                candidate.measurements.end());
+            if (candidate.measurements.empty()) {
+                result.errorCode = Detail::SETTINGS_CONFLICT_ERROR;
+                result.message = "Cannot delete the last measurement";
+                return result;
+            }
+            result.ok = true;
+            return result;
+        },
+        expectedRevision, owner);
+    if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        auto &task = tasks_.back();
+        task.deletedDiagram = diagram;
         task.expectedDisplayRevision = expectedDisplayRevision;
     }
     return operation;

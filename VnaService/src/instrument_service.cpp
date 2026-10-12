@@ -906,13 +906,16 @@ Operation InstrumentService::DeleteMeasurement(
     const std::string &name, std::uint64_t expected, const std::string &owner)
 {
     return ConfigureMeasurements(
-        [name](InstrumentSettings &settings) {
+        [name, owner](InstrumentSettings &settings) {
             const auto found = std::find_if(
                 settings.measurements.begin(), settings.measurements.end(), [&name](const Measurement &measurement) {
                     return measurement.name == name;
                 });
             if (found == settings.measurements.end()) {
                 return Result(false, Detail::INVALID_PARAMETER_ERROR, "Measurement name does not exist");
+            }
+            if (owner != "SCPI" && settings.measurements.size() <= 1U) {
+                return Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Cannot delete the last measurement");
             }
             settings.measurements.erase(found);
             return Result(true);
@@ -987,6 +990,7 @@ bool InstrumentService::SelectMeasurement(const std::string &name)
         return false;
     }
     VnaDisplay::DisplayChange select;
+    select.kind = VnaDisplay::DisplayChangeKind::MEASUREMENT_SELECT;
     select.name = name;
     const auto result = display_.Apply(select, settings_.measurements, DisplayFrame());
     if (!result.ok) {
