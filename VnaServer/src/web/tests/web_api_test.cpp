@@ -462,6 +462,12 @@ void RatioMetadataAndInvalidReference()
     const auto definition =
         Accepted(Request(api, "POST", "/api/v1/measurements", RatioBody(revision, "sParameter", "reflect", 1U), token));
     Require(StringField(Finish(api, definition, token).json, "state") == "completed", "Define S11 via HTTP");
+    const auto select = Accepted(Request(api, "POST", "/api/v1/display",
+        "{\"requestId\":\"select-reflect\","
+        "\"expectedDisplayRevision\":\"" +
+            std::to_string(fixture.service.Display().revision) + "\",\"action\":\"select\",\"traceName\":\"reflect\"}",
+        token));
+    Require(StringField(Finish(api, select, token).json, "state") == "completed", "Display selection is explicit");
     std::vector<double> samples(16U, 0.0);
     samples[0] = 2.0;
     samples[2] = 0.5;

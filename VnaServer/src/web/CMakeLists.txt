@@ -2,6 +2,7 @@ add_library(vna_web STATIC
     web_endpoint.cpp
     static_file.cpp
     http_api.cpp
+    display_json.cpp
     frame_selection.cpp
     json.cpp
     json_parser.cpp
@@ -17,6 +18,14 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(vna_web_display_control_tests tests/display_control_test.cpp)
+    target_link_libraries(vna_web_display_control_tests PRIVATE vna_web vna_scpi vna_service_test_support)
+    add_test(NAME web_display_control COMMAND vna_web_display_control_tests)
+    set_tests_properties(web_display_control PROPERTIES TIMEOUT 20)
+    add_executable(vna_web_shared_display_tests tests/shared_display_test.cpp)
+    target_link_libraries(vna_web_shared_display_tests PRIVATE vna_web vna_scpi vna_service_test_support)
+    add_test(NAME web_shared_display COMMAND vna_web_shared_display_tests)
+    set_tests_properties(web_shared_display PROPERTIES TIMEOUT 20)
     add_executable(vna_web_measurement_update_tests tests/measurement_update_test.cpp)
     target_link_libraries(vna_web_measurement_update_tests PRIVATE vna_web vna_service_test_support)
     add_test(NAME web_measurement_update COMMAND vna_web_measurement_update_tests)

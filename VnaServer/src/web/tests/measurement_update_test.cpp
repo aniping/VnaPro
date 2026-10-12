@@ -135,7 +135,8 @@ void VerifySwitched(Fixture &fixture, HttpApi &api, const std::string &token, st
 {
     const auto &settings = fixture.service.Settings();
     Require(settings.measurements.size() == 1U && settings.measurements.front().name == "Trc1" &&
-                settings.measurements.front().Parameter() == "S22" && settings.selectedMeasurement == "Trc1",
+                settings.measurements.front().Parameter() == "S22" &&
+                fixture.service.Display().selectedMeasurement == "Trc1",
         "Update preserves sole trace name, position and selection");
     Require(settings.revision == revision + 1U, "Update commits exactly one revision");
     const auto oldFrame = Request(api, "GET", "/api/v1/frame");

@@ -20,6 +20,7 @@
 #include "vna_measurement/measurement_processor.h"
 #include "vna_service/instrument_service.h"
 #include "vna_service/service_error_code.h"
+#include "web/display_json.h"
 #include "web/frame_selection.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
@@ -160,6 +161,37 @@ bool SafeName(const std::string &value)
     }
     return true;
 }
+
+std::vector<VnaService::Measurement> FrameMeasurements(
+    const VnaService::InstrumentSnapshot &snapshot, const std::string &query)
+{
+    if (!query.empty()) {
+        return SelectFrameMeasurements(query, snapshot.settings.measurements);
+    }
+    std::vector<VnaService::Measurement> result;
+    for (const auto &name : snapshot.display.displayedNames) {
+        const auto found = std::find_if(snapshot.settings.measurements.begin(), snapshot.settings.measurements.end(),
+            [&name](const VnaService::Measurement &measurement) {
+                return measurement.name == name;
+            });
+        if (found != snapshot.settings.measurements.end()) {
+            result.push_back(*found);
+        }
+    }
+    return result;
+}
+
+void AppendFrameAxis(Json &value, const VnaCore::MeasurementFrame &frame, const std::vector<std::size_t> &indexes)
+{
+    Json axis = Json::MakeArray();
+    Json sampleIndexes = Json::MakeArray();
+    for (const auto index : indexes) {
+        axis.array.emplace_back(frame.plan.frequencyHz[index]);
+        sampleIndexes.array.emplace_back(static_cast<unsigned>(index));
+    }
+    value["frequencyHz"] = std::move(axis);
+    value["sampleIndexes"] = std::move(sampleIndexes);
+}
 }  // 匿名命名空间
 
 HttpApi::HttpApi(VnaService::InstrumentService &service, Now clock) : service_(service), now_(std::move(clock))
@@ -257,6 +289,7 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
         measurements.array.push_back(MeasurementJson(measurement));
     }
     value["measurements"] = std::move(measurements);
+    value["display"] = DisplayJson::State(snapshot.display, settings.measurements);
     value["control"] = ControlJson(snapshot, request);
     return response;
 }
@@ -264,9 +297,10 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
 HttpResponse HttpApi::Frame(const std::string &query) const
 {
     const auto snapshot = service_.Snapshot();
-    const auto selected = SelectFrameMeasurements(query, snapshot.settings.measurements);
+    const auto selected = FrameMeasurements(snapshot, query);
     HttpResponse response;
     Json &value = response.json = Json::MakeObject();
+    value["displayRevision"] = Json(std::to_string(snapshot.display.revision));
     if (!snapshot.core.frame) {
         value["available"] = Json(false);
         value["current"] = Json(false);
@@ -296,14 +330,16 @@ HttpResponse HttpApi::Frame(const std::string &query) const
     value["originalPointCount"] = Json(static_cast<unsigned>(count));
     value["displayPointCount"] = Json(display);
     value["decimated"] = Json(count > display);
-    Json axis = Json::MakeArray();
-    for (auto index : indexes) {
-        axis.array.emplace_back(frame.plan.frequencyHz[index]);
-    }
-    value["frequencyHz"] = std::move(axis);
+    AppendFrameAxis(value, frame, indexes);
     Json traces = Json::MakeArray();
     for (const auto &measurement : selected) {
-        traces.array.push_back(TraceJson(frame, measurement, indexes));
+        const auto presentation = std::find_if(snapshot.display.traces.begin(), snapshot.display.traces.end(),
+            [&measurement](const VnaDisplay::TracePresentation &item) {
+                return item.name == measurement.name;
+            });
+        if (presentation != snapshot.display.traces.end()) {
+            traces.array.push_back(TraceJson(frame, measurement, *presentation, indexes));
+        }
     }
     value["traces"] = std::move(traces);
     return response;
@@ -431,6 +467,10 @@ HttpResponse HttpApi::Write(const HttpRequest &request, const Json &body)
 HttpResponse HttpApi::Route(const HttpRequest &request)
 {
     Poll();  // 即使处于两次事件循环之间，也处理租约过期。
+    if ((request.path == "/api/v1/display" || request.path == "/api/v1/measurement-actions/clone") &&
+        request.method != "POST") {
+        return HttpError(405, "method_not_allowed", "Instrument display actions require POST");
+    }
     if (request.method == "GET") {
         if (request.path == "/api/v1/status") {
             return Status(request);
@@ -550,7 +590,7 @@ Json HttpApi::ControlJson(const VnaService::InstrumentSnapshot &snapshot, const 
 }
 
 Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
-    const std::vector<std::size_t> &indexes)
+    const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes)
 {
     Json trace = MeasurementJson(measurement);
     Json real = Json::MakeArray();
@@ -567,6 +607,9 @@ Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService
     trace["real"] = std::move(real);
     trace["imag"] = std::move(imaginary);
     trace["valid"] = std::move(validity);
+    const auto projection =
+        VnaDisplay::TraceProjection::Calculate(presentation, result, frame.plan.frequencyHz, frame.configRevision);
+    trace["projection"] = DisplayJson::Projection(projection, presentation.format, indexes);
     return trace;
 }
 
@@ -575,26 +618,18 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
     HttpWriteResult result;
     auto &operationValue = result.operation;
     if (request.path == "/api/v1/config" && request.method == "POST") {
-        Allowed(body, {"requestId", "expectedRevision", "startHz", "stopHz", "points", "ifBandwidthHz"});
-        const auto expected = Revision(body);
-        if (expected != service_.Settings().revision) {
-            result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
-            return result;
-        }
-        const auto patch = ConfigurationPatch(body);
-        operationValue = service_.ApplyConfiguration(patch, expected, id);
+        return StartConfigurationWrite(body, id);
+    } else if (request.path == "/api/v1/display" && request.method == "POST") {
+        return StartDisplayWrite(body, id);
+    } else if (request.path == "/api/v1/measurement-actions/clone" && request.method == "POST") {
+        Allowed(body, {"requestId", "expectedRevision", "expectedDisplayRevision", "sourceName"});
+        operationValue = service_.CloneMeasurement(
+            Text(body, "sourceName", true), Revision(body), DisplayJson::Revision(body, "expectedDisplayRevision"), id);
     } else if (request.path == "/api/v1/operations" && request.method == "POST") {
         Allowed(body, {"requestId", "action"});
         operationValue = StartAction(body, id);
     } else if (request.path == "/api/v1/measurements" && request.method == "POST") {
-        Allowed(body, {"requestId", "expectedRevision", "name", "kind", "receiverKind", "receiverPort", "sourcePort"});
-        const auto expected = Revision(body);
-        if (expected != service_.Settings().revision) {
-            result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
-            return result;
-        }
-        const auto measurement = MeasurementDefinition(body);
-        operationValue = service_.DefineMeasurement(measurement, expected, id);
+        return StartDefinitionWrite(body, id);
     } else if (request.path.find("/api/v1/measurements/") == 0U &&
                (request.method == "DELETE" || request.method == "PUT")) {
         return StartMeasurementWrite(request, body, id);
@@ -606,13 +641,43 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
     return result;
 }
 
+HttpApi::HttpWriteResult HttpApi::StartConfigurationWrite(const Json &body, const std::string &id)
+{
+    Allowed(
+        body, {"requestId", "expectedRevision", "startHz", "stopHz", "centerHz", "spanHz", "points", "ifBandwidthHz"});
+    HttpWriteResult result;
+    const auto expected = Revision(body);
+    if (expected != service_.Settings().revision) {
+        result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
+        return result;
+    }
+    result.operation = service_.ApplyConfiguration(ConfigurationPatch(body), expected, id);
+    result.admitted = true;
+    return result;
+}
+
+HttpApi::HttpWriteResult HttpApi::StartDefinitionWrite(const Json &body, const std::string &id)
+{
+    Allowed(body,
+        {"requestId", "expectedRevision", "name", "parameter", "kind", "receiverKind", "receiverPort", "sourcePort"});
+    HttpWriteResult result;
+    const auto expected = Revision(body);
+    if (expected != service_.Settings().revision) {
+        result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
+        return result;
+    }
+    result.operation = service_.DefineMeasurement(MeasurementDefinition(body), expected, id);
+    result.admitted = true;
+    return result;
+}
+
 HttpApi::HttpWriteResult HttpApi::StartMeasurementWrite(
     const HttpRequest &request, const Json &body, const std::string &id)
 {
     HttpWriteResult result;
     const bool update = request.method == "PUT";
-    Allowed(body, update ? std::vector<std::string>{"requestId", "expectedRevision", "kind", "receiverKind",
-                               "receiverPort", "sourcePort"}
+    Allowed(body, update ? std::vector<std::string>{"requestId", "expectedRevision", "parameter", "kind",
+                               "receiverKind", "receiverPort", "sourcePort"}
                          : std::vector<std::string>{"requestId", "expectedRevision"});
     const auto expected = Revision(body);
     if (expected != service_.Settings().revision) {
@@ -624,7 +689,9 @@ HttpApi::HttpWriteResult HttpApi::StartMeasurementWrite(
         throw std::runtime_error("Invalid measurement name");
     }
     if (update) {
-        Text(body, "kind");
+        if (!body.Find("parameter")) {
+            Text(body, "kind");
+        }
         // 名称只取自路径，正文不能把更新变成重命名或新增测量。
         Json definition = body;
         definition["name"] = Json(name);
@@ -647,6 +714,14 @@ VnaService::ConfigPatch HttpApi::ConfigurationPatch(const Json &body)
         patch.hasStopHz = true;
         patch.stopHz = Numeric(body, "stopHz");
     }
+    if (body.Find("centerHz")) {
+        patch.hasCenterHz = true;
+        patch.centerHz = Numeric(body, "centerHz");
+    }
+    if (body.Find("spanHz")) {
+        patch.hasSpanHz = true;
+        patch.spanHz = Numeric(body, "spanHz");
+    }
     if (body.Find("points")) {
         patch.hasPoints = true;
         patch.points = PositiveInteger(body, "points", SWEEP_POINT_LIMIT);
@@ -662,6 +737,13 @@ VnaService::Measurement HttpApi::MeasurementDefinition(const Json &body)
 {
     VnaService::Measurement measurement;
     measurement.name = Text(body, "name");
+    if (body.Find("parameter")) {
+        if (body.Find("kind") || body.Find("receiverKind") || body.Find("receiverPort") || body.Find("sourcePort") ||
+            !SafeName(measurement.name) || !measurement.SetParameter(Text(body, "parameter"))) {
+            throw std::runtime_error("Parameter must be supported and cannot be mixed with receiver fields");
+        }
+        return measurement;
+    }
     const auto kind = Text(body, "receiverKind");
     if (!SafeName(measurement.name) || kind.size() != 1U ||
         (kind != "a" && kind != "b" && kind != "A" && kind != "B")) {
@@ -679,6 +761,19 @@ VnaService::Measurement HttpApi::MeasurementDefinition(const Json &body)
                                                            : VnaService::MeasurementKind::RECEIVER;
     }
     return measurement;
+}
+
+HttpApi::HttpWriteResult HttpApi::StartDisplayWrite(const Json &body, const std::string &id)
+{
+    HttpWriteResult result;
+    const auto expected = DisplayJson::Revision(body, "expectedDisplayRevision");
+    if (expected != service_.Display().revision) {
+        result.response = HttpError(409, "display_revision_conflict", "Display revision changed");
+        return result;
+    }
+    result.operation = service_.ApplyDisplay(DisplayJson::Change(body), expected, id);
+    result.admitted = true;
+    return result;
 }
 
 VnaService::Operation HttpApi::StartAction(const Json &body, const std::string &id)
