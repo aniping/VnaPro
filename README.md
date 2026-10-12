@@ -4,7 +4,7 @@
 
 ## 构建和测试
 
-Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.13、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。首次 CMake 配置下载固定版本 spdlog 1.17.0 和 yaml-cpp 0.9.0 并校验摘要，离线源码覆盖方式见[日志模块说明](VnaLog/README.md)。Windows MinGW 的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
+Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.13、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。C++ 第三方库使用仓库内 `third-part` 的官方 release 源码压缩包：spdlog 1.17.0 和 yaml-cpp 0.9.0。CMake 校验 SHA256 后自动解压为 `third-part/spdlog-1.17.0` 和 `third-part/yaml-cpp-0.9.0`，直接引用这两个源码目录构建，不下载依赖。包清单和升级方式见[第三方库说明](third-part/README.md)。Windows MinGW 的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
 
 ```powershell
 Set-Location WebUI
@@ -19,7 +19,7 @@ cmake -E chdir build ctest --output-on-failure
 
 替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立模拟器构建仍见 [VnaNativeSimulator/README.md](VnaNativeSimulator/README.md)。本轮已验证 Windows MinGW/GCC 10.3 和 WSL/Linux GCC 13.3 的全目标 ThreadSanitizer；macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
 
-`npm run build` 包含 Vue/TypeScript 类型检查，产物在 `WebUI/dist`。只构建或运行 SCPI 服务可跳过 Node/npm 步骤，并以 `--no-web` 启动；Web HTTP 集成测试需要先生成前端产物。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
+`npm run build` 包含 Vue/TypeScript 类型检查，产物在 `WebUI/dist`。本次仅打包 C++ 库，WebUI 的首次 `npm ci` 仍需访问 npm 仓库；前端依赖不包含在这些压缩包内。公司离线环境具备 C++ 工具链后，可直接执行上述 CMake 命令，无需依赖源码路径覆盖参数。只构建或运行 SCPI 服务可跳过 Node/npm 步骤，并以 `--no-web` 启动；Web HTTP 集成测试需要先生成前端产物。旧 `FETCHCONTENT_SOURCE_DIR_*` 参数不再生效。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
 
 ## C++ 文件组织与格式
 

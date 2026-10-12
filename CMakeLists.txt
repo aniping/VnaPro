@@ -16,3 +16,11 @@ add_subdirectory(VnaCore)
 add_subdirectory(VnaMeasurement)
 add_subdirectory(VnaService)
 add_subdirectory(VnaServer)
+
+if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME offline_dependencies
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/tests/OfflineDependencyTest.py
+            ${CMAKE_COMMAND} ${CMAKE_SOURCE_DIR})
+    set_tests_properties(offline_dependencies PROPERTIES TIMEOUT 120)
+endif()

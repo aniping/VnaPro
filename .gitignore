@@ -3,8 +3,12 @@
 /build-*/
 /cmake-build-*/
 .DS_Store
-/third-part/
+/third-part/*
+!/third-part/*.tar.gz
+!/third-part/*.zip
+!/third-part/README.md
 /WebUI/node_modules/
 /WebUI/dist/
 /WebUI/.test-build/
 /VnaServer/tests/__pycache__/
+/cmake/tests/__pycache__/

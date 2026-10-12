@@ -102,20 +102,10 @@ VnaLog::Trace(VnaLog::Module::CORE, "完整帧已发布，run={}，frame={}", ru
 
 ## 构建与验证
 
-首次 CMake 配置下载固定版本的官方源码，并校验 SHA256，第三方许可随原始源码保留。
-离线环境可以显式指定**已解包的 1.17.0 源码目录**：
+spdlog 1.17.0 和统一配置所需的 yaml-cpp 0.9.0，均以官方 release 源码压缩包纳入仓库的 `third-part` 目录。CMake 配置时校验包的 SHA256，再自动解压为 `third-part/spdlog-1.17.0` 和 `third-part/yaml-cpp-0.9.0` 并直接引用源码；解压产物不纳入 Git。缺包、摘要不符或解压失败直接报错，没有网络下载回退。原始第三方许可保留在压缩包内，包清单、路径与升级流程见[第三方库说明](../third-part/README.md)。
 
-```powershell
-cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_SPDLOG=I:/dependencies/spdlog-1.17.0
-```
+构建使用[根目录构建步骤](../README.md#构建和测试)，离线环境无需手工解压或设置外部源码路径。旧 `FETCHCONTENT_SOURCE_DIR_SPDLOG` 和 `FETCHCONTENT_SOURCE_DIR_YAML_CPP` 参数不再生效；本次仅保证 C++ 依赖来自本地压缩包，WebUI 的 npm 依赖未打包。
 
-统一配置还依赖 yaml-cpp 0.9.0；完全离线构建时同时指定其已解包源码目录：
-
-```powershell
-cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_SPDLOG=I:/dependencies/spdlog-1.17.0 -DFETCHCONTENT_SOURCE_DIR_YAML_CPP=I:/dependencies/yaml-cpp-0.9.0
-```
-
-显式源码覆盖不会下载或验证归档摘要，调用者应确认其版本；默认构建不依赖被忽略的 `third-part` 目录。
 测试覆盖格式与过滤、备份淘汰、零备份、UTF-8 截断、长记录硬上限、启动轮转、
 关闭刷新、旧缓冲重配、800 条多模块并发记录，以及实际服务的配置错误、驱动失败、
 采集摘要和 Windows 中文配置/日志路径。

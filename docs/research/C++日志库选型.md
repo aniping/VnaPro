@@ -4,7 +4,7 @@
 
 ## 结论与适用范围
 
-本项目优先采用 **spdlog v1.17.0**，固定版本、提交和下载校验值。
+本项目优先采用 **spdlog v1.17.0**，固定版本、提交和源码包校验值。
 它支持现有 C++14 工具链，提供参数化消息、可配置格式、级别、多输出目标、按大小滚动和可选异步处理。
 这项选择依据项目需求、官方源码和公开工程实践，不以 GitHub 星数或未经验证的性能排名作为决定依据。
 [spdlog 官方说明](https://github.com/gabime/spdlog/blob/v1.17.0/README.md)。
@@ -115,6 +115,8 @@ Quill 的语言、平台、异步设计和许可依据：
 [官方标签 API](https://api.github.com/repos/gabime/spdlog/git/ref/tags/v1.17.0) 核查。
 源码包大小与 SHA256 是调研时下载官方包后计算的值，并非声称发布者另行签署了该摘要。
 默认使用 bundled fmt；C++14 下不启用要求 C++20 的 `SPDLOG_USE_STD_FORMAT`。
+
+2026-10-12 调整依赖交付方式：上述官方源码包以 `third-part/spdlog-1.17.0.tar.gz` 纳入 Git，YAML 解析库同时保存为 `third-part/yaml-cpp-0.9.0.tar.gz`。构建不使用 FetchContent 或外部源码覆盖，CMake 校验本地包后自动解压为 `third-part/spdlog-1.17.0` 和 `third-part/yaml-cpp-0.9.0`，直接引用源码编译；缺包或校验失败直接终止。原始源码和许可保留在包内，生成的解压目录不提交。版本、摘要及升级说明见[第三方库清单](../../third-part/README.md)。此调整只涉及 C++ 库，WebUI 的 npm 依赖不在本次离线交付范围内。
 
 ## 实施时必须明确的边界
 
