@@ -3,6 +3,7 @@ add_library(vna_display STATIC
     src/trace_projection.cpp
     src/scale_calculator.cpp
     src/marker_resolver.cpp
+    src/marker_collection.cpp
 )
 target_include_directories(vna_display PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(vna_display PUBLIC vna_measurement)

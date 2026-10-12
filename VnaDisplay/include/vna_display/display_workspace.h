@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "vna_core/measurement_frame.h"
+#include "vna_display/marker_collection.h"
 #include "vna_measurement/measurement.h"
 
 namespace VnaDisplay {
@@ -35,17 +36,6 @@ struct DisplayScale final {
     double min = -90.0;
     double max = 10.0;
     double referencePosition = 9.0;
-};
-
-struct MarkerSettings final {
-    bool enabled = false;
-    bool hasFrequency = false;
-    double frequencyHz = 0.0;
-    bool hasSampleIndex = false;
-    std::size_t sampleIndex = 0U;
-    // 频率输入默认进行复数线性插值；原始采样下标输入明确选择离散点。
-    bool interpolate = true;
-    std::uint64_t acquisitionRevision = 0U;
 };
 
 struct TracePresentation final {
@@ -106,21 +96,6 @@ struct ScaleChange final {
     double perDivision = 0.0;
     double reference = 0.0;
     double referencePosition = 0.0;
-};
-
-struct MarkerChange final {
-    bool hasEnabled = false;
-    bool enabled = false;
-    bool hasFrequency = false;
-    double frequencyHz = 0.0;
-    bool hasSampleIndex = false;
-    std::size_t sampleIndex = 0U;
-    bool hasStep = false;
-    int step = 0;
-    bool hasInterpolation = false;
-    bool interpolate = true;
-    bool checkAcquisitionRevision = false;
-    std::uint64_t expectedAcquisitionRevision = 0U;
 };
 
 struct DisplayChange final {
