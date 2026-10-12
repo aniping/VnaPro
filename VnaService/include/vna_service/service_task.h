@@ -53,6 +53,8 @@ struct ServiceTask final {
     VnaDisplay::DisplayWorkspace displayCandidate;
     VnaDisplay::DisplayChange displayChange;
     bool selectClonedMeasurement = false;
+    // 测量定义与显示设置使用同一个源名称，不由客户端单独复制显示属性。
+    std::string cloneSourceName;
     std::uint64_t expectedDisplayRevision = 0U;
     bool checkDisplayRevision = false;
     VnaCore::SweepPlan plan;

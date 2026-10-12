@@ -12,8 +12,6 @@
 
 namespace VnaService {
 namespace {
-constexpr std::size_t MAX_MEASUREMENTS = 32U;
-
 OperationResult DisplayResult(const VnaDisplay::DisplayResult &display)
 {
     OperationResult result;
@@ -25,6 +23,7 @@ OperationResult DisplayResult(const VnaDisplay::DisplayResult &display)
 
 std::string NextMeasurementName(const std::vector<Measurement> &catalog)
 {
+    // 遵循 ZNB 的自动命名：使用当前目录中最小的空闲正整数编号。
     for (std::size_t index = 1U; index <= catalog.size() + 1U; ++index) {
         const auto name = "Trc" + std::to_string(index);
         const auto existing = std::find_if(catalog.begin(), catalog.end(), [&name](const Measurement &item) {
@@ -57,9 +56,8 @@ bool InstrumentService::PrepareDisplayConfiguration(Detail::ServiceTask &task)
             result.ok = false;
             result.error = "Display revision changed";
         } else {
-            VnaDisplay::DisplayChange select;
-            select.name = task.candidate.measurements.back().name;
-            result = task.displayCandidate.Apply(select, task.candidate.measurements, DisplayFrame());
+            result = task.displayCandidate.ClonePresentation(
+                task.cloneSourceName, task.candidate.measurements.back().name, task.candidate.measurements);
         }
     }
     if (!result.ok) {
@@ -140,20 +138,21 @@ VnaDisplay::ProjectedTrace InstrumentService::DisplayData(const std::string &nam
 Operation InstrumentService::CloneMeasurement(const std::string &sourceName, std::uint64_t expectedRevision,
     std::uint64_t expectedDisplayRevision, const std::string &owner)
 {
+    const auto source = sourceName.empty() ? display_.State().selectedMeasurement : sourceName;
     auto operation = ConfigureMeasurements(
-        [this, sourceName](InstrumentSettings &candidate) {
+        [source](InstrumentSettings &candidate) {
             OperationResult result;
-            const auto name = sourceName.empty() ? display_.State().selectedMeasurement : sourceName;
-            const auto source = std::find_if(
-                candidate.measurements.begin(), candidate.measurements.end(), [&name](const Measurement &item) {
-                    return item.name == name;
+            const auto measurement = std::find_if(
+                candidate.measurements.begin(), candidate.measurements.end(), [&source](const Measurement &item) {
+                    return item.name == source;
                 });
-            if (source == candidate.measurements.end() || candidate.measurements.size() >= MAX_MEASUREMENTS) {
+            if (measurement == candidate.measurements.end() ||
+                candidate.measurements.size() >= VnaDisplay::MAX_DISPLAY_TRACES) {
                 result.errorCode = Detail::INVALID_PARAMETER_ERROR;
                 result.message = "Clone source is missing or measurement catalog is full";
                 return result;
             }
-            auto cloned = *source;
+            auto cloned = *measurement;
             cloned.name = NextMeasurementName(candidate.measurements);
             candidate.measurements.push_back(std::move(cloned));
             result.ok = true;
@@ -163,6 +162,7 @@ Operation InstrumentService::CloneMeasurement(const std::string &sourceName, std
     if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
         auto &task = tasks_.back();
         task.selectClonedMeasurement = true;
+        task.cloneSourceName = source;
         task.expectedDisplayRevision = expectedDisplayRevision;
     }
     return operation;

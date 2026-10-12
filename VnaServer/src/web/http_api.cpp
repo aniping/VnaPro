@@ -46,6 +46,8 @@ constexpr std::size_t RETRY_LIMIT = 32U;
 constexpr std::size_t OPERATION_LIMIT = 128U;
 constexpr std::size_t NAME_LENGTH_LIMIT = 128U;
 constexpr unsigned DISPLAY_POINT_LIMIT = 2001U;
+// 保持原四条满分辨率迹线的总传输预算；更多迹线共享抽点额度。
+constexpr std::size_t DISPLAY_SAMPLE_BUDGET = 8004U;
 constexpr unsigned SWEEP_POINT_LIMIT = 10001U;
 constexpr unsigned TOKEN_WORD_COUNT = 4U;
 constexpr int TOKEN_WORD_HEX_WIDTH = 8;
@@ -312,7 +314,9 @@ HttpResponse HttpApi::Frame(const std::string &query) const
     if (count == 0U) {
         return HttpError(409, "no_physical_axis", "Frame does not have a verified physical frequency axis");
     }
-    const unsigned display = static_cast<unsigned>((std::min)(count, static_cast<std::size_t>(DISPLAY_POINT_LIMIT)));
+    const std::size_t pointLimit = (std::min)(static_cast<std::size_t>(DISPLAY_POINT_LIMIT),
+        DISPLAY_SAMPLE_BUDGET / (std::max)(selected.size(), std::size_t{1U}));
+    const unsigned display = static_cast<unsigned>((std::min)(count, pointLimit));
     std::vector<std::size_t> indexes;
     for (unsigned index = 0; index < display; ++index) {
         indexes.push_back(display == 1U ? 0U : index * (count - 1U) / (display - 1U));

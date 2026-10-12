@@ -9,9 +9,10 @@
 #include <set>
 #include <stdexcept>
 
+#include "vna_display/display_workspace.h"
+
 namespace VnaWeb {
 namespace {
-constexpr std::size_t DISPLAY_TRACE_LIMIT = 4U;
 constexpr std::size_t MAX_MEASUREMENT_NAME_LENGTH = 128U;
 constexpr unsigned HEX_RADIX = 16U;
 constexpr unsigned HEX_ALPHA_OFFSET = 10U;
@@ -64,7 +65,7 @@ std::vector<VnaService::Measurement> SelectFrameMeasurements(
     const std::string &query, const std::vector<VnaService::Measurement> &catalog)
 {
     if (query.empty()) {
-        return {catalog.begin(), catalog.begin() + (std::min)(catalog.size(), DISPLAY_TRACE_LIMIT)};
+        return {catalog.begin(), catalog.begin() + (std::min)(catalog.size(), VnaDisplay::MAX_DISPLAY_TRACES)};
     }
     if (query == "display=none") {
         return {};
@@ -74,8 +75,8 @@ std::vector<VnaService::Measurement> SelectFrameMeasurements(
     for (std::size_t begin = 0U; begin < query.size();) {
         const std::size_t end = query.find('&', begin);
         const std::string field = query.substr(begin, end == std::string::npos ? end : end - begin);
-        if (field.find(TRACE_QUERY_PREFIX) != 0U || selected.size() == DISPLAY_TRACE_LIMIT) {
-            throw std::invalid_argument("Expected at most four trace query fields");
+        if (field.find(TRACE_QUERY_PREFIX) != 0U || selected.size() == VnaDisplay::MAX_DISPLAY_TRACES) {
+            throw std::invalid_argument("Trace query fields exceed display capacity");
         }
         const std::string name = DecodeValue(field.substr(sizeof(TRACE_QUERY_PREFIX) - 1U));
         const auto found = std::find_if(catalog.begin(), catalog.end(), [&name](const VnaService::Measurement &item) {

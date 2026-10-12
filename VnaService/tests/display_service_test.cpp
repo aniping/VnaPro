@@ -198,6 +198,137 @@ void CloneAndCenterSpanAreBackendTransactions()
     Require(!Finish(fixture, service.ApplyConfiguration(patch, service.Settings().revision, "SCPI")).ok,
         "端点与中心跨度不能混用");
 }
+
+void ClonedTracesRemainDisplayedBeyondFourPorts()
+{
+    VnaService::InstrumentProfile profile;
+    profile.portCount = 2U;
+    Fixture fixture(profile);
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得连续添加迹线的控制权");
+    for (unsigned number = 2U; number <= VnaDisplay::MAX_DISPLAY_TRACES; ++number) {
+        Require(Finish(fixture,
+                    service.CloneMeasurement("", service.Settings().revision, service.Display().revision, "SCPI"))
+                    .ok,
+            "按后端活动迹线连续创建副本");
+        const auto &display = service.Display();
+        Require(display.displayedNames.size() == number && display.traces.size() == number &&
+                    display.selectedMeasurement == "Trc" + std::to_string(number),
+            "第五条及后续迹线必须加入显示集，不得替换此前的显示槽");
+    }
+    const auto before = service.Snapshot();
+    Require(
+        !Finish(fixture, service.CloneMeasurement("", before.settings.revision, before.display.revision, "SCPI")).ok &&
+            service.Settings().revision == before.settings.revision &&
+            service.Display().revision == before.display.revision,
+        "目录预算耗尽时必须原子拒绝副本，不能改变已有目录和显示选择");
+    Require(Finish(fixture, service.DeleteMeasurement("Trc10", service.Settings().revision)).ok,
+        "删除一条迹线以释放资源预算");
+    Require(
+        Finish(fixture, service.CloneMeasurement("", service.Settings().revision, service.Display().revision, "SCPI"))
+                .ok &&
+            service.Settings().measurements.back().name == "Trc10" &&
+            service.Display().displayedNames.size() == VnaDisplay::MAX_DISPLAY_TRACES,
+        "资源名额释放后应复用最小空闲编号 Trc10，保持其他迹线");
+}
+
+void CloneNumbersReuseLowestFreeNameLikeZnb()
+{
+    Fixture fixture;
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得迹线编号测试控制权");
+    const auto clone = [&fixture, &service] {
+        return Finish(
+            fixture, service.CloneMeasurement("Trc1", service.Settings().revision, service.Display().revision, "SCPI"));
+    };
+    Require(clone().ok && clone().ok, "创建 Trc2 与 Trc3");
+    Require(Finish(fixture, service.DeleteMeasurement("Trc2", service.Settings().revision)).ok, "删除中间编号");
+    Require(clone().ok && service.Settings().measurements.back().name == "Trc2",
+        "按 ZNB 自动命名规则，删除 Trc2 后新迹线应复用 Trc2");
+    auto manual = service.Settings().measurements.front();
+    manual.name = "Trc4";
+    manual.receiverPort = 1U;
+    Require(Finish(fixture, service.DefineMeasurement(manual, service.Settings().revision)).ok,
+        "预先定义不同参数的 Trc4，用于检查同名项不会被覆盖");
+    const auto revision = service.Display().revision;
+    Require(!Finish(fixture, service.CloneMeasurement("Trc1", service.Settings().revision, revision - 1U, "SCPI")).ok,
+        "竞争失败不得提交目录或修改已有迹线");
+    Require(clone().ok && service.Settings().measurements.back().name == "Trc5", "已有 Trc4 时应分配 Trc5");
+    Require(service.Settings().measurements[1U].name == "Trc3" && service.Settings().measurements[3U].name == "Trc4" &&
+                service.Settings().measurements[3U].receiverPort == 1U,
+        "复用空闲编号不能覆盖已有的 Trc3 或手工定义的 Trc4");
+    Require(Finish(fixture, service.DeleteMeasurement("Trc3", service.Settings().revision)).ok && clone().ok &&
+                service.Settings().measurements.back().name == "Trc3",
+        "再次删除后仍按最小空闲正整数选择名称");
+}
+
+void CloneCopiesDisplaySettingsAndIndependentMarkers()
+{
+    Fixture fixture;
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得迹线显示复制测试控制权");
+    auto measurement = service.Settings().measurements.front();
+    measurement.receiverPort = 1U;
+    Require(Finish(fixture, service.UpdateMeasurement(measurement)).ok && Finish(fixture, service.RunSingle("SCPI")).ok,
+        "准备带完整频轴的反射测量");
+    DisplayChange format;
+    format.kind = DisplayChangeKind::FORMAT;
+    format.format = VnaDisplay::DisplayFormat::PHASE;
+    Require(Finish(fixture, service.ApplyDisplay(format)).ok, "设置供 Smith 恢复的矩形格式");
+    DisplayChange scale;
+    scale.kind = DisplayChangeKind::SCALE;
+    scale.scale.hasMin = true;
+    scale.scale.min = -100.0;
+    scale.scale.hasMax = true;
+    scale.scale.max = 100.0;
+    scale.scale.hasReferencePosition = true;
+    scale.scale.referencePosition = 6.0;
+    Require(Finish(fixture, service.ApplyDisplay(scale)).ok, "设置源迹线固定尺度");
+    format.format = VnaDisplay::DisplayFormat::SMITH;
+    Require(Finish(fixture, service.ApplyDisplay(format)).ok, "设置源迹线 Smith 格式");
+    DisplayChange radius;
+    radius.kind = DisplayChangeKind::SMITH_RADIUS;
+    radius.smithRadius = 1.75;
+    Require(Finish(fixture, service.ApplyDisplay(radius)).ok, "设置源 Smith 半径");
+    DisplayChange marker;
+    marker.kind = DisplayChangeKind::MARKER;
+    marker.marker.hasEnabled = true;
+    marker.marker.enabled = true;
+    marker.marker.hasSampleIndex = true;
+    marker.marker.id = 1U;
+    marker.marker.sampleIndex = 11U;
+    Require(Finish(fixture, service.ApplyDisplay(marker)).ok, "设置源 M1");
+    marker.marker.id = 2U;
+    marker.marker.sampleIndex = 71U;
+    Require(Finish(fixture, service.ApplyDisplay(marker)).ok, "设置源 M2 并选中");
+    const auto source = service.Display().traces.front();
+    Require(
+        Finish(fixture, service.CloneMeasurement("", service.Settings().revision, service.Display().revision, "SCPI"))
+            .ok,
+        "后端复制活动测量定义及全部显示设置");
+    const auto copied = service.Display().traces.back();
+    Require(copied.name == "Trc2" && service.Display().selectedMeasurement == "Trc2" &&
+                copied.format == source.format && copied.cartesianFormat == source.cartesianFormat &&
+                copied.scale.min == source.scale.min && copied.scale.max == source.scale.max &&
+                copied.scale.referencePosition == source.scale.referencePosition &&
+                copied.smithRadius == source.smithRadius && copied.visible == source.visible &&
+                copied.markers.SameSettings(source.markers),
+        "新增迹线不能把 Smith、尺度、半径或多个标记恢复为默认值");
+    marker.marker.id = 1U;
+    marker.marker.sampleIndex = 33U;
+    Require(Finish(fixture, service.ApplyDisplay(marker)).ok, "独立移动目标迹线 M1");
+    Require(service.Display().traces.front().markers.SameSettings(source.markers) &&
+                service.Display().traces.back().markers.Selected() == 1U &&
+                service.Display().traces.back().markers.Find(1U)->sampleIndex == 33U &&
+                service.Display().traces.back().markers.Find(2U)->sampleIndex == 71U,
+        "目标标记集合与活动编号必须独立，不能移动源标记或目标的另一个标记");
+    format.format = VnaDisplay::DisplayFormat::PHASE;
+    Require(Finish(fixture, service.ApplyDisplay(format)).ok &&
+                service.Display().traces.back().scale.min == source.scale.min &&
+                service.Display().traces.back().scale.max == source.scale.max &&
+                service.Display().traces.front().format == VnaDisplay::DisplayFormat::SMITH,
+        "目标从 Smith 恢复原矩形格式时保留复制尺度，源格式保持独立");
+}
 }  // 匿名命名空间
 
 int main()
@@ -209,6 +340,9 @@ int main()
         FutureFiniteTaskCannotInvalidatePriorDisplayRead();
         MarkerUsesOriginalSamplesAndAcquisitionVersion();
         CloneAndCenterSpanAreBackendTransactions();
+        CloneNumbersReuseLowestFreeNameLikeZnb();
+        ClonedTracesRemainDisplayedBeyondFourPorts();
+        CloneCopiesDisplaySettingsAndIndependentMarkers();
         std::cout << "PASS 共享显示域、控制权、版本与完整帧边界\n";
         return 0;
     } catch (const std::exception &error) {
