@@ -10,6 +10,7 @@ const props = defineProps<{
   canEditDisplay: boolean
   canAddMarker?: boolean
   canAddTrace?: boolean
+  canAddDiagram?: boolean
   canDeleteDiagram?: boolean
 }>()
 const emit = defineEmits<{
@@ -69,7 +70,12 @@ async function choose(mode: LayoutMode) {
 }
 
 function addTrace(newDiagram: boolean) {
-  if (!props.canEditDisplay || props.canAddTrace === false) return
+  if (
+    !props.canEditDisplay ||
+    props.canAddTrace === false ||
+    (newDiagram && props.canAddDiagram === false)
+  )
+    return
   emit('addTrace', newDiagram)
   close(true)
 }
@@ -206,7 +212,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
         class="diagram-menu-item"
         type="button"
         role="menuitem"
-        :disabled="!canEditDisplay || canAddTrace === false"
+        :disabled="
+          !canEditDisplay || canAddTrace === false || canAddDiagram === false
+        "
+        :title="canAddDiagram === false ? '图窗数量已达到上限。' : undefined"
         @click.stop="addTrace(true)"
       >
         <span class="diagram-menu-check" aria-hidden="true">+</span

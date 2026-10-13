@@ -27,6 +27,7 @@ test('native diagram menu provides independent arrangement and single-transactio
     hasTrace: true,
     canEditDisplay: true,
     canAddTrace: true,
+    canAddDiagram: true,
     canDeleteDiagram: true,
   })
   const menu = await sfcHarness(
@@ -75,6 +76,25 @@ test('native diagram menu provides independent arrangement and single-transactio
     assert.equal(last.props!.disabled, true)
     last.props!.onClick({ stopPropagation() {} })
     assert.equal(menu.emitted.length, 5)
+    props.canAddDiagram = false
+    const newDiagram = findElements(
+      menu.render(),
+      (node) =>
+        node.type === 'button' &&
+        textContent(node).includes('Add Trace + Diagram'),
+    )[0]!
+    assert.equal(newDiagram.props!.disabled, true)
+    newDiagram.props!.onClick({ stopPropagation() {} })
+    assert.equal(menu.emitted.length, 5)
+    const addInExisting = findElements(
+      menu.render(),
+      (node) =>
+        node.type === 'button' &&
+        textContent(node)
+          .replace(/^[+×✓]/, '')
+          .trim() === 'Add Trace',
+    )[0]!
+    assert.equal(addInExisting.props!.disabled, false)
   } finally {
     menu.dispose()
   }

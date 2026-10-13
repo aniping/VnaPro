@@ -73,6 +73,7 @@ const props = defineProps<{
   primaryTraceName: string
   selectedDiagram?: number
   canAddTrace?: boolean
+  canAddDiagram?: boolean
   canDeleteDiagram?: boolean
   config: SweepConfiguration
   frameCondition: FrameCondition
@@ -912,6 +913,7 @@ function plotKey(event: KeyboardEvent): void {
         :has-trace="Boolean(activeTrace)"
         :can-edit-display="canEditDisplay"
         :can-add-trace="canAddTrace"
+        :can-add-diagram="canAddDiagram"
         :can-delete-diagram="canDeleteDiagram"
         :can-add-marker="
           activeTrace &&
@@ -1060,7 +1062,7 @@ function plotKey(event: KeyboardEvent): void {
         <span>{{
           measurements.length
             ? frameCondition.detail
-            : 'Select a measurement in Meas to populate this diagram.'
+            : 'Use Add Trace, or Trace Config → Diagram, to display a trace here.'
         }}</span>
       </div>
       <span

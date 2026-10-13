@@ -107,6 +107,10 @@ flowchart TB
 
 Delete Diagram 使用 `/api/v1/measurement-actions/delete-diagram` 原子删除该图窗及其迹线定义，不能删除最后一个图窗；Delete Trace 不能删除最后一条迹线，并清理因删除变空的图窗。Overlay All 和 Split All 分别发送 `overlay`、`split` 显示命令，由 C++ 合并全部迹线到目标图窗或为每条迹线创建独立图窗。前端不自行命名、分配容量或改变归属。默认帧请求采用后端已提交显示集合；S 参数请求发送规范参数文本，由后端解析接收端与源端，Center/Span 请求只发送原始意图。
 
+图窗管理位于 Display → Diagrams：Active Diagram 选择已保存的图窗，Add Trace + Diagram 创建默认迹线及新图窗，Delete Diagram 删除当前图窗及其全部所属迹线和标记。Trace Config 的 Add Trace + Diagram 则复制活动迹线的测量量、格式、刻度和标记到新图窗；Add Trace 在源迹线同图复制。两种新增入口遵循 ZNB 的不同语义，不新增独立空白图窗按钮。图窗编号、新迹线名称、活动选择及归属均由 C++ 分配和保存。
+
+Trace Config → Diagram 可将已有活动迹线移入另一图窗，提交 `select` 命令的 traceName 和 diagram；后端原子移动并激活目标，保留原来的格式、刻度与标记，不修改采集计划。移动后为空的源图窗继续保留，可再次填入迹线或删除。下拉在请求期间维持设备读回值，操作完成后由共享快照更新，观察窗口和刷新读取同一归属。删除图窗连续重编号；若删除活动图窗，优先回退到第一剩余图窗及其主迹线，这是项目确定性选择规则。最后图窗、最后测量与过期版本由后端保护，失败不会部分删除。
+
 标记请求使用 `action:"marker"`、`markerAction:"update" | "add" | "select" | "allOff"`。update 可附 `markerId`（1～10）及启停、频率、原始下标、步进或离散模式；select 必须指定编号并启用该成员，add 由后端分配最小空闲编号，allOff 关闭当前迹线所有成员并保留属性。Remove Marker 等同于针对活动编号的 update enabled:false，关闭后仍保留位置和 Discrete 设置，可再次启用。除 update 外不混入位置或状态更新，位置操作携带 acquisitionRevision。SCPI 的 `CALC1:MARK1`～`MARK10:STAT/X/Y/DISC` 和 `CALC1:MARK:AOFF` 操作同一后端集合，缺省 MARKer 编号为 1，查询不读取浏览器临时预览。
 
 Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设置同步；200 ms 帧轮询即使返回新的对象，也不能重置用户尚未应用的刻度或频率草稿。

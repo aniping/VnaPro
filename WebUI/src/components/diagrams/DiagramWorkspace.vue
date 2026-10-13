@@ -32,6 +32,7 @@ const props = defineProps<{
   activeTraceName: string
   selectedDiagram?: number
   canAddTrace?: boolean
+  canAddDiagram?: boolean
   layout: LayoutMode
   config: SweepConfiguration
   frameCondition: FrameCondition
@@ -168,6 +169,7 @@ const gridStyle = computed(() => {
         :active-trace-name="activeTraceName"
         :selected-diagram="selectedDiagram"
         :can-add-trace="canAddTrace"
+        :can-add-diagram="canAddDiagram"
         :can-delete-diagram="diagrams.length > 1"
         :primary-trace-name="pane.primaryMeasurement"
         :config="config"

@@ -11,7 +11,7 @@ import TraceCatalogSofttool from './components/softtools/TraceCatalogSofttool.vu
 import SweepSofttool from './components/softtools/SweepSofttool.vue'
 import TraceSofttool from './components/softtools/TraceSofttool.vue'
 import MarkerSofttool from './components/softtools/MarkerSofttool.vue'
-import { MAX_TRACES } from './domain/presentation'
+import { MAX_DIAGRAMS, MAX_TRACES } from './domain/presentation'
 import SystemSofttool from './components/softtools/SystemSofttool.vue'
 import DisplaySofttool from './components/softtools/DisplaySofttool.vue'
 import { useInstrument } from './composables/useInstrument'
@@ -204,7 +204,14 @@ async function addTrace(destination?: {
   diagram?: number
   newDiagram?: boolean
 }) {
-  if (!canChangeMeasurements.value || !status.value) return
+  if (
+    !canChangeMeasurements.value ||
+    !status.value ||
+    measurements.value.length >= MAX_TRACES ||
+    (destination?.newDiagram &&
+      status.value.display.diagrams.length >= MAX_DIAGRAMS)
+  )
+    return
   await instrument.addDefaultMeasurement(destination)
 }
 async function commitMarker(value: MarkerMove): Promise<boolean> {
@@ -286,6 +293,10 @@ onBeforeUnmount(() => {
               :selected-diagram="status?.display.selectedDiagram"
               :can-add-trace="
                 canChangeMeasurements && measurements.length < MAX_TRACES
+              "
+              :can-add-diagram="
+                canChangeMeasurements &&
+                (status?.display.diagrams.length ?? 0) < MAX_DIAGRAMS
               "
               :layout="layout"
               :config="status?.config ?? emptyConfig"
@@ -431,6 +442,11 @@ onBeforeUnmount(() => {
               v-if="activeTool === 'display'"
               :status="status"
               :can-edit-display="canEditDisplay"
+              :can-change-measurements="canChangeMeasurements"
+              :busy="busy"
+              @select-diagram="workspace.selectDiagram"
+              @add-trace="addTrace({ newDiagram: true })"
+              @delete-diagram="instrument.deleteDiagram"
               @layout="workspace.setLayout"
               @overlay="workspace.overlayAll()"
               @split="workspace.splitAll"

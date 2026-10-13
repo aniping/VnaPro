@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { InstrumentStatus } from '../../api/types'
+import type { InstrumentStatus, TraceDestination } from '../../api/types'
 import { measurementState } from '../../domain/measurements'
-import { MAX_TRACES } from '../../domain/presentation'
+import { MAX_DIAGRAMS, MAX_TRACES } from '../../domain/presentation'
 
 const props = defineProps<{
   status: InstrumentStatus | null
@@ -11,14 +11,17 @@ const props = defineProps<{
   canChangeMeasurements: boolean
   busy: boolean
   canEditDisplay: boolean
-  clone: (sourceName: string) => Promise<InstrumentStatus | null>
+  clone: (
+    sourceName: string,
+    destination?: TraceDestination,
+  ) => Promise<InstrumentStatus | null>
   remove: (
     name: string,
     expectedRevision: string,
   ) => Promise<InstrumentStatus | null>
 }>()
 const emit = defineEmits<{
-  selectTrace: [name: string]
+  selectTrace: [name: string, diagram?: number]
   display: [value: { name: string; enabled: boolean }]
 }>()
 const working = ref(false)
@@ -26,18 +29,58 @@ const catalog = computed(() => props.status?.measurements ?? [])
 const active = computed(() =>
   catalog.value.find((trace) => trace.name === props.activeTraceName),
 )
+const diagrams = computed(() => props.status?.display.diagrams ?? [])
+const traceDiagram = computed(() =>
+  diagrams.value.find((diagram) =>
+    diagram.measurementNames.includes(props.activeTraceName),
+  ),
+)
 const disabled = computed(
   () => !props.canChangeMeasurements || props.busy || working.value,
 )
+const canClone = computed(
+  () =>
+    !disabled.value &&
+    Boolean(active.value) &&
+    catalog.value.length < MAX_TRACES,
+)
+const canCloneDiagram = computed(
+  () => canClone.value && diagrams.value.length < MAX_DIAGRAMS,
+)
 
-async function clone() {
-  if (disabled.value || !active.value || !props.status) return
+async function clone(newDiagram = false) {
+  if (
+    !canClone.value ||
+    (newDiagram && !canCloneDiagram.value) ||
+    !active.value
+  )
+    return
   working.value = true
   try {
-    await props.clone(active.value.name)
+    await props.clone(
+      active.value.name,
+      newDiagram ? { newDiagram: true } : undefined,
+    )
   } finally {
     working.value = false
   }
+}
+
+function moveTrace(event: Event) {
+  const input = event.target as HTMLSelectElement
+  const number = Number(input.value)
+  // 原生下拉先恢复设备读回值，归属变化完成后再由后端快照更新。
+  input.value = String(traceDiagram.value?.number ?? '')
+  if (
+    !props.canEditDisplay ||
+    props.busy ||
+    working.value ||
+    !active.value ||
+    !diagrams.value.some((diagram) => diagram.number === number) ||
+    number === traceDiagram.value?.number
+  )
+    return
+  emit('selectTrace', active.value.name, number)
 }
 
 async function remove() {
@@ -59,6 +102,68 @@ async function remove() {
 
 <template>
   <section class="softtool-section" aria-label="Trace configuration">
+    <h3 class="softtool-section-title">Active Trace</h3>
+    <div v-if="active" class="softtool-readout">
+      <span>{{ active.name }} · {{ active.parameter }}</span>
+      <span>{{ measurementState(active) }}</span>
+    </div>
+    <button
+      type="button"
+      class="softtool-button"
+      :disabled="!canClone"
+      data-testid="trace-add"
+      @click="clone(false)"
+    >
+      Add Trace
+    </button>
+    <button
+      type="button"
+      class="softtool-button"
+      :disabled="!canCloneDiagram"
+      data-testid="trace-add-diagram"
+      @click="clone(true)"
+    >
+      Add Trace + Diagram
+    </button>
+    <button
+      type="button"
+      class="softtool-button"
+      :disabled="disabled || !active || catalog.length <= 1"
+      @click="remove"
+    >
+      Delete Trace
+    </button>
+    <label class="field-row">
+      <span class="softtool-label">Diagram</span>
+      <select
+        class="field-input"
+        :value="traceDiagram?.number ?? ''"
+        :disabled="!canEditDisplay || busy || working || !active"
+        aria-label="Trace diagram"
+        data-testid="trace-diagram"
+        @change="moveTrace"
+      >
+        <option v-if="!traceDiagram" value="" disabled>Not displayed</option>
+        <option
+          v-for="diagram in diagrams"
+          :key="diagram.number"
+          :value="diagram.number"
+        >
+          {{ diagram.number }}
+        </option>
+      </select>
+    </label>
+    <p class="softtool-note">
+      Add Trace 复制活动迹线；Add Trace + Diagram 将副本放入新图窗。 Diagram
+      移动当前迹线，保留其格式和标记。编号由后端分配。
+    </p>
+    <p v-if="!canChangeMeasurements" class="softtool-note">
+      {{
+        status?.control.readOnlyReason ||
+        '取得控制权并等待当前操作完成后可添加或删除迹线。'
+      }}
+    </p>
+    <div class="softtool-divider" />
     <h3 class="softtool-section-title">Traces</h3>
     <div class="trace-catalog">
       <div
@@ -71,7 +176,7 @@ async function remove() {
           class="softtool-button"
           :class="{ 'is-active': activeTraceName === measurement.name }"
           :aria-pressed="activeTraceName === measurement.name"
-          :disabled="!canEditDisplay"
+          :disabled="!canEditDisplay || busy || working"
           @click="emit('selectTrace', measurement.name)"
         >
           {{ measurement.name }}<small>{{ measurement.parameter }}</small>
@@ -83,6 +188,8 @@ async function remove() {
             :checked="displayedNames.includes(measurement.name)"
             :disabled="
               !canEditDisplay ||
+              busy ||
+              working ||
               (!displayedNames.includes(measurement.name) &&
                 displayedNames.length >= MAX_TRACES)
             "
@@ -97,37 +204,6 @@ async function remove() {
         </label>
       </div>
     </div>
-    <div class="softtool-divider" />
-    <button
-      type="button"
-      class="softtool-button"
-      :disabled="disabled || !active || catalog.length >= MAX_TRACES"
-      @click="clone"
-    >
-      Add Trace
-    </button>
-    <button
-      type="button"
-      class="softtool-button"
-      :disabled="disabled || !active || catalog.length <= 1"
-      @click="remove"
-    >
-      Delete Trace
-    </button>
-    <div v-if="active" class="softtool-readout">
-      <span>{{ active.name }} · {{ active.parameter }}</span>
-      <span>{{ measurementState(active) }}</span>
-    </div>
-    <p class="softtool-note">
-      Add Trace 复制活动迹线，编号由后端分配。Meas 修改其测量量；最多显示
-      {{ MAX_TRACES }} 条迹线。
-    </p>
-    <p v-if="!canChangeMeasurements" class="softtool-note">
-      {{
-        status?.control.readOnlyReason ||
-        '取得控制权并等待当前操作完成后可添加或删除迹线。'
-      }}
-    </p>
   </section>
 </template>
 

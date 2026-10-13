@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { InstrumentStatus } from '../../api/types'
+import { MAX_DIAGRAMS, MAX_TRACES } from '../../domain/presentation'
 import type {
   DisplayAnnotations,
   InfoTablePosition,
@@ -11,17 +12,38 @@ import type {
 const props = defineProps<{
   status: InstrumentStatus | null
   canEditDisplay: boolean
+  canChangeMeasurements: boolean
+  busy: boolean
 }>()
 const emit = defineEmits<{
   layout: [value: LayoutMode]
   overlay: []
   split: []
+  selectDiagram: [number: number]
+  addTrace: []
+  deleteDiagram: [number: number]
   infoTable: [value: { enabled?: boolean; position?: InfoTablePosition }]
   annotations: [value: Partial<DisplayAnnotations>]
   markerInfo: [value: { enabled: boolean; diagram?: number }]
   markerInfoLocation: [value: { name: string; location: MarkerInfoLocation }]
 }>()
 const display = computed(() => props.status?.display)
+const diagrams = computed(() => display.value?.diagrams ?? [])
+const canAddDiagram = computed(
+  () =>
+    props.canChangeMeasurements &&
+    !props.busy &&
+    Boolean(props.status) &&
+    diagrams.value.length < MAX_DIAGRAMS &&
+    (props.status?.measurements.length ?? 0) < MAX_TRACES,
+)
+const canDeleteDiagram = computed(
+  () =>
+    props.canChangeMeasurements &&
+    !props.busy &&
+    Boolean(selectedDiagram.value) &&
+    diagrams.value.length > 1,
+)
 const table = computed(
   () =>
     display.value?.infoTable ?? { visible: false, position: 'bottom' as const },
@@ -78,10 +100,77 @@ function moveInfo(location: MarkerInfoLocation) {
     return
   emit('markerInfoLocation', { name: selectedName.value, location })
 }
+
+function selectDiagram(event: Event) {
+  const input = event.target as HTMLSelectElement
+  const number = Number(input.value)
+  // 选择由 C++ 确认；等待操作读回时不保留未生效的活动图窗。
+  input.value = String(selectedDiagram.value?.number ?? '')
+  if (
+    !props.canEditDisplay ||
+    props.busy ||
+    !diagrams.value.some((diagram) => diagram.number === number) ||
+    number === selectedDiagram.value?.number
+  )
+    return
+  emit('selectDiagram', number)
+}
+
+function addDiagram() {
+  if (canAddDiagram.value) emit('addTrace')
+}
+
+function deleteDiagram() {
+  if (canDeleteDiagram.value && selectedDiagram.value)
+    emit('deleteDiagram', selectedDiagram.value.number)
+}
 </script>
 
 <template>
   <section class="softtool-section" aria-label="Display settings">
+    <h2 class="softtool-section-title">Diagrams</h2>
+    <label class="field-row">
+      <span class="softtool-label">Active Diagram</span>
+      <select
+        class="field-input"
+        :value="selectedDiagram?.number ?? ''"
+        :disabled="!canEditDisplay || busy || !selectedDiagram"
+        aria-label="Active diagram"
+        data-testid="active-diagram"
+        @change="selectDiagram"
+      >
+        <option
+          v-for="diagram in diagrams"
+          :key="diagram.number"
+          :value="diagram.number"
+        >
+          {{ diagram.number }}
+        </option>
+      </select>
+    </label>
+    <button
+      type="button"
+      class="softtool-button"
+      :disabled="!canAddDiagram"
+      data-testid="display-add-diagram"
+      @click="addDiagram"
+    >
+      Add Trace + Diagram
+    </button>
+    <button
+      type="button"
+      class="softtool-button"
+      :disabled="!canDeleteDiagram"
+      data-testid="display-delete-diagram"
+      @click="deleteDiagram"
+    >
+      Delete Diagram
+    </button>
+    <p class="softtool-note">
+      新图窗创建默认迹线。Delete Diagram
+      删除该图窗及其所属迹线；最后一个图窗保留。
+    </p>
+    <div class="softtool-divider" />
     <h2 class="softtool-section-title">Diagram Layout</h2>
     <div class="softtool-grid">
       <button
