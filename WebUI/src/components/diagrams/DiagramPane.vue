@@ -33,6 +33,7 @@ import {
 } from '../../plot/formatting'
 import { markerPlacement, plotRect } from '../../plot/canvasRenderer'
 import { spacedAxisLabels } from '../../plot/axisLabelSpacing'
+import { axisTypography } from '../../plot/axisTypography'
 import {
   displaySeries,
   markerResult,
@@ -445,9 +446,10 @@ const noDrawableMessage = computed(() => {
   return zeroDb ? 'Zero amplitude · dB = −∞' : 'No valid measurement points'
 })
 const yTickDivisions = 10
-const axisLabelHeight = computed(() =>
-  Math.max(14, (11 * annotationFontScale.value * 1.2) / 100),
+const axisType = computed(() =>
+  axisTypography(width.value, height.value, annotationFontScale.value),
 )
+const axisLabelHeight = computed(() => axisType.value.lineHeight)
 const yTicks = computed(() =>
   spacedAxisLabels(
     Array.from({ length: yTickDivisions + 1 }, (_, index) => {
@@ -566,6 +568,7 @@ function schedulePaint(): void {
         xMax: xRange.value.max,
         axisFormat: axisFormat.value,
         radius: smithRadius.value,
+        fontScale: annotationFontScale.value,
         backgrounds: backgrounds.value,
         references,
         curves: curves.value,
@@ -654,6 +657,7 @@ watch(
     () => props.activeTraceName,
     () => props.primaryTraceName,
     xRange,
+    annotationFontScale,
   ],
   schedulePaint,
   { deep: true },
@@ -922,6 +926,7 @@ function plotKey(event: KeyboardEvent): void {
       '--diagram-label-font-size': `${(11 * annotationFontScale) / 100}px`,
       '--diagram-label-line-height': `${(18 * annotationFontScale) / 100}px`,
       '--diagram-axis-line-height': `${axisLabelHeight}px`,
+      '--diagram-axis-font-size': `${axisType.fontSize}px`,
     }"
     @dragover="dragOverDiagram"
     @drop="dropOnDiagram"
@@ -1255,12 +1260,12 @@ function plotKey(event: KeyboardEvent): void {
   position: absolute;
   z-index: 2;
   left: 5px;
-  padding: 0;
+  padding: 0 1px;
   transform: translateY(-50%);
   text-align: left;
   color: #4b5f6c;
-  background: transparent;
-  font-size: var(--diagram-label-font-size, 11px);
+  background: var(--color-plot, #000000);
+  font-size: var(--diagram-axis-font-size, 11px);
   line-height: var(--diagram-axis-line-height, 14px);
   white-space: nowrap;
   pointer-events: none;

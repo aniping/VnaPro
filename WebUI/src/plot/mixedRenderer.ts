@@ -19,6 +19,7 @@ export type MixedCurve =
 export interface MixedDiagram extends Omit<CanvasDiagram, 'curves'> {
   axisFormat: DisplayFormat
   radius: number
+  fontScale?: number
   backgrounds: readonly MixedBackground[]
   curves: readonly MixedCurve[]
 }
@@ -83,11 +84,12 @@ export function paintMixedDiagram(
         width: diagram.width,
         height: diagram.height,
         radius: background.radius,
+        fontScale: diagram.fontScale,
         format: background.format as 'smith' | 'polar' | 'invSmith',
         curves: [],
       },
       bounds,
-      { clear: false },
+      { clear: false, labels: false },
     )
   }
   for (const curve of curves) {
@@ -112,5 +114,21 @@ export function paintMixedDiagram(
         { clear: false, grid: false },
       )
     }
+  }
+  // 混合圆图的数字统一放在全部网格和迹线之后，后画网格不能再穿过文字。
+  for (const background of circularBackgrounds.values()) {
+    paintSmithDiagram(
+      canvas,
+      {
+        width: diagram.width,
+        height: diagram.height,
+        radius: background.radius,
+        fontScale: diagram.fontScale,
+        format: background.format as 'smith' | 'polar' | 'invSmith',
+        curves: [],
+      },
+      bounds,
+      { clear: false, grid: false, labels: true },
+    )
   }
 }

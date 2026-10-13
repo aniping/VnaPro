@@ -42,6 +42,9 @@ function canvasProbe(test: TestContext) {
     restore() {},
     arc() {},
     fillText() {},
+    measureText(text: string) {
+      return { width: text.length * 6 }
+    },
     moveTo(x: number, y: number) {
       if (colors.includes(this.strokeStyle))
         moves.push({ color: this.strokeStyle, x, y })

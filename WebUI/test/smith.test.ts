@@ -44,6 +44,9 @@ function canvasProbe(context: { after: (callback: () => void) => void }) {
     rect() {},
     fill() {},
     fillText() {},
+    measureText(text: string) {
+      return { width: text.length * 6 }
+    },
     arc(x: number, y: number) {
       if (this.strokeStyle === '#60e600') isolated.push([x, y])
     },

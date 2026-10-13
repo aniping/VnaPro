@@ -8,7 +8,7 @@ function hasClass(node: VNode, name: string) {
   return String(node.props?.class).split(/\s+/).includes(name)
 }
 
-async function pane(height: number) {
+async function pane(height: number, width = 700) {
   const status = instrumentStatus([reflection])
   const props = reactive({
     number: 1,
@@ -35,6 +35,7 @@ async function pane(height: number) {
     },
   )
   ;(view.bindings.height as Ref<number>).value = height
+  ;(view.bindings.width as Ref<number>).value = width
   return {
     ...view,
     props,
@@ -42,6 +43,26 @@ async function pane(height: number) {
       findElements(view.render(), (node) => hasClass(node, 'y-tick')),
   }
 }
+
+test('四乘四小窗的轴字号小于标题，大窗保持原字号，缩放不改变后端状态', async () => {
+  const small = await pane(150, 230)
+  const large = await pane(500, 700)
+  try {
+    const before = JSON.stringify(small.props)
+    const font = (view: typeof small) =>
+      parseFloat(view.render().props!.style['--diagram-axis-font-size'])
+    assert.ok(font(small) >= 9 && font(small) < 10)
+    assert.equal(font(large), 11)
+    ;(small.bindings.width as Ref<number>).value = 700
+    ;(small.bindings.height as Ref<number>).value = 500
+    assert.equal(font(small), 11)
+    assert.equal(JSON.stringify(small.props), before)
+    assert.deepEqual(small.emitted, [])
+  } finally {
+    small.dispose()
+    large.dispose()
+  }
+})
 
 test('正常大图保持十一项 Y 标签及后端刻度范围', async () => {
   const view = await pane(500)
@@ -64,6 +85,7 @@ test('短图窗仅减少标签密度，保留参考值而且不把它误认为�
     const before = JSON.stringify(view.props)
     const labels = view.labels()
     assert.ok(labels.length < 11)
+    const labelHeight = (view.bindings.axisLabelHeight as Ref<number>).value
     const reference = labels.find((node) => hasClass(node, 'reference-tick'))!
     assert.ok(reference)
     assert.equal(reference.children, '0dB')
@@ -74,9 +96,9 @@ test('短图窗仅减少标签密度，保留参考值而且不把它误认为�
         const top = hasClass(node, 'edge-top')
           ? 3
           : hasClass(node, 'edge-bottom')
-            ? height - 3 - 14
-            : parseFloat(node.props!.style.top) - 7
-        return { top, bottom: top + 14 }
+            ? height - 3 - labelHeight
+            : parseFloat(node.props!.style.top) - labelHeight / 2
+        return { top, bottom: top + labelHeight }
       })
       .sort((a, b) => a.top - b.top)
     bounds

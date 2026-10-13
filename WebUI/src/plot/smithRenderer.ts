@@ -9,6 +9,7 @@ import {
   validSmithRadius,
   type ComplexPoint,
 } from './smithMath'
+import { axisTypography } from './axisTypography'
 
 export interface SmithCurve {
   points: readonly (ComplexPoint | null)[]
@@ -20,6 +21,7 @@ export interface SmithDiagram {
   height: number
   radius: number
   format?: 'smith' | 'polar' | 'invSmith'
+  fontScale?: number
   curves: readonly SmithCurve[]
 }
 
@@ -28,7 +30,7 @@ export function paintSmithDiagram(
   canvas: HTMLCanvasElement,
   diagram: SmithDiagram,
   bounds: ScreenBounds,
-  pass: PaintPass = {},
+  pass: PaintPass & { labels?: boolean } = {},
 ): void {
   if (!validSmithRadius(diagram.radius)) return
   const prepared = prepareCanvas(canvas, diagram, bounds, pass.clear !== false)
@@ -103,28 +105,6 @@ export function paintSmithDiagram(
       context.setLineDash([])
     }
 
-    context.fillStyle = '#8ca0a8'
-    const fontSize = 11 * Math.min(raster.cssScaleX, raster.cssScaleY)
-    // 小圆图仅减少坐标文字；这是项目像素可读性规则，不改变网格或后端参考半径。
-    const compactLabels = unitRadius < fontSize * 12
-    context.font = `${fontSize}px "Segoe UI", sans-serif`
-    context.textAlign = 'center'
-    context.textBaseline = 'bottom'
-    for (const resistance of compactLabels ? [0, 1] : [0, 0.2, 0.5, 1, 2, 5]) {
-      const location = gridPoint((resistance - 1) / (resistance + 1), 0)
-      context.fillText(String(resistance), location.x, location.y - 2)
-    }
-    context.fillText('∞', right.x, right.y - 2)
-    for (const reactance of compactLabels ? [1] : [0.5, 1, 2, 5]) {
-      const denominator = 1 + reactance ** 2
-      for (const sign of [-1, 1]) {
-        const location = gridPoint(
-          (reactance ** 2 - 1) / denominator,
-          (sign * 2 * reactance) / denominator,
-        )
-        context.fillText(String(sign * reactance), location.x, location.y - 2)
-      }
-    }
   }
 
   if (pass.grid !== false && diagram.format === 'polar') {
@@ -214,4 +194,49 @@ export function paintSmithDiagram(
     }
   }
   context.restore()
+  if ((pass.labels ?? pass.grid !== false) && diagram.format !== 'polar') {
+    const fontSize =
+      axisTypography(diagram.width, diagram.height, diagram.fontScale).fontSize *
+      Math.min(raster.cssScaleX, raster.cssScaleY)
+    const gridPoint = (real: number, imaginary: number) =>
+      diagram.format === 'invSmith'
+        ? point(-real, -imaginary)
+        : point(real, imaginary)
+    const unitRadius = (viewport.radiusX * raster.cssScaleX) / diagram.radius
+    // 全部背景完成后再写坐标，纯黑小底仅遮住字框，不使用透明块或模糊描边。
+    const compactLabels = unitRadius < fontSize * 12
+    context.font = `${fontSize}px Tahoma, Arial, sans-serif`
+    context.textAlign = 'center'
+    context.textBaseline = 'bottom'
+    const label = (text: string, x: number, y: number) => {
+      const measured = context.measureText(text)
+      const ascent = measured.actualBoundingBoxAscent ?? fontSize * 0.82
+      const descent = measured.actualBoundingBoxDescent ?? fontSize * 0.18
+      context.fillStyle = '#000000'
+      context.fillRect(
+        x - measured.width / 2 - 1,
+        y - ascent - 1,
+        measured.width + 2,
+        ascent + descent + 2,
+      )
+      context.fillStyle = '#8ca0a8'
+      context.fillText(text, x, y)
+    }
+    for (const resistance of compactLabels ? [0, 1] : [0, 0.2, 0.5, 1, 2, 5]) {
+      const location = gridPoint((resistance - 1) / (resistance + 1), 0)
+      label(String(resistance), location.x, location.y - 2)
+    }
+    const right = gridPoint(1, 0)
+    label('∞', right.x, right.y - 2)
+    for (const reactance of compactLabels ? [1] : [0.5, 1, 2, 5]) {
+      const denominator = 1 + reactance ** 2
+      for (const sign of [-1, 1]) {
+        const location = gridPoint(
+          (reactance ** 2 - 1) / denominator,
+          (sign * 2 * reactance) / denominator,
+        )
+        label(String(sign * reactance), location.x, location.y - 2)
+      }
+    }
+  }
 }

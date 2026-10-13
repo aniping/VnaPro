@@ -376,6 +376,9 @@ test('the actual pane paints mixed Cartesian and Smith traces in one diagram and
       restore() {},
       arc() {},
       fillText() {},
+      measureText(text: string) {
+        return { width: text.length * 6 }
+      },
       stroke() {
         if (dashedReference) references++
         else if (['#60e600', '#ffff26'].includes(this.strokeStyle))

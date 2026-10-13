@@ -14,15 +14,23 @@ function canvasProbe(context: TestContext) {
       Object.defineProperty(globalThis, 'window', previousWindow)
     else Reflect.deleteProperty(globalThis, 'window')
   })
-  const labels: { text: string; x: number; y: number }[] = []
+  const labels: { text: string; x: number; y: number; font: string }[] = []
+  const masks: { color: string; width: number; height: number }[] = []
   const arcs: number[][] = []
   const curveMoves: number[][] = []
   const drawing = {
     strokeStyle: '',
+    fillStyle: '',
+    font: '',
     setTransform() {},
     clearRect() {},
     setLineDash() {},
-    fillRect() {},
+    fillRect(_x: number, _y: number, width: number, height: number) {
+      masks.push({ color: this.fillStyle, width, height })
+    },
+    measureText(text: string) {
+      return { width: text.length * 6 }
+    },
     save() {},
     restore() {},
     beginPath() {},
@@ -32,7 +40,7 @@ function canvasProbe(context: TestContext) {
     fill() {},
     lineTo() {},
     fillText(text: string, x: number, y: number) {
-      labels.push({ text, x, y })
+      labels.push({ text, x, y, font: this.font })
     },
     arc(x: number, y: number, radius: number) {
       arcs.push([x, y, radius])
@@ -47,8 +55,25 @@ function canvasProbe(context: TestContext) {
     height: 0,
     getContext: () => drawing,
   } as unknown as HTMLCanvasElement
-  return { canvas, labels, arcs, curveMoves }
+  return { canvas, labels, masks, arcs, curveMoves }
 }
+
+test('小 Smith 图采用紧凑同族字体，每个数字用纯黑小底遮挡网格', (context) => {
+  const probe = canvasProbe(context)
+  paintSmithDiagram(
+    probe.canvas,
+    { width: 230, height: 150, radius: 1, format: 'smith', curves: [] },
+    { width: 230, height: 150, left: 0, top: 0 },
+  )
+  assert.ok(
+    probe.labels.every((label) => label.font === '9px Tahoma, Arial, sans-serif'),
+  )
+  const textMasks = probe.masks.filter((mask) => mask.height < 20)
+  assert.equal(textMasks.length, probe.labels.length)
+  assert.ok(
+    textMasks.every((mask) => mask.color === '#000000' && mask.width <= 20),
+  )
+})
 
 for (const format of ['smith', 'invSmith'] as const) {
   test(`a small ${format} circle reduces text density while retaining grid and trace geometry`, (context) => {

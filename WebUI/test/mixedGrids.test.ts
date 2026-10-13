@@ -27,6 +27,7 @@ function canvasProbe(context: TestContext) {
     else Reflect.deleteProperty(globalThis, 'window')
   })
   const strokes: { color: string; lines: number; arcs: number }[] = []
+  const events: ('stroke' | 'label')[] = []
   let clears = 0
   let lines = 0
   let arcs = 0
@@ -54,9 +55,15 @@ function canvasProbe(context: TestContext) {
     arc() {
       arcs++
     },
-    fillText() {},
+    fillText() {
+      events.push('label')
+    },
+    measureText(text: string) {
+      return { width: text.length * 6 }
+    },
     moveTo() {},
     stroke() {
+      events.push('stroke')
       strokes.push({ color: this.strokeStyle, lines, arcs })
     },
   }
@@ -66,7 +73,7 @@ function canvasProbe(context: TestContext) {
     style: {},
     getContext: () => drawing,
   } as unknown as HTMLCanvasElement
-  return { canvas, strokes, clears: () => clears }
+  return { canvas, strokes, events, clears: () => clears }
 }
 
 function paint(
@@ -138,6 +145,12 @@ for (const axisFormat of ['smith', 'db'] as const) {
       { left: 0, top: 0, width: 700, height: 500 },
     )
     assert.equal(probe.clears(), 1)
+    const firstLabel = probe.events.indexOf('label')
+    assert.ok(firstLabel > 0)
+    assert.ok(
+      probe.events.slice(firstLabel).every((event) => event === 'label'),
+      'mixed backgrounds and traces must not paint over coordinate labels',
+    )
     assert.ok(
       probe.strokes.some(
         (stroke) => stroke.color === '#4b5f6c' && stroke.lines === 11,
