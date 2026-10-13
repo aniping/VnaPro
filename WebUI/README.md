@@ -97,6 +97,10 @@ flowchart TB
 
 测量目录、显示集合和显式图窗均最多 128 项，这是项目资源预算，不是 ZNB 最大容量。菜单或工具栏 Add Trace 使用 `/api/v1/measurement-actions/add` 添加默认 S21/dB Mag 迹线；单端口时为 S11。Add Trace + Diagram 在同一后端事务中创建新图窗和默认迹线。Trace Config 的 Add Trace 使用 `/api/v1/measurement-actions/clone` 复制活动定义及显示设置；编号由后端选取最小空闲 `Trc<n>`，新增不会替换之前的迹线。图窗右键动作携带目标 `diagram`，不通过浏览器连续发两次写请求实现组合操作。
 
+标题按容器宽度采用等宽列和固定名称、测量量字段，自然显示全部行，不再用 84 像素上限和内部滚动条截断。超长参考值保留完整提示；前端不因显示密度删除迹线或自动改变归属。当前色板为八色循环，每个图窗重新开始；具体 RGB 是项目参考配色，不宣称完整还原原机出厂色序。标记符号和整行读数使用同一所属迹线颜色，多迹线读数增加 Trc 归属列；每迹线仍独立使用 M1～M10。
+
+密集 Marker 浮层的高度约束仍是项目保护策略，尚未实现独立 Info Table，不能称为 ZNB 已核验布局。原机支持表格滚动和将标记信息移到 Info Table，但手册没有明确本项目这类图内列表滚动条规则。容量、色数及标题密度的依据见[ZNB8 标题与标记核对](../docs/research/ZNB8迹线与标记行为核对.md)。
+
 Delete Diagram 使用 `/api/v1/measurement-actions/delete-diagram` 原子删除该图窗及其迹线定义，不能删除最后一个图窗；Delete Trace 不能删除最后一条迹线，并清理因删除变空的图窗。Overlay All 和 Split All 分别发送 `overlay`、`split` 显示命令，由 C++ 合并全部迹线到目标图窗或为每条迹线创建独立图窗。前端不自行命名、分配容量或改变归属。默认帧请求采用后端已提交显示集合；S 参数请求发送规范参数文本，由后端解析接收端与源端，Center/Span 请求只发送原始意图。
 
 标记请求使用 `action:"marker"`、`markerAction:"update" | "add" | "select" | "allOff"`。update 可附 `markerId`（1～10）及启停、频率、原始下标、步进或离散模式；select 必须指定编号并启用该成员，add 由后端分配最小空闲编号，allOff 关闭当前迹线所有成员并保留属性。Remove Marker 等同于针对活动编号的 update enabled:false，关闭后仍保留位置和 Discrete 设置，可再次启用。除 update 外不混入位置或状态更新，位置操作携带 acquisitionRevision。SCPI 的 `CALC1:MARK1`～`MARK10:STAT/X/Y/DISC` 和 `CALC1:MARK:AOFF` 操作同一后端集合，缺省 MARKer 编号为 1，查询不读取浏览器临时预览。
