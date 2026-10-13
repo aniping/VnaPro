@@ -4,7 +4,7 @@
 
 ## 构建和测试
 
-Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.13、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。C++ 第三方库使用仓库内 `third-part` 的官方 release 源码压缩包：spdlog 1.17.0 和 yaml-cpp 0.9.0。CMake 校验 SHA256 后自动解压为 `third-part/spdlog-1.17.0` 和 `third-part/yaml-cpp-0.9.0`，直接引用这两个源码目录构建，不下载依赖。包清单和升级方式见[第三方库说明](third-part/README.md)。Windows MinGW 的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
+Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.16、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。C++ 第三方库使用仓库内 `third-part` 的官方 release 源码压缩包：spdlog 1.17.0 和 yaml-cpp 0.9.0。CMake 校验 SHA256 后自动解压为 `third-part/spdlog-1.17.0` 和 `third-part/yaml-cpp-0.9.0`，直接引用这两个源码目录构建，不下载依赖。包清单和升级方式见[第三方库说明](third-part/README.md)。Windows MinGW 构建及从 `bin` 开发运行时，工具链的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
 
 ```powershell
 Set-Location WebUI
@@ -19,7 +19,38 @@ cmake -E chdir build ctest --output-on-failure
 
 替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立构建见 [TDC1VN10 模拟驱动](VnaBoardSimulator/README.md)及保留的 [TDC1VN08 模拟驱动](VnaNativeSimulator/README.md)。本轮已验证 Windows MinGW/GCC 10.3 和 WSL/Linux GCC 13.3 的全目标 ThreadSanitizer；macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
 
-`npm run build` 包含 Vue/TypeScript 类型检查，产物在 `WebUI/dist`。本次仅打包 C++ 库，WebUI 的首次 `npm ci` 仍需访问 npm 仓库；前端依赖不包含在这些压缩包内。公司离线环境具备 C++ 工具链后，可直接执行上述 CMake 命令，无需依赖源码路径覆盖参数。只构建或运行 SCPI 服务可跳过 Node/npm 步骤，并以 `--no-web` 启动；Web HTTP 集成测试需要先生成前端产物。旧 `FETCHCONTENT_SOURCE_DIR_*` 参数不再生效。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
+`npm run build` 包含 Vue/TypeScript 类型检查，产物在 `WebUI/dist`。C++ 构建自动收集这些已生成的产物，不执行 npm 下载或构建；WebUI 的首次 `npm ci` 仍需访问 npm 仓库，前端依赖未纳入离线源码包。公司离线环境具备 C++ 工具链及前端产物后，可直接执行上述 CMake 命令。只构建 SCPI 服务时，可跳过 Node/npm 步骤，在 CMake 配置参数中添加 `-DVNAPRO_BUNDLE_WEBUI=OFF`，运行时使用 `--no-web`；Web HTTP 集成测试仍需要前端产物。旧 `FETCHCONTENT_SOURCE_DIR_*` 参数不再生效。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
+
+## 自动生成发布目录
+
+构建 `vna_server` 后自动将运行文件汇总到构建目录下的 `release`。CLion 的默认 Debug 构建对应 `cmake-build-debug/release`，上述命令对应 `build/release`。无需另行执行安装或手工复制，即使代码未变化，再次构建该目标也会同步资源：
+
+```powershell
+cmake --build cmake-build-debug --target vna_server --parallel
+.\cmake-build-debug\release\vna_server.exe
+```
+
+Windows MinGW 的目录示例：
+
+```text
+release/
+├─ vna_server.exe
+├─ libtdc1vn08_drv_sim.dll / libtdc1vn10_drv_sim.dll
+├─ libgcc_s_seh-1.dll / libstdc++-6.dll / libwinpthread-1.dll
+├─ vnapro.yml                         实际运行配置，重复构建保留已有修改
+├─ vnapro.example.yml                 最新默认配置，每次同步更新
+├─ WebUI/                             WebUI/dist 的完整内容
+├─ licenses/spdlog.txt / yaml-cpp.txt  第三方许可
+└─ .vnapro-release-files              构建托管文件清单，随整包保留
+```
+
+运行库按程序和两种动态加载驱动的实际依赖收集，系统自带库不复制。部署时复制整个 `release` 目录；程序默认从自身目录读取配置、对应驱动和 `WebUI`，不依赖当前工作目录、原源码目录或 MinGW PATH，支持中文和空格路径。可用 `--config`、`--driver`、`--web-root` 显式覆盖；发布包缺少必需资源会报错。日志默认写入配置文件旁的 `logs`，运行后创建，无需复制开发日志。
+
+重复构建只清理上次托管清单中的过期文件，保留日志及用户额外文件。已有 `vnapro.yml` 不被覆盖；修改源配置后，可对照更新后的 `vnapro.example.yml` 合并配置并重启。WebUI 更新后先执行 `npm run build`，再构建 `vna_server`。默认打包若缺少 `WebUI/dist/index.html` 会报错，SCPI 专用包按上文关闭 WebUI 打包。
+
+`-DVNAPRO_RELEASE_DIR=绝对目录` 可修改发布位置，不能指定为程序输出目录或 `WebUI/dist` 及其子目录。多配置生成器将各配置放在 `release/Debug`、`release/Release`；单配置生成器直接放在 `release`。目录名 `release` 表示部署文件集合，Debug 构建仍包含调试代码；优化构建需配置 `-DCMAKE_BUILD_TYPE=Release`，多配置生成器使用 `--config Release`。
+
+独立发布验收通过 CTest `release_bundle` 运行，覆盖整包迁移、中文及空格目录、不同工作目录、移除工具链 PATH、两种驱动切换和配置读取。本次自动发布的运行验证使用 Windows MinGW；其他工具链与平台需在对应环境复验。
 
 ## C++ 文件组织与格式
 
@@ -44,10 +75,10 @@ clang-format --style=file --dry-run --Werror $cppFiles
 ## 启动与测量
 
 ```powershell
-.\build\bin\vna_server.exe --bind 127.0.0.1 --port 5025
+.\build\release\vna_server.exe --bind 127.0.0.1 --port 5025
 ```
 
-默认加载构建生成的 **TDC1VN10 新接口模拟库**，启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。`--board tdc1vn08` 使用保留的 VN08 旧接口库 `tdc1vn08_drv_sim`，`--board tdc1vn10` 显式选择当前基准接口 `tdc1vn10_drv_sim`；CLion、命令行和部署路径的具体设置见[模拟驱动切换](docs/模拟驱动切换.md)。未来 VN08 驱动对齐新接口后应使用新接口适配器。两个接口有同名异签名函数，不能仅换 DLL 路径。静态根目录为构建时指定的 `WebUI/dist`，浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作。迁移产物时传入与 `--board` 匹配的 `--driver` 绝对路径，并用 `--web-root` 指向部署后的 `WebUI/dist`；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，日志级别须允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认绑定本机；`--no-web` 关闭 Web 入口。
+默认加载构建生成的 **TDC1VN10 新接口模拟库**，启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。`--board tdc1vn08` 使用保留的 VN08 旧接口库 `tdc1vn08_drv_sim`，`--board tdc1vn10` 显式选择当前基准接口 `tdc1vn10_drv_sim`；CLion、命令行和部署路径的具体设置见[模拟驱动切换](docs/模拟驱动切换.md)。未来 VN08 驱动对齐新接口后应使用新接口适配器。两个接口有同名异签名函数，不能仅换 DLL 路径。发布程序从同目录 `WebUI` 加载静态页面；CLion 原 `bin` 运行目标在旁边没有静态资源时，继续使用源码目录的 `WebUI/dist`。浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，日志级别须允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认绑定本机；`--no-web` 关闭 Web 入口。
 
 ## 仪器与日志配置
 
@@ -71,9 +102,9 @@ instrument:
 
 `instrument.sweep.defaultSweepMode` 只接受 `CONT` 或 `HOLD`，省略时为 `CONT`。它是无已恢复状态时的服务器启动缺省，不是强制调用仪器 Preset；本版尚未保存跨进程的仪器状态。服务器在监听前应用一次，随后释放内部控制权；设为 `HOLD` 时等待用户触发。服务领域的初始化仍保持 HOLD，单元测试夹具不自动扫描。
 
-服务采用 spdlog，默认 INFO，同时输出终端 stderr 和构建目录 `bin/logs/vnapro.log`；日志包含毫秒时间、等级、线程、模块和消息。单文件 10 MiB，保留 5 个备份，单条完整记录最多 64 KiB；逐帧摘要只在 TRACE 打开时输出。
+服务采用 spdlog，默认 INFO，同时输出终端 stderr 和配置文件旁的 `logs/vnapro.log`；发布包为 `release/logs/vnapro.log`，开发运行为 `bin/logs/vnapro.log`。日志包含毫秒时间、等级、线程、模块和消息。单文件 10 MiB，保留 5 个备份，单条完整记录最多 64 KiB；逐帧摘要只在 TRACE 打开时输出。
 
-默认配置为 [config/vnapro.yml](config/vnapro.yml)，CMake 将它复制到构建目录 `bin/vnapro.yml`。可用 `--config 配置文件` 指定部署配置，相对日志路径按配置文件目录解析；修改配置后重启生效。大小、备份、刷新、格式、中文路径及历史文件边界见[日志模块说明](VnaLog/README.md)，库的公开采用证据见[选型调研](docs/research/C++日志库选型.md)。
+默认配置源为 [config/vnapro.yml](config/vnapro.yml)，CMake 配置时复制到开发目录 `bin/vnapro.yml`，发布首次同步时复制到 `release/vnapro.yml`。启动优先读取程序旁的配置，发布目录的已有配置保留，最新默认配置另存为 `vnapro.example.yml`。可用 `--config 配置文件` 指定独立配置，相对日志路径按配置文件目录解析；修改配置后重启生效。大小、备份、刷新、格式、中文路径及历史文件边界见[日志模块说明](VnaLog/README.md)，库的公开采用证据见[选型调研](docs/research/C++日志库选型.md)。
 
 ## 使用 Web 验证
 
@@ -150,7 +181,8 @@ CALC1:DATA? RDATA
 | `WebUI/src/components` | 仪器外壳、软工具、绘图组件与共享输入 |
 | `WebUI/src/plot` | 纯显示换算、Canvas 投影、真实频点标记和 CSV |
 | `WebUI/src/styles` / `WebUI/test` | 视觉变量、外壳/软工具样式与数据、并发、绘图合同测试 |
-| `WebUI/dist` | Vite 构建的静态部署产物，服务默认从这里加载 |
+| `WebUI/dist` | Vite 静态构建产物，自动复制到发布目录 `release/WebUI` |
+| `cmake` | 离线第三方库处理、发布文件收集及独立发布验收 |
 | `VnaServer/tests` | 实际 SCPI / HTTP 端到端验证与有序关闭 |
 | `docs` | 核心设计与服务设计，含结构图和活动图 |
 

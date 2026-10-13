@@ -7,7 +7,7 @@
 ## 默认行为
 
 服务启动前加载日志配置，再创建采集 worker；正常结束时先关闭设备和 worker，再刷新、关闭日志。
-默认输出至终端 stderr 和构建目录 `bin/logs/vnapro.log`，内容为 UTF-8。
+默认输出至终端 stderr 和配置文件旁的 `logs/vnapro.log`，内容为 UTF-8；发布包对应 `release/logs/vnapro.log`，开发运行对应 `bin/logs/vnapro.log`。
 示例格式：
 
 ```text
@@ -27,14 +27,14 @@ HTTP 方法、已解析路径和响应状态在 DEBUG 输出，不记录控制�
 ## 配置
 
 默认配置源为 [config/vnapro.yml](../config/vnapro.yml)。
-CMake 配置时复制到构建目录 `bin/vnapro.yml`，默认启动读取该副本。
-编辑源配置后重新执行 CMake 配置；需要保留独立运行配置时，显式指定文件：
+CMake 配置时复制到开发目录 `bin/vnapro.yml`；构建 `vna_server` 后首次发布同步到 `release/vnapro.yml`。
+程序默认读取自身目录的配置。重复发布保留已有 `vnapro.yml`，最新源配置更新到 `vnapro.example.yml`，按需合并后重启；开发目录的配置在重新执行 CMake 配置时更新。需要独立配置时，显式指定文件：
 
 ```powershell
 .\build\bin\vna_server.exe --config I:\vnapro-config\vnapro.yml
 ```
 
-迁移可执行程序时携带配置，并用 `--config` 指向部署文件；默认路径是构建时生成的绝对路径。
+部署时复制整个 `release` 目录，配置随程序携带，无需另填 `--config`。日志在运行时创建，发布同步保留已有日志和用户文件；步骤见[自动生成发布目录](../README.md#自动生成发布目录)。
 配置变更在服务重启后生效，不提供运行中热更新。
 文件路径相对**配置文件所在目录**解析，Windows 支持中文配置目录、配置文件名和日志路径。
 设备库和 Web 根目录仍遵循既有启动参数合同。

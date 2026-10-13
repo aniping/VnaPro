@@ -12,7 +12,9 @@ npm.cmd test
 npm.cmd run build
 ```
 
-`package-lock.json` 固定依赖。`npm run build` 先执行 `vue-tsc --noEmit`，再生成 `dist/index.html` 和 `dist/assets`。随后回到仓库根目录构建并运行 C++ 服务，默认访问 [http://127.0.0.1:8080](http://127.0.0.1:8080/)；完整命令见 [根 README](../README.md)。部署时将整个 `dist` 目录交给服务的 `--web-root`，并用 `--driver` 指定部署后的模拟 DLL 绝对路径。浏览器运行静态产物，不需要安装 Node.js。
+`package-lock.json` 固定依赖。`npm run build` 先执行 `vue-tsc --noEmit`，再生成 `dist/index.html` 和 `dist/assets`。随后回到仓库根目录构建 `vna_server`，将已生成的 `dist` 内容自动复制到构建目录的 `release/WebUI`，并汇总服务、驱动、运行库和配置。部署时复制整个 `release` 目录，直接启动其中的程序，无需指定资源路径或安装 Node.js；默认访问 [http://127.0.0.1:8080](http://127.0.0.1:8080/)。完整步骤见 [自动生成发布目录](../README.md#自动生成发布目录)。
+
+C++ 构建不会自动下载 npm 依赖或执行前端构建。修改页面后先执行 `npm run build`，再构建 `vna_server`；即使 C++ 代码未变化，也会同步新资源并清理旧的托管资源。缺少 `dist/index.html` 时默认打包会报错；SCPI 专用构建可配置 `-DVNAPRO_BUNDLE_WEBUI=OFF` 并使用 `--no-web` 启动。CLion 原 `bin` 运行目标继续支持源码目录的 `WebUI/dist`，也可用 `--web-root` 显式指定静态目录。
 
 开发时保持 C++ 服务运行在 `127.0.0.1:8080`，另外执行：
 
