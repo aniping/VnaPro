@@ -45,11 +45,17 @@ VnaService::Operation TraceActionAdapter::Execute(
     const bool clone = path == "/api/v1/measurement-actions/clone";
     const bool add = path == "/api/v1/measurement-actions/add";
     const bool remove = path == "/api/v1/measurement-actions/delete-diagram";
-    if (!clone && !add && !remove) {
+    const bool matrix = path == "/api/v1/measurement-actions/all-sparameters";
+    if (!clone && !add && !remove && !matrix) {
         throw std::invalid_argument("Unknown measurement action");
     }
-    std::vector<std::string> allowed{"requestId", "expectedRevision", "expectedDisplayRevision", "diagram"};
-    if (!remove) {
+    std::vector<std::string> allowed{"requestId", "expectedRevision", "expectedDisplayRevision"};
+    if (matrix) {
+        allowed.push_back("confirmed");
+    } else {
+        allowed.push_back("diagram");
+    }
+    if (!remove && !matrix) {
         allowed.push_back("newDiagram");
     }
     if (clone) {
@@ -64,6 +70,13 @@ VnaService::Operation TraceActionAdapter::Execute(
     }
     const auto revision = DisplayJson::Revision(body, "expectedRevision");
     const auto displayRevision = DisplayJson::Revision(body, "expectedDisplayRevision");
+    if (matrix) {
+        const auto *confirmed = body.Find("confirmed");
+        if (confirmed == nullptr || confirmed->type != Json::Type::BOOLEAN || !confirmed->boolean) {
+            throw std::invalid_argument("Replacing all measurement definitions requires confirmed: true");
+        }
+        return service.CreateAllSParameters(revision, displayRevision, owner);
+    }
     if (remove) {
         return service.DeleteDiagram(Diagram(body, true), revision, displayRevision, owner);
     }

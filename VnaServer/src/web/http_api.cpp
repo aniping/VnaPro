@@ -628,6 +628,7 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
         return StartDisplayWrite(body, id);
     } else if ((request.path == "/api/v1/measurement-actions/clone" ||
                    request.path == "/api/v1/measurement-actions/add" ||
+                   request.path == "/api/v1/measurement-actions/all-sparameters" ||
                    request.path == "/api/v1/measurement-actions/delete-diagram") &&
                request.method == "POST") {
         operationValue = TraceActionAdapter::Execute(service_, request.path, body, id);
