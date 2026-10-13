@@ -355,11 +355,15 @@ test('the actual pane paints mixed Cartesian and Smith traces in one diagram and
     pane.props.allMeasurements.push(other)
     Reflect.set(pane.props.presentations, 'Other', view)
     const strokes: string[] = []
+    let dashedReference = false
+    let references = 0
     const context = {
       strokeStyle: '',
       setTransform() {},
       clearRect() {},
-      setLineDash() {},
+      setLineDash(segments: number[]) {
+        dashedReference = segments.length > 0
+      },
       fillRect() {},
       beginPath() {},
       moveTo() {},
@@ -373,7 +377,8 @@ test('the actual pane paints mixed Cartesian and Smith traces in one diagram and
       arc() {},
       fillText() {},
       stroke() {
-        if (['#60e600', '#ffff26'].includes(this.strokeStyle))
+        if (dashedReference) references++
+        else if (['#60e600', '#ffff26'].includes(this.strokeStyle))
           strokes.push(this.strokeStyle)
       },
     }
@@ -385,6 +390,11 @@ test('the actual pane paints mixed Cartesian and Smith traces in one diagram and
     }
     pane.bindings.schedulePaint()
     pane.paint()
+    assert.equal(
+      references,
+      1,
+      'The Cartesian reference line remains visible under the Smith background',
+    )
     assert.deepEqual(
       strokes,
       ['#ffff26', '#60e600'],

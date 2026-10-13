@@ -153,6 +153,10 @@ for (const axisFormat of ['db', 'smith', 'polar', 'invSmith'] as const) {
         references: [],
         axisFormat,
         radius: 1,
+        backgrounds: [
+          { format: 'db', radius: 1 },
+          { format: 'invSmith', radius: 1 },
+        ],
         curves,
       },
       { left: 0, top: 0, width: 700, height: 500 },

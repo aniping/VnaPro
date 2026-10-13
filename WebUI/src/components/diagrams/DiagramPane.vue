@@ -49,7 +49,10 @@ import {
   smithSeries,
   smithViewport,
 } from '../../plot/smithMath'
-import { paintMixedDiagram } from '../../plot/mixedRenderer'
+import {
+  paintMixedDiagram,
+  type MixedBackground,
+} from '../../plot/mixedRenderer'
 import { hitTestTrace, type SelectableCurve } from '../../plot/traceHitTest'
 import { createMarkerPreviewPoints } from '../../plot/markerPreview'
 import {
@@ -481,6 +484,17 @@ function circleRadius(presentation: TracePresentation): number {
   return circularAxis.value ? smithRadius.value : presentation.smithRadius
 }
 
+/** 背景来自可见呈现格式，等待第一帧时也能显示；仅派生像素几何，不保存控制状态。 */
+const backgrounds = computed<MixedBackground[]>(() => {
+  const visible = traces.value.filter((item) => item.presentation.visible)
+  return visible.length
+    ? visible.map((item) => ({
+        format: item.presentation.format,
+        radius: circleRadius(item.presentation),
+      }))
+    : [{ format: axisFormat.value, radius: smithRadius.value }]
+})
+
 /** 绘制与点击共用服务端投影；命中只决定用户点中了哪条可见曲线。 */
 const curves = computed<SelectableCurve[]>(() =>
   traces.value.flatMap((item): SelectableCurve[] => {
@@ -552,6 +566,7 @@ function schedulePaint(): void {
         xMax: xRange.value.max,
         axisFormat: axisFormat.value,
         radius: smithRadius.value,
+        backgrounds: backgrounds.value,
         references,
         curves: curves.value,
       },
