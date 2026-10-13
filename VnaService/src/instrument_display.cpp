@@ -6,6 +6,7 @@
 #include <chrono>
 #include <utility>
 
+#include "vna_core/frame_layout.h"
 #include "vna_display/diagram_collection.h"
 #include "vna_measurement/measurement_processor.h"
 #include "vna_service/instrument_service.h"
@@ -49,10 +50,23 @@ bool InstrumentService::PrepareDisplayConfiguration(Detail::ServiceTask &task)
     task.displayCandidate = display_;
     VnaDisplay::DisplayResult result;
     result.ok = true;
-    if ((task.selectNewMeasurement || task.selectClonedMeasurement || task.deletedDiagram != 0U) &&
+    if ((task.selectNewMeasurement || task.selectClonedMeasurement || task.deletedDiagram != 0U ||
+            task.matrixPortCount != 0U) &&
         task.expectedDisplayRevision != display_.State().revision) {
         result.ok = false;
         result.error = "Display revision changed";
+    }
+    if (result.ok && task.matrixPortCount != 0U) {
+        result = task.displayCandidate.ReplaceSParameterMatrix(task.candidate.measurements, task.matrixPortCount);
+    }
+    if (task.matrixPortCount != 0U) {
+        if (!result.ok) {
+            auto failure = DisplayResult(result);
+            failure.errorCode = Detail::SETTINGS_CONFLICT_ERROR;
+            Finish(std::move(failure));
+        }
+        // 整组从新默认显示建立，不协调或继承旧同名迹线的格式、刻度和标记。
+        return result.ok;
     }
     if (result.ok && task.deletedDiagram != 0U) {
         result = task.displayCandidate.RemoveDiagram(task.deletedDiagram, true);
@@ -174,6 +188,46 @@ Operation InstrumentService::AddMeasurement(std::uint64_t expectedRevision, std:
     const std::string &owner, TraceCreationOptions options)
 {
     return CreateMeasurement({}, expectedRevision, expectedDisplayRevision, owner, options);
+}
+
+Operation InstrumentService::CreateAllSParameters(
+    std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision, const std::string &owner)
+{
+    auto operation = ConfigureMeasurements(
+        [this](InstrumentSettings &candidate) {
+            OperationResult result;
+            const unsigned ports = profile_.portCount;
+            if (ports == 0U || ports > VnaCore::PHYSICAL_PORT_COUNT || ports * ports > VnaDisplay::MAX_DISPLAY_TRACES) {
+                result.errorCode = Detail::DATA_OUT_OF_RANGE_ERROR;
+                result.message = "S-parameter matrix exceeds instrument capacity";
+                return result;
+            }
+            candidate.measurements.clear();
+            for (unsigned receiver = 1U; receiver <= ports; ++receiver) {
+                for (unsigned source = 1U; source <= ports; ++source) {
+                    Measurement measurement;
+                    measurement.name = "Trc" + std::to_string(candidate.measurements.size() + 1U);
+                    if (!measurement.SetParameter("S" + std::to_string(receiver) + std::to_string(source)) ||
+                        !ValidMeasurement(measurement, profile_)) {
+                        result.errorCode = Detail::DATA_OUT_OF_RANGE_ERROR;
+                        result.message = "Unsupported matrix measurement definition";
+                        return result;
+                    }
+                    candidate.measurements.push_back(std::move(measurement));
+                }
+            }
+            result.ok = true;
+            return result;
+        },
+        expectedRevision, owner);
+    if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        auto &task = tasks_.back();
+        task.matrixPortCount = profile_.portCount;
+        // 整组替换始终要求双版本，内部 SCPI 所有者也不能用零版本跳过校验。
+        task.checkRevision = true;
+        task.expectedDisplayRevision = expectedDisplayRevision;
+    }
+    return operation;
 }
 
 Operation InstrumentService::CreateMeasurement(const std::string &source, std::uint64_t expectedRevision,

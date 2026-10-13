@@ -85,6 +85,9 @@ public:
     // 原子新增指定测量量或默认 S21（单端口 S11），同时提交命名、图窗归属与选择。
     Operation AddMeasurement(std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision,
         const std::string &owner, TraceCreationOptions options = {});
+    // 已确认的整组操作替换全部旧定义，一次提交 n² 参数、独立图窗及矩阵布局。
+    Operation CreateAllSParameters(
+        std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision, const std::string &owner);
     // 原生图窗删除连同所属测量定义一起提交，并保护最后图窗和最后迹线。
     Operation DeleteDiagram(unsigned diagram, std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision,
         const std::string &owner);

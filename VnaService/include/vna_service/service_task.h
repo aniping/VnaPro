@@ -57,6 +57,8 @@ struct ServiceTask final {
     bool newDiagram = false;
     unsigned targetDiagram = 0U;
     unsigned deletedDiagram = 0U;
+    // 非零表示整组替换；端口数量取自启动配置，不由客户端覆盖。
+    unsigned matrixPortCount = 0U;
     // 测量定义与显示设置使用同一个源名称，不由客户端单独复制显示属性。
     std::string cloneSourceName;
     std::uint64_t expectedDisplayRevision = 0U;
