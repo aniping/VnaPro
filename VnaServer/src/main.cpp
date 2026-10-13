@@ -13,6 +13,7 @@
 #include "scpi_tcp_server.h"
 #include "server_config_loader.h"
 #include "server_defaults.h"
+#include "startup_paths.h"
 #include "utf8_argument.h"
 #include "vna_core/acquisition_core.h"
 #include "vna_log/logger.h"
@@ -43,6 +44,7 @@ void PrintHelp()
                  "Defaults: TDC1VN10 simulator, SCPI 127.0.0.1:5025, Web http://127.0.0.1:8080.\n"
                  "Simulators: tdc1vn08_drv_sim and tdc1vn10_drv_sim.\n"
                  "--board selects the API and default library; an explicit --driver path overrides that library.\n"
+                 "Packaged config, WebUI, and libraries are resolved beside vna_server; explicit paths take priority.\n"
                  "Port 0 selects an available port. Only the VnaPro mock profile is implemented.\n";
 }
 
@@ -109,7 +111,7 @@ ArgumentResult ParseArguments(int argc, const char * const *argv, VnaServer::Lis
         }
         ++index;
         try {
-            const std::string value = (argument == "--config" || argument == "--driver")
+            const std::string value = (argument == "--config" || argument == "--driver" || argument == "--web-root")
                                           ? VnaServer::Utf8Argument(index, argv[index])
                                           : argv[index];
             if (!ParseOption(argument, value, options, driver, configPath)) {
@@ -122,6 +124,25 @@ ArgumentResult ParseArguments(int argc, const char * const *argv, VnaServer::Lis
         }
     }
     return ArgumentResult::READY;
+}
+
+void ApplyDefaultPaths(VnaServer::ListenOptions &options, VnaServer::DriverOptions &driver, std::string &configPath)
+{
+    const std::string directory = VnaServer::ExecutableDirectory();
+    if (configPath.empty()) {
+        configPath = VnaServer::DefaultStartupPath(directory, "vnapro.yml", VnaServer::DEFAULT_CONFIG_PATH);
+    }
+    if (options.web.staticRoot.empty()) {
+        options.web.staticRoot = VnaServer::DefaultStartupPath(
+            directory, "WebUI", VnaServer::DEFAULT_WEB_ROOT_PATH, VnaServer::StartupPathKind::DIRECTORY);
+    }
+    // 最后选择默认库，保证 --board 与 --driver 的参数顺序不影响结果。
+    if (driver.path.empty()) {
+        const bool vn10 = driver.api == VnaCore::DriverApi::TDC1VN10;
+        driver.path = VnaServer::DefaultStartupPath(directory,
+            vn10 ? VnaServer::DEFAULT_VN10_DRIVER_FILENAME : VnaServer::DEFAULT_VN08_DRIVER_FILENAME,
+            vn10 ? VnaServer::DEFAULT_VN10_DRIVER_PATH : VnaServer::DEFAULT_VN08_DRIVER_PATH);
+    }
 }
 
 bool LoadConfiguration(const std::string &path, VnaServer::ServerConfig &config)
@@ -205,9 +226,8 @@ int StartService(const VnaServer::DriverOptions &driver, const VnaServer::Listen
 int main(int argc, char **argv)
 {
     VnaServer::ListenOptions options;
-    options.web.staticRoot = VnaServer::DEFAULT_WEB_ROOT_PATH;
     VnaServer::DriverOptions driver;
-    std::string configPath = VnaServer::DEFAULT_CONFIG_PATH;
+    std::string configPath;
     const ArgumentResult parsed = ParseArguments(argc, argv, options, driver, configPath);
     if (parsed == ArgumentResult::HELP) {
         PrintHelp();
@@ -216,10 +236,11 @@ int main(int argc, char **argv)
     if (parsed == ArgumentResult::ERROR) {
         return 2;
     }
-    // 最后选择默认库，保证 --board 与 --driver 的参数顺序不影响结果。
-    if (driver.path.empty()) {
-        driver.path = driver.api == VnaCore::DriverApi::TDC1VN10 ? VnaServer::DEFAULT_VN10_DRIVER_PATH
-                                                                 : VnaServer::DEFAULT_VN08_DRIVER_PATH;
+    try {
+        ApplyDefaultPaths(options, driver, configPath);
+    } catch (const std::exception &error) {
+        std::cerr << "Startup resource resolution failed: " << error.what() << '\n';
+        return 2;
     }
     VnaServer::ServerConfig config;
     if (!LoadConfiguration(configPath, config)) {

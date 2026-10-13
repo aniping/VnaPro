@@ -22,6 +22,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -32,6 +33,39 @@ constexpr std::size_t OUTPUT_LIMIT = 4U * 1024U * 1024U;
 constexpr unsigned STATIC_READ_BUDGET = 16384U;
 #ifdef _WIN32
 constexpr std::size_t MAX_WINDOWS_PATH_CHARACTERS = 32768U;
+
+std::wstring WindowsPath(const std::string &path)
+{
+    if (path.empty() || path.find('\0') != std::string::npos ||
+        path.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("静态文件路径为空或过长");
+    }
+    const auto bytes = static_cast<int>(path.size());
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), bytes, nullptr, 0);
+    if (length == 0) {
+        throw std::runtime_error("静态文件路径不是有效 UTF-8");
+    }
+    std::wstring result(static_cast<std::size_t>(length), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), bytes, &result[0], length) != length) {
+        throw std::runtime_error("静态文件路径转换失败");
+    }
+    return result;
+}
+
+std::string Utf8Path(const wchar_t *path, int characters)
+{
+    const int length =
+        WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path, characters, nullptr, 0, nullptr, nullptr);
+    if (length == 0) {
+        throw std::runtime_error("静态文件规范路径转换失败");
+    }
+    std::string result(static_cast<std::size_t>(length), '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path, characters, &result[0], length, nullptr, nullptr) !=
+        length) {
+        throw std::runtime_error("静态文件规范路径转换失败");
+    }
+    return result;
+}
 
 void CloseDirectory(HANDLE directory) noexcept
 {
@@ -84,9 +118,9 @@ void StaticFile::Open(const std::string &root, const std::string &path)
 #ifdef _WIN32
 void StaticFile::OpenVerified(const std::string &root, std::string relative)
 {
-    const HANDLE directory =
-        CreateFileA(root.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    const HANDLE directory = CreateFileW(WindowsPath(root).c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS,
+        nullptr);
     if (directory == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("Static root unavailable");
     }
@@ -100,8 +134,8 @@ void StaticFile::OpenVerified(const std::string &root, std::string relative)
     CloseDirectory(directory);
     std::replace(relative.begin(), relative.end(), '/', '\\');
     const std::string fullPath = root + "\\" + relative;
-    file_ = CreateFileA(fullPath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    file_ = CreateFileW(WindowsPath(fullPath).c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file_ == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("Static file not found");
     }
@@ -235,13 +269,13 @@ std::size_t StaticFile::ReadAvailable(char *buffer, unsigned maximum)
 #ifdef _WIN32
 std::string StaticFile::FinalPath(HANDLE file)
 {
-    std::vector<char> buffer(MAX_WINDOWS_PATH_CHARACTERS);
+    std::vector<wchar_t> buffer(MAX_WINDOWS_PATH_CHARACTERS);
     const DWORD count =
-        GetFinalPathNameByHandleA(file, buffer.data(), static_cast<DWORD>(buffer.size()), FILE_NAME_NORMALIZED);
+        GetFinalPathNameByHandleW(file, buffer.data(), static_cast<DWORD>(buffer.size()), FILE_NAME_NORMALIZED);
     if (count == 0U || count >= buffer.size()) {
         throw std::runtime_error("Cannot verify static file path");
     }
-    std::string result(buffer.data(), count);
+    std::string result = Utf8Path(buffer.data(), static_cast<int>(count));
     while (!result.empty() && (result.back() == '\\' || result.back() == '/')) {
         result.pop_back();
     }
