@@ -8,6 +8,9 @@ import type {
   DisplayFormat,
   ScaleValues,
   LayoutMode,
+  InfoTablePosition,
+  DisplayAnnotations,
+  MarkerInfoLocation,
 } from '../domain/presentation'
 
 export interface MarkerCommand {
@@ -80,6 +83,28 @@ export function useWorkspace(
   }
   function selectDiagram(diagram: number) {
     return send({ action: 'diagramSelect', diagram })
+  }
+  function setInfoTable(value: {
+    enabled?: boolean
+    position?: InfoTablePosition
+  }) {
+    return send({ action: 'infoTable', ...value })
+  }
+  function setAnnotations(value: Partial<DisplayAnnotations>) {
+    return send({ action: 'displayAnnotations', ...value })
+  }
+  function setMarkerInfo(enabled: boolean, diagram?: number) {
+    return send({
+      action: 'markerInfo',
+      enabled,
+      ...(diagram === undefined ? {} : { diagram }),
+    })
+  }
+  function setMarkerInfoLocation(
+    traceName: string,
+    location: MarkerInfoLocation,
+  ) {
+    return send({ action: 'markerInfoLocation', traceName, location })
   }
   function overlayAll(diagram?: number) {
     return send({
@@ -159,6 +184,10 @@ export function useWorkspace(
     canAutoscale,
     selectTrace,
     selectDiagram,
+    setInfoTable,
+    setAnnotations,
+    setMarkerInfo,
+    setMarkerInfoLocation,
     overlayAll,
     splitAll,
     setDisplayed,

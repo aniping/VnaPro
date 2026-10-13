@@ -1,4 +1,8 @@
-import type { DisplayFormat, TracePresentation } from '../domain/presentation'
+import type {
+  DisplayFormat,
+  TracePresentation,
+  MarkerInfoLocation,
+} from '../domain/presentation'
 import { MAX_DIAGRAMS, MAX_TRACES } from '../domain/presentation'
 import {
   decodeMarkerCollection,
@@ -109,6 +113,14 @@ function presentation(value: unknown): TracePresentation {
     visible: flag(item.visible, 'display.visible'),
     marker,
     ...decodeMarkerCollection(item, marker),
+    markerInfoLocation:
+      item.markerInfoLocation === undefined
+        ? 'diagram'
+        : choice<MarkerInfoLocation>(
+            item.markerInfoLocation,
+            'display.markerInfoLocation',
+            ['diagram', 'table'],
+          ),
   }
 }
 
@@ -142,6 +154,10 @@ function diagrams(
       number: integer(item.number, 'display.diagram.number', 1, MAX_DIAGRAMS),
       measurementNames,
       primaryMeasurement,
+      markerInfoVisible:
+        item.markerInfoVisible === undefined
+          ? true
+          : flag(item.markerInfoVisible, 'display.diagram.markerInfoVisible'),
     }
   })
   if (
@@ -218,7 +234,51 @@ export function decodeDisplay(
     ]),
     presentations,
     diagrams: diagramDefinitions,
+    ...displayAnnotations(item),
   }
+}
+
+/** 老版本整体缺省时采用原机预置；部分字段损坏不能补成新的应用状态。 */
+function displayAnnotations(
+  item: Record<string, unknown>,
+): Pick<DisplaySnapshot, 'infoTable' | 'annotations'> {
+  const infoTable =
+    item.infoTable === undefined
+      ? { visible: false, position: 'bottom' as const }
+      : (() => {
+          const table = object(item.infoTable, 'display.infoTable')
+          return {
+            visible: flag(table.visible, 'display.infoTable.visible'),
+            position: choice(table.position, 'display.infoTable.position', [
+              'bottom',
+              'left',
+              'right',
+            ]),
+          }
+        })()
+  const annotations =
+    item.annotations === undefined
+      ? { activeTraceOnly: false, stimulusInfoVisible: true, fontScale: 100 }
+      : (() => {
+          const values = object(item.annotations, 'display.annotations')
+          return {
+            activeTraceOnly: flag(
+              values.activeTraceOnly,
+              'display.annotations.activeTraceOnly',
+            ),
+            stimulusInfoVisible: flag(
+              values.stimulusInfoVisible,
+              'display.annotations.stimulusInfoVisible',
+            ),
+            fontScale: number(
+              values.fontScale,
+              'display.annotations.fontScale',
+              80,
+              170,
+            ),
+          }
+        })()
+  return { infoTable, annotations }
 }
 
 function markerProjection(value: unknown): MarkerProjection {

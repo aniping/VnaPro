@@ -22,6 +22,19 @@ export function isCircularFormat(format: DisplayFormat): boolean {
   return format === 'smith' || format === 'polar' || format === 'invSmith'
 }
 export type LayoutMode = 'single' | 'grid' | 'maximized'
+export type InfoTablePosition = 'bottom' | 'left' | 'right'
+export type MarkerInfoLocation = 'diagram' | 'table'
+
+export interface InfoTableSettings {
+  visible: boolean
+  position: InfoTablePosition
+}
+
+export interface DisplayAnnotations {
+  activeTraceOnly: boolean
+  stimulusInfoVisible: boolean
+  fontScale: number
+}
 
 export interface DisplayScale {
   min: number
@@ -47,6 +60,7 @@ export interface TracePresentation {
   marker: MarkerState
   markers?: MarkerDefinition[]
   activeMarkerId?: number
+  markerInfoLocation?: MarkerInfoLocation
 }
 
 /** 八色循环参考 ZNB 的颜色数量配置；具体 RGB 是本项目的显示色板。 */

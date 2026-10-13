@@ -2,6 +2,10 @@ import type {
   DisplayFormat,
   LayoutMode,
   TracePresentation,
+  InfoTableSettings,
+  DisplayAnnotations,
+  InfoTablePosition,
+  MarkerInfoLocation,
 } from '../domain/presentation'
 
 /** 仪器标识保持为十进制字符串，以完整保留服务端 uint64 计数器的值。 */
@@ -62,15 +66,31 @@ export interface DisplaySnapshot {
   layout: LayoutMode
   presentations: Record<string, TracePresentation>
   diagrams: DiagramDefinition[]
+  infoTable?: InfoTableSettings
+  annotations?: DisplayAnnotations
 }
 
 export interface DiagramDefinition {
   number: number
   measurementNames: string[]
   primaryMeasurement: string
+  markerInfoVisible?: boolean
 }
 
 export type DisplayCommand =
+  | { action: 'infoTable'; enabled?: boolean; position?: InfoTablePosition }
+  | {
+      action: 'displayAnnotations'
+      activeTraceOnly?: boolean
+      stimulusInfoVisible?: boolean
+      fontScale?: number
+    }
+  | { action: 'markerInfo'; enabled: boolean; diagram?: number }
+  | {
+      action: 'markerInfoLocation'
+      traceName: string
+      location: MarkerInfoLocation
+    }
   | { action: 'select'; traceName: string; diagram?: number }
   | { action: 'diagramSelect'; diagram: number }
   | { action: 'overlay' | 'split'; diagram?: number }

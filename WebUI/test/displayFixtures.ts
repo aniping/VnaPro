@@ -60,6 +60,7 @@ export function presentation(format: DisplayFormat = 'db'): TracePresentation {
     },
     smithRadius: 1,
     visible: true,
+    markerInfoLocation: 'diagram',
     marker: {
       enabled: false,
       frequencyHz: null,
@@ -78,11 +79,18 @@ export function displaySnapshot(
     selectedDiagram: 1,
     displayedNames: catalog.slice(0, 4).map((trace) => trace.name),
     layout: 'single',
+    infoTable: { visible: false, position: 'bottom' },
+    annotations: {
+      activeTraceOnly: false,
+      stimulusInfoVisible: true,
+      fontScale: 100,
+    },
     diagrams: [
       {
         number: 1,
         measurementNames: catalog.slice(0, 4).map((trace) => trace.name),
         primaryMeasurement: catalog[0]?.name ?? '',
+        markerInfoVisible: true,
       },
     ],
     presentations: Object.fromEntries(
