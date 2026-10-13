@@ -12,6 +12,7 @@
 
 #include "marker_resolver.h"
 #include "scale_calculator.h"
+#include "vna_core/frame_layout.h"
 #include "vna_display/diagram_collection.h"
 #include "vna_display/trace_projection.h"
 #include "vna_measurement/measurement_processor.h"
@@ -66,8 +67,9 @@ bool EqualTrace(const TracePresentation &left, const TracePresentation &right)
 bool EqualState(const DisplayState &left, const DisplayState &right)
 {
     return left.selectedMeasurement == right.selectedMeasurement && left.selectedDiagram == right.selectedDiagram &&
-           left.layout == right.layout && left.traces.size() == right.traces.size() &&
-           left.infoTable.visible == right.infoTable.visible && left.infoTable.position == right.infoTable.position &&
+           left.layout == right.layout && left.gridColumns == right.gridColumns &&
+           left.traces.size() == right.traces.size() && left.infoTable.visible == right.infoTable.visible &&
+           left.infoTable.position == right.infoTable.position &&
            left.annotations.activeTraceOnly == right.annotations.activeTraceOnly &&
            left.annotations.stimulusInfoVisible == right.annotations.stimulusInfoVisible &&
            left.annotations.fontScale == right.annotations.fontScale && left.diagrams.size() == right.diagrams.size() &&
@@ -109,6 +111,7 @@ DisplayResult ReplaceDisplayed(
     const auto *previousDiagram = DiagramCollection::Find(state, state.selectedDiagram);
     const bool markerInfoVisible = previousDiagram == nullptr || previousDiagram->markerInfoVisible;
     state.diagrams = {{1U, names, state.selectedMeasurement}};
+    state.gridColumns = 0U;
     state.diagrams.front().markerInfoVisible = markerInfoVisible;
     state.selectedDiagram = 1U;
     if (!names.empty() && seen.count(state.selectedMeasurement) == 0U) {
@@ -351,6 +354,53 @@ std::vector<DisplayDiagram> DisplayWorkspace::ArrangeDiagrams(const DisplayState
                                   : state.diagrams;
 }
 
+DiagramGrid DisplayWorkspace::GridGeometry(const DisplayState &state) noexcept
+{
+    const auto count = static_cast<unsigned>(std::max<std::size_t>(1U, state.diagrams.size()));
+    DiagramGrid grid;
+    grid.columns = state.gridColumns == 0U ? std::min(2U, count) : std::min(state.gridColumns, count);
+    grid.rows = (count + grid.columns - 1U) / grid.columns;
+    return grid;
+}
+
+DisplayResult DisplayWorkspace::ReplaceSParameterMatrix(
+    const std::vector<VnaMeasurement::Measurement> &catalog, unsigned portCount)
+{
+    if (portCount == 0U || portCount > VnaCore::PHYSICAL_PORT_COUNT || catalog.size() != portCount * portCount) {
+        return Failure("S parameter matrix requires every available port pair");
+    }
+    std::set<std::string> names;
+    for (std::size_t index = 0U; index < catalog.size(); ++index) {
+        const auto &measurement = catalog[index];
+        if (measurement.name.empty() || !names.insert(measurement.name).second || !measurement.IsSupported() ||
+            measurement.kind != VnaMeasurement::MeasurementKind::S_PARAMETER ||
+            measurement.receiverPort != index / portCount + 1U || measurement.sourcePort != index % portCount + 1U) {
+            return Failure("S parameter matrix order must be receiver row and source column");
+        }
+    }
+    auto candidate = state_;
+    // 同名也代表新定义，不能继承被确认删除的旧格式、刻度或 Marker。
+    candidate.traces.clear();
+    candidate.diagrams.clear();
+    for (std::size_t index = 0U; index < catalog.size(); ++index) {
+        const auto &name = catalog[index].name;
+        TracePresentation presentation;
+        presentation.name = name;
+        candidate.traces.push_back(std::move(presentation));
+        DisplayDiagram diagram;
+        diagram.number = static_cast<unsigned>(index + 1U);
+        diagram.measurementNames = {name};
+        diagram.primaryMeasurement = name;
+        diagram.traceSlots = {1U};
+        candidate.diagrams.push_back(std::move(diagram));
+    }
+    candidate.layout = LayoutMode::GRID;
+    candidate.gridColumns = portCount;
+    candidate.selectedMeasurement = catalog.front().name;
+    candidate.selectedDiagram = 1U;
+    return Commit(std::move(candidate));
+}
+
 DisplayResult DisplayWorkspace::Commit(DisplayState candidate)
 {
     DiagramCollection::Refresh(candidate);
@@ -485,9 +535,11 @@ DisplayResult DisplayWorkspace::ApplyCandidate(DisplayState &candidate, const Di
                 }
             }
             DiagramCollection::Overlay(candidate);
+            candidate.gridColumns = 0U;
             return Success();
         case DisplayChangeKind::SPLIT:
             DiagramCollection::Split(candidate);
+            candidate.gridColumns = 0U;
             return Success();
         case DisplayChangeKind::LAYOUT:
             if (LayoutModeName(change.layout) == nullptr) {

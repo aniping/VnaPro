@@ -248,6 +248,9 @@ Json DisplayJson::State(const VnaDisplay::DisplayState &state, const std::vector
     result["selectedMeasurement"] = Json(state.selectedMeasurement);
     result["selectedDiagram"] = Json(state.selectedDiagram);
     result["layout"] = Json(VnaDisplay::LayoutModeName(state.layout));
+    const auto grid = VnaDisplay::DisplayWorkspace::GridGeometry(state);
+    result["gridColumns"] = Json(grid.columns);
+    result["gridRows"] = Json(grid.rows);
     Json infoTable = Json::MakeObject();
     infoTable["visible"] = Json(state.infoTable.visible);
     infoTable["position"] = Json(VnaDisplay::InfoTablePositionName(state.infoTable.position));

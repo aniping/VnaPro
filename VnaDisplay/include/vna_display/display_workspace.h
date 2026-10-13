@@ -96,12 +96,19 @@ struct DisplayDiagram final {
     bool markerInfoVisible = true;
 };
 
+struct DiagramGrid final {
+    unsigned columns = 1U;
+    unsigned rows = 1U;
+};
+
 struct DisplayState final {
     std::uint64_t revision = 1U;
     std::string selectedMeasurement;
     // 兼容协议的只读扁平目录，由 diagrams 派生，禁止作为第二份归属状态写入。
     std::vector<std::string> displayedNames;
     LayoutMode layout = LayoutMode::SINGLE;
+    // 零表示普通图窗的自动排列；整组矩阵保存明确列数，最大化不覆盖它。
+    unsigned gridColumns = 0U;
     std::vector<TracePresentation> traces;
     std::vector<DisplayDiagram> diagrams;
     unsigned selectedDiagram = 1U;
@@ -218,6 +225,8 @@ public:
     DisplayState Snapshot() const;
     // 返回全部已保存图窗；最大化只是显示方式，不删除其他图窗或迹线。
     static std::vector<DisplayDiagram> ArrangeDiagrams(const DisplayState &state);
+    // 统一决定完整图窗布局的行列尺寸，协议和显示客户端只读取结果。
+    static DiagramGrid GridGeometry(const DisplayState &state) noexcept;
     // 目录提交后保留同名设置，并原子移除无效项和不再适用的显示格式。
     DisplayResult Reconcile(const std::vector<VnaMeasurement::Measurement> &catalog);
     // 复制已协调源迹线的全部显示设置并选择目标；失败不改变任何状态，标记集合独立持有。
@@ -226,6 +235,8 @@ public:
     // 新测量使用默认显示设置，归属与选择在一个候选中完成。
     DisplayResult AddPresentation(const std::string &name, const std::vector<VnaMeasurement::Measurement> &catalog,
         unsigned diagram = 0U, bool newDiagram = false);
+    // 整组替换旧图窗和迹线设置；接收端口分行、源端口分列，每个参数一图窗。
+    DisplayResult ReplaceSParameterMatrix(const std::vector<VnaMeasurement::Measurement> &catalog, unsigned portCount);
     // 原生删除图窗时连续重编号；SCPI 删除显示窗口不删除测量定义。
     DisplayResult RemoveDiagram(unsigned diagram, bool renumber);
     // 按候选真实刺激轴协调标记；轴未改变时保留合法离散下标，否则按保存的频率重新吸附。
