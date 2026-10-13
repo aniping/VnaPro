@@ -7,8 +7,8 @@
 | 项目 | 官方行为 |
 | --- | --- |
 | 图窗容量 | 单个 diagram 的迹线数量实际上不受限，可来自不同 channel。项目的 128 项预算不能称为原机单图窗上限。第 89 页。 |
-| Trace List | 每条迹线的条目依次包含名称、测量量、格式、尺度/参考值，必要时还有通道、类型等字段；活动条目高亮。第 91–92 页。 |
-| 标题空间不足 | 图窗过窄时省略部分字段，扩大或最大化后恢复。已核对手册没有规定必须三列或四列；第 91 页的例图为两列。 |
+| Trace List | 每条迹线的条目依次包含名称、测量量、格式、尺度/参考值，必要时还有通道、类型等字段；活动条目高亮。第 91 页原图中，上排 Trc1 与下排活动 Trc5 文字长度不同，标题背景右边界相同，测量量保持独立色块；该示例支持高亮铺满本列槽位。第 91–92 页。 |
+| 标题空间不足 | 第 92 页明确规定图窗太小时隐藏部分 section，扩大或最大化后恢复完整字段；没有给出文字截成省略号的规则，也没有规定必须三列或四列。第 91 页的例图为两列。 |
 | Marker Info Field | 第 94 页描述图窗内全部 Marker 的坐标可显示在 info field，默认位于右上角；第 521 页的 Show 是图窗作用域。普通编号按迹线独立，编号与坐标使用所属迹线颜色，活动行前有圆点。第 94、500–502 页。上述依据未明确多迹线时独立字段的数量及移动单位。 |
 | Info Table | 一个全局屏幕容器，可位于底部、左侧或右侧。默认隐藏，通过 `System → Display → Config → Info Table → Show` 显示。第 95、801、1210 页。 |
 | 字段移动 | 将 Marker Info Field 拖放到 Info Table，为曲线腾出空间。第 95 页。 |
@@ -23,6 +23,8 @@
 表中依据为[官方 User Manual v74 第 89–95 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=89)、[Marker Info Field 第 521 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=521)、[Display Config 第 800–805 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=800)、[显示设置缺省值第 1210、1221–1222 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=1210)。
 
 手册第 52 页支持长表的鼠标滚动与触摸滑动，但这是通用表格操作说明，不能据此认定 Info Table 的密集字段使用滚动条，也不能证明图内 Marker Info 或 Trace List 的溢出方式。[第 52 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=52)。Info Window 的自动缩字号不能当成图内信息字段的自动缩字号依据。
+
+本次重新逐页核对第 91–92、795、801 页：第 92 页明确使用 “some of the sections are hidden”，随后说明扩大或最大化可显示全部 section。手册没有公布固定像素阈值、固定列数或隐藏顺序；第 801 页还允许调整 Trace List 字号。因此应区分图窗过窄时整字段取舍与为了保持四列而隐藏信息，不能把本机字体测量结果当作 ZNB 固定阈值。
 
 2026-10-13 复核了第 94、95、521、801 页完整上下文。第 95、801 页只有相同局部示意，均没有完整工作屏截图，不能核实 Info Table 的整体占屏比例、分隔线是否可拖、尺寸调整和字段过多时的原机布局。第 94 页以单数 info field 描述图窗内全部 Marker，第 521 页以图窗作用域控制 Show；这支持图窗级信息显示，但原文没有明确规定“一窗只能一个字段”，也不足以证明“每条迹线各有一个可独立迁移字段”。当前按迹线拆块与迁移仍需原机多迹线实例核实。
 
@@ -52,7 +54,7 @@ Info Table 使用全部已保存图窗的成员构造字段，不因 Maximized �
 - Show/Hide Table 仅改变容器显隐，不自动修改每迹线的字段位置；隐藏后保留已迁移归属，重新显示后恢复原字段。
 - 移动字段不自动开启 Table。页面先开启 Table，再拖放或使用 `Show Info in Table`；返回图内可拖回图窗或选择 `Show Info in Diagram`，也可在 Display 设置选择 `In Diagram`。
 - `markerInfoVisible` 统一控制图窗所属字段，不因字段进入 Table 而绕过开关；Overlay/Split 调整图窗后的保留规则由后端执行。
-- 标题列数根据实际字体的完整标题宽度与可用容器宽度计算，等宽列自然排列；没有固定三列、四列或原机字宽算法。窄窗省略次要字段，不删除迹线，不自动改变后端归属。
+- 标题列数根据实际字体、完整标题字宽与可用容器宽度计算，优先完整显示字段，等宽列自然排列。标题变长时先减少列数，不因追求四列而隐藏信息。只有整个标题区无法容纳单个完整标题时，才依次整项隐藏 Ref、Scale Div、RAW 类型、格式，并按剩余实际字宽排列；同图窗统一字段集合以对齐。放宽后从完整字段重新计算，不截断数值或使用省略号，完整提示与仪器值始终保留。字体、名称和实际数字不做布局归一化。这是项目布局策略，精确阈值与隐藏顺序没有原机算法依据，不固定所有尺寸为四列，不删除迹线或改变后端归属。
 - Table 底部区域当前 CSS 最大高度为工作区的 35%；左右区域以 300 px 为布局基准、最大宽度 40%，溢出内容在 Table 中滚动。这些是显示终端的像素布局边界，不是仪器配置或已核实的原机比例。
 - 图内字段不设置内部滚动条，也不因条目变多自动转入 Table。密集显示由用户选择字段迁移、字号、Split 或 Maximized；固定屏幕面积不能保证任意数量字段同时完整可读。
 
