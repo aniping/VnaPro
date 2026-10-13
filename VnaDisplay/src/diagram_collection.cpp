@@ -267,6 +267,12 @@ void DiagramCollection::Unfeed(DisplayState &state, const std::string &name, uns
     Refresh(state);
     if (removed && state.selectedMeasurement == name && !Contains(state.displayedNames, name) &&
         !state.displayedNames.empty()) {
+        const auto *active = Find(state, state.selectedDiagram);
+        // 当前图窗还有成员时保留所在图窗，只有空图窗才回退到其他图窗的记忆。
+        if (active != nullptr && !active->primaryMeasurement.empty()) {
+            Select(state, active->number);
+            return;
+        }
         for (auto &diagram : state.diagrams) {
             if (!diagram.primaryMeasurement.empty()) {
                 Select(state, diagram.number);

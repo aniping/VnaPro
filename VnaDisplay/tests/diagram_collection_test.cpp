@@ -246,6 +246,114 @@ void TestCloneUsesSourceDiagramUnlessTargetSpecified()
                 workspace.State().diagrams.back().measurementNames == std::vector<std::string>{"Trc3", "Trc1", "Trc4"},
         "显式目标图窗应优先于源迹线归属");
 }
+
+DisplayWorkspace RememberedWorkspace(const std::vector<VnaMeasurement::Measurement> &catalog)
+{
+    DisplayState state;
+    state.diagrams = {{1U, {"Trc1", "Trc2"}, "Trc2"}, {2U, {"Trc3", "Trc4"}, "Trc4"}};
+    state.diagrams.front().markerInfoVisible = false;
+    state.selectedDiagram = 2U;
+    state.selectedMeasurement = "Trc4";
+    state.infoTable.visible = true;
+    state.infoTable.position = InfoTablePosition::LEFT;
+    state.annotations.fontScale = 135.0;
+    DisplayWorkspace workspace(state);
+    Require(workspace.Reconcile(catalog).ok, "准备各图窗记忆的活动迹线失败");
+    auto scale = Change(DisplayChangeKind::SCALE, "Trc2");
+    scale.scale.hasPerDivision = true;
+    scale.scale.perDivision = 3.0;
+    Require(workspace.Apply(scale, catalog, {}).ok, "准备未受影响迹线的独立尺度失败");
+    auto marker = Change(DisplayChangeKind::MARKER, "Trc2");
+    marker.marker.action = MarkerAction::ADD;
+    Require(workspace.Apply(marker, catalog, DisplayTest::Frame()).ok, "准备未受影响迹线的标记失败");
+    return workspace;
+}
+
+void RequireRememberedTraceUnchanged(const DisplayState &before, const DisplayState &after)
+{
+    const auto find = [](const DisplayState &state) -> const TracePresentation & {
+        const auto trace = std::find_if(state.traces.begin(), state.traces.end(), [](const TracePresentation &item) {
+            return item.name == "Trc2";
+        });
+        Require(trace != state.traces.end(), "未受影响迹线丢失");
+        return *trace;
+    };
+    const auto &oldTrace = find(before);
+    const auto &newTrace = find(after);
+    Require(newTrace.format == oldTrace.format && newTrace.cartesianFormat == oldTrace.cartesianFormat &&
+                newTrace.scale.min == oldTrace.scale.min && newTrace.scale.max == oldTrace.scale.max &&
+                newTrace.scale.referencePosition == oldTrace.scale.referencePosition &&
+                newTrace.smithRadius == oldTrace.smithRadius && newTrace.visible == oldTrace.visible &&
+                newTrace.markerInfoLocation == oldTrace.markerInfoLocation &&
+                newTrace.markers.SameSettings(oldTrace.markers) &&
+                after.infoTable.visible == before.infoTable.visible &&
+                after.infoTable.position == before.infoTable.position &&
+                after.annotations.fontScale == before.annotations.fontScale &&
+                after.diagrams.front().markerInfoVisible == before.diagrams.front().markerInfoVisible,
+        "删除成员不应修改未受影响迹线或图窗的保存设置");
+}
+
+void TestDeletingActiveTraceUsesCurrentDiagramMemory()
+{
+    std::vector<VnaMeasurement::Measurement> catalog{
+        Measurement(), Measurement("Trc2"), Measurement("Trc3"), Measurement("Trc4")};
+    auto workspace = RememberedWorkspace(catalog);
+    const auto before = workspace.Snapshot();
+    catalog.pop_back();
+    Require(workspace.Reconcile(catalog).ok && workspace.State().selectedDiagram == 2U &&
+                workspace.State().selectedMeasurement == "Trc3" &&
+                workspace.State().diagrams.front().primaryMeasurement == "Trc2" &&
+                workspace.State().diagrams.back().primaryMeasurement == "Trc3",
+        "删除活动迹线应使用同图继任，不应覆盖其他图记忆的活动迹线");
+    RequireRememberedTraceUnchanged(before, workspace.State());
+}
+
+void TestDeletingInactiveTracePreservesOtherState()
+{
+    std::vector<VnaMeasurement::Measurement> catalog{
+        Measurement(), Measurement("Trc2"), Measurement("Trc3"), Measurement("Trc4")};
+    auto workspace = RememberedWorkspace(catalog);
+    const auto before = workspace.Snapshot();
+    catalog.erase(catalog.begin());
+    Require(workspace.Reconcile(catalog).ok && workspace.State().selectedDiagram == before.selectedDiagram &&
+                workspace.State().selectedMeasurement == before.selectedMeasurement &&
+                workspace.State().diagrams.front().primaryMeasurement == "Trc2" &&
+                workspace.State().diagrams.back().primaryMeasurement == before.diagrams.back().primaryMeasurement &&
+                workspace.State().diagrams.back().measurementNames == before.diagrams.back().measurementNames &&
+                workspace.State().diagrams.back().traceSlots == before.diagrams.back().traceSlots,
+        "删除非活动成员不应切换活动图、当前迹线或其他图的主迹线");
+    RequireRememberedTraceUnchanged(before, workspace.State());
+}
+
+void TestDeletingOnlyActiveTraceUsesFallbackDiagramMemory()
+{
+    std::vector<VnaMeasurement::Measurement> catalog{Measurement(), Measurement("Trc2"), Measurement("Trc4")};
+    auto workspace = RememberedWorkspace(catalog);
+    const auto before = workspace.Snapshot();
+    catalog.pop_back();
+    Require(workspace.Reconcile(catalog).ok && workspace.State().diagrams.size() == 1U &&
+                workspace.State().selectedDiagram == 1U && workspace.State().selectedMeasurement == "Trc2" &&
+                workspace.State().diagrams.front().primaryMeasurement == "Trc2",
+        "删除独占活动图后应恢复回退图保存的主迹线，而非目录首条");
+    RequireRememberedTraceUnchanged(before, workspace.State());
+}
+
+void TestUnfeedActiveTraceUsesCurrentDiagramMemory()
+{
+    const std::vector<VnaMeasurement::Measurement> catalog{
+        Measurement(), Measurement("Trc2"), Measurement("Trc3"), Measurement("Trc4")};
+    auto workspace = RememberedWorkspace(catalog);
+    const auto before = workspace.Snapshot();
+    auto unfeed = Change(DisplayChangeKind::DISPLAYED, "Trc4");
+    unfeed.diagram = 2U;
+    unfeed.enabled = false;
+    Require(workspace.Apply(unfeed, catalog, {}).ok && workspace.State().selectedDiagram == 2U &&
+                workspace.State().selectedMeasurement == "Trc3" &&
+                workspace.State().diagrams.front().primaryMeasurement == "Trc2" &&
+                workspace.State().diagrams.back().primaryMeasurement == "Trc3" && workspace.State().traces.size() == 4U,
+        "解除活动成员显示应优先同图剩余主迹线，并保留全部测量定义");
+    RequireRememberedTraceUnchanged(before, workspace.State());
+}
 }  // 匿名命名空间
 
 int main()
@@ -262,7 +370,11 @@ int main()
         TestDeleteActiveEmptyDiagramSelectsFallbackTrace();
         TestDeleteInactiveEmptyDiagramPreservesSelection();
         TestCloneUsesSourceDiagramUnlessTargetSpecified();
-        std::cout << "11 个显式图窗验收用例通过\n";
+        TestDeletingActiveTraceUsesCurrentDiagramMemory();
+        TestDeletingInactiveTracePreservesOtherState();
+        TestDeletingOnlyActiveTraceUsesFallbackDiagramMemory();
+        TestUnfeedActiveTraceUsesCurrentDiagramMemory();
+        std::cout << "15 个显式图窗验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

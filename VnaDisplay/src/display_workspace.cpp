@@ -234,15 +234,20 @@ DisplayResult ReconcileCandidate(DisplayState &candidate, const std::vector<VnaM
     candidate.traces = std::move(traces);
     DiagramCollection::Reconcile(candidate, names, initial);
     if (seen.count(candidate.selectedMeasurement) == 0U) {
-        candidate.selectedMeasurement = !candidate.displayedNames.empty() ? candidate.displayedNames.front()
-                                        : names.empty()                   ? ""
-                                                                          : names.front();
-        for (auto &diagram : candidate.diagrams) {
-            if (std::find(diagram.measurementNames.begin(), diagram.measurementNames.end(),
-                    candidate.selectedMeasurement) != diagram.measurementNames.end()) {
-                diagram.primaryMeasurement = candidate.selectedMeasurement;
-                candidate.selectedDiagram = diagram.number;
-            }
+        auto *selected = DiagramCollection::Find(candidate, candidate.selectedDiagram);
+        // 优先当前或重编号后的图窗记忆，避免目录首成员覆盖其他图窗的主迹线。
+        if (selected == nullptr || seen.count(selected->primaryMeasurement) == 0U) {
+            const auto fallback = std::find_if(
+                candidate.diagrams.begin(), candidate.diagrams.end(), [&seen](const DisplayDiagram &diagram) {
+                    return seen.count(diagram.primaryMeasurement) != 0U;
+                });
+            selected = fallback == candidate.diagrams.end() ? nullptr : &*fallback;
+        }
+        if (selected != nullptr) {
+            candidate.selectedMeasurement = selected->primaryMeasurement;
+            candidate.selectedDiagram = selected->number;
+        } else {
+            candidate.selectedMeasurement = names.empty() ? "" : names.front();
         }
     }
     return Success();

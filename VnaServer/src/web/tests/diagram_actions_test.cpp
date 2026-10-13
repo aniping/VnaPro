@@ -184,16 +184,17 @@ std::string Command(VnaScpi::ScpiEngine &engine, const std::string &command)
     return engine.TakeOutput();
 }
 
-void SetSourceSettings(HttpApi &api, const std::string &token, const std::string &name)
+void SetSourceSettings(
+    HttpApi &api, const std::string &token, const std::string &name, const std::string &idPrefix = "source")
 {
-    auto format = DisplayChange(api, "format", "source-phase", name);
+    auto format = DisplayChange(api, "format", idPrefix + "-phase", name);
     format["format"] = Json("phase");
     Apply(api, format, token);
-    auto scale = DisplayChange(api, "scale", "source-scale", name);
+    auto scale = DisplayChange(api, "scale", idPrefix + "-scale", name);
     scale["min"] = Json(-11.0);
     scale["max"] = Json(29.0);
     Apply(api, scale, token);
-    auto marker = DisplayChange(api, "marker", "source-marker-two", name);
+    auto marker = DisplayChange(api, "marker", idPrefix + "-marker-two", name);
     marker["markerId"] = Json(2U);
     marker["enabled"] = Json(true);
     marker["frequencyHz"] = Json(12e6);
@@ -461,6 +462,49 @@ void CloneWithoutDestinationUsesSourceDiagram()
         "协议观察没有共享同图复制的后端归属");
 }
 
+void DeleteActiveTraceKeepsDiagramContextAndSavedSettings()
+{
+    Fixture fixture;
+    HttpApi writer(fixture.service);
+    HttpApi observer(fixture.service);
+    const auto token = Claim(writer);
+    const auto first = Field(Display(writer), "selectedMeasurement").string;
+    const auto second = Create(writer, token, "deletion-second", {false, false, ""});
+    const auto third = Create(writer, token, "deletion-third", {false, true, ""});
+    const auto fourth = Create(writer, token, "deletion-fourth", {false, false, ""});
+    SetSourceSettings(writer, token, second, "deletion-second-settings");
+    SetSourceSettings(writer, token, third, "deletion-third-settings");
+    const auto before = Status(writer);
+    const auto &beforeDisplay = Field(before, "display");
+    Require(Field(Diagram(beforeDisplay, 1U), "primaryMeasurement").string == second &&
+                Field(beforeDisplay, "selectedMeasurement").string == fourth,
+        "双图活动记忆前置条件不成立");
+    auto deletion = Json::MakeObject();
+    deletion["requestId"] = Json("delete-active-in-second-window");
+    deletion["expectedRevision"] = Field(before, "revision");
+    Finish(writer, Request(writer, "DELETE", "/api/v1/measurements/" + fourth, deletion, token), token);
+    const auto after = Status(observer);
+    const auto &display = Field(after, "display");
+    Require(Field(display, "selectedDiagram").number == 2.0 && Field(display, "selectedMeasurement").string == third &&
+                Field(Diagram(display, 2U), "primaryMeasurement").string == third &&
+                Field(Diagram(display, 1U), "primaryMeasurement").string == second,
+        "删除活动迹线不能跳到首图或覆盖其他图窗的活动记忆");
+    for (const auto &name : {first, second, third}) {
+        Require(VnaWeb::StringifyJson(Presentation(display, name)) ==
+                    VnaWeb::StringifyJson(Presentation(beforeDisplay, name)),
+            "删除其他迹线改变了已有格式、刻度或 Marker 设置：" + name);
+    }
+    Require(Field(after, "acquisitionRevision").string == Field(before, "acquisitionRevision").string,
+        "相同测量需求的删除不能重建采集计划");
+    VnaScpi::ScpiEngine scpi(fixture.service);
+    Require(Command(scpi, "CALC1:FORM?") == "PHAS\n" && Command(scpi, "CALC1:MARK2:STAT?") == "1\n" &&
+                Command(scpi, "DISP:WIND2:CAT?") == "\"1\"\n",
+        "SCPI 没有共享删除后的正确图窗、活动格式与保存 Marker");
+    VerifyShared(writer, observer);
+    HttpApi refreshed(fixture.service);
+    VerifyShared(writer, refreshed);
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -473,7 +517,8 @@ int main()
         MixedFormatsAndEmptyDiagramRemainExplicit();
         MovingTraceAndDeletingActiveEmptyDiagramKeepSelectionShared();
         CloneWithoutDestinationUsesSourceDiagram();
-        std::cout << "7 个 HTTP 图窗、目录、标记与 CAS 事务验收用例通过\n";
+        DeleteActiveTraceKeepsDiagramContextAndSavedSettings();
+        std::cout << "8 个 HTTP 图窗、目录、标记与 CAS 事务验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
