@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { InstrumentStatus, MeasurementCandidate } from '../../api/types'
-import { type MeasurementChoice } from '../../domain/measurements'
+import {
+  sParameterChoices,
+  type SParameterChoice,
+} from '../../domain/measurements'
 import WaveQuantityDialog from './WaveQuantityDialog.vue'
 
 const props = defineProps<{
@@ -31,7 +34,9 @@ const disabled = computed(
     !active.value,
 )
 const portCount = computed(() => props.status?.capabilities.portCount ?? 0)
-const parameters: MeasurementChoice[] = ['S11', 'S12', 'S21', 'S22']
+const parameters = computed(() => sParameterChoices(portCount.value))
+// 原机保留双端口四项快捷键，多端口的完整选择通过上方选择器提供。
+const shortcutParameters: SParameterChoice[] = ['S11', 'S12', 'S21', 'S22']
 const waves = [
   { receiverKind: 'a', receiverPort: 1, sourcePort: 1 },
   { receiverKind: 'b', receiverPort: 1, sourcePort: 1 },
@@ -41,7 +46,7 @@ const waves = [
   { receiverKind: 'b', receiverPort: 1, sourcePort: 2 },
 ] as const
 
-function supports(parameter: MeasurementChoice) {
+function supports(parameter: SParameterChoice) {
   return (
     Number(parameter[1]) <= portCount.value &&
     Number(parameter[2]) <= portCount.value
@@ -61,7 +66,7 @@ async function change(candidate: MeasurementCandidate) {
   }
 }
 
-function selectParameter(parameter: MeasurementChoice) {
+function selectParameter(parameter: SParameterChoice) {
   if (!active.value || !supports(parameter)) return
   void change({ name: active.value.name, parameter })
 }
@@ -69,7 +74,10 @@ function selectParameter(parameter: MeasurementChoice) {
 function selectParameterEvent(event: Event) {
   if (event.target instanceof HTMLSelectElement) {
     const value = event.target.value
-    const parameter = parameters.find((item) => item === value)
+    // 操作完成前恢复设备读回值，避免原生下拉展示尚未生效的测量。
+    event.target.value =
+      active.value?.kind === 'sParameter' ? active.value.parameter : ''
+    const parameter = parameters.value.find((item) => item === value)
     if (parameter) selectParameter(parameter)
   }
 }
@@ -108,7 +116,7 @@ async function applyWave(candidate: MeasurementCandidate) {
       </div>
       <div class="measurement-matrix" role="group" aria-label="S-Parameters">
         <button
-          v-for="parameter in parameters"
+          v-for="parameter in shortcutParameters"
           :key="parameter"
           type="button"
           class="measurement-key"
@@ -125,7 +133,7 @@ async function applyWave(candidate: MeasurementCandidate) {
         class="measurement-key measurement-wide"
         type="button"
         disabled
-        title="当前仅实现双端口四项S参数；完整多端口矩阵的整组创建尚未实现"
+        title="S 参数整组创建尚未实现；请通过上方选择器逐条设置活动迹线"
       >
         All S-Params
       </button>

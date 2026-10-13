@@ -58,8 +58,6 @@ function measurement(value: unknown): Measurement {
     const parameter = `S${result.receiverPort}${result.sourcePort}`
     if (
       result.receiverKind !== 'b' ||
-      result.sourcePort > 2 ||
-      result.receiverPort > 2 ||
       result.parameter !== parameter ||
       result.unit !== '1' ||
       result.calibration !== 'uncalibrated'

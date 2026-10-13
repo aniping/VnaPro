@@ -67,9 +67,9 @@ const emit = defineEmits<{
     </p>
     <div class="softtool-divider" />
     <p class="softtool-note">
-      NativeSimulator 支持 RAW 与未校准 S11/S21/S12/S22；S11/S22 可显示 Smith 的
-      Γ 与归一化阻抗。校准与 RF 控制尚未实现。界面参考 ZNB，远程 SCPI 使用已有
-      Keysight 命令子集。
+      支持已配置端口的 RAW 与完整未校准 Sij；Meas 上方选择器提供全部合法参数。
+      Smith 显示复数轨迹，反射参数可读取 Γ 与归一化阻抗。校准与 RF
+      控制尚未实现。界面参考 ZNB，远程 SCPI 使用已有 Keysight 命令子集。
     </p>
   </section>
   <section v-else class="softtool-section">
