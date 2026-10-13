@@ -43,13 +43,13 @@ import {
   type MarkerResult,
 } from '../../plot/traceMath'
 import {
-  nearestSmithIndex,
   smithPoint,
   circularReadout,
   smithSeries,
   smithViewport,
 } from '../../plot/smithMath'
-import { paintMixedDiagram, type MixedCurve } from '../../plot/mixedRenderer'
+import { paintMixedDiagram } from '../../plot/mixedRenderer'
+import { hitTestTrace, type SelectableCurve } from '../../plot/traceHitTest'
 import { createMarkerPreviewPoints } from '../../plot/markerPreview'
 import {
   MarkerDragController,
@@ -487,6 +487,39 @@ function circleRadius(presentation: TracePresentation): number {
   return circularAxis.value ? smithRadius.value : presentation.smithRadius
 }
 
+/** 绘制与点击共用服务端投影；命中只决定用户点中了哪条可见曲线。 */
+const curves = computed<SelectableCurve[]>(() =>
+  traces.value.flatMap((item): SelectableCurve[] => {
+    if (!item.presentation.visible) return []
+    const format = item.presentation.format
+    const shared = {
+      name: item.measurement.name,
+      color: item.color,
+      active: item.measurement.name === props.activeTraceName,
+    }
+    if (isCircularFormat(format)) {
+      return [
+        {
+          ...shared,
+          kind: 'circular',
+          format: format as 'smith' | 'polar' | 'invSmith',
+          radius: circleRadius(item.presentation),
+          points: smithSeries(item.frameTrace),
+        },
+      ]
+    }
+    return displaySeries(item.frameTrace, format).map((series) => ({
+      ...shared,
+      kind: 'cartesian',
+      format,
+      frequencyHz: props.frame?.frequencyHz ?? [],
+      values: series.values,
+      scale: item.scale,
+      dashed: series.component === 'imaginary',
+    }))
+  }),
+)
+
 function schedulePaint(): void {
   cancelAnimationFrame(paintRequest)
   paintRequest = requestAnimationFrame(() => {
@@ -502,34 +535,6 @@ function schedulePaint(): void {
       x: bounds.width / width.value,
       y: bounds.height / height.value,
     }
-    const curves: MixedCurve[] = traces.value.flatMap((item): MixedCurve[] => {
-      if (!item.presentation.visible) return []
-      const format = item.presentation.format
-      const shared = {
-        color: item.color,
-        active: item.measurement.name === props.activeTraceName,
-      }
-      if (isCircularFormat(format)) {
-        return [
-          {
-            ...shared,
-            kind: 'circular',
-            format: format as 'smith' | 'polar' | 'invSmith',
-            radius: circleRadius(item.presentation),
-            points: smithSeries(item.frameTrace),
-          },
-        ]
-      }
-      return displaySeries(item.frameTrace, format).map((series) => ({
-        ...shared,
-        kind: 'cartesian',
-        format,
-        frequencyHz: props.frame?.frequencyHz ?? [],
-        values: series.values,
-        scale: item.scale,
-        dashed: series.component === 'imaginary',
-      }))
-    })
     const references = traces.value
       .filter(
         (item) =>
@@ -553,7 +558,7 @@ function schedulePaint(): void {
         axisFormat: axisFormat.value,
         radius: smithRadius.value,
         references,
-        curves,
+        curves: curves.value,
       },
       bounds,
     )
@@ -670,61 +675,11 @@ watch(
 )
 
 function selectPane(): void {
-  if (props.canEditDisplay && !active.value) emit('selectDiagram', props.number)
-}
-
-function markerMoveAt(
-  name: string,
-  clientX: number,
-  clientY: number,
-  markerId: number,
-): MarkerMove | null {
-  const bounds = plotArea.value?.getBoundingClientRect()
-  const axis = props.frame?.frequencyHz
-  if (!props.canEditDisplay || !bounds || !axis?.length) return null
-  const logicalX = ((clientX - bounds.left) * width.value) / bounds.width
-  const item = traces.value.find((trace) => trace.measurement.name === name)
-  if (item && isCircularFormat(item.presentation.format)) {
-    const logicalY = ((clientY - bounds.top) * height.value) / bounds.height
-    const index = nearestSmithIndex(
-      item?.frameTrace,
-      smithArea.value,
-      circleRadius(item.presentation),
-      logicalX,
-      logicalY,
-      screenScale.value.x,
-      screenScale.value.y,
-    )
-    return index >= 0
-      ? {
-          name,
-          markerId,
-          sampleIndex: props.frame!.sampleIndexes[index]!,
-          discrete: true,
-        }
-      : null
-  }
-  const fraction = Math.max(
-    0,
-    Math.min(1, (logicalX - rect.value.left) / rect.value.width),
-  )
-  return {
-    name,
-    markerId,
-    frequencyHz:
-      xRange.value.min + fraction * (xRange.value.max - xRange.value.min),
-    discrete: true,
-  }
-}
-
-function moveMarkerAt(
-  name: string,
-  clientX: number,
-  clientY: number,
-  markerId: number,
-): void {
-  const command = markerMoveAt(name, clientX, clientY, markerId)
-  if (command) emit('moveMarker', command)
+  const restoreTrace =
+    props.primaryTraceName !== '' &&
+    props.activeTraceName !== props.primaryTraceName
+  if (props.canEditDisplay && (!active.value || restoreTrace))
+    emit('selectDiagram', props.number)
 }
 
 function beginDrag(
@@ -894,23 +849,33 @@ function markerKey(event: KeyboardEvent, name: string, markerId: number): void {
   emit('moveMarker', { name, markerId, ...command, discrete: true })
 }
 
-function placeMarker(event: MouseEvent): void {
-  const item = activeTrace.value
-  if (item?.presentation.marker.enabled)
-    moveMarkerAt(
-      item.measurement.name,
-      event.clientX,
-      event.clientY,
-      activeMarkerId(item.presentation),
-    )
-}
-
 function clickPlot(event: MouseEvent): void {
-  if (!active.value) {
-    selectPane()
+  if (
+    event.button !== 0 ||
+    !props.canEditDisplay ||
+    markerDrag.dragging ||
+    markerDrag.pending
+  )
     return
-  }
-  placeMarker(event)
+  const target = event.target as Element | null
+  if (target?.closest?.('.marker-readouts, .marker-handle')) return
+  const bounds = plotArea.value?.getBoundingClientRect()
+  const name = bounds
+    ? hitTestTrace(
+        {
+          width: width.value,
+          height: height.value,
+          rect: rect.value,
+          xMin: xRange.value.min,
+          xMax: xRange.value.max,
+          curves: curves.value,
+          bounds,
+        },
+        { x: event.clientX, y: event.clientY },
+      )
+    : null
+  if (name) emit('selectTrace', name)
+  else selectPane()
 }
 
 function plotKey(event: KeyboardEvent): void {
@@ -1003,7 +968,7 @@ function plotKey(event: KeyboardEvent): void {
       class="plot-area"
       tabindex="0"
       role="group"
-      :aria-label="`Diagram ${number} plot. When the active marker is enabled, click a measured frequency or use Left, Right, Home and End to move the marker.`"
+      :aria-label="`Diagram ${number} plot. Click a trace to select it, or the background to activate this diagram. Click a marker to select it; drag the marker or use Left, Right, Home and End to move it.`"
       @click="clickPlot"
       @keydown="plotKey"
     >
