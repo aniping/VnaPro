@@ -180,7 +180,9 @@ function circularDescription(
 }
 
 .trace-format {
+  width: var(--trace-format-width, auto);
   padding: 0 4px;
+  box-sizing: border-box;
   color: inherit;
   font-weight: 400;
   flex-shrink: 0;

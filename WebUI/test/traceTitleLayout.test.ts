@@ -140,10 +140,14 @@ test('hidden sections return when the diagram has enough room', () => {
   ]
   const narrow = measuredTraceTitleLayout(160, titles, measure)
   const wide = measuredTraceTitleLayout(900, titles, measure)
+  const fourSlots = measuredTraceTitleLayout(904, titles, measure)
 
   assert.equal(narrow.sections.reference, false)
-  assert.equal(wide.columns, 4)
+  // 四个自然槽及三个间隔共需 904px，900px 只能容纳三列。
+  assert.equal(wide.columns, 3)
   assert.deepEqual(wide.sections, allSections)
+  assert.equal(fourSlots.columns, 4)
+  assert.deepEqual(fourSlots.sections, allSections)
 })
 
 test('the longest title determines common section visibility for every entry', () => {
@@ -305,6 +309,7 @@ test('every displayed section fits completely inside its trace title column', ()
         .reduce((sum, item) => {
           if (item.kind === 'trace-number') return sum + layout.nameWidth
           if (item.kind === 'measurement-chip') return sum + layout.chipWidth
+          if (item.kind === 'trace-format') return sum + layout.formatWidth
           return (
             sum +
             measure(item.text, item.font) +
@@ -313,9 +318,75 @@ test('every displayed section fits completely inside its trace title column', ()
           )
         }, 0)
       assert.ok(
-        displayedWidth <= columnWidth,
-        `At ${available}px, a complete title needs ${displayedWidth}px but its column has ${columnWidth}px`,
+        displayedWidth <= layout.slotWidth,
+        `At ${available}px, a complete title needs ${displayedWidth}px but its slot has ${layout.slotWidth}px`,
       )
+      assert.ok(layout.slotWidth <= columnWidth)
     }
   }
+})
+
+test('natural title slots do not stretch with one two or seventeen entries', () => {
+  const fields = title('Trc17', '0.5 dB/', 'Ref -25.5 dB')
+  const single = measuredTraceTitleLayout(895, [fields], measure)
+  const pair = measuredTraceTitleLayout(895, titleList(fields, 2), measure)
+  const many = measuredTraceTitleLayout(895, titleList(fields, 17), measure)
+
+  assert.equal(single.columns, 1)
+  assert.equal(pair.columns, 2)
+  assert.equal(many.columns, 3)
+  assert.equal(single.slotWidth, 223)
+  assert.equal(pair.slotWidth, single.slotWidth)
+  assert.equal(many.slotWidth, single.slotWidth)
+  assert.deepEqual(single.sections, allSections)
+})
+
+test('a wider diagram adds natural title slots without widening them', () => {
+  const titles = titleList(title('Trc17', '0.5 dB/', 'Ref -25.5 dB'), 17)
+  const original = measuredTraceTitleLayout(806, titles, measure)
+  const enlarged = measuredTraceTitleLayout(1400, titles, measure)
+
+  assert.equal(original.columns, 3)
+  assert.equal(enlarged.columns, 6)
+  assert.equal(original.slotWidth, 223)
+  assert.equal(enlarged.slotWidth, original.slotWidth)
+  assert.deepEqual(enlarged.sections, allSections)
+})
+
+test('format width is shared so SWR and dB magnitude scale fields start together', () => {
+  const swr = title('Trc1', '1 /', 'Ref 1', 'S11', 'SWR')
+  const magnitude = title('Trc2', '10 dB/', 'Ref 0 dB', 'S21', 'dB Mag')
+  const titles = [swr, magnitude]
+  const original = structuredClone(titles)
+  const layout = measuredTraceTitleLayout(895, titles, measure)
+
+  assert.equal(layout.nameWidth, Math.ceil(measure('Trc1', font) + 8))
+  assert.equal(layout.chipWidth, Math.ceil(measure('S21', font) + 8))
+  assert.equal(layout.formatWidth, Math.ceil(measure('dB Mag', font) + 8))
+  assert.ok(layout.formatWidth > Math.ceil(measure('SWR', font) + 8))
+  assert.equal(layout.slotWidth, 188)
+  assert.deepEqual(titles, original)
+})
+
+test('natural title slot width shrinks only with whole hidden sections', () => {
+  const titles = titleList(title('Trc17', '0.5 dB/', 'Ref -25.5 dB'))
+  const narrow = measuredTraceTitleLayout(160, titles, measure)
+  const veryNarrow = measuredTraceTitleLayout(100, titles, measure)
+
+  assert.deepEqual(narrow.sections, { ...allSections, reference: false })
+  assert.equal(narrow.slotWidth, 150)
+  assert.equal(
+    veryNarrow.slotWidth,
+    veryNarrow.nameWidth + veryNarrow.chipWidth,
+  )
+  assert.ok(veryNarrow.slotWidth < narrow.slotWidth)
+})
+
+test('the empty title list uses the available width for its empty state', () => {
+  const layout = measuredTraceTitleLayout(895, [], measure)
+
+  assert.equal(layout.columns, 1)
+  assert.equal(layout.slotWidth, 895)
+  assert.equal(layout.formatWidth, 0)
+  assert.deepEqual(layout.sections, allSections)
 })

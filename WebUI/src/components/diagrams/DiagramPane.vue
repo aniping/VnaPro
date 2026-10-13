@@ -99,9 +99,11 @@ const emit = defineEmits<{
 const traceList = ref<HTMLElement | null>(null)
 const titleLayout = ref({
   columns: 1,
+  slotWidth: 0,
   compact: false,
   nameWidth: 0,
   chipWidth: 0,
+  formatWidth: 0,
   sections: { format: true, scale: true, reference: true, state: true },
 })
 let titleObserver: ResizeObserver | undefined
@@ -876,9 +878,13 @@ function plotKey(event: KeyboardEvent): void {
         class="trace-list"
         aria-label="Traces"
         :style="{
-          gridTemplateColumns: `repeat(${titleLayout.columns}, minmax(0, 1fr))`,
+          gridTemplateColumns:
+            titleLayout.slotWidth > 0
+              ? `repeat(${titleLayout.columns}, ${titleLayout.slotWidth}px)`
+              : 'minmax(0, 1fr)',
           '--trace-name-width': `${titleLayout.nameWidth}px`,
           '--trace-chip-width': `${titleLayout.chipWidth}px`,
+          '--trace-format-width': `${titleLayout.formatWidth}px`,
         }"
       >
         <TraceStrip
@@ -1128,6 +1134,7 @@ function plotKey(event: KeyboardEvent): void {
 <style scoped>
 .diagram-pane {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;

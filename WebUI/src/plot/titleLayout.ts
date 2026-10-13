@@ -12,8 +12,10 @@ export interface TraceTitleField {
 }
 
 export interface MeasuredTraceTitleLayout extends TraceTitleLayout {
+  slotWidth: number
   nameWidth: number
   chipWidth: number
+  formatWidth: number
   sections: TraceTitleSections
 }
 
@@ -54,6 +56,7 @@ export function measuredTraceTitleLayout(
     )
   const nameWidth = widestField('trace-number')
   const chipWidth = widestField('measurement-chip')
+  const formatWidth = widestField('trace-format')
   const hiddenFields = new Set<string>()
   const widestTitle = () =>
     Math.ceil(
@@ -69,7 +72,9 @@ export function measuredTraceTitleLayout(
                   ? nameWidth
                   : field.kind === 'measurement-chip'
                     ? chipWidth
-                    : field.width),
+                    : field.kind === 'trace-format'
+                      ? formatWidth
+                      : field.width),
               0,
             ),
         ),
@@ -94,11 +99,15 @@ export function measuredTraceTitleLayout(
     sections[section] = false
   }
   const geometry = traceTitleLayout(availableWidth, widestTitle())
+  const columns = Math.min(Math.max(1, titles.length), geometry.columns)
   return {
-    columns: Math.min(Math.max(1, titles.length), geometry.columns),
+    columns,
+    // 空状态使用整行，真实标题只占自然槽宽，余宽留空。
+    slotWidth: titles.length ? widestTitle() : Math.max(0, availableWidth),
     compact: availableWidth < intrinsic,
     nameWidth,
     chipWidth,
+    formatWidth,
     sections,
   }
 }
