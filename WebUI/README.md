@@ -123,7 +123,7 @@ Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设
 2. 在 CONT 或 HOLD 下设置通道采集参数：Start/Stop/Center/Span 硬键打开 `Stimulus → Stimulus` 的频率设置；`Channel → Sweep → Sweep Params` 设置 `Number of Points`；`Channel → Power / Bw / Avg → Bandwidth` 设置 `IF Bandwidth`，软工具标题为 `Pwr Bw Avg`。每页保留独立输入草稿，Apply 只发送本页字段并等待后端完成及读回，切换菜单或帧轮询不会清除尚未应用的草稿。允许 Start = Stop，或把 Span 设为 0，进行 CW 定频采样；返回频轴允许同一频率重复。
 3. Meas 的 S-Params 页直接选择 S11/S12/S21/S22，修改活动迹线的测量量，不要求输入新名称。S11/S21 在源端口 1 的同帧波量上计算 `b1/a1`、`b2/a1`；S12/S22 在源端口 2 的同帧波量上计算 `b1/a2`、`b2/a2`。Wave 页提供六个标准两端口波量快捷选择；More Wave Quantities 对话框可按仪器能力指定 a/b、接收端口和激励端口，确认后修改活动迹线。超出当前端口能力的快捷选择禁用。CONT 中可以直接切换测量量；已有采集计划覆盖所需波量时复算同一完整帧，缺少源或接收机时由后台在完整帧边界更新计划，保持 CONT 和 runId。
 4. Sweep 硬键默认打开 `Sweep Params`；在 `Sweep Control` 页签中，Single sweep 采一帧并进入 HOLD，Continuous 连续采集，Hold 等待当前完整帧收尾。`Trigger` 页签和 Trigger 硬键显示触发源及 Manual trigger；仅在实际 MAN 触发并已 armed 时允许手动触发。
-5. 点击图内迹线条选择当前迹线。Format、Scale、Marker 改变后端共享显示设置。Trace Config 管理测量目录和共享 Display 集合，Add Trace 由后端复制并命名，Delete 删除定义；全部仪器写动作要求控制权，CONT 中仍可执行。另一观察窗口及 SCPI 能读取相同状态。`Marker → Markers` 用 Mkr 1～10 选择/启用普通标记，Add Marker 新增下一空闲成员，On 单独关闭当前标记，All Off 关闭活动迹线全部标记。图上符号及右上角读数行也可选择活动成员。
+5. 点击可见曲线或上方迹线标题选择当前迹线；点击空白区只激活图窗及其上次活动迹线，不启用或移动 Marker。Format、Scale、Marker 改变后端共享显示设置。Trace Config 管理测量目录和共享 Display 集合，Add Trace 由后端复制并命名，Delete 删除定义；全部仪器写动作要求控制权，CONT 中仍可执行。另一观察窗口及 SCPI 能读取相同状态。`Marker → Markers` 用 Mkr 1～10 选择/启用普通标记，Add Marker 新增下一空闲成员，On 单独关闭当前标记，All Off 关闭活动迹线全部标记。点击图上符号或右上角读数行只选择所属迹线和活动 Marker，保留坐标；从 Marker 符号开始拖动才提交位置变化。
 6. 在 File/Print、Tools 或工具栏导出当前显示的 CSV。
 
 点数与 IF 带宽菜单位置依据 [ZNB8 官方手册核对](../docs/research/ZNB8点数与中频带宽菜单核对.md)。本项目保留 Apply / Reload 作为草稿提交与重读交互，这组按钮并非原机软工具的复刻。CONT 下配置修改由后端在完整帧边界执行，并复核控制权及版本；功率、数字 IF 滤波器和平均尚未实现，不提供可操作的占位控件。
@@ -134,7 +134,7 @@ Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设
 
 图窗右上角 `▼ 图号` 菜单提供 All Diagrams、Maximized、Overlay All、Split All、Add Trace、Add Trace + Diagram、Delete Diagram 和 Add Marker。All Diagrams 显示所有后端图窗，Maximized 只放大当前图窗且保留完整迹线归属。Split All 为每条迹线创建独立图窗，不限为四个；图窗较多时可滚动查看。Overlay All 允许矩形与圆图共窗，网格由活动迹线决定，每条迹线仍按自己的格式投影。切换 Format 不创建、删除或移动图窗。工具栏最大化按钮切换 All Diagrams/Maximized；菜单支持方向键、Home/End、Enter、Esc 和外部点击。活动曲线最终绘制、活动标记在更高像素层显示，标题和目录顺序不改变。配色按每个图窗重新开始并循环使用颜色，颜色数量不限制迹线数量；这是本项目选定配色，ZNB 手册允许用户配置颜色和字体。
 
-初始对数刻度按手册示例采用 −90…10 dB、10 dB/div、Ref 0 dB 在第 9 格。Autoscale 才放大实际数据的细小变化；极小变化采用 `Δ` 刻度，迹线条和刻度提示保留真实 Ref。Scale 的参考位置从底部 0 到顶部 10；标记图上点击、释放拖动和方向键请求后端使用完整原始帧选择离散频点，并携带目标 markerId；在 Marker 中输入频率则遵循该成员的后端 Discrete 模式。聚焦图区后，←/→ 移动一点，Shift 移动十点，Home/End 到两端。Format 菜单包含十三种原机格式：dB Mag、Phase、Smith、Polar、SWR、Unwr Phase、Lin Mag、Log Mag、Real、Imag、Inv Smith、Delay、Delay Derivation；旧 Real/Imag 仅保留协议兼容。Log Mag 刻度使用正幅值 min/max，每格跨度为 decade，Ref 与刻度标签仍为正幅值；非正幅值保留读数，但不绘制不存在的对数坐标。Delay 的单位为 s，Delay Derivation 为 s²；RAW dB 参考 1 a.u.，S 参数为 `20 log₁₀ |S|`，线性幅度和实虚部使用无量纲单位 `1`，相位使用度数。RAW 迹线条保留 RAW 标签；S 参数的“未校准”状态在全局状态、测量提示及可访问文本中可见，避免重复占满迹线标题。尚未应用误差校准，不标成 dBm。
+初始对数刻度按手册示例采用 −90…10 dB、10 dB/div、Ref 0 dB 在第 9 格。Autoscale 才放大实际数据的细小变化；极小变化采用 `Δ` 刻度，迹线条和刻度提示保留真实 Ref。Scale 的参考位置从底部 0 到顶部 10；释放 Marker 拖动和方向键请求后端使用完整原始帧选择离散频点，并携带目标 markerId；普通图窗单击不发送位置命令。在 Marker 中输入频率则遵循该成员的后端 Discrete 模式。聚焦图区后，←/→ 移动一点，Shift 移动十点，Home/End 到两端。Format 菜单包含十三种原机格式：dB Mag、Phase、Smith、Polar、SWR、Unwr Phase、Lin Mag、Log Mag、Real、Imag、Inv Smith、Delay、Delay Derivation；旧 Real/Imag 仅保留协议兼容。Log Mag 刻度使用正幅值 min/max，每格跨度为 decade，Ref 与刻度标签仍为正幅值；非正幅值保留读数，但不绘制不存在的对数坐标。Delay 的单位为 s，Delay Derivation 为 s²；RAW dB 参考 1 a.u.，S 参数为 `20 log₁₀ |S|`，线性幅度和实虚部使用无量纲单位 `1`，相位使用度数。RAW 迹线条保留 RAW 标签；S 参数的“未校准”状态在全局状态、测量提示及可访问文本中可见，避免重复占满迹线标题。尚未应用误差校准，不标成 dBm。
 
 复数点的 `valid` 表示后端采样或比值计算有效，与当前格式能否给出有限显示值不同。有效的 `0+0i` 在线性幅度下为 0，dB 为 −∞，相位未定义；相位曲线留空，标记显示 `—`，CSV 保留实虚部 0 和 `valid=true`、显示值留空。这些格式结果及状态由 C++ 后端投影返回，浏览器不重复计算。
 
@@ -142,7 +142,9 @@ Smith、Polar 和 Inv Smith 可用于所有复数测量。S21 与 RAW 的圆图�
 
 Polar 的默认标记读数为幅值 `|z|` 与相位（度），曲线位置仍采用复数 Re/Im。后端分别下发 `markerValues/markerSecondaryValues/markerValueStates/markerSecondaryStates`，拖动直接读取这组幅相投影，不在浏览器执行 hypot 或 atan2。零幅值保留 0，未定义相位显示 `—`；该点仍可在圆心选中。旧响应完整缺少四数组时保留曲线，拖动不借用旧标记的读数；尚未提供单独 Marker Format 的显式设置。
 
-Smith 图上点击/拖动按屏幕距离命中实际渲染点，再通过 `sampleIndexes` 发送其原始索引和 markerId；实际标记计算由后端执行。方向键发送原始点 step，Home/End 发送完整帧两端索引，抽取不改变移动单位。各标记的独立读数可落在展示数组以外或两个原始频点之间。Γ 与归一化阻抗均读取后端值，不假定物理参考阻抗，也不声称校准。
+曲线点击只做屏幕几何拾取，读取与绘图共用的后端投影，不计算测量值或保存选中状态。项目采用 6 CSS px 容差，先选择最近线段，同距时活动曲线及后绘制曲线优先；隐藏曲线、无效断点和裁剪外区域不参与。该点击曲线交互有 Keysight 官方依据，像素算法属于项目规则，不能称为 ZNB 原机命中算法，详见[点击交互核对](../docs/research/ZNB8图窗点击交互核对.md)。
+
+Smith 图的普通曲线点击选择迹线，背景点击不改 Marker。已有 Marker 专用拖动按屏幕距离命中渲染点，再通过 `sampleIndexes` 发送其原始索引和 markerId；实际标记计算由后端执行。方向键发送原始点 step，Home/End 发送完整帧两端索引，抽取不改变移动单位。各标记的独立读数可落在展示数组以外或两个原始频点之间。Γ 与归一化阻抗均读取后端值，不假定物理参考阻抗，也不声称校准。
 
 标记拖动期间按浏览器绘制帧同步更新三角形和对应的右上角 X/Y 读数行，多次指针事件合并为一帧一次更新，不逐事件写仪器或重画曲线；其他编号保留自己的读数。预览读取同一个已下发采样点的后端格式投影，不在前端重算 S 参数、dB、相位或阻抗。CONT 中固定本次手势的几何、读数和原始采样索引，正常采集轮询继续。松手仅提交目标编号一次后端命令，预览保留到完成读回，失败恢复后端位置；Esc、指针取消或捕获丢失、失去写权限及格式/坐标几何改变会撤销未提交的拖动。临时预览仅属于本页，正式位置仍由 C++ 保存，另一窗口、刷新及 SCPI 读取同一已提交状态。显示数组抽点时，预览取已下发点，松手后 C++ 仍在完整帧吸附到更精确的位置。
 
