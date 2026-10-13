@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { DisplayFormat } from '../../domain/presentation'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { MarkerInfoLocation } from '../../domain/presentation'
 import { isCircularFormat } from '../../domain/presentation'
-import type { Measurement } from '../../api/types'
 import {
   measurementFormatInfo,
   frequencyText,
@@ -10,38 +9,95 @@ import {
   markerValueText,
   numberText,
 } from '../../plot/formatting'
-import type { MarkerResult } from '../../plot/traceMath'
 import { circularReadout } from '../../plot/smithMath'
-
-interface MarkerReadoutItem {
-  name: string
-  markerId: number
-  color: string
-  format: DisplayFormat
-  measurement: Measurement
-  result: MarkerResult
-  active: boolean
-  preview?: boolean
-}
+import {
+  MARKER_INFO_DRAG_TYPE,
+  type MarkerReadoutItem,
+} from '../../domain/markerReadouts'
 const props = defineProps<{
   markers: MarkerReadoutItem[]
   canEditDisplay: boolean
+  inline?: boolean
+  showTraceNames?: boolean
+  stimulusInfoVisible?: boolean
+  fontScale?: number
+  location?: MarkerInfoLocation
+  infoTableVisible?: boolean
 }>()
 // 多迹线可重复使用 M1..M10；归属列辅助区分，不重新编号或排序后端结果。
 const showTraceNames = computed(
-  () => new Set(props.markers.map((marker) => marker.name)).size > 1,
+  () =>
+    props.showTraceNames ||
+    new Set(props.markers.map((marker) => marker.name)).size > 1,
 )
 const emit = defineEmits<{
   select: [value: { name: string; markerId: number }]
+  relocate: [value: { name: string; location: MarkerInfoLocation }]
 }>()
+const root = ref<HTMLElement>()
+const contextTrace = ref('')
+const targetLocation = computed(() =>
+  props.location === 'table' ? 'diagram' : 'table',
+)
+const canRelocate = computed(
+  () =>
+    props.canEditDisplay &&
+    (targetLocation.value !== 'table' || props.infoTableVisible),
+)
+
+function openContext(event: MouseEvent, name: string) {
+  event.preventDefault()
+  event.stopPropagation()
+  contextTrace.value = name
+}
+function relocate() {
+  if (contextTrace.value && canRelocate.value)
+    emit('relocate', {
+      name: contextTrace.value,
+      location: targetLocation.value,
+    })
+  contextTrace.value = ''
+}
+function beginInfoDrag(event: DragEvent) {
+  const name = props.markers[0]?.name
+  if (!props.canEditDisplay || !name || !event.dataTransfer) {
+    event.preventDefault()
+    return
+  }
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData(MARKER_INFO_DRAG_TYPE, name)
+  contextTrace.value = ''
+}
+function closeOutside(event: PointerEvent) {
+  if (event.target instanceof Node && !root.value?.contains(event.target))
+    contextTrace.value = ''
+}
+onMounted(() => document.addEventListener('pointerdown', closeOutside))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
 </script>
 
 <template>
   <div
     v-if="markers.length"
+    ref="root"
     class="marker-readouts"
-    :class="{ 'multiple-traces': showTraceNames }"
+    :class="{
+      'multiple-traces': showTraceNames,
+      inline,
+      'without-stimulus': stimulusInfoVisible === false,
+    }"
+    :style="{
+      '--marker-font-size': `${(11 * (fontScale ?? 100)) / 100}px`,
+      '--marker-line-height': `${(14 * (fontScale ?? 100)) / 100}px`,
+      '--marker-number-width': `${(25 * (fontScale ?? 100)) / 100}px`,
+      '--marker-trace-width': `${(42 * (fontScale ?? 100)) / 100}px`,
+      '--marker-frequency-width': `${(85 * (fontScale ?? 100)) / 100}px`,
+      '--marker-value-width': `${(75 * (fontScale ?? 100)) / 100}px`,
+    }"
     aria-label="Marker readout"
+    :draggable="canEditDisplay"
+    @dragstart="beginInfoDrag"
+    @keydown.esc.stop="contextTrace = ''"
   >
     <button
       v-for="marker in markers"
@@ -58,13 +114,14 @@ const emit = defineEmits<{
       @click.stop="
         emit('select', { name: marker.name, markerId: marker.markerId })
       "
+      @contextmenu="openContext($event, marker.name)"
     >
       <span class="active-dot" aria-hidden="true">{{
         marker.active ? '•' : ''
       }}</span>
       <span class="marker-number">M{{ marker.markerId }}</span>
       <span v-if="showTraceNames" class="marker-trace">{{ marker.name }}</span>
-      <span class="marker-frequency">{{
+      <span v-if="stimulusInfoVisible !== false" class="marker-frequency">{{
         markerFrequencyText(marker.result.frequencyHz)
       }}</span>
       <span v-if="marker.result.valid" class="marker-value">
@@ -84,6 +141,30 @@ const emit = defineEmits<{
       </span>
       <span v-else class="marker-value invalid">Invalid point</span>
     </button>
+    <div
+      v-if="contextTrace"
+      class="marker-info-menu"
+      role="menu"
+      aria-label="Marker info field"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        :disabled="!canRelocate"
+        :title="
+          targetLocation === 'table' && !infoTableVisible
+            ? '先在 Display 中开启 Info Table'
+            : undefined
+        "
+        @click.stop="relocate"
+      >
+        {{
+          targetLocation === 'table'
+            ? 'Show Info in Table'
+            : 'Show Info in Diagram'
+        }}
+      </button>
+    </div>
   </div>
 </template>
 
@@ -96,27 +177,34 @@ const emit = defineEmits<{
   display: grid;
   gap: 0;
   max-width: calc(100% - 45px);
-  max-height: 45%;
-  overflow: auto;
-  scrollbar-width: thin;
   padding: 1px 2px;
   background: #323f48;
   border: 1px solid #546a78;
   pointer-events: auto;
 }
+.marker-readouts.inline {
+  position: relative;
+  top: auto;
+  right: auto;
+  max-width: none;
+  align-self: flex-start;
+}
 
 .marker-row {
   display: grid;
-  grid-template-columns: 5px 25px minmax(85px, 1fr) auto;
+  grid-template-columns: 5px minmax(
+      var(--marker-number-width, 25px),
+      max-content
+    ) minmax(var(--marker-frequency-width, 85px), 1fr) max-content;
   align-items: center;
   gap: 3px;
-  min-height: 14px;
+  min-height: var(--marker-line-height, 14px);
   padding: 0;
   border: 0;
   color: inherit;
   background: transparent;
   font:
-    11px/14px Tahoma,
+    var(--marker-font-size, 11px) / var(--marker-line-height, 14px) Tahoma,
     Arial,
     sans-serif;
   font-variant-numeric: tabular-nums;
@@ -125,14 +213,55 @@ const emit = defineEmits<{
 }
 
 .multiple-traces .marker-row {
-  grid-template-columns: 5px 25px 42px minmax(85px, 1fr) auto;
+  grid-template-columns: 5px minmax(
+      var(--marker-number-width, 25px),
+      max-content
+    ) minmax(var(--marker-trace-width, 42px), max-content) minmax(
+      var(--marker-frequency-width, 85px),
+      1fr
+    ) max-content;
+}
+.without-stimulus .marker-row {
+  grid-template-columns: 5px minmax(
+      var(--marker-number-width, 25px),
+      max-content
+    ) max-content;
+}
+.multiple-traces.without-stimulus .marker-row {
+  grid-template-columns: 5px minmax(
+      var(--marker-number-width, 25px),
+      max-content
+    ) minmax(var(--marker-trace-width, 42px), max-content) max-content;
+}
+.marker-info-menu {
+  position: absolute;
+  z-index: 65;
+  right: 0;
+  top: 100%;
+  padding: 3px;
+  border: 1px solid #667d87;
+  background: #33424b;
+  box-shadow: 1px 3px 7px #0008;
+}
+.marker-info-menu button {
+  padding: 5px 8px;
+  white-space: nowrap;
+  color: #edf3f5;
+  border: 0;
+  background: transparent;
+}
+.marker-info-menu button:disabled {
+  color: #80929c;
+}
+.marker-info-menu button:not(:disabled):hover {
+  background: #4a606d;
 }
 
 .active-dot {
   color: var(--marker-color);
   text-align: center;
-  font-size: 12px;
-  line-height: 12px;
+  font-size: var(--marker-font-size, 12px);
+  line-height: var(--marker-line-height, 12px);
 }
 
 .marker-number {
@@ -145,12 +274,12 @@ const emit = defineEmits<{
 }
 
 .marker-frequency {
-  min-width: 85px;
+  min-width: var(--marker-frequency-width, 85px);
   text-align: right;
 }
 
 .marker-value {
-  min-width: 75px;
+  min-width: var(--marker-value-width, 75px);
   text-align: right;
 }
 
