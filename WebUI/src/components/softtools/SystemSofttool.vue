@@ -1,18 +1,14 @@
 <script setup lang="ts">
 import type { AcquiredFrame, InstrumentStatus } from '../../api/types'
-import type { LayoutMode } from '../../domain/presentation'
 defineProps<{
   mode: string
   status: InstrumentStatus | null
   frame: AcquiredFrame | null
-  layout: LayoutMode
   connected: boolean
   hasControl: boolean
   controlBusy: boolean
-  canEditDisplay: boolean
 }>()
 const emit = defineEmits<{
-  layout: [value: LayoutMode]
   export: []
   acquire: []
   release: []
@@ -20,52 +16,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <section v-if="mode === 'display'" class="softtool-section">
-    <h2 class="softtool-section-title">Diagram Layout</h2>
-    <button
-      class="softtool-choice"
-      :disabled="!canEditDisplay"
-      :class="{ 'is-active': layout === 'grid' }"
-      :aria-pressed="layout === 'grid'"
-      @click="emit('layout', 'grid')"
-    >
-      All Diagrams
-    </button>
-    <button
-      class="softtool-choice"
-      :disabled="!canEditDisplay"
-      :class="{ 'is-active': layout === 'maximized' }"
-      :aria-pressed="layout === 'maximized'"
-      @click="emit('layout', 'maximized')"
-    >
-      Maximized · Active
-    </button>
-    <button
-      class="softtool-choice"
-      :disabled="!canEditDisplay"
-      :class="{ 'is-active': layout === 'single' }"
-      :aria-pressed="layout === 'single'"
-      @click="emit('layout', 'single')"
-    >
-      Overlay All
-    </button>
-    <p class="softtool-note">
-      Meas 中选择最多四条显示迹线。Maximized 仅显示当前迹线；Overlay 按矩形与
-      Smith 坐标分窗，避免混画。
-    </p>
-    <div class="softtool-divider" />
-    <h2 class="softtool-section-title">Instrument Workspace</h2>
-    <div class="softtool-readout">
-      <span>Reference canvas</span><strong>1280 × 800</strong>
-    </div>
-    <p class="softtool-note">
-      窗口按比例缩放，保留仪器操作位置。Esc 收起软工具，硬键重新打开。
-    </p>
-  </section>
-  <section
-    v-else-if="mode === 'file' || mode === 'tools'"
-    class="softtool-section"
-  >
+  <section v-if="mode === 'file' || mode === 'tools'" class="softtool-section">
     <h2 class="softtool-section-title">Export Displayed Frame</h2>
     <button
       class="softtool-button softtool-primary"
@@ -98,17 +49,21 @@ const emit = defineEmits<{
       </li>
       <li>Sweep → Sweep Params：编辑 Number of Points，再 Apply。</li>
       <li>Power / Bw / Avg → Bandwidth：编辑 IF Bandwidth，再 Apply。</li>
-      <li>Meas：添加 S11/S21/S12/S22 或 RAW，选择最多四条显示迹线。</li>
+      <li>
+        Meas：选择设备支持的 S 参数或 RAW。Trace Config
+        管理迹线，图窗菜单添加或删除图窗。
+      </li>
       <li>
         Sweep → Sweep Control：Single 采一帧；Continuous 连续采集；Hold 停止。
       </li>
       <li>点击图内迹线条，Format / Scale / Marker 只调整该迹线显示。</li>
     </ol>
     <div class="softtool-divider" />
-    <h2 class="softtool-section-title">Marker M1</h2>
+    <h2 class="softtool-section-title">Markers</h2>
     <p class="softtool-note">
       在曲线图点击或拖动选择真实频点。聚焦绘图区，← / → 移动一频点，Shift
-      移动十点，Home / End 到两端。
+      移动十点，Home / End 到两端。 每条迹线独立使用 M1～M10。Display → Info
+      Table 可将各迹线的读数停靠在表格中。
     </p>
     <div class="softtool-divider" />
     <p class="softtool-note">
