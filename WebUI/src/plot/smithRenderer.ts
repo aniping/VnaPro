@@ -104,15 +104,18 @@ export function paintSmithDiagram(
     }
 
     context.fillStyle = '#8ca0a8'
-    context.font = `${11 * Math.min(raster.cssScaleX, raster.cssScaleY)}px "Segoe UI", sans-serif`
+    const fontSize = 11 * Math.min(raster.cssScaleX, raster.cssScaleY)
+    // 小圆图仅减少坐标文字；这是项目像素可读性规则，不改变网格或后端参考半径。
+    const compactLabels = unitRadius < fontSize * 12
+    context.font = `${fontSize}px "Segoe UI", sans-serif`
     context.textAlign = 'center'
     context.textBaseline = 'bottom'
-    for (const resistance of [0, 0.2, 0.5, 1, 2, 5]) {
+    for (const resistance of compactLabels ? [0, 1] : [0, 0.2, 0.5, 1, 2, 5]) {
       const location = gridPoint((resistance - 1) / (resistance + 1), 0)
       context.fillText(String(resistance), location.x, location.y - 2)
     }
     context.fillText('∞', right.x, right.y - 2)
-    for (const reactance of [0.5, 1, 2, 5]) {
+    for (const reactance of compactLabels ? [1] : [0.5, 1, 2, 5]) {
       const denominator = 1 + reactance ** 2
       for (const sign of [-1, 1]) {
         const location = gridPoint(
