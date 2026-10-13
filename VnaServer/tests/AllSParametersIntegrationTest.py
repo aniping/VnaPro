@@ -1,12 +1,13 @@
 """验收确认后整组替换、扫描设置保留及原始双板驱动的完整矩阵链路。"""
 
+import math
 import os
 from pathlib import Path
 import sys
 import tempfile
 import time
 
-from GoldenIqIntegrationTest import running_server
+from GoldenIqIntegrationTest import compare, running_server
 from SParameterIntegrationTest import compare_complex, read_complex, trace_complex
 from WebHttpIntegrationTest import HttpClient, accepted, connect_scpi, wait_no_owner, wait_operation
 
@@ -118,8 +119,10 @@ def assert_matrix(status, before, port_count):
     for index, diagram in enumerate(display["diagrams"], start=1):
         assert diagram["number"] == index and diagram["measurementNames"] == [names[index - 1]]
         assert diagram["primaryMeasurement"] == names[index - 1] and diagram["traceSlots"] == [1]
-    for presentation in display["presentations"].values():
-        assert presentation["format"] == "db" and presentation["visible"]
+    for name, _, receiver, source in expected:
+        presentation = display["presentations"][name]
+        assert presentation["format"] == ("smith" if receiver == source else "db") and presentation["visible"]
+        assert presentation["cartesianFormat"] == "db" and presentation["smithRadius"] == 1
         assert presentation["scale"] == {"min": -90, "max": 10, "referencePosition": 9}
         assert not presentation["marker"]["enabled"] and not any(
             marker["enabled"] for marker in presentation["markers"]
@@ -137,6 +140,7 @@ def observer_catalog(http, port, token, expected):
         flattened = [part for name, parameter, _, _ in expected for part in (name, parameter)]
         assert client.query("CALC1:PAR:CAT:EXT?").strip('"').split(",") == flattened
         assert client.query("CALC1:PAR:SEL?") == '"Trc1"'
+        assert client.query("CALC1:FORM?") == "SMIT", "整组反射默认格式必须由 SCPI 观察到"
         assert client.query("CALC1:MARK1:STAT?") == "0"
         for index in range(1, len(expected) + 1):
             assert client.query(f"DISP:WIND{index}:STAT?") == "1"
@@ -171,6 +175,30 @@ def continuous_frames(http, status, names, mode):
         assert changed == set(names), "噪声模式全部矩阵成员应随完整帧更新"
 
 
+def projected_values(trace, ratio, reflection, parameter):
+    """以独立原始波比值核对已保存格式的投影，同时给出标记预期。"""
+    projection = trace["projection"]
+    assert projection["format"] == ("smith" if reflection else "db")
+    assert projection["valueStates"] == ["finite"] * len(ratio)
+    if reflection:
+        compare(projection["values"], [value.real for value in ratio], parameter + " Smith 实部")
+        compare(projection["secondaryValues"], [value.imag for value in ratio], parameter + " Smith 虚部")
+        # Γ 来自同帧原始波；独立 Python 复数运算核对圆图的归一化阻抗。
+        impedance = [(1 + value) / (1 - value) for value in ratio]
+        compare(projection["impedanceRealValues"], [value.real for value in impedance],
+                parameter + " 归一化阻抗实部")
+        compare(projection["impedanceImagValues"], [value.imag for value in impedance],
+                parameter + " 归一化阻抗虚部")
+        assert projection["impedanceStates"] == ["finite"] * len(ratio)
+        return [ratio[0].real, ratio[0].imag]
+    values = [20 * math.log10(abs(value)) for value in ratio]
+    compare(projection["values"], values, parameter + " dB Mag")
+    assert projection["secondaryValues"] == [None] * len(ratio)
+    assert not projection["impedanceRealValues"] and not projection["impedanceImagValues"]
+    # 标量格式遵循现有双值查询合同，第二项为零。
+    return [values[0], 0.0]
+
+
 def independent_ratios(http, port, port_count):
     wait_no_owner(http)
     client = connect_scpi(port)
@@ -194,6 +222,13 @@ def independent_ratios(http, port, port_count):
             ratio = [b / a for a, b in zip(reference, numerator)]
             compare_complex(trace_complex(trace), ratio, parameter + " 原始波/HTTP 比值")
             compare_complex(read_complex(client, name), ratio, parameter + " 原始波/SCPI 比值")
+            reflection = receiver == source
+            assert client.query("CALC1:FORM?") == ("SMIT" if reflection else "MLOG")
+            expected_marker = projected_values(trace, ratio, reflection, parameter)
+            command(client, "CALC1:MARK1:STAT ON;X MIN;DISC ON")
+            actual_marker = [float(value) for value in client.query("CALC1:MARK1:Y?").split(",")]
+            compare(actual_marker, expected_marker, parameter + " SCPI 标记投影")
+            command(client, "CALC1:MARK1:STAT OFF")
             command(client, f"DISP:WIND{(receiver - 1) * port_count + source}:TRAC1:SEL")
             assert client.query("CALC1:PAR:SEL?") == '"' + name + '"', "图窗槽必须选择本矩阵成员"
         later = http.frame([item[0] for item in expected])

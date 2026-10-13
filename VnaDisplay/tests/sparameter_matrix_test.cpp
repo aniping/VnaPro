@@ -40,6 +40,7 @@ void ReplacesOldTraceSettings(unsigned ports)
     marker.marker.sampleIndex = 1U;
     Require(display.Apply(marker, old, DisplayTest::Frame()).ok, "保存旧标记");
     auto initial = display.Snapshot();
+    initial.traces.front().smithRadius = 3.0;
     initial.annotations.fontScale = 110.0;
     initial.infoTable.visible = true;
     display = VnaDisplay::DisplayWorkspace(initial);
@@ -60,8 +61,13 @@ void ReplacesOldTraceSettings(unsigned ports)
             "每个参数独占连续编号图窗");
         Require(diagram.traceSlots == std::vector<unsigned>{1U} && diagram.primaryMeasurement == catalog[index].name,
             "局部活动迹线和显示槽独立");
-        Require(trace.format == VnaDisplay::DisplayFormat::DB && trace.scale.min == -90.0 && trace.scale.max == 10.0,
-            "同名旧迹线的刻度不继承");
+        const auto expectedFormat = catalog[index].receiverPort == catalog[index].sourcePort
+                                        ? VnaDisplay::DisplayFormat::SMITH
+                                        : VnaDisplay::DisplayFormat::DB;
+        Require(trace.format == expectedFormat, "整组矩阵对角反射使用 Smith，非对角传输使用 dB Mag");
+        Require(trace.cartesianFormat == VnaDisplay::DisplayFormat::DB && trace.scale.min == -90.0 &&
+                    trace.scale.max == 10.0 && trace.scale.referencePosition == 9.0 && trace.smithRadius == 1.0,
+            "同名旧迹线的矩形刻度与圆图半径不继承");
         Require(!trace.markers.Find(1U)->enabled, "同名旧迹线的 Marker 不继承");
     }
     Require(state.annotations.fontScale == 110.0 && state.infoTable.visible, "保留全局显示偏好");

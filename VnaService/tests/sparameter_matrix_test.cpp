@@ -122,10 +122,14 @@ void MatrixHasFreshDefinitionsAndDisplay(unsigned ports)
         for (unsigned index = 0U; index < ports * ports; ++index) {
             const auto name = "Trc" + std::to_string(index + 1U);
             const auto parameter = "S" + std::to_string(index / ports + 1U) + std::to_string(index % ports + 1U);
+            const auto expectedFormat =
+                index / ports == index % ports ? VnaDisplay::DisplayFormat::SMITH : VnaDisplay::DisplayFormat::DB;
             Require(after.settings.measurements[index].name == name &&
                         after.settings.measurements[index].Parameter() == parameter &&
                         after.display.diagrams[index].measurementNames == std::vector<std::string>{name} &&
-                        after.display.traces[index].format == VnaDisplay::DisplayFormat::DB &&
+                        after.display.traces[index].format == expectedFormat &&
+                        after.display.traces[index].cartesianFormat == VnaDisplay::DisplayFormat::DB &&
+                        after.display.traces[index].smithRadius == 1.0 &&
                         std::none_of(after.display.traces[index].markers.Items().begin(),
                             after.display.traces[index].markers.Items().end(),
                             [](const VnaDisplay::MarkerSettings &marker) {

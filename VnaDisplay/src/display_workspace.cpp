@@ -383,9 +383,14 @@ DisplayResult DisplayWorkspace::ReplaceSParameterMatrix(
     candidate.traces.clear();
     candidate.diagrams.clear();
     for (std::size_t index = 0U; index < catalog.size(); ++index) {
-        const auto &name = catalog[index].name;
+        const auto &measurement = catalog[index];
+        const auto &name = measurement.name;
         TracePresentation presentation;
         presentation.name = name;
+        // 整组总览用 Smith 显示端口反射，传输保持 dB Mag；普通新迹线的默认格式不变。
+        if (measurement.receiverPort == measurement.sourcePort) {
+            presentation.format = DisplayFormat::SMITH;
+        }
         candidate.traces.push_back(std::move(presentation));
         DisplayDiagram diagram;
         diagram.number = static_cast<unsigned>(index + 1U);
