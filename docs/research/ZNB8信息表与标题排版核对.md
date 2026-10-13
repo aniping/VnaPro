@@ -9,11 +9,11 @@
 | 图窗容量 | 单个 diagram 的迹线数量实际上不受限，可来自不同 channel。项目的 128 项预算不能称为原机单图窗上限。第 89 页。 |
 | Trace List | 每条迹线的条目依次包含名称、测量量、格式、尺度/参考值，必要时还有通道、类型等字段；活动条目高亮。第 91–92 页。 |
 | 标题空间不足 | 图窗过窄时省略部分字段，扩大或最大化后恢复。已核对手册没有规定必须三列或四列；第 91 页的例图为两列。 |
-| Marker Info Field | 每条迹线有自己的标记信息字段；普通编号按迹线独立。标记编号与坐标使用所属迹线颜色，活动行前有圆点。第 94、500–502、1050 页。 |
+| Marker Info Field | 第 94 页描述图窗内全部 Marker 的坐标可显示在 info field，默认位于右上角；第 521 页的 Show 是图窗作用域。普通编号按迹线独立，编号与坐标使用所属迹线颜色，活动行前有圆点。第 94、500–502 页。上述依据未明确多迹线时独立字段的数量及移动单位。 |
 | Info Table | 一个全局屏幕容器，可位于底部、左侧或右侧。默认隐藏，通过 `System → Display → Config → Info Table → Show` 显示。第 95、801、1210 页。 |
 | 字段移动 | 将 Marker Info Field 拖放到 Info Table，为曲线腾出空间。第 95 页。 |
-| Table 外观 | 第 95、801 页例图由多个信息字段块并列组成，块间细边框；没有通用列头。标记行顺序为活动圆点、M 编号、Trc 名、刺激值/单位、响应值/单位，整行同迹线色。 |
-| Show / Position | Table 默认关闭、位置默认 Bottom；这两个状态与字段归属分开。第 1210 页。 |
+| Table 外观 | 第 95、801 页重复使用同一张黑底局部示意图：左侧是 Trc1 的 Marker 字段，右侧是 Bandstop 搜索结果字段，两块之间有细边框；不是两条迹线的 Marker 字段实例。左块示例的行顺序为活动圆点、M 编号、Trc 名、刺激值/单位、响应值/单位，整行同迹线色，没有通用列头。 |
+| Show / Position | Table 默认关闭、位置默认 Bottom；命令分别控制显隐和位置。第 1210 页。字段迁移后的隐藏、恢复细节未在此处说明。 |
 | Marker Info Show | 控制指定图窗的标记信息显示，默认开启；不是启停标记本体。第 521、1221–1222 页。 |
 | Active Trace Only | 开启后标记信息只显示全局活动迹线；默认关闭。第 521、1210 页。 |
 | Stimulus Info | 只控制 Marker 信息中的频率坐标，默认开启；不控制 Channel footer。第 521、1210 页。 |
@@ -22,7 +22,9 @@
 
 表中依据为[官方 User Manual v74 第 89–95 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=89)、[Marker Info Field 第 521 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=521)、[Display Config 第 800–805 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=800)、[显示设置缺省值第 1210、1221–1222 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=1210)。
 
-手册支持长表的鼠标滚动与触摸滑动，但没有给出图内 Marker Info 或 Trace List 必须使用内部滚动条的规则。[第 52 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=52)。Info Window 的自动缩字号不能当成图内信息字段的自动缩字号依据。
+手册第 52 页支持长表的鼠标滚动与触摸滑动，但这是通用表格操作说明，不能据此认定 Info Table 的密集字段使用滚动条，也不能证明图内 Marker Info 或 Trace List 的溢出方式。[第 52 页](https://cdn.rohde-schwarz.com.cn/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=52)。Info Window 的自动缩字号不能当成图内信息字段的自动缩字号依据。
+
+2026-10-13 复核了第 94、95、521、801 页完整上下文。第 95、801 页只有相同局部示意，均没有完整工作屏截图，不能核实 Info Table 的整体占屏比例、分隔线是否可拖、尺寸调整和字段过多时的原机布局。第 94 页以单数 info field 描述图窗内全部 Marker，第 521 页以图窗作用域控制 Show；这支持图窗级信息显示，但原文没有明确规定“一窗只能一个字段”，也不足以证明“每条迹线各有一个可独立迁移字段”。当前按迹线拆块与迁移仍需原机多迹线实例核实。
 
 ## 当前共享显示合同
 
@@ -46,6 +48,7 @@ Info Table 使用全部已保存图窗的成员构造字段，不因 Maximized �
 
 以下细节没有原机算法或明确行为的证据，按项目合同记录：
 
+- 每条迹线独立构造 Marker 字段块，并可将整块单独迁移到 Table；这是当前实现解释，已核对的单迹线 Marker + Bandstop 示意不能证明多迹线时的原机拆块与迁移规则。
 - Show/Hide Table 仅改变容器显隐，不自动修改每迹线的字段位置；隐藏后保留已迁移归属，重新显示后恢复原字段。
 - 移动字段不自动开启 Table。页面先开启 Table，再拖放或使用 `Show Info in Table`；返回图内可拖回图窗或选择 `Show Info in Diagram`，也可在 Display 设置选择 `In Diagram`。
 - `markerInfoVisible` 统一控制图窗所属字段，不因字段进入 Table 而绕过开关；Overlay/Split 调整图窗后的保留规则由后端执行。

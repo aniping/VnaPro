@@ -2,6 +2,8 @@
 
 本功能参考 ZNB8 的全局 Info Table 容器及 Marker 信息字段，具体依据和项目边界见[官方行为核对](research/ZNB8信息表与标题排版核对.md)。所有已应用显示设置保存在正在运行的 C++ 服务；页面只显示快照、提交操作和维护临时输入/手势预览。当前不包含服务重启后的磁盘恢复。
 
+常规读数使用图窗内的浮动 Marker Info Field，Info Table 是默认隐藏的辅助停靠容器。前次验收页面开启 Table 仅用于演示，不代表原机默认主界面。当前按迹线独立拆块是实现解释，仍需原机多迹线实例核实；第 95、801 页的同一示意图显示 Marker 与 Bandstop 两种字段，并非两条迹线的 Marker 块。
+
 ## 使用方法
 
 1. 在持有控制权的页面打开 `Display` 软工具。`Show Table` 默认 Off，开启后选择 Bottom、Left 或 Right。
@@ -57,3 +59,5 @@ Table 使用全部已保存图窗，Maximized 只隐藏其他绘图区，不删�
 - 最终 Continuous 采集帧序号实测 `175 → 238`，`runId=4`、采集版本 `3` 保持一致。
 
 以上列出本轮真实执行的验证；其余验证步骤作为后续回归清单。尚未实现独立 Info Window、Bandfilter、Reference/Delta、独立 Marker Format，不以本功能声称完整原机兼容。
+
+随后复核原机依据时，已将演示页面的 Trc1、Trc17、Trc13 信息归属迁回 Diagram，并关闭 Table；后端读回确认，14 条可见浮动读数与 14 个图中 Marker 保留，活动迹线仍为 Trc13，Continuous 和 3980 点配置保持。上面的底部 Table 状态为前次功能演示的历史验收结果。
