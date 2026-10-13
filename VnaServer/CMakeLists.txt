@@ -24,11 +24,20 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(vna_server PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 add_dependencies(vna_server tdc1vn08_drv_sim tdc1vn10_drv_sim)
+include("${CMAKE_SOURCE_DIR}/cmake/release_bundle.cmake")
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_executable(vna_startup_paths_tests tests/startup_paths_test.cpp src/startup_paths.cpp src/web/static_file.cpp)
     target_include_directories(vna_startup_paths_tests PRIVATE src)
     add_test(NAME startup_paths COMMAND vna_startup_paths_tests)
+    if(VNAPRO_BUNDLE_WEBUI)
+        add_test(NAME release_bundle
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/tests/ReleaseBundleTest.py
+                "${VNAPRO_RELEASE_OUTPUT}" $<TARGET_FILE_NAME:vna_server>
+                $<TARGET_FILE_NAME:tdc1vn10_drv_sim> $<TARGET_FILE_NAME:tdc1vn08_drv_sim>
+                ${CMAKE_SOURCE_DIR}/config/vnapro.yml ${CMAKE_SOURCE_DIR}/WebUI/dist)
+        set_tests_properties(release_bundle PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME scpi_tcp_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/ScpiTcpIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim>)
