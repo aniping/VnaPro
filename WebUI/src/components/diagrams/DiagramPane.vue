@@ -1029,16 +1029,12 @@ function plotKey(event: KeyboardEvent): void {
   background: #111518;
 }
 .trace-list {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   flex: 1;
   min-width: 0;
-  flex-wrap: wrap;
   align-content: flex-start;
   gap: 2px 4px;
-  max-height: 84px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  overscroll-behavior: contain;
 }
 .empty-header {
   align-self: center;

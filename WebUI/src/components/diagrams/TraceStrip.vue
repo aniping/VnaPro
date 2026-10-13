@@ -132,6 +132,7 @@ function circularDescription(
   display: flex;
   align-items: center;
   min-width: 0;
+  max-width: 100%;
   gap: 0;
   padding: 0;
   border: 0;
@@ -153,9 +154,16 @@ function circularDescription(
   align-self: stretch;
   padding: 0 4px;
   font-weight: 400;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.trace-number {
+  min-width: 6ch;
 }
 
 .measurement-chip {
+  min-width: 5ch;
   color: #111518;
   background: var(--trace-color);
 }
@@ -164,6 +172,7 @@ function circularDescription(
   padding: 0 4px;
   color: inherit;
   font-weight: 400;
+  flex-shrink: 0;
 }
 
 .trace-scale,
@@ -171,6 +180,17 @@ function circularDescription(
 .trace-state {
   padding-right: 4px;
   color: inherit;
+}
+
+.trace-scale,
+.trace-state {
+  flex-shrink: 0;
+}
+
+.trace-reference {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 button:focus-visible {
