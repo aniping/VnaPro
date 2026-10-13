@@ -13,6 +13,7 @@ import TraceSofttool from './components/softtools/TraceSofttool.vue'
 import MarkerSofttool from './components/softtools/MarkerSofttool.vue'
 import { MAX_TRACES } from './domain/presentation'
 import SystemSofttool from './components/softtools/SystemSofttool.vue'
+import DisplaySofttool from './components/softtools/DisplaySofttool.vue'
 import { useInstrument } from './composables/useInstrument'
 import { useWorkspace } from './composables/useWorkspace'
 import { enableMarkerOnEntry } from './composables/markerMenuEntry'
@@ -51,7 +52,7 @@ const {
   layout,
   canAutoscale,
 } = workspace
-const { displayedNames, displayedMeasurements } = workspace
+const { displayedNames } = workspace
 const displayedMeasurement = computed(
   () =>
     frame.value?.traces.find((trace) => trace.name === activeTraceName.value) ??
@@ -279,7 +280,7 @@ onBeforeUnmount(() => {
             <DiagramWorkspace
               :diagrams="status?.display.diagrams ?? []"
               :frame="frame"
-              :measurements="displayedMeasurements"
+              :measurements="measurements"
               :presentations="presentations"
               :active-trace-name="activeTraceName"
               :selected-diagram="status?.display.selectedDiagram"
@@ -291,6 +292,11 @@ onBeforeUnmount(() => {
               :frame-condition="frameCondition"
               :can-edit-display="canEditDisplay"
               :commit-marker="commitMarker"
+              :info-table="status?.display.infoTable"
+              :annotations="status?.display.annotations"
+              @relocate-marker-info="
+                workspace.setMarkerInfoLocation($event.name, $event.location)
+              "
               @select-trace="workspace.selectTrace"
               @toggle-visibility="workspace.toggleVisibility"
               @set-layout="workspace.setLayout($event.layout, $event.diagram)"
@@ -410,19 +416,32 @@ onBeforeUnmount(() => {
               :action="instrument.run"
             />
             <SystemSofttool
-              v-if="group === 'system'"
+              v-if="group === 'system' && activeTool !== 'display'"
               :mode="activeTool"
               :status="status"
               :frame="frame"
-              :layout="layout"
               :connected="connected"
               :has-control="hasControl"
               :control-busy="controlBusy"
-              :can-edit-display="canEditDisplay"
-              @layout="workspace.setLayout"
               @export="exportCsv"
               @acquire="instrument.claim()"
               @release="instrument.release()"
+            />
+            <DisplaySofttool
+              v-if="activeTool === 'display'"
+              :status="status"
+              :can-edit-display="canEditDisplay"
+              @layout="workspace.setLayout"
+              @overlay="workspace.overlayAll()"
+              @split="workspace.splitAll"
+              @info-table="workspace.setInfoTable"
+              @annotations="workspace.setAnnotations"
+              @marker-info="
+                workspace.setMarkerInfo($event.enabled, $event.diagram)
+              "
+              @marker-info-location="
+                workspace.setMarkerInfoLocation($event.name, $event.location)
+              "
             />
           </SofttoolHost>
           <HardkeyPanel
