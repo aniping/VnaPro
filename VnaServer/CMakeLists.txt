@@ -61,6 +61,10 @@ if(BUILD_TESTING)
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim> $<TARGET_FILE:tdc1vn10_drv_sim>
             ${CMAKE_SOURCE_DIR}/VnaNativeSimulator/tests/golden_iq_vectors.h)
     set_tests_properties(four_port_sparameter_integration PROPERTIES TIMEOUT 75)
+    add_test(NAME all_sparameters_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/AllSParametersIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim> $<TARGET_FILE:tdc1vn10_drv_sim>)
+    set_tests_properties(all_sparameters_integration PROPERTIES TIMEOUT 120)
     add_test(NAME noise_iq_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/SimulatorNoiseIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim>)
