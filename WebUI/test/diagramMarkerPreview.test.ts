@@ -188,8 +188,12 @@ async function diagram(options: DiagramOptions = {}) {
     commits,
     pointer,
     readout() {
-      return findComponent(harness.render(), 'MarkerReadout')!.props!
-        .markers as {
+      return findElements(
+        harness.render(),
+        (node) =>
+          typeof node.type === 'object' &&
+          Reflect.get(node.type, 'name') === 'MarkerReadout',
+      ).flatMap((node) => node.props!.markers) as {
         name: string
         markerId: number
         result: MarkerResult

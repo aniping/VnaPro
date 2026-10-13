@@ -22,6 +22,7 @@ defineProps<{
   active: boolean
   smithRadius: number
   canEditDisplay: boolean
+  compact?: boolean
 }>()
 const emit = defineEmits<{
   select: [name: string]
@@ -60,7 +61,7 @@ function circularDescription(
 <template>
   <div
     class="trace-strip"
-    :class="{ active, hidden: !presentation.visible }"
+    :class="{ active, hidden: !presentation.visible, compact }"
     :style="{ '--trace-color': color }"
   >
     <button
@@ -114,7 +115,7 @@ function circularDescription(
   display: flex;
   width: max-content;
   max-width: 100%;
-  min-height: 18px;
+  min-height: var(--diagram-label-line-height, 18px);
   color: var(--trace-color);
   background: transparent;
 }
@@ -140,7 +141,8 @@ function circularDescription(
   background: transparent;
   text-align: left;
   font:
-    11px/18px Tahoma,
+    var(--diagram-label-font-size, 11px) /
+      var(--diagram-label-line-height, 18px) Tahoma,
     Arial,
     sans-serif;
   white-space: nowrap;
@@ -159,11 +161,11 @@ function circularDescription(
 }
 
 .trace-number {
-  min-width: 6ch;
+  width: var(--trace-name-width, auto);
 }
 
 .measurement-chip {
-  min-width: 5ch;
+  width: var(--trace-chip-width, auto);
   color: #111518;
   background: var(--trace-color);
 }
@@ -191,6 +193,11 @@ function circularDescription(
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.compact .trace-scale,
+.compact .trace-reference,
+.compact .trace-state {
+  display: none;
 }
 
 button:focus-visible {

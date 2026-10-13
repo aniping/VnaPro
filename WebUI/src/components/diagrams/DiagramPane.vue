@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
   AcquiredFrame,
   FrameCondition,
@@ -11,7 +11,15 @@ import {
   isCircularFormat,
   type LayoutMode,
   type TracePresentation,
+  type DisplayAnnotations,
+  type MarkerInfoLocation,
 } from '../../domain/presentation'
+import {
+  markerInfoDragName,
+  MARKER_INFO_DRAG_TYPE,
+  type MarkerReadoutPreview,
+} from '../../domain/markerReadouts'
+import { traceTitleLayout } from '../../plot/titleLayout'
 import {
   activeMarkerId,
   MARKER_COUNT,
@@ -70,6 +78,9 @@ const props = defineProps<{
   frameCondition: FrameCondition
   canEditDisplay: boolean
   commitMarker: (value: MarkerMove) => Promise<boolean>
+  markerInfoVisible?: boolean
+  annotations?: DisplayAnnotations
+  infoTableVisible?: boolean
 }>()
 const emit = defineEmits<{
   selectTrace: [name: string]
@@ -82,7 +93,18 @@ const emit = defineEmits<{
   addTrace: [value: { diagram: number; newDiagram: boolean }]
   deleteDiagram: [diagram: number]
   arrange: [value: { action: 'overlay' | 'split'; diagram: number }]
+  markerPreview: [value: MarkerReadoutPreview | null]
+  relocateMarkerInfo: [value: { name: string; location: MarkerInfoLocation }]
 }>()
+const traceList = ref<HTMLElement | null>(null)
+const titleLayout = ref({
+  columns: 1,
+  compact: false,
+  nameWidth: 0,
+  chipWidth: 0,
+})
+let titleObserver: ResizeObserver | undefined
+let titleMeasure: CanvasRenderingContext2D | null = null
 const plotArea = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const width = ref(700)
@@ -237,6 +259,122 @@ const markerReadouts = computed(() =>
     }
   }),
 )
+const infoVisible = computed(() => props.markerInfoVisible !== false)
+const annotationFontScale = computed(() => props.annotations?.fontScale ?? 100)
+const markerInfoFields = computed(() =>
+  traces.value.flatMap((trace) => {
+    if (
+      (trace.presentation.markerInfoLocation ?? 'diagram') !== 'diagram' ||
+      (props.annotations?.activeTraceOnly &&
+        trace.measurement.name !== props.activeTraceName)
+    )
+      return []
+    const markers = markerReadouts.value.filter(
+      (marker) => marker.name === trace.measurement.name,
+    )
+    return markers.length ? [{ name: trace.measurement.name, markers }] : []
+  }),
+)
+watch(dragPreview, (preview) =>
+  emit(
+    'markerPreview',
+    preview?.result
+      ? {
+          name: preview.name,
+          markerId: preview.markerId,
+          result: preview.result,
+        }
+      : null,
+  ),
+)
+
+/** DOM 实际字体测量只负责列几何；不会保存测量数据或应用状态。 */
+function measureTitles(): void {
+  const list = traceList.value
+  if (!list || !titleMeasure) return
+  const titles = Array.from(list.querySelectorAll<HTMLElement>('.trace-select'))
+  const measure = (element: HTMLElement) => {
+    const style = window.getComputedStyle(element)
+    titleMeasure!.font = style.font
+    return (
+      titleMeasure!.measureText(
+        (element.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      ).width +
+      parseFloat(style.paddingLeft || '0') +
+      parseFloat(style.paddingRight || '0')
+    )
+  }
+  const widths = titles.map((title) =>
+    Array.from(title.children).map((child) => ({
+      name: child.className,
+      width: measure(child as HTMLElement),
+    })),
+  )
+  const nameWidth = Math.ceil(
+    Math.max(
+      0,
+      ...widths.flatMap((fields) =>
+        fields
+          .filter((field) => field.name === 'trace-number')
+          .map((field) => field.width),
+      ),
+    ),
+  )
+  const chipWidth = Math.ceil(
+    Math.max(
+      0,
+      ...widths.flatMap((fields) =>
+        fields
+          .filter((field) => field.name === 'measurement-chip')
+          .map((field) => field.width),
+      ),
+    ),
+  )
+  const intrinsic = Math.ceil(
+    Math.max(
+      1,
+      ...widths.map((fields) =>
+        fields.reduce(
+          (sum, field) =>
+            sum +
+            (field.name === 'trace-number'
+              ? nameWidth
+              : field.name === 'measurement-chip'
+                ? chipWidth
+                : field.width),
+          0,
+        ),
+      ),
+    ),
+  )
+  const geometry = traceTitleLayout(list.clientWidth, intrinsic)
+  titleLayout.value = {
+    ...geometry,
+    columns: Math.min(Math.max(1, traces.value.length), geometry.columns),
+    nameWidth,
+    chipWidth,
+  }
+}
+function markerInfoDrop(event: DragEvent): void {
+  if (!props.canEditDisplay) return
+  const name = markerInfoDragName(event)
+  if (
+    name &&
+    props.measurements.some((measurement) => measurement.name === name)
+  ) {
+    event.preventDefault()
+    emit('relocateMarkerInfo', { name, location: 'diagram' })
+  }
+}
+function markerInfoDragOver(event: DragEvent): void {
+  if (
+    props.canEditDisplay &&
+    event.dataTransfer?.types.includes(MARKER_INFO_DRAG_TYPE)
+  ) {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
 const plottedMarkers = computed(() =>
   markerModels.value.flatMap((marker) => {
     if (!marker.result.valid) return []
@@ -445,6 +583,11 @@ function cancelDragKey(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
+  titleMeasure = document.createElement('canvas').getContext('2d')
+  titleObserver = new ResizeObserver(measureTitles)
+  if (traceList.value) titleObserver.observe(traceList.value)
+  void nextTick(measureTitles)
+  void document.fonts?.ready.then(measureTitles)
   observer = new ResizeObserver((entries) => {
     const entry = entries[0]
     if (!entry) return
@@ -460,6 +603,8 @@ onMounted(() => {
   schedulePaint()
 })
 onBeforeUnmount(() => {
+  titleObserver?.disconnect()
+  emit('markerPreview', null)
   cancelDrag()
   observer?.disconnect()
   window.removeEventListener('resize', resizePlot)
@@ -467,6 +612,26 @@ onBeforeUnmount(() => {
   resolutionQuery?.removeEventListener('change', resolutionChanged)
   cancelAnimationFrame(paintRequest)
 })
+watch(
+  () =>
+    JSON.stringify([
+      props.primaryTraceName,
+      smithRadius.value,
+      annotationFontScale.value,
+      props.measurements.map((measurement) => {
+        const presentation = props.presentations[measurement.name]
+        return [
+          measurement.name,
+          measurement.parameter,
+          measurement.unit,
+          presentation?.format,
+          presentation?.scale,
+          presentation?.smithRadius,
+        ]
+      }),
+    ]),
+  () => void nextTick(measureTitles),
+)
 watch(
   [() => props.frame, traces, () => props.activeTraceName, xRange],
   schedulePaint,
@@ -772,9 +937,24 @@ function plotKey(event: KeyboardEvent): void {
     :class="{ active }"
     :aria-label="`Diagram ${number}${active ? ', active' : ''}`"
     :data-diagram="number"
+    :style="{
+      '--diagram-label-font-size': `${(11 * annotationFontScale) / 100}px`,
+      '--diagram-label-line-height': `${(18 * annotationFontScale) / 100}px`,
+    }"
+    @dragover="markerInfoDragOver"
+    @drop="markerInfoDrop"
   >
     <header class="trace-header">
-      <div class="trace-list" aria-label="Traces">
+      <div
+        ref="traceList"
+        class="trace-list"
+        aria-label="Traces"
+        :style="{
+          gridTemplateColumns: `repeat(${titleLayout.columns}, minmax(0, 1fr))`,
+          '--trace-name-width': `${titleLayout.nameWidth}px`,
+          '--trace-chip-width': `${titleLayout.chipWidth}px`,
+        }"
+      >
         <TraceStrip
           v-for="trace in traces"
           :key="trace.measurement.name"
@@ -785,6 +965,7 @@ function plotKey(event: KeyboardEvent): void {
           :smith-radius="circleRadius(trace.presentation)"
           :can-edit-display="canEditDisplay"
           :active="trace.measurement.name === activeTraceName"
+          :compact="titleLayout.compact"
           @select="emit('selectTrace', $event)"
           @toggle-visibility="emit('toggleVisibility', $event)"
         />
@@ -844,11 +1025,22 @@ function plotKey(event: KeyboardEvent): void {
         "
         >{{ tick.value }}</span
       >
-      <MarkerReadout
-        :can-edit-display="canEditDisplay"
-        :markers="markerReadouts"
-        @select="emit('selectMarker', $event)"
-      />
+      <div v-if="infoVisible" class="marker-info-fields">
+        <MarkerReadout
+          v-for="field in markerInfoFields"
+          :key="field.name"
+          inline
+          :show-trace-names="markerInfoFields.length > 1"
+          location="diagram"
+          :info-table-visible="infoTableVisible"
+          :can-edit-display="canEditDisplay"
+          :markers="field.markers"
+          :font-scale="annotationFontScale"
+          :stimulus-info-visible="annotations?.stimulusInfoVisible"
+          @select="emit('selectMarker', $event)"
+          @relocate="emit('relocateMarkerInfo', $event)"
+        />
+      </div>
       <button
         v-for="marker in plottedMarkers"
         :key="`${marker.name}-M${marker.markerId}`"
@@ -1010,7 +1202,7 @@ function plotKey(event: KeyboardEvent): void {
 <style scoped>
 .diagram-pane {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) 20px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   border: 1px solid #526773;
@@ -1030,7 +1222,6 @@ function plotKey(event: KeyboardEvent): void {
 }
 .trace-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   flex: 1;
   min-width: 0;
   align-content: flex-start;
@@ -1047,6 +1238,17 @@ function plotKey(event: KeyboardEvent): void {
   min-height: 0;
   overflow: hidden;
   background: #000;
+}
+.marker-info-fields {
+  position: absolute;
+  z-index: 3;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  max-width: calc(100% - 45px);
 }
 .plot-area:focus-visible {
   outline: 2px solid #6fc5ea;
@@ -1068,7 +1270,7 @@ function plotKey(event: KeyboardEvent): void {
   text-align: left;
   color: #4b5f6c;
   background: transparent;
-  font-size: 11px;
+  font-size: var(--diagram-label-font-size, 11px);
   line-height: 14px;
   white-space: nowrap;
   pointer-events: none;
@@ -1100,7 +1302,7 @@ function plotKey(event: KeyboardEvent): void {
   position: absolute;
   left: 0;
   width: 100%;
-  font-size: 11px;
+  font-size: var(--diagram-label-font-size, 11px);
   font-weight: 400;
   line-height: 16px;
   color: inherit;
@@ -1195,12 +1397,13 @@ function plotKey(event: KeyboardEvent): void {
   grid-template-columns: auto 1fr auto 1fr;
   align-items: center;
   min-width: 0;
+  min-height: 20px;
   gap: 4px;
   padding: 0 2px;
   color: #fff;
   background: #000;
-  font-size: 11px;
-  line-height: 18px;
+  font-size: var(--diagram-label-font-size, 11px);
+  line-height: var(--diagram-label-line-height, 18px);
   white-space: nowrap;
 }
 
