@@ -19,7 +19,7 @@ import {
   MARKER_INFO_DRAG_TYPE,
   type MarkerReadoutPreview,
 } from '../../domain/markerReadouts'
-import { traceTitleLayout } from '../../plot/titleLayout'
+import { measuredTraceTitleLayout } from '../../plot/titleLayout'
 import {
   activeMarkerId,
   MARKER_COUNT,
@@ -102,6 +102,7 @@ const titleLayout = ref({
   compact: false,
   nameWidth: 0,
   chipWidth: 0,
+  sections: { format: true, scale: true, reference: true, state: true },
 })
 let titleObserver: ResizeObserver | undefined
 let titleMeasure: CanvasRenderingContext2D | null = null
@@ -293,67 +294,27 @@ function measureTitles(): void {
   const list = traceList.value
   if (!list || !titleMeasure) return
   const titles = Array.from(list.querySelectorAll<HTMLElement>('.trace-select'))
-  const measure = (element: HTMLElement) => {
-    const style = window.getComputedStyle(element)
-    titleMeasure!.font = style.font
-    return (
-      titleMeasure!.measureText(
-        (element.textContent ?? '').replace(/\s+/g, ' ').trim(),
-      ).width +
-      parseFloat(style.paddingLeft || '0') +
-      parseFloat(style.paddingRight || '0')
-    )
-  }
-  const widths = titles.map((title) =>
-    Array.from(title.children).map((child) => ({
-      name: child.className,
-      width: measure(child as HTMLElement),
-    })),
+  const fields = titles.map((title) =>
+    Array.from(title.children).map((child) => {
+      const style = window.getComputedStyle(child)
+      return {
+        kind: child.className,
+        text: (child.textContent ?? '').replace(/\s+/g, ' ').trim(),
+        font: style.font,
+        paddingLeft: parseFloat(style.paddingLeft || '0'),
+        paddingRight: parseFloat(style.paddingRight || '0'),
+      }
+    }),
   )
-  const nameWidth = Math.ceil(
-    Math.max(
-      0,
-      ...widths.flatMap((fields) =>
-        fields
-          .filter((field) => field.name === 'trace-number')
-          .map((field) => field.width),
-      ),
-    ),
+  const geometry = measuredTraceTitleLayout(
+    list.clientWidth,
+    fields,
+    (text, font) => {
+      titleMeasure!.font = font
+      return titleMeasure!.measureText(text).width
+    },
   )
-  const chipWidth = Math.ceil(
-    Math.max(
-      0,
-      ...widths.flatMap((fields) =>
-        fields
-          .filter((field) => field.name === 'measurement-chip')
-          .map((field) => field.width),
-      ),
-    ),
-  )
-  const intrinsic = Math.ceil(
-    Math.max(
-      1,
-      ...widths.map((fields) =>
-        fields.reduce(
-          (sum, field) =>
-            sum +
-            (field.name === 'trace-number'
-              ? nameWidth
-              : field.name === 'measurement-chip'
-                ? chipWidth
-                : field.width),
-          0,
-        ),
-      ),
-    ),
-  )
-  const geometry = traceTitleLayout(list.clientWidth, intrinsic)
-  titleLayout.value = {
-    ...geometry,
-    columns: Math.min(Math.max(1, traces.value.length), geometry.columns),
-    nameWidth,
-    chipWidth,
-  }
+  titleLayout.value = geometry
 }
 function markerInfoDrop(event: DragEvent): void {
   if (!props.canEditDisplay) return
@@ -930,7 +891,7 @@ function plotKey(event: KeyboardEvent): void {
           :smith-radius="circleRadius(trace.presentation)"
           :can-edit-display="canEditDisplay"
           :active="trace.measurement.name === activeTraceName"
-          :compact="titleLayout.compact"
+          :sections="titleLayout.sections"
           @select="emit('selectTrace', $event)"
           @toggle-visibility="emit('toggleVisibility', $event)"
         />

@@ -8,6 +8,7 @@ import type {
 import { isCircularFormat } from '../../domain/presentation'
 import { FORMAT_INFO, numberText, scaleValue } from '../../plot/formatting'
 import { measurementState } from '../../domain/measurements'
+import type { TraceTitleSections } from '../../plot/titleLayout'
 import {
   referenceLevel,
   usesRelativeAxis,
@@ -22,7 +23,7 @@ defineProps<{
   active: boolean
   smithRadius: number
   canEditDisplay: boolean
-  compact?: boolean
+  sections?: TraceTitleSections
 }>()
 const emit = defineEmits<{
   select: [name: string]
@@ -61,7 +62,14 @@ function circularDescription(
 <template>
   <div
     class="trace-strip"
-    :class="{ active, hidden: !presentation.visible, compact }"
+    :class="{
+      active,
+      hidden: !presentation.visible,
+      'hide-reference': sections?.reference === false,
+      'hide-scale': sections?.scale === false,
+      'hide-state': sections?.state === false,
+      'hide-format': sections?.format === false,
+    }"
     :style="{ '--trace-color': color }"
   >
     <button
@@ -113,7 +121,7 @@ function circularDescription(
 <style scoped>
 .trace-strip {
   display: flex;
-  width: max-content;
+  width: 100%;
   max-width: 100%;
   min-height: var(--diagram-label-line-height, 18px);
   color: var(--trace-color);
@@ -132,6 +140,7 @@ function circularDescription(
 .trace-select {
   display: flex;
   align-items: center;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
   gap: 0;
@@ -185,18 +194,15 @@ function circularDescription(
 }
 
 .trace-scale,
+.trace-reference,
 .trace-state {
   flex-shrink: 0;
 }
 
-.trace-reference {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.compact .trace-scale,
-.compact .trace-reference,
-.compact .trace-state {
+.hide-reference .trace-reference,
+.hide-scale .trace-scale,
+.hide-state .trace-state,
+.hide-format .trace-format {
   display: none;
 }
 
