@@ -34,6 +34,8 @@ const props = defineProps<{
   canAddTrace?: boolean
   canAddDiagram?: boolean
   layout: LayoutMode
+  gridColumns: number
+  gridRows: number
   config: SweepConfiguration
   frameCondition: FrameCondition
   canEditDisplay: boolean
@@ -125,14 +127,12 @@ const panes = computed(() =>
     })),
 )
 const gridStyle = computed(() => {
-  const columns = Math.max(
-    1,
-    Math.min(2, Math.ceil(Math.sqrt(panes.value.length))),
-  )
-  const rows = Math.max(1, Math.ceil(panes.value.length / columns))
+  // 只将后端保存的排列转换为像素布局，最大化不覆盖正式网格。
+  const columns = props.layout === 'maximized' ? 1 : props.gridColumns
+  const rows = props.layout === 'maximized' ? 1 : props.gridRows
   return {
     gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-    gridTemplateRows: `repeat(${rows}, minmax(150px, 1fr))`,
+    gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
   }
 })
 </script>
@@ -235,26 +235,6 @@ const gridStyle = computed(() => {
   padding: 0;
   gap: 2px;
   background: #0a1115;
-  overflow: auto;
-}
-.diagram-workspace.single,
-.diagram-workspace.maximized,
-.diagram-workspace.pane-count-1 {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-}
-.diagram-workspace.grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-}
-.diagram-workspace.grid.pane-count-1 {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-}
-.diagram-workspace.grid.pane-count-2 {
-  grid-template-rows: minmax(0, 1fr);
-}
-.diagram-workspace.single.mixed-formats {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
 }
 </style>

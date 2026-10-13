@@ -326,6 +326,8 @@ onBeforeUnmount(() => {
               "
               :layout="layout"
               :config="status?.config ?? emptyConfig"
+              :grid-columns="status?.display.gridColumns ?? 1"
+              :grid-rows="status?.display.gridRows ?? 1"
               :frame-condition="frameCondition"
               :can-edit-display="canEditDisplay"
               :commit-marker="commitMarker"

@@ -32,6 +32,7 @@ import {
   numberText,
 } from '../../plot/formatting'
 import { markerPlacement, plotRect } from '../../plot/canvasRenderer'
+import { spacedAxisLabels } from '../../plot/axisLabelSpacing'
 import {
   displaySeries,
   markerResult,
@@ -441,30 +442,39 @@ const noDrawableMessage = computed(() => {
   return zeroDb ? 'Zero amplitude · dB = −∞' : 'No valid measurement points'
 })
 const yTickDivisions = 10
+const axisLabelHeight = computed(() =>
+  Math.max(14, (11 * annotationFontScale.value * 1.2) / 100),
+)
 const yTicks = computed(() =>
-  Array.from({ length: yTickDivisions + 1 }, (_, index) => {
-    const span =
-      scaleCoordinate(axisScale.value.max, axisFormat.value) -
-      scaleCoordinate(axisScale.value.min, axisFormat.value)
-    const coordinate =
-      scaleCoordinate(axisScale.value.max, axisFormat.value) -
-      (span * index) / yTickDivisions
-    const tick =
-      axisFormat.value === 'logMagnitude' ? 10 ** coordinate : coordinate
-    let value =
-      tick -
-      (relativeAxis.value
-        ? referenceLevel(axisScale.value, axisFormat.value)
-        : 0)
-    if (relativeAxis.value && Math.abs(value) < span * 1e-10) value = 0
-    return {
-      top: rect.value.top + (rect.value.height * index) / yTickDivisions,
-      reference:
-        Math.abs(tick - referenceLevel(axisScale.value, axisFormat.value)) <=
-        span * 1e-9,
-      value: `${relativeAxis.value ? 'Δ ' : ''}${relativeAxis.value && value > 0 ? '+' : ''}${numberText(value, 4)}${axisDefinition.value.shortUnit}`,
-    }
-  }),
+  spacedAxisLabels(
+    Array.from({ length: yTickDivisions + 1 }, (_, index) => {
+      const span =
+        scaleCoordinate(axisScale.value.max, axisFormat.value) -
+        scaleCoordinate(axisScale.value.min, axisFormat.value)
+      const coordinate =
+        scaleCoordinate(axisScale.value.max, axisFormat.value) -
+        (span * index) / yTickDivisions
+      const tick =
+        axisFormat.value === 'logMagnitude' ? 10 ** coordinate : coordinate
+      let value =
+        tick -
+        (relativeAxis.value
+          ? referenceLevel(axisScale.value, axisFormat.value)
+          : 0)
+      if (relativeAxis.value && Math.abs(value) < span * 1e-10) value = 0
+      return {
+        division: index,
+        top: rect.value.top + (rect.value.height * index) / yTickDivisions,
+        reference:
+          Math.abs(tick - referenceLevel(axisScale.value, axisFormat.value)) <=
+          span * 1e-9,
+        value: `${relativeAxis.value ? 'Δ ' : ''}${relativeAxis.value && value > 0 ? '+' : ''}${numberText(value, 4)}${axisDefinition.value.shortUnit}`,
+      }
+    }),
+    height.value,
+    axisLabelHeight.value,
+    yTickDivisions,
+  ),
 )
 
 function circleRadius(presentation: TracePresentation): number {
@@ -896,6 +906,7 @@ function plotKey(event: KeyboardEvent): void {
     :style="{
       '--diagram-label-font-size': `${(11 * annotationFontScale) / 100}px`,
       '--diagram-label-line-height': `${(18 * annotationFontScale) / 100}px`,
+      '--diagram-axis-line-height': `${axisLabelHeight}px`,
     }"
     @dragover="dragOverDiagram"
     @drop="dropOnDiagram"
@@ -971,12 +982,12 @@ function plotKey(event: KeyboardEvent): void {
     >
       <canvas ref="canvas" class="diagram-canvas" aria-hidden="true" />
       <span
-        v-for="(tick, index) in circularAxis ? [] : yTicks"
-        :key="`y-${index}`"
+        v-for="tick in circularAxis ? [] : yTicks"
+        :key="`y-${tick.division}`"
         class="y-tick"
         :class="{
-          'edge-top': index === 0,
-          'edge-bottom': index === 10,
+          'edge-top': tick.division === 0,
+          'edge-bottom': tick.division === yTickDivisions,
           'reference-tick': tick.reference,
         }"
         :style="{ top: `${tick.top}px` }"
@@ -1172,6 +1183,7 @@ function plotKey(event: KeyboardEvent): void {
   background: #000;
   color: #eff4f6;
   font-family: Tahoma, Arial, sans-serif;
+  container-type: inline-size;
 }
 .diagram-pane.active {
   border-color: #91a4af;
@@ -1234,7 +1246,7 @@ function plotKey(event: KeyboardEvent): void {
   color: #4b5f6c;
   background: transparent;
   font-size: var(--diagram-label-font-size, 11px);
-  line-height: 14px;
+  line-height: var(--diagram-axis-line-height, 14px);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -1368,6 +1380,17 @@ function plotKey(event: KeyboardEvent): void {
   font-size: var(--diagram-label-font-size, 11px);
   line-height: var(--diagram-label-line-height, 18px);
   white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 窄图窗保留起止频率，整项省略中部辅助信息，避免相邻图窗文字相互覆盖。 */
+@container (max-width: 420px) {
+  .channel-row {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .channel-row .channel-middle {
+    display: none;
+  }
 }
 
 .channel-label {
