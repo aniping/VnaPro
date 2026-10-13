@@ -1,6 +1,10 @@
 # 保留真实可执行目标，兼容 CLion CMake Application；无重新链接时仍同步资源。
-set(VNAPRO_RELEASE_DIR "${CMAKE_BINARY_DIR}/release" CACHE PATH "VnaPro runtime bundle directory")
-option(VNAPRO_BUNDLE_WEBUI "Include already built WebUI/dist in the runtime bundle" ON)
+# 迁移上一版默认值；用户指定的其他发布目录继续保留。
+if(VNAPRO_RELEASE_DIR STREQUAL "${CMAKE_BINARY_DIR}/release")
+    set(VNAPRO_RELEASE_DIR "${CMAKE_SOURCE_DIR}/release" CACHE PATH "VnaPro runtime bundle directory" FORCE)
+endif()
+set(VNAPRO_RELEASE_DIR "${CMAKE_SOURCE_DIR}/release" CACHE PATH "VnaPro runtime bundle directory")
+option(VNAPRO_BUNDLE_WEBUI "Build WebUI and include it in the runtime bundle" ON)
 if(CMAKE_CONFIGURATION_TYPES)
     set(VNAPRO_RELEASE_OUTPUT "${VNAPRO_RELEASE_DIR}/$<CONFIG>")
 else()
@@ -59,6 +63,10 @@ add_custom_target(vna_release_resources
     DEPENDS tdc1vn08_drv_sim tdc1vn10_drv_sim
     COMMENT "Synchronizing VnaPro release resources"
     VERBATIM)
+if(VNAPRO_BUNDLE_WEBUI)
+    include("${CMAKE_SOURCE_DIR}/cmake/webui.cmake")
+    add_dependencies(vna_release_resources vna_webui)
+endif()
 add_dependencies(vna_server vna_release_resources)
 add_custom_command(TARGET vna_server POST_BUILD
     COMMAND ${CMAKE_COMMAND} "-DINPUT=${VNAPRO_RELEASE_INPUT}" -DPHASE=complete

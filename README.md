@@ -4,13 +4,12 @@
 
 ## 构建和测试
 
-Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.16、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。C++ 第三方库使用仓库内 `third-part` 的官方 release 源码压缩包：spdlog 1.17.0 和 yaml-cpp 0.9.0。CMake 校验 SHA256 后自动解压为 `third-part/spdlog-1.17.0` 和 `third-part/yaml-cpp-0.9.0`，直接引用这两个源码目录构建，不下载依赖。包清单和升级方式见[第三方库说明](third-part/README.md)。Windows MinGW 构建及从 `bin` 开发运行时，工具链的 `bin` 必须加入 PATH。在项目根目录先构建前端，再构建服务：
+Web 前端是独立的 Vue 3 + TypeScript + Vite 工程，需要 Node.js ≥ 22.13 和 npm。服务需要 CMake ≥ 3.16、C++14 编译器、线程库；网络集成测试使用 Python 3 标准库。C++ 第三方库使用仓库内 `third-part` 的官方 release 源码压缩包：spdlog 1.17.0 和 yaml-cpp 0.9.0。CMake 校验 SHA256 后自动解压为 `third-part/spdlog-1.17.0` 和 `third-part/yaml-cpp-0.9.0`，直接引用这两个源码目录构建，不下载依赖。包清单和升级方式见[第三方库说明](third-part/README.md)。Windows MinGW 构建及从 `bin` 开发运行时，工具链的 `bin` 必须加入 PATH。首次安装前端依赖，随后构建服务会自动构建前端并生成发布包：
 
 ```powershell
 Set-Location WebUI
 npm.cmd ci
 npm.cmd test
-npm.cmd run build
 Set-Location ..
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=I:/mingw64/bin/g++.exe
 cmake --build build --parallel
@@ -19,15 +18,15 @@ cmake -E chdir build ctest --output-on-failure
 
 替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立构建见 [TDC1VN10 模拟驱动](VnaBoardSimulator/README.md)及保留的 [TDC1VN08 模拟驱动](VnaNativeSimulator/README.md)。本轮已验证 Windows MinGW/GCC 10.3 和 WSL/Linux GCC 13.3 的全目标 ThreadSanitizer；macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
 
-`npm run build` 包含 Vue/TypeScript 类型检查，产物在 `WebUI/dist`。C++ 构建自动收集这些已生成的产物，不执行 npm 下载或构建；WebUI 的首次 `npm ci` 仍需访问 npm 仓库，前端依赖未纳入离线源码包。公司离线环境具备 C++ 工具链及前端产物后，可直接执行上述 CMake 命令。只构建 SCPI 服务时，可跳过 Node/npm 步骤，在 CMake 配置参数中添加 `-DVNAPRO_BUNDLE_WEBUI=OFF`，运行时使用 `--no-web`；Web HTTP 集成测试仍需要前端产物。旧 `FETCHCONTENT_SOURCE_DIR_*` 参数不再生效。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
+构建 `vna_server` 自动执行前端构建检查。首次构建、源码或构建配置变化、`dist` 缺失或被修改时，先执行 `npm run build`（包含 Vue/TypeScript 类型检查），成功后再打包；输入和产物未变化时跳过 npm 构建。该流程不自动安装或下载依赖，缺少依赖会提示首次执行 `npm ci`。WebUI 依赖未纳入离线源码包，公司离线环境需预先准备 Node/npm 和已安装的 `WebUI/node_modules`。只构建 SCPI 服务时，可跳过 Node/npm 步骤，在 CMake 配置参数中添加 `-DVNAPRO_BUNDLE_WEBUI=OFF`，运行时使用 `--no-web`；Web HTTP 集成测试仍需要前端产物。旧 `FETCHCONTENT_SOURCE_DIR_*` 参数不再生效。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
 
 ## 自动生成发布目录
 
-构建 `vna_server` 后自动将运行文件汇总到构建目录下的 `release`。CLion 的默认 Debug 构建对应 `cmake-build-debug/release`，上述命令对应 `build/release`。无需另行执行安装或手工复制，即使代码未变化，再次构建该目标也会同步资源：
+构建 `vna_server` 时先构建 WebUI，再将运行文件汇总到**项目根目录的 `release`**，与 `WebUI`、`VnaServer` 同级。CLion 和命令行构建使用相同默认发布位置。无需另行执行前端构建、安装或手工复制，即使代码未变化，再次构建该目标也会检查前端产物并同步资源：
 
 ```powershell
 cmake --build cmake-build-debug --target vna_server --parallel
-.\cmake-build-debug\release\vna_server.exe
+.\release\vna_server.exe
 ```
 
 Windows MinGW 的目录示例：
@@ -46,9 +45,9 @@ release/
 
 运行库按程序和两种动态加载驱动的实际依赖收集，系统自带库不复制。部署时复制整个 `release` 目录；程序默认从自身目录读取配置、对应驱动和 `WebUI`，不依赖当前工作目录、原源码目录或 MinGW PATH，支持中文和空格路径。可用 `--config`、`--driver`、`--web-root` 显式覆盖；发布包缺少必需资源会报错。日志默认写入配置文件旁的 `logs`，运行后创建，无需复制开发日志。
 
-重复构建只清理上次托管清单中的过期文件，保留日志及用户额外文件。已有 `vnapro.yml` 不被覆盖；修改源配置后，可对照更新后的 `vnapro.example.yml` 合并配置并重启。WebUI 更新后先执行 `npm run build`，再构建 `vna_server`。默认打包若缺少 `WebUI/dist/index.html` 会报错，SCPI 专用包按上文关闭 WebUI 打包。
+重复构建只清理上次托管清单中的过期文件，保留日志及用户额外文件。已有 `vnapro.yml` 不被覆盖；修改源配置后，可对照更新后的 `vnapro.example.yml` 合并配置并重启。WebUI 更新后直接构建 `vna_server`；前端类型检查或生成失败会阻止本次打包，已有发布文件保持原状。多个构建树共用 `WebUI/dist` 时，前端生成和复制通过锁串行执行，避免互相清空产物。SCPI 专用包按上文关闭 WebUI 构建及打包。
 
-`-DVNAPRO_RELEASE_DIR=绝对目录` 可修改发布位置，不能指定为程序输出目录或 `WebUI/dist` 及其子目录。多配置生成器将各配置放在 `release/Debug`、`release/Release`；单配置生成器直接放在 `release`。目录名 `release` 表示部署文件集合，Debug 构建仍包含调试代码；优化构建需配置 `-DCMAKE_BUILD_TYPE=Release`，多配置生成器使用 `--config Release`。
+`-DVNAPRO_RELEASE_DIR=绝对目录` 可修改发布位置，不能指定为程序输出目录或 `WebUI/dist` 及其子目录。上一版缓存的默认 `构建目录/release` 会自动迁移为根目录 `release`，其他自定义路径保留；原发布目录不自动删除。多配置生成器将各配置放在 `release/Debug`、`release/Release`；单配置生成器直接放在 `release`。不同单配置构建树默认共享同一发布位置，需要同时保留多个版本时分别指定 `VNAPRO_RELEASE_DIR`。目录名 `release` 表示部署文件集合，Debug 构建仍包含调试代码；优化构建需配置 `-DCMAKE_BUILD_TYPE=Release`，多配置生成器使用 `--config Release`。Node/npm 默认从 PATH 查找，也可用 `-DVNAPRO_NODE_EXECUTABLE=路径` 和 `-DVNAPRO_NPM_EXECUTABLE=路径` 指定工具。
 
 独立发布验收通过 CTest `release_bundle` 运行，覆盖整包迁移、中文及空格目录、不同工作目录、移除工具链 PATH、两种驱动切换和配置读取。本次自动发布的运行验证使用 Windows MinGW；其他工具链与平台需在对应环境复验。
 
@@ -75,7 +74,7 @@ clang-format --style=file --dry-run --Werror $cppFiles
 ## 启动与测量
 
 ```powershell
-.\build\release\vna_server.exe --bind 127.0.0.1 --port 5025
+.\release\vna_server.exe --bind 127.0.0.1 --port 5025
 ```
 
 默认加载构建生成的 **TDC1VN10 新接口模拟库**，启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。`--board tdc1vn08` 使用保留的 VN08 旧接口库 `tdc1vn08_drv_sim`，`--board tdc1vn10` 显式选择当前基准接口 `tdc1vn10_drv_sim`；CLion、命令行和部署路径的具体设置见[模拟驱动切换](docs/模拟驱动切换.md)。未来 VN08 驱动对齐新接口后应使用新接口适配器。两个接口有同名异签名函数，不能仅换 DLL 路径。发布程序从同目录 `WebUI` 加载静态页面；CLion 原 `bin` 运行目标在旁边没有静态资源时，继续使用源码目录的 `WebUI/dist`。浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，日志级别须允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认绑定本机；`--no-web` 关闭 Web 入口。

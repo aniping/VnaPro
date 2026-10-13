@@ -2,6 +2,7 @@
 /build/
 /build-*/
 /cmake-build-*/
+/release/
 .DS_Store
 /third-part/*
 !/third-part/*.tar.gz
@@ -10,5 +11,6 @@
 /WebUI/node_modules/
 /WebUI/dist/
 /WebUI/.test-build/
+/WebUI/.vnapro-build.lock
 /VnaServer/tests/__pycache__/
 /cmake/tests/__pycache__/

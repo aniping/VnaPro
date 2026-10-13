@@ -4,17 +4,16 @@
 
 ## 安装、构建与运行
 
-需要 Node.js ≥ 22.13 和 npm。在本目录执行；Windows PowerShell 使用 `npm.cmd`，其他环境可使用 `npm`：
+需要 Node.js ≥ 22.13 和 npm。首次在本目录安装依赖并运行测试；Windows PowerShell 使用 `npm.cmd`，其他环境可使用 `npm`：
 
 ```powershell
 npm.cmd ci
 npm.cmd test
-npm.cmd run build
 ```
 
-`package-lock.json` 固定依赖。`npm run build` 先执行 `vue-tsc --noEmit`，再生成 `dist/index.html` 和 `dist/assets`。随后回到仓库根目录构建 `vna_server`，将已生成的 `dist` 内容自动复制到构建目录的 `release/WebUI`，并汇总服务、驱动、运行库和配置。部署时复制整个 `release` 目录，直接启动其中的程序，无需指定资源路径或安装 Node.js；默认访问 [http://127.0.0.1:8080](http://127.0.0.1:8080/)。完整步骤见 [自动生成发布目录](../README.md#自动生成发布目录)。
+`package-lock.json` 固定依赖。回到仓库根目录构建 `vna_server`，CMake 会自动执行前端构建检查，需要更新时调用 `npm run build`：先执行 `vue-tsc --noEmit`，再生成 `dist/index.html` 和 `dist/assets`。成功后将完整 `dist` 内容复制到**项目根目录的 `release/WebUI`**，并汇总服务、驱动、运行库和配置。部署时复制整个 `release` 目录，直接启动其中的程序，无需指定资源路径或安装 Node.js；默认访问 [http://127.0.0.1:8080](http://127.0.0.1:8080/)。完整步骤见 [自动生成发布目录](../README.md#自动生成发布目录)。
 
-C++ 构建不会自动下载 npm 依赖或执行前端构建。修改页面后先执行 `npm run build`，再构建 `vna_server`；即使 C++ 代码未变化，也会同步新资源并清理旧的托管资源。缺少 `dist/index.html` 时默认打包会报错；SCPI 专用构建可配置 `-DVNAPRO_BUNDLE_WEBUI=OFF` 并使用 `--no-web` 启动。CLion 原 `bin` 运行目标继续支持源码目录的 `WebUI/dist`，也可用 `--web-root` 显式指定静态目录。
+修改页面后直接构建 `vna_server`。源码、public 资源、Vite/TypeScript 配置、包清单或依赖锁变化会重新构建；前端产物缺失、损坏也会重新生成。输入和产物未变化时跳过 npm 构建，仅同步发布文件。类型检查或构建失败会阻止打包。共享 `dist` 的前端生成和复制使用锁串行执行。该流程不自动安装或下载 npm 依赖，缺少 `node_modules` 时需首次执行 `npm ci`；公司离线环境应预先准备依赖。仍可单独执行 `npm run build` 进行前端开发验证。SCPI 专用构建可配置 `-DVNAPRO_BUNDLE_WEBUI=OFF` 并使用 `--no-web` 启动。CLion 原 `bin` 运行目标继续支持源码目录的 `WebUI/dist`，也可用 `--web-root` 显式指定静态目录。
 
 开发时保持 C++ 服务运行在 `127.0.0.1:8080`，另外执行：
 

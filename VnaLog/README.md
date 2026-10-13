@@ -7,7 +7,7 @@
 ## 默认行为
 
 服务启动前加载日志配置，再创建采集 worker；正常结束时先关闭设备和 worker，再刷新、关闭日志。
-默认输出至终端 stderr 和配置文件旁的 `logs/vnapro.log`，内容为 UTF-8；发布包对应 `release/logs/vnapro.log`，开发运行对应 `bin/logs/vnapro.log`。
+默认输出至终端 stderr 和配置文件旁的 `logs/vnapro.log`，内容为 UTF-8；发布包对应项目根目录的 `release/logs/vnapro.log`，开发运行对应构建目录的 `bin/logs/vnapro.log`。
 示例格式：
 
 ```text
@@ -27,7 +27,7 @@ HTTP 方法、已解析路径和响应状态在 DEBUG 输出，不记录控制�
 ## 配置
 
 默认配置源为 [config/vnapro.yml](../config/vnapro.yml)。
-CMake 配置时复制到开发目录 `bin/vnapro.yml`；构建 `vna_server` 后首次发布同步到 `release/vnapro.yml`。
+CMake 配置时复制到开发目录 `bin/vnapro.yml`；构建 `vna_server` 后首次发布同步到项目根目录的 `release/vnapro.yml`。
 程序默认读取自身目录的配置。重复发布保留已有 `vnapro.yml`，最新源配置更新到 `vnapro.example.yml`，按需合并后重启；开发目录的配置在重新执行 CMake 配置时更新。需要独立配置时，显式指定文件：
 
 ```powershell

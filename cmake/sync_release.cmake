@@ -20,8 +20,17 @@ file(RELATIVE_PATH web_relative "${web_real_directory}" "${output_real_directory
 if(NOT IS_ABSOLUTE "${web_relative}" AND NOT web_relative MATCHES "(^|[/\\])\\.\\.([/\\]|$)")
     message(FATAL_ERROR "Release directory cannot be inside WebUI input directory")
 endif()
+if(BUNDLE_INCLUDE_WEBUI)
+    # 与前端生成共用锁，避免另一个构建树在复制途中清空 dist。
+    get_filename_component(web_directory "${BUNDLE_WEBUI}" DIRECTORY)
+    file(LOCK "${web_directory}/.vnapro-build.lock" GUARD PROCESS TIMEOUT 60
+        RESULT_VARIABLE lock_result)
+    if(NOT lock_result STREQUAL "0")
+        message(FATAL_ERROR "Cannot acquire WebUI packaging lock: ${lock_result}")
+    endif()
+endif()
 if(BUNDLE_INCLUDE_WEBUI AND NOT EXISTS "${BUNDLE_WEBUI}/index.html")
-    message(FATAL_ERROR "WebUI/dist/index.html is missing. Run npm run build in WebUI first, or set VNAPRO_BUNDLE_WEBUI=OFF for a SCPI-only bundle")
+    message(FATAL_ERROR "WebUI build did not produce dist/index.html. Build vna_server again, or set VNAPRO_BUNDLE_WEBUI=OFF for a SCPI-only bundle")
 endif()
 file(MAKE_DIRECTORY "${BUNDLE_DIRECTORY}")
 get_filename_component(release_real_directory "${BUNDLE_DIRECTORY}" REALPATH)

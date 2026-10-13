@@ -31,6 +31,10 @@ if(BUILD_TESTING)
     target_include_directories(vna_startup_paths_tests PRIVATE src)
     add_test(NAME startup_paths COMMAND vna_startup_paths_tests)
     if(VNAPRO_BUNDLE_WEBUI)
+        add_test(NAME webui_build_pipeline
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/tests/WebUiBuildTest.py
+                ${CMAKE_COMMAND} ${CMAKE_SOURCE_DIR} "${VNAPRO_NODE_EXECUTABLE}" "${VNAPRO_NPM_EXECUTABLE}")
+        set_tests_properties(webui_build_pipeline PROPERTIES TIMEOUT 60)
         add_test(NAME release_bundle
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/tests/ReleaseBundleTest.py
                 "${VNAPRO_RELEASE_OUTPUT}" $<TARGET_FILE_NAME:vna_server>
