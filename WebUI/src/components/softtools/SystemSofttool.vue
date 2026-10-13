@@ -50,8 +50,8 @@ const emit = defineEmits<{
       <li>Sweep → Sweep Params：编辑 Number of Points，再 Apply。</li>
       <li>Power / Bw / Avg → Bandwidth：编辑 IF Bandwidth，再 Apply。</li>
       <li>
-        Meas：选择设备支持的 S 参数或 RAW。Trace Config
-        管理迹线，图窗菜单添加或删除图窗。
+        Meas：点击上方参数编号打开 S 参数矩阵，或选择 RAW。单击工具栏 Trc+
+        复制活动迹线；拖到图窗后选择新迹线参数。Trace Config 管理迹线。
       </li>
       <li>
         Sweep → Sweep Control：Single 采一帧；Continuous 连续采集；Hold 停止。

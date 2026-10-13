@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { InstrumentStatus, MeasurementCandidate } from '../../api/types'
 import {
   sParameterChoices,
   type SParameterChoice,
 } from '../../domain/measurements'
 import WaveQuantityDialog from './WaveQuantityDialog.vue'
+import SParameterDialog from './SParameterDialog.vue'
 
 const props = defineProps<{
   status: InstrumentStatus | null
@@ -21,6 +22,12 @@ const props = defineProps<{
 const working = ref(false)
 const validation = ref('')
 const moreWave = ref(false)
+const parameterTarget = ref<{ name: string; portCount: number } | null>(null)
+const parameterSelection = computed(() => {
+  // 每次打开冻结目标；旧弹框的延迟事件不能改到随后打开的其他迹线。
+  const target = parameterTarget.value
+  return (parameter: SParameterChoice) => applyParameter(parameter, target)
+})
 const active = computed(() =>
   props.status?.measurements.find(
     (trace) => trace.name === props.activeTraceName,
@@ -35,7 +42,7 @@ const disabled = computed(
 )
 const portCount = computed(() => props.status?.capabilities.portCount ?? 0)
 const parameters = computed(() => sParameterChoices(portCount.value))
-// 原机保留双端口四项快捷键，多端口的完整选择通过上方选择器提供。
+// 四项快捷键保持原机布局，完整参数由仪器选择框提供。
 const shortcutParameters: SParameterChoice[] = ['S11', 'S12', 'S21', 'S22']
 const waves = [
   { receiverKind: 'a', receiverPort: 1, sourcePort: 1 },
@@ -61,6 +68,10 @@ async function change(candidate: MeasurementCandidate) {
     const result = await props.update(candidate, props.status.revision)
     if (!result) validation.value = '测量未更新，请检查状态栏中的原因。'
     return Boolean(result)
+  } catch (failure) {
+    validation.value =
+      failure instanceof Error ? failure.message : '测量未更新，请重试。'
+    return false
   } finally {
     working.value = false
   }
@@ -71,16 +82,44 @@ function selectParameter(parameter: SParameterChoice) {
   void change({ name: active.value.name, parameter })
 }
 
-function selectParameterEvent(event: Event) {
-  if (event.target instanceof HTMLSelectElement) {
-    const value = event.target.value
-    // 操作完成前恢复设备读回值，避免原生下拉展示尚未生效的测量。
-    event.target.value =
-      active.value?.kind === 'sParameter' ? active.value.parameter : ''
-    const parameter = parameters.value.find((item) => item === value)
-    if (parameter) selectParameter(parameter)
+function openParameters() {
+  if (disabled.value || !active.value) return
+  validation.value = ''
+  parameterTarget.value = {
+    name: active.value.name,
+    portCount: portCount.value,
   }
 }
+
+function closeParameters() {
+  if (!working.value) parameterTarget.value = null
+}
+
+async function applyParameter(
+  parameter: SParameterChoice,
+  target: { name: string; portCount: number } | null,
+) {
+  if (
+    !target ||
+    target !== parameterTarget.value ||
+    target.name !== active.value?.name ||
+    target.portCount !== portCount.value ||
+    !parameters.value.includes(parameter)
+  )
+    return
+  const changed = await change({ name: target.name, parameter })
+  if (
+    changed ||
+    target.name !== active.value?.name ||
+    target.portCount !== portCount.value
+  )
+    parameterTarget.value = null
+}
+
+watch([() => props.activeTraceName, portCount], () => {
+  // 图窗导航或能力变化使草稿失效；已受理操作继续等待终态。
+  if (!working.value) parameterTarget.value = null
+})
 
 function selectWave(wave: (typeof waves)[number]) {
   if (active.value)
@@ -97,22 +136,17 @@ async function applyWave(candidate: MeasurementCandidate) {
     <template v-if="mode === 'meas'">
       <div class="measurement-current">
         <span class="measurement-family">S</span>
-        <select
-          aria-label="Active S parameter"
-          :value="active?.kind === 'sParameter' ? active.parameter : ''"
+        <button
+          type="button"
+          class="s-parameter-trigger"
+          aria-label="Select S parameter"
+          aria-haspopup="dialog"
           :disabled="disabled"
-          @change="selectParameterEvent"
+          @click="openParameters"
         >
-          <option value="" disabled>—</option>
-          <option
-            v-for="parameter in parameters"
-            :key="parameter"
-            :value="parameter"
-            :disabled="!supports(parameter)"
-          >
-            {{ parameter.slice(1) }}
-          </option>
-        </select>
+          {{ active?.kind === 'sParameter' ? active.parameter.slice(1) : '—' }}
+          <span aria-hidden="true">▾</span>
+        </button>
       </div>
       <div class="measurement-matrix" role="group" aria-label="S-Parameters">
         <button
@@ -196,6 +230,16 @@ async function applyWave(candidate: MeasurementCandidate) {
       @apply="applyWave"
       @close="moreWave = false"
     />
+    <SParameterDialog
+      v-if="parameterTarget"
+      :port-count="portCount"
+      :parameter="active?.kind === 'sParameter' ? active.parameter : undefined"
+      :disabled="disabled"
+      :busy="working"
+      :error="validation"
+      @select="parameterSelection"
+      @close="closeParameters"
+    />
   </section>
 </template>
 
@@ -219,7 +263,10 @@ async function applyWave(candidate: MeasurementCandidate) {
   color: #e1e8ed;
   font-size: 15px;
 }
-.measurement-current select {
+.s-parameter-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   min-width: 0;
   border: 0;
   padding: 0 8px;
@@ -227,6 +274,13 @@ async function applyWave(candidate: MeasurementCandidate) {
   color: white;
   font-size: 15px;
   color-scheme: dark;
+}
+.s-parameter-trigger:disabled {
+  color: #7e919d;
+}
+.s-parameter-trigger:focus-visible {
+  outline: 2px solid #d8edfa;
+  outline-offset: -3px;
 }
 .measurement-matrix {
   display: grid;

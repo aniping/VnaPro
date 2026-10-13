@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { reactive, type VNode } from 'vue'
+import { nextTick, reactive, type VNode } from 'vue'
 import { decodeFrame, decodeStatus } from '../src/api/decoders'
 import type {
   InstrumentStatus,
@@ -14,7 +14,7 @@ import {
   receiverTrace,
   reflection,
 } from './displayFixtures'
-import { findElements, sfcHarness } from './sfcHarness'
+import { findComponent, findElements, sfcHarness } from './sfcHarness'
 
 const matrix = [
   'S11',
@@ -80,11 +80,19 @@ function menuProps(portCount = 4) {
   })
 }
 
-class SelectInput {
-  constructor(public value: string) {}
+function openParameterDialog(menu: Awaited<ReturnType<typeof sfcHarness>>) {
+  const opener = findElements(
+    menu.render(),
+    (node) => node.props?.['aria-label'] === 'Select S parameter',
+  )[0]
+  assert.ok(opener, 'Meas must open the instrument parameter dialog')
+  opener.props!.onClick()
+  const dialog = findComponent(menu.render(), 'SParameterDialog')
+  assert.ok(dialog)
+  return dialog
 }
 
-test('四端口 Meas 保留原机四项快捷键，完整选择器提供十六项', async () => {
+test('四端口 Meas 保留原机四项快捷键，完整参数通过仪器弹框选择', async () => {
   const props = menuProps()
   const menu = await sfcHarness(
     'src/components/softtools/MeasurementSofttool.vue',
@@ -93,65 +101,52 @@ test('四端口 Meas 保留原机四项快捷键，完整选择器提供十六�
   )
   try {
     const before = JSON.stringify(props.status)
-    const buttons = parameterButtons(menu.render)
     assert.deepEqual(
-      buttons.map((button) => textContent(button).trim()),
+      parameterButtons(menu.render).map((button) => textContent(button).trim()),
       ['S11', 'S12', 'S21', 'S22'],
     )
-    assert.ok(buttons.every((button) => button.props!.disabled === false))
-    const options = findElements(
-      menu.render(),
-      (node) => node.type === 'option' && node.props?.value !== '',
+    assert.equal(
+      findElements(menu.render(), (node) => node.type === 'select').length,
+      0,
     )
-    assert.deepEqual(
-      options.map((option) => option.props!.value),
-      matrix,
-    )
+    const dialog = openParameterDialog(menu)
+    assert.equal(dialog.props!['port-count'], 4)
+    assert.equal(dialog.props!.parameter, 'S11')
     assert.equal(JSON.stringify(props.status), before)
   } finally {
     menu.dispose()
   }
 })
 
-test('两端口选择器仅提供四项，旧四端口事件和任意非法值不能发出命令', async () => {
+test('两端口弹框及过期四端口事件不能提交跨端口和任意非法参数', async () => {
   const props = menuProps()
-  const requests: MeasurementCandidate[] = []
+  const writes: MeasurementCandidate[] = []
   props.update = async (candidate) => {
-    requests.push({ ...candidate })
+    writes.push({ ...candidate })
     return null
   }
   const menu = await sfcHarness(
     'src/components/softtools/MeasurementSofttool.vue',
     props,
-    { HTMLSelectElement: SelectInput },
+    {},
   )
   try {
-    const oldSelect = findElements(
-      menu.render(),
-      (node) => node.type === 'select',
-    )[0]!
+    const old = openParameterDialog(menu)
     props.status.capabilities.portCount = 2
-    assert.deepEqual(
-      parameterButtons(menu.render).map((button) => textContent(button).trim()),
-      ['S11', 'S12', 'S21', 'S22'],
-    )
-    const options = findElements(
-      menu.render(),
-      (node) => node.type === 'option' && node.props?.value !== '',
-    )
-    assert.deepEqual(
-      options.map((option) => option.props!.value),
-      ['S11', 'S12', 'S21', 'S22'],
-    )
+    await nextTick()
+    assert.equal(findComponent(menu.render(), 'SParameterDialog'), undefined)
+    const current = openParameterDialog(menu)
+    assert.equal(current.props!['port-count'], 2)
     for (const value of ['S44', 'S33', 'S99', 'S1', 'RAW'])
-      oldSelect.props!.onChange({ target: new SelectInput(value) })
-    assert.deepEqual(requests, [])
+      await current.props!.onSelect(value)
+    await old.props!.onSelect('S44')
+    assert.deepEqual(writes, [])
   } finally {
     menu.dispose()
   }
 })
 
-test('连续扫描期间选择 S34 只提交规范名称和目录版本，标题等待读回才变化', async () => {
+test('CONT 弹框选择 S34 等待后端更新及读回，完成前保持原参数并阻止取消', async () => {
   const props = menuProps()
   const requests: { candidate: MeasurementCandidate; revision: string }[] = []
   let finish: (value: InstrumentStatus | null) => void = () => {}
@@ -164,39 +159,39 @@ test('连续扫描期间选择 S34 只提交规范名称和目录版本，标题
   const menu = await sfcHarness(
     'src/components/softtools/MeasurementSofttool.vue',
     props,
-    { HTMLSelectElement: SelectInput },
+    {},
   )
   try {
     const before = JSON.stringify(props.status)
-    const select = findElements(
-      menu.render(),
-      (node) => node.type === 'select',
-    )[0]!
-    select.props!.onChange({ target: new SelectInput('S34') })
+    const dialog = openParameterDialog(menu)
+    const pending = dialog.props!.onSelect('S34')
     assert.deepEqual(requests, [
       { candidate: { name: 'Reflect', parameter: 'S34' }, revision: '27' },
     ])
     assert.equal(JSON.stringify(props.status), before)
-    assert.ok(
-      parameterButtons(menu.render).every((node) => node.props!.disabled),
-    )
+    const waiting = findComponent(menu.render(), 'SParameterDialog')!
+    assert.equal(waiting.props!.disabled, true)
+    waiting.props!.onClose()
+    assert.ok(findComponent(menu.render(), 'SParameterDialog'))
+    await waiting.props!.onSelect('S44')
+    assert.equal(requests.length, 1)
     const readback = instrumentStatus([{ ...parameter(3, 4), name: 'Reflect' }])
-    finish(readback)
-    await new Promise((resolve) => setImmediate(resolve))
-    assert.equal(props.status.measurements[0]!.parameter, 'S11')
     props.status = readback
-    assert.equal(
-      findElements(menu.render(), (node) => node.type === 'select')[0]!.props!
-        .value,
-      'S34',
-    )
+    finish(readback)
+    await pending
+    assert.equal(findComponent(menu.render(), 'SParameterDialog'), undefined)
+    const opener = findElements(
+      menu.render(),
+      (node) => node.props?.['aria-label'] === 'Select S parameter',
+    )[0]!
+    assert.equal(textContent(opener).includes('34'), true)
   } finally {
     finish(null)
     menu.dispose()
   }
 })
 
-test('测量下拉在提交前恢复设备值，只读和忙碌状态阻止旧按钮事件', async () => {
+test('弹框失败保留错误，活动迹线变更关闭草稿且只读或忙碌不能发起更新', async () => {
   const props = menuProps()
   let writes = 0
   props.update = async () => {
@@ -206,32 +201,42 @@ test('测量下拉在提交前恢复设备值，只读和忙碌状态阻止旧�
   const menu = await sfcHarness(
     'src/components/softtools/MeasurementSofttool.vue',
     props,
-    { HTMLSelectElement: SelectInput },
+    {},
   )
   try {
-    const select = findElements(
-      menu.render(),
-      (node) => node.type === 'select',
-    )[0]!
-    const input = new SelectInput('S44')
-    select.props!.onChange({ target: input })
-    assert.equal(input.value, 'S11')
+    const dialog = openParameterDialog(menu)
+    await dialog.props!.onSelect('S44')
+    const failed = findComponent(menu.render(), 'SParameterDialog')!
+    assert.match(failed.props!.error, /测量未更新/)
+    assert.equal(failed.props!.disabled, false)
+    props.activeTraceName = 'OtherTrace'
+    await nextTick()
+    assert.equal(findComponent(menu.render(), 'SParameterDialog'), undefined)
+    await failed.props!.onSelect('S33')
     assert.equal(writes, 1)
-    await new Promise((resolve) => setImmediate(resolve))
-    for (const mode of ['readonly', 'busy']) {
-      props.canChangeMeasurements = mode !== 'readonly'
-      props.busy = mode === 'busy'
-      const buttons = parameterButtons(menu.render)
-      assert.ok(buttons.every((button) => button.props!.disabled))
-      buttons.forEach((button) => button.props!.onClick())
-      select.props!.onChange({ target: new SelectInput('S44') })
+    props.status.measurements.push({ ...reflection, name: 'OtherTrace' })
+    openParameterDialog(menu)
+    await failed.props!.onSelect('S22')
+    assert.equal(writes, 1, '旧弹框事件不能修改重新打开后的另一条迹线')
+    props.activeTraceName = reflection.name
+    await nextTick()
+    for (const state of ['readonly', 'busy']) {
+      props.canChangeMeasurements = state !== 'readonly'
+      props.busy = state === 'busy'
+      const opener = findElements(
+        menu.render(),
+        (node) => node.props?.['aria-label'] === 'Select S parameter',
+      )[0]!
+      assert.equal(opener.props!.disabled, true)
+      opener.props!.onClick()
+      assert.equal(findComponent(menu.render(), 'SParameterDialog'), undefined)
+      parameterButtons(menu.render).forEach((button) => button.props!.onClick())
       assert.equal(writes, 1)
     }
   } finally {
     menu.dispose()
   }
 })
-
 test('四端口状态和采集帧严格接受全部 Sij，仍由后端投影提供显示数据', () => {
   const measurements = matrix.map((name) =>
     parameter(Number(name[1]), Number(name[2])),
