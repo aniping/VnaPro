@@ -108,6 +108,8 @@ test('all explicit diagrams render without a four-window limit and maximization 
   const display = displaySnapshot(catalog)
   display.displayedNames = catalog.map((trace) => trace.name)
   display.selectedDiagram = 5
+  display.gridColumns = 2
+  display.gridRows = 3
   display.diagrams = catalog.map((trace, index) => ({
     number: index + 1,
     measurementNames: [trace.name],
@@ -122,6 +124,8 @@ test('all explicit diagrams render without a four-window limit and maximization 
     presentations: display.presentations,
     activeTraceName: 'Trc5',
     layout: 'grid',
+    gridColumns: display.gridColumns,
+    gridRows: display.gridRows,
     config: instrumentStatus().config,
     frameCondition: { kind: 'empty', label: '', detail: '' },
     canEditDisplay: true,

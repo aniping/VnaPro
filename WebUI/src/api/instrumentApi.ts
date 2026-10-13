@@ -119,6 +119,10 @@ export interface InstrumentGateway {
     expectedDisplayRevision: string,
     destination?: TraceCreationOptions,
   ): Promise<AcceptedOperation>
+  createAllSParameters(
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+  ): Promise<AcceptedOperation>
   deleteDiagram(
     diagram: number,
     expectedRevision: string,
@@ -455,6 +459,25 @@ export class InstrumentApi implements InstrumentGateway {
         ...destination,
         expectedRevision,
         expectedDisplayRevision,
+        requestId: requestId(),
+      },
+      this.token,
+      202,
+    )
+  }
+
+  createAllSParameters(
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+  ): Promise<AcceptedOperation> {
+    return this.request(
+      '/measurement-actions/all-sparameters',
+      decodeAccepted,
+      'POST',
+      {
+        expectedRevision,
+        expectedDisplayRevision,
+        confirmed: true,
         requestId: requestId(),
       },
       this.token,

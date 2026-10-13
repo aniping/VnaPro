@@ -607,6 +607,13 @@ export function useInstrument(options: InstrumentOptions = {}) {
           )
         : Promise.resolve(null)
     },
+    createAllSParameters: (
+      expectedRevision: string,
+      expectedDisplayRevision: string,
+    ) =>
+      submit('All S-Params', 'measurement', () =>
+        api.createAllSParameters(expectedRevision, expectedDisplayRevision),
+      ),
     run: (action: RunAction) =>
       submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)),
   }

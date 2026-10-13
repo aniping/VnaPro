@@ -152,6 +152,8 @@ test('explicit diagram membership rejects duplicate assignments and missing owne
   const display = displaySnapshot(catalog)
   display.layout = 'maximized'
   display.selectedDiagram = 2
+  display.gridColumns = 2
+  display.gridRows = 1
   display.diagrams = catalog.map((trace, index) => ({
     number: index + 1,
     primaryMeasurement: trace.name,

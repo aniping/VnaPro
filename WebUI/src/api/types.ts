@@ -63,6 +63,8 @@ export interface DisplaySnapshot {
   selectedDiagram?: number
   displayedNames: string[]
   layout: LayoutMode
+  gridColumns: number
+  gridRows: number
   presentations: Record<string, TracePresentation>
   diagrams: DiagramDefinition[]
   infoTable?: InfoTableSettings

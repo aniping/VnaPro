@@ -8,6 +8,7 @@ import { findElements, sfcHarness } from './sfcHarness'
 
 function twoDiagrams(): InstrumentStatus {
   const status = instrumentStatus()
+  status.display.gridColumns = 2
   status.display.diagrams = status.measurements.map((trace, index) => ({
     number: index + 1,
     measurementNames: [trace.name],

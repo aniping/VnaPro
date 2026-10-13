@@ -200,6 +200,15 @@ export function decodeDisplay(
     Object.entries(values).map(([name, value]) => [name, presentation(value)]),
   )
   const diagramDefinitions = diagrams(item.diagrams, displayedNames)
+  const gridColumns = integer(
+    item.gridColumns,
+    'display.gridColumns',
+    1,
+    MAX_DIAGRAMS,
+  )
+  const gridRows = integer(item.gridRows, 'display.gridRows', 1, MAX_DIAGRAMS)
+  if (gridColumns * gridRows < diagramDefinitions.length)
+    invalid('display.gridCapacity')
   const assignedNames = diagramDefinitions.flatMap(
     (diagram) => diagram.measurementNames,
   )
@@ -234,6 +243,8 @@ export function decodeDisplay(
     ]),
     presentations,
     diagrams: diagramDefinitions,
+    gridColumns,
+    gridRows,
     ...displayAnnotations(item),
   }
 }

@@ -79,6 +79,8 @@ export function displaySnapshot(
     selectedDiagram: 1,
     displayedNames: catalog.slice(0, 4).map((trace) => trace.name),
     layout: 'single',
+    gridColumns: 1,
+    gridRows: 1,
     infoTable: { visible: false, position: 'bottom' },
     annotations: {
       activeTraceOnly: false,

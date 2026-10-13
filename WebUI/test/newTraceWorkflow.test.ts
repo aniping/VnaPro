@@ -33,6 +33,7 @@ function workflowProps(portCount = 4) {
     measurementNames: [],
     primaryMeasurement: '',
   })
+  status.display.gridColumns = 2
   return reactive({
     status,
     destination: { diagram: 2 },

@@ -153,6 +153,9 @@ class FakeGateway implements InstrumentGateway {
   createTrace(_revision: string, _displayRevision: string) {
     return this.submitter()
   }
+  createAllSParameters(_revision: string, _displayRevision: string) {
+    return this.submitter()
+  }
   deleteDiagram(_diagram: number, _revision: string, _displayRevision: string) {
     return this.submitter()
   }
