@@ -182,6 +182,70 @@ void TestUnfeedWrongWindowDoesNotChangeSelection()
                 workspace.State().selectedDiagram == 1U,
         "关闭活动成员后选择及所属图窗必须一致");
 }
+
+void TestDeleteActiveEmptyDiagramSelectsFallbackTrace()
+{
+    DisplayWorkspace workspace;
+    const std::vector<VnaMeasurement::Measurement> catalog{Measurement(), Measurement("Trc2"), Measurement("Trc3")};
+    Require(workspace.Reconcile(catalog).ok && workspace.Apply(Change(DisplayChangeKind::SPLIT), catalog, {}).ok,
+        "准备三个图窗失败");
+    auto move = Change(DisplayChangeKind::SELECT, "Trc1");
+    move.diagram = 3U;
+    Require(workspace.Apply(move, catalog, {}).ok && workspace.State().diagrams.front().measurementNames.empty(),
+        "移动迹线后应保留空源图窗");
+    auto select = Change(DisplayChangeKind::DIAGRAM_SELECT);
+    select.diagram = 1U;
+    Require(workspace.Apply(select, catalog, {}).ok && workspace.State().selectedMeasurement == "Trc1",
+        "选择空图窗应保留此前的测量选择");
+    Require(workspace.RemoveDiagram(1U, true).ok && workspace.Reconcile(catalog).ok &&
+                workspace.State().selectedDiagram == 1U && workspace.State().selectedMeasurement == "Trc2" &&
+                workspace.State().diagrams.front().primaryMeasurement == "Trc2" &&
+                workspace.State().diagrams.back().measurementNames == std::vector<std::string>{"Trc3", "Trc1"},
+        "原生删除活动空图窗后，活动迹线必须跟随回退图窗");
+}
+
+void TestDeleteInactiveEmptyDiagramPreservesSelection()
+{
+    DisplayWorkspace workspace;
+    const std::vector<VnaMeasurement::Measurement> catalog{Measurement(), Measurement("Trc2"), Measurement("Trc3")};
+    Require(workspace.Reconcile(catalog).ok && workspace.Apply(Change(DisplayChangeKind::SPLIT), catalog, {}).ok,
+        "准备三个图窗失败");
+    auto move = Change(DisplayChangeKind::SELECT, "Trc1");
+    move.diagram = 3U;
+    Require(
+        workspace.Apply(move, catalog, {}).ok && workspace.State().selectedDiagram == 3U, "移动迹线后应激活目标图窗");
+    Require(workspace.RemoveDiagram(1U, true).ok && workspace.Reconcile(catalog).ok &&
+                workspace.State().selectedDiagram == 2U && workspace.State().selectedMeasurement == "Trc1" &&
+                workspace.State().diagrams.back().primaryMeasurement == "Trc1",
+        "删除非活动空图窗只重映射图号，不应切换当前迹线");
+}
+
+void TestCloneUsesSourceDiagramUnlessTargetSpecified()
+{
+    DisplayWorkspace workspace;
+    std::vector<VnaMeasurement::Measurement> catalog{Measurement(), Measurement("Trc2"), Measurement("Trc3")};
+    Require(workspace.Reconcile(catalog).ok && workspace.Apply(Change(DisplayChangeKind::SPLIT), catalog, {}).ok,
+        "准备三个图窗失败");
+    auto move = Change(DisplayChangeKind::SELECT, "Trc1");
+    move.diagram = 3U;
+    Require(workspace.Apply(move, catalog, {}).ok, "移动源迹线失败");
+    auto select = Change(DisplayChangeKind::DIAGRAM_SELECT);
+    select.diagram = 1U;
+    Require(workspace.Apply(select, catalog, {}).ok && workspace.State().selectedMeasurement == "Trc1",
+        "选择空图窗应保留源迹线选择");
+    catalog.push_back(Measurement("Trc4"));
+    Require(workspace.Reconcile(catalog).ok && workspace.ClonePresentation("Trc1", "Trc4", catalog).ok &&
+                workspace.State().selectedDiagram == 3U && workspace.State().selectedMeasurement == "Trc4" &&
+                workspace.State().diagrams.front().measurementNames.empty() &&
+                workspace.State().diagrams.back().measurementNames == std::vector<std::string>{"Trc3", "Trc1", "Trc4"},
+        "默认复制必须与源迹线同图，不能受另选空图窗影响");
+    catalog.push_back(Measurement("Trc5"));
+    Require(workspace.Reconcile(catalog).ok && workspace.ClonePresentation("Trc1", "Trc5", catalog, 1U).ok &&
+                workspace.State().selectedDiagram == 1U && workspace.State().selectedMeasurement == "Trc5" &&
+                workspace.State().diagrams.front().measurementNames == std::vector<std::string>{"Trc5"} &&
+                workspace.State().diagrams.back().measurementNames == std::vector<std::string>{"Trc3", "Trc1", "Trc4"},
+        "显式目标图窗应优先于源迹线归属");
+}
 }  // 匿名命名空间
 
 int main()
@@ -195,7 +259,10 @@ int main()
         TestMeasurementSelectionDoesNotFeedHiddenDefinition();
         TestSparseSlotsSurviveDeletionAndRefeed();
         TestUnfeedWrongWindowDoesNotChangeSelection();
-        std::cout << "8 个显式图窗验收用例通过\n";
+        TestDeleteActiveEmptyDiagramSelectsFallbackTrace();
+        TestDeleteInactiveEmptyDiagramPreservesSelection();
+        TestCloneUsesSourceDiagramUnlessTargetSpecified();
+        std::cout << "11 个显式图窗验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

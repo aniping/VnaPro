@@ -385,6 +385,82 @@ void MixedFormatsAndEmptyDiagramRemainExplicit()
     VerifyShared(writer, observer);
 }
 
+void MovingTraceAndDeletingActiveEmptyDiagramKeepSelectionShared()
+{
+    Fixture fixture;
+    HttpApi writer(fixture.service);
+    HttpApi observer(fixture.service);
+    const auto token = Claim(writer);
+    const auto original = Field(Display(writer), "selectedMeasurement").string;
+    const auto second = Create(writer, token, "move-second-diagram", {false, true, ""});
+    const auto third = Create(writer, token, "move-third-diagram", {false, true, ""});
+    SetSourceSettings(writer, token, original);
+    const auto before = Status(writer);
+    auto move = DisplayChange(writer, "select", "move-existing-trace", original);
+    move["diagram"] = Json(3U);
+    Apply(writer, move, token);
+    const auto moved = Status(observer);
+    const auto &display = Field(moved, "display");
+    Require(Field(Diagram(display, 1U), "measurementNames").array.empty() &&
+                Field(Diagram(display, 3U), "measurementNames").array.size() == 2U &&
+                Field(display, "selectedDiagram").number == 3.0 &&
+                Field(display, "selectedMeasurement").string == original,
+        "移动已有迹线必须更新后端归属和选择，保留空源图窗");
+    Require(Field(moved, "revision").string == Field(before, "revision").string &&
+                Field(moved, "acquisitionRevision").string == Field(before, "acquisitionRevision").string &&
+                VnaWeb::StringifyJson(Presentation(display, original)) ==
+                    VnaWeb::StringifyJson(Presentation(Field(before, "display"), original)),
+        "移动图窗不能重建采集计划、复制迹线或丢失尺度与标记");
+    VnaScpi::ScpiEngine scpi(fixture.service);
+    Require(Command(scpi, "DISP:WIND1:CAT?") == "\"EMPTY\"\n" && Command(scpi, "DISP:WIND3:CAT?") == "\"1,2\"\n",
+        "SCPI 没有共享移动后的空源图和目标槽");
+    auto select = DisplayChange(writer, "diagramSelect", "select-empty-before-delete");
+    select["diagram"] = Json(1U);
+    Apply(writer, select, token);
+    DeleteDiagram(writer, token, 1U, "delete-active-empty-diagram");
+    const auto after = Display(observer);
+    Require(Field(after, "diagrams").array.size() == 2U && Field(after, "selectedDiagram").number == 1.0 &&
+                Field(after, "selectedMeasurement").string == second &&
+                Field(Diagram(after, 1U), "primaryMeasurement").string == second &&
+                Field(Diagram(after, 2U), "measurementNames").array.size() == 2U &&
+                Field(Status(observer), "measurements").array.size() == 3U,
+        "删除活动空图必须选中回退图所属迹线，不能删除其他图的测量");
+    Require(Field(Presentation(after, third), "format").string == "db" && Command(scpi, "CALC1:FORM?") == "MLOG\n" &&
+                Command(scpi, "DISP:WIND3:STAT?") == "0\n",
+        "删除重排后协议选择和图窗目录不一致");
+    VerifyShared(writer, observer);
+    HttpApi refreshed(fixture.service);
+    VerifyShared(writer, refreshed);
+}
+
+void CloneWithoutDestinationUsesSourceDiagram()
+{
+    Fixture fixture;
+    HttpApi writer(fixture.service);
+    HttpApi observer(fixture.service);
+    const auto token = Claim(writer);
+    const auto source = Field(Display(writer), "selectedMeasurement").string;
+    Create(writer, token, "copy-source-target", {false, true, ""});
+    auto move = DisplayChange(writer, "select", "copy-source-move", source);
+    move["diagram"] = Json(2U);
+    Apply(writer, move, token);
+    auto select = DisplayChange(writer, "diagramSelect", "copy-source-empty-active");
+    select["diagram"] = Json(1U);
+    Apply(writer, select, token);
+    Require(Field(Display(writer), "selectedMeasurement").string == source, "空图保留活动测量前置条件失效");
+    const auto copied = Create(writer, token, "copy-to-source-diagram", {true, false, source});
+    const auto after = Display(observer);
+    Require(Field(after, "selectedDiagram").number == 2.0 &&
+                Field(Diagram(after, 1U), "measurementNames").array.empty() &&
+                Field(Diagram(after, 2U), "measurementNames").array.size() == 3U &&
+                Field(Diagram(after, 2U), "primaryMeasurement").string == copied,
+        "未指定目标的复制必须留在源迹线同图，不能被活动空图截获");
+    VerifyShared(writer, observer);
+    VnaScpi::ScpiEngine scpi(fixture.service);
+    Require(Command(scpi, "DISP:WIND1:CAT?") == "\"EMPTY\"\n" && Command(scpi, "DISP:WIND2:CAT?") == "\"1,2,3\"\n",
+        "协议观察没有共享同图复制的后端归属");
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -395,7 +471,9 @@ int main()
         InvalidTargetAndLastGuardsAreAtomic();
         QueuedCloneChecksBothVersions();
         MixedFormatsAndEmptyDiagramRemainExplicit();
-        std::cout << "5 个 HTTP 图窗、目录、标记与 CAS 事务验收用例通过\n";
+        MovingTraceAndDeletingActiveEmptyDiagramKeepSelectionShared();
+        CloneWithoutDestinationUsesSourceDiagram();
+        std::cout << "7 个 HTTP 图窗、目录、标记与 CAS 事务验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

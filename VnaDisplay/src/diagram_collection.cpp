@@ -176,7 +176,8 @@ DisplayResult DiagramCollection::Remove(DisplayState &state, unsigned number, bo
     }
     Refresh(state);
     const auto *active = Find(state, state.selectedDiagram);
-    if (removedSelectedTrace && !active->primaryMeasurement.empty()) {
+    // 原生删除活动空图窗时也同步回退图窗的迹线；SCPI 窗口关闭保留原有测量选择语义。
+    if ((removedSelectedTrace || (renumber && previousSelection == number)) && !active->primaryMeasurement.empty()) {
         state.selectedMeasurement = active->primaryMeasurement;
     }
     return Result();

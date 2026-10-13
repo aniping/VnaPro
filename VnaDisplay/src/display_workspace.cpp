@@ -387,6 +387,16 @@ DisplayResult DisplayWorkspace::ClonePresentation(const std::string &sourceName,
             return added;
         }
         diagram = candidate.selectedDiagram;
+    } else if (diagram == 0U) {
+        // 同图复制跟随源迹线归属；活动空图窗不改变源迹线所在图窗。
+        const auto sourceDiagram = std::find_if(
+            candidate.diagrams.begin(), candidate.diagrams.end(), [&sourceName](const DisplayDiagram &value) {
+                return std::find(value.measurementNames.begin(), value.measurementNames.end(), sourceName) !=
+                       value.measurementNames.end();
+            });
+        if (sourceDiagram != candidate.diagrams.end()) {
+            diagram = sourceDiagram->number;
+        }
     }
     const auto fed = DiagramCollection::Feed(candidate, targetName, diagram);
     return fed.ok ? Commit(std::move(candidate)) : fed;
