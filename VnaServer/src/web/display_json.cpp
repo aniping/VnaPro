@@ -223,6 +223,7 @@ Json DisplayJson::Presentation(
     result["scale"] = std::move(scale);
     result["smithRadius"] = Json(trace.smithRadius);
     result["visible"] = Json(trace.visible);
+    result["markerInfoLocation"] = Json(VnaDisplay::MarkerInfoLocationName(trace.markerInfoLocation));
     result["activeMarkerId"] = Json(trace.markers.Selected());
     result["marker"] = MarkerConfiguration(trace.markers.Active());
     Json markers = Json::MakeArray();
@@ -247,6 +248,15 @@ Json DisplayJson::State(const VnaDisplay::DisplayState &state, const std::vector
     result["selectedMeasurement"] = Json(state.selectedMeasurement);
     result["selectedDiagram"] = Json(state.selectedDiagram);
     result["layout"] = Json(VnaDisplay::LayoutModeName(state.layout));
+    Json infoTable = Json::MakeObject();
+    infoTable["visible"] = Json(state.infoTable.visible);
+    infoTable["position"] = Json(VnaDisplay::InfoTablePositionName(state.infoTable.position));
+    result["infoTable"] = std::move(infoTable);
+    Json annotations = Json::MakeObject();
+    annotations["activeTraceOnly"] = Json(state.annotations.activeTraceOnly);
+    annotations["stimulusInfoVisible"] = Json(state.annotations.stimulusInfoVisible);
+    annotations["fontScale"] = Json(state.annotations.fontScale);
+    result["annotations"] = std::move(annotations);
     Json names = Json::MakeArray();
     for (const auto &name : state.displayedNames) {
         names.array.emplace_back(name);
@@ -268,6 +278,7 @@ Json DisplayJson::State(const VnaDisplay::DisplayState &state, const std::vector
         Json item = Json::MakeObject();
         item["number"] = Json(diagram.number);
         item["primaryMeasurement"] = Json(diagram.primaryMeasurement);
+        item["markerInfoVisible"] = Json(diagram.markerInfoVisible);
         Json measurements = Json::MakeArray();
         for (const auto &name : diagram.measurementNames) {
             measurements.array.emplace_back(name);
@@ -432,6 +443,13 @@ void DisplayJson::WorkspaceChange(VnaDisplay::DisplayChange &change, const Json 
             action == "displayed" ? VnaDisplay::DisplayChangeKind::DISPLAYED : VnaDisplay::DisplayChangeKind::VISIBLE;
         change.enabled = Boolean(body, "enabled");
         change.visible = change.enabled;
+    } else if (action == "markerInfo") {
+        if (body.Find("traceName") != nullptr) {
+            throw std::invalid_argument("Marker info visibility is a diagram setting, not a trace setting");
+        }
+        Members(body, {"enabled", "diagram"});
+        change.kind = VnaDisplay::DisplayChangeKind::MARKER_INFO;
+        change.enabled = Boolean(body, "enabled");
     } else if (action == "layout") {
         Members(body, {"layout", "diagram"});
         change.kind = VnaDisplay::DisplayChangeKind::LAYOUT;
@@ -449,6 +467,48 @@ void DisplayJson::WorkspaceChange(VnaDisplay::DisplayChange &change, const Json 
                                           : std::initializer_list<const char *>{});
         change.kind =
             action == "overlay" ? VnaDisplay::DisplayChangeKind::OVERLAY : VnaDisplay::DisplayChangeKind::SPLIT;
+    }
+}
+
+void DisplayJson::SettingsChange(VnaDisplay::DisplayChange &change, const Json &body, const std::string &action)
+{
+    if (body.Find("traceName") != nullptr) {
+        throw std::invalid_argument("Info table and annotations are global settings, not trace settings");
+    }
+    if (action == "infoTable") {
+        Members(body, {"enabled", "position"});
+        change.kind = VnaDisplay::DisplayChangeKind::INFO_TABLE;
+        change.infoTable.hasVisible = body.Find("enabled") != nullptr;
+        change.infoTable.hasPosition = body.Find("position") != nullptr;
+        if (change.infoTable.hasVisible) {
+            change.infoTable.settings.visible = Boolean(body, "enabled");
+        }
+        if (change.infoTable.hasPosition &&
+            !VnaDisplay::ParseInfoTablePosition(Text(body, "position"), change.infoTable.settings.position)) {
+            throw std::invalid_argument("Unknown info table position");
+        }
+        if (!change.infoTable.hasVisible && !change.infoTable.hasPosition) {
+            throw std::invalid_argument("Info table requires enabled or position");
+        }
+        return;
+    }
+    Members(body, {"activeTraceOnly", "stimulusInfoVisible", "fontScale"});
+    change.kind = VnaDisplay::DisplayChangeKind::DISPLAY_ANNOTATIONS;
+    change.annotations.hasActiveTraceOnly = body.Find("activeTraceOnly") != nullptr;
+    change.annotations.hasStimulusInfoVisible = body.Find("stimulusInfoVisible") != nullptr;
+    change.annotations.hasFontScale = body.Find("fontScale") != nullptr;
+    if (change.annotations.hasActiveTraceOnly) {
+        change.annotations.settings.activeTraceOnly = Boolean(body, "activeTraceOnly");
+    }
+    if (change.annotations.hasStimulusInfoVisible) {
+        change.annotations.settings.stimulusInfoVisible = Boolean(body, "stimulusInfoVisible");
+    }
+    if (change.annotations.hasFontScale) {
+        change.annotations.settings.fontScale = Number(body, "fontScale");
+    }
+    if (!change.annotations.hasActiveTraceOnly && !change.annotations.hasStimulusInfoVisible &&
+        !change.annotations.hasFontScale) {
+        throw std::invalid_argument("Display annotations require at least one setting");
     }
 }
 
@@ -473,6 +533,12 @@ void DisplayJson::TraceChange(VnaDisplay::DisplayChange &change, const Json &bod
         Members(body, {"radius"});
         change.kind = VnaDisplay::DisplayChangeKind::SMITH_RADIUS;
         change.smithRadius = Number(body, "radius");
+    } else if (action == "markerInfoLocation") {
+        Members(body, {"location"});
+        change.kind = VnaDisplay::DisplayChangeKind::MARKER_INFO_LOCATION;
+        if (!VnaDisplay::ParseMarkerInfoLocation(Text(body, "location"), change.markerInfoLocation)) {
+            throw std::invalid_argument("Unknown marker info location");
+        }
     } else if (action == "marker") {
         Members(body, {"enabled", "frequencyHz", "sampleIndex", "step", "discrete", "acquisitionRevision", "markerId",
                           "markerAction"});
@@ -497,8 +563,10 @@ VnaDisplay::DisplayChange DisplayJson::Change(const Json &body)
         }
         change.diagram = static_cast<unsigned>(number);
     }
-    if (action == "select" || action == "displayed" || action == "visible" || action == "layout" ||
-        action == "diagramSelect" || action == "overlay" || action == "split") {
+    if (action == "infoTable" || action == "displayAnnotations") {
+        SettingsChange(change, body, action);
+    } else if (action == "select" || action == "displayed" || action == "visible" || action == "layout" ||
+               action == "markerInfo" || action == "diagramSelect" || action == "overlay" || action == "split") {
         WorkspaceChange(change, body, action);
     } else {
         TraceChange(change, body, action);

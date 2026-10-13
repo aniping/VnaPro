@@ -30,6 +30,7 @@ public:
     static std::uint64_t Revision(const Json &body, const std::string &field);
 
 private:
+    static void SettingsChange(VnaDisplay::DisplayChange &change, const Json &body, const std::string &action);
     static void WorkspaceChange(VnaDisplay::DisplayChange &change, const Json &body, const std::string &action);
     static void TraceChange(VnaDisplay::DisplayChange &change, const Json &body, const std::string &action);
     static Json Presentation(
