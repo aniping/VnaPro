@@ -278,7 +278,10 @@ void DiagramCollection::Unfeed(DisplayState &state, const std::string &name, uns
 void DiagramCollection::Overlay(DisplayState &state)
 {
     Refresh(state);
+    const bool markerInfoVisible = Find(state, state.selectedDiagram)->markerInfoVisible;
     state.diagrams = {{1U, state.displayedNames, state.selectedMeasurement}};
+    // 合并保留原活动图窗的字段开关，不因为重新编排而打开隐藏字段。
+    state.diagrams.front().markerInfoVisible = markerInfoVisible;
     state.selectedDiagram = 1U;
     state.layout = LayoutMode::SINGLE;
     Refresh(state);
@@ -288,10 +291,18 @@ void DiagramCollection::Split(DisplayState &state)
 {
     Refresh(state);
     const auto names = state.displayedNames;
+    const auto previous = state.diagrams;
     state.diagrams.clear();
     unsigned number = 1U;
     for (const auto &name : names) {
         state.diagrams.push_back({number, {name}, name});
+        // Split 将每条迹线原所属图窗的字段开关复制到新图窗。
+        const auto source = std::find_if(previous.begin(), previous.end(), [&name](const DisplayDiagram &diagram) {
+            return Contains(diagram.measurementNames, name);
+        });
+        if (source != previous.end()) {
+            state.diagrams.back().markerInfoVisible = source->markerInfoVisible;
+        }
         if (name == state.selectedMeasurement) {
             state.selectedDiagram = number;
         }

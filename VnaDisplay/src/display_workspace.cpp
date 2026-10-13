@@ -19,6 +19,8 @@
 namespace VnaDisplay {
 namespace {
 constexpr double MIN_CIRCULAR_RADIUS = 0.01;
+constexpr double MIN_ANNOTATION_FONT_SCALE = 80.0;
+constexpr double MAX_ANNOTATION_FONT_SCALE = 170.0;
 
 DisplayResult Success(bool changed = false)
 {
@@ -57,19 +59,24 @@ bool EqualTrace(const TracePresentation &left, const TracePresentation &right)
     return left.name == right.name && left.format == right.format && left.cartesianFormat == right.cartesianFormat &&
            left.scale.min == right.scale.min && left.scale.max == right.scale.max &&
            left.scale.referencePosition == right.scale.referencePosition && left.smithRadius == right.smithRadius &&
-           left.visible == right.visible && left.markers.SameSettings(right.markers);
+           left.visible == right.visible && left.markerInfoLocation == right.markerInfoLocation &&
+           left.markers.SameSettings(right.markers);
 }
 
 bool EqualState(const DisplayState &left, const DisplayState &right)
 {
     return left.selectedMeasurement == right.selectedMeasurement && left.selectedDiagram == right.selectedDiagram &&
            left.layout == right.layout && left.traces.size() == right.traces.size() &&
-           left.diagrams.size() == right.diagrams.size() &&
+           left.infoTable.visible == right.infoTable.visible && left.infoTable.position == right.infoTable.position &&
+           left.annotations.activeTraceOnly == right.annotations.activeTraceOnly &&
+           left.annotations.stimulusInfoVisible == right.annotations.stimulusInfoVisible &&
+           left.annotations.fontScale == right.annotations.fontScale && left.diagrams.size() == right.diagrams.size() &&
            std::equal(left.traces.begin(), left.traces.end(), right.traces.begin(), EqualTrace) &&
            std::equal(left.diagrams.begin(), left.diagrams.end(), right.diagrams.begin(),
                [](const DisplayDiagram &a, const DisplayDiagram &b) {
                    return a.number == b.number && a.measurementNames == b.measurementNames &&
-                          a.primaryMeasurement == b.primaryMeasurement && a.traceSlots == b.traceSlots;
+                          a.primaryMeasurement == b.primaryMeasurement && a.traceSlots == b.traceSlots &&
+                          a.markerInfoVisible == b.markerInfoVisible;
                });
 }
 
@@ -99,7 +106,10 @@ DisplayResult ReplaceDisplayed(
             return Failure("Unknown or duplicate displayed measurement");
         }
     }
+    const auto *previousDiagram = DiagramCollection::Find(state, state.selectedDiagram);
+    const bool markerInfoVisible = previousDiagram == nullptr || previousDiagram->markerInfoVisible;
     state.diagrams = {{1U, names, state.selectedMeasurement}};
+    state.diagrams.front().markerInfoVisible = markerInfoVisible;
     state.selectedDiagram = 1U;
     if (!names.empty() && seen.count(state.selectedMeasurement) == 0U) {
         state.selectedMeasurement = names.front();
@@ -152,9 +162,54 @@ DisplayResult ApplyTrace(TracePresentation &presentation, const DisplayChange &c
             return Success();
         case DisplayChangeKind::MARKER:
             return presentation.markers.Apply(change.marker, context, error) ? Success() : Failure(error);
+        case DisplayChangeKind::MARKER_INFO_LOCATION:
+            if (MarkerInfoLocationName(change.markerInfoLocation) == nullptr) {
+                return Failure("Marker info location is not supported");
+            }
+            presentation.markerInfoLocation = change.markerInfoLocation;
+            return Success();
         default:
             return Failure("Display operation is not supported");
     }
+}
+
+DisplayResult ApplyInfoTable(DisplayState &state, const InfoTableChange &change)
+{
+    if (!change.hasVisible && !change.hasPosition) {
+        return Failure("Info table change requires visibility or position");
+    }
+    if (change.hasPosition && InfoTablePositionName(change.settings.position) == nullptr) {
+        return Failure("Info table position is not supported");
+    }
+    if (change.hasVisible) {
+        state.infoTable.visible = change.settings.visible;
+    }
+    if (change.hasPosition) {
+        state.infoTable.position = change.settings.position;
+    }
+    return Success();
+}
+
+DisplayResult ApplyAnnotations(DisplayState &state, const AnnotationChange &change)
+{
+    if (!change.hasActiveTraceOnly && !change.hasStimulusInfoVisible && !change.hasFontScale) {
+        return Failure("Annotation change requires at least one setting");
+    }
+    if (change.hasFontScale &&
+        (!std::isfinite(change.settings.fontScale) || change.settings.fontScale < MIN_ANNOTATION_FONT_SCALE ||
+            change.settings.fontScale > MAX_ANNOTATION_FONT_SCALE)) {
+        return Failure("Annotation font scale must be between 80 and 170 percent");
+    }
+    if (change.hasActiveTraceOnly) {
+        state.annotations.activeTraceOnly = change.settings.activeTraceOnly;
+    }
+    if (change.hasStimulusInfoVisible) {
+        state.annotations.stimulusInfoVisible = change.settings.stimulusInfoVisible;
+    }
+    if (change.hasFontScale) {
+        state.annotations.fontScale = change.settings.fontScale;
+    }
+    return Success();
 }
 
 DisplayResult ReconcileCandidate(DisplayState &candidate, const std::vector<VnaMeasurement::Measurement> &catalog)
@@ -213,6 +268,54 @@ bool ParseLayoutMode(const std::string &value, LayoutMode &layout) noexcept
     for (const auto candidate : {LayoutMode::SINGLE, LayoutMode::GRID, LayoutMode::MAXIMIZED}) {
         if (value == LayoutModeName(candidate)) {
             layout = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+const char *InfoTablePositionName(InfoTablePosition position) noexcept
+{
+    switch (position) {
+        case InfoTablePosition::BOTTOM:
+            return "bottom";
+        case InfoTablePosition::LEFT:
+            return "left";
+        case InfoTablePosition::RIGHT:
+            return "right";
+        default:
+            return nullptr;
+    }
+}
+
+bool ParseInfoTablePosition(const std::string &value, InfoTablePosition &position) noexcept
+{
+    for (const auto candidate : {InfoTablePosition::BOTTOM, InfoTablePosition::LEFT, InfoTablePosition::RIGHT}) {
+        if (value == InfoTablePositionName(candidate)) {
+            position = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+const char *MarkerInfoLocationName(MarkerInfoLocation location) noexcept
+{
+    switch (location) {
+        case MarkerInfoLocation::DIAGRAM:
+            return "diagram";
+        case MarkerInfoLocation::TABLE:
+            return "table";
+        default:
+            return nullptr;
+    }
+}
+
+bool ParseMarkerInfoLocation(const std::string &value, MarkerInfoLocation &location) noexcept
+{
+    for (const auto candidate : {MarkerInfoLocation::DIAGRAM, MarkerInfoLocation::TABLE}) {
+        if (value == MarkerInfoLocationName(candidate)) {
+            location = candidate;
             return true;
         }
     }
@@ -340,6 +443,19 @@ DisplayResult DisplayWorkspace::ApplyCandidate(DisplayState &candidate, const Di
         return Failure("Acquisition revision changed");
     }
     switch (change.kind) {
+        case DisplayChangeKind::INFO_TABLE:
+            return ApplyInfoTable(candidate, change.infoTable);
+        case DisplayChangeKind::DISPLAY_ANNOTATIONS:
+            return ApplyAnnotations(candidate, change.annotations);
+        case DisplayChangeKind::MARKER_INFO: {
+            auto *diagram =
+                DiagramCollection::Find(candidate, change.diagram == 0U ? candidate.selectedDiagram : change.diagram);
+            if (diagram == nullptr) {
+                return Failure("Display diagram does not exist");
+            }
+            diagram->markerInfoVisible = change.enabled;
+            return Success();
+        }
         case DisplayChangeKind::DIAGRAM_ADD:
             return DiagramCollection::Add(candidate, change.diagram);
         case DisplayChangeKind::DIAGRAM_REMOVE:
@@ -410,7 +526,12 @@ DisplayResult DisplayWorkspace::ApplyCandidate(DisplayState &candidate, const Di
         DiagramCollection::Unfeed(candidate, name, change.diagram);
         return Success();
     }
-    return ApplyTrace(*presentation, change, *measurement, context);
+    const auto applied = ApplyTrace(*presentation, change, *measurement, context);
+    if (applied.ok && change.kind == DisplayChangeKind::MARKER && change.marker.action == MarkerAction::SELECT) {
+        // 标记选择也是所属迹线导航；任一失败都会丢弃包含标记和图窗的整个候选。
+        return SelectTrace(candidate, name, change);
+    }
+    return applied;
 }
 
 DisplayResult DisplayWorkspace::Apply(

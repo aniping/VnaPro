@@ -44,6 +44,29 @@ enum class LayoutMode {
     MAXIMIZED
 };
 
+enum class InfoTablePosition {
+    BOTTOM,
+    LEFT,
+    RIGHT
+};
+
+enum class MarkerInfoLocation {
+    DIAGRAM,
+    TABLE
+};
+
+struct InfoTableSettings final {
+    bool visible = false;
+    InfoTablePosition position = InfoTablePosition::BOTTOM;
+};
+
+struct DisplayAnnotations final {
+    bool activeTraceOnly = false;
+    // 仅控制标记读数中的刺激坐标文字，不修改频率轴或通道底部信息。
+    bool stimulusInfoVisible = true;
+    double fontScale = 100.0;
+};
+
 struct DisplayScale final {
     double min = -90.0;
     double max = 10.0;
@@ -58,6 +81,8 @@ struct TracePresentation final {
     double smithRadius = 1.0;
     bool visible = true;
     MarkerCollection markers;
+    // 信息字段的归属独立于标记开关和全局 Info Table 容器的显隐。
+    MarkerInfoLocation markerInfoLocation = MarkerInfoLocation::DIAGRAM;
 };
 
 struct DisplayDiagram final {
@@ -67,6 +92,8 @@ struct DisplayDiagram final {
     std::string primaryMeasurement;
     // 显示槽身份与 Trc 名称独立；删除成员不得压缩其他槽号。
     std::vector<unsigned> traceSlots = {};
+    // 每个图窗控制其所属迹线的信息字段，放入表格后仍遵循该开关。
+    bool markerInfoVisible = true;
 };
 
 struct DisplayState final {
@@ -78,6 +105,8 @@ struct DisplayState final {
     std::vector<TracePresentation> traces;
     std::vector<DisplayDiagram> diagrams;
     unsigned selectedDiagram = 1U;
+    InfoTableSettings infoTable;
+    DisplayAnnotations annotations;
 };
 
 struct FrameContext final {
@@ -104,7 +133,11 @@ enum class DisplayChangeKind {
     DIAGRAM_REMOVE,
     DIAGRAM_SELECT,
     OVERLAY,
-    SPLIT
+    SPLIT,
+    INFO_TABLE,
+    DISPLAY_ANNOTATIONS,
+    MARKER_INFO,
+    MARKER_INFO_LOCATION
 };
 
 struct ScaleChange final {
@@ -118,6 +151,19 @@ struct ScaleChange final {
     double perDivision = 0.0;
     double reference = 0.0;
     double referencePosition = 0.0;
+};
+
+struct InfoTableChange final {
+    bool hasVisible = false;
+    bool hasPosition = false;
+    InfoTableSettings settings;
+};
+
+struct AnnotationChange final {
+    bool hasActiveTraceOnly = false;
+    bool hasStimulusInfoVisible = false;
+    bool hasFontScale = false;
+    DisplayAnnotations settings;
 };
 
 struct DisplayChange final {
@@ -139,6 +185,9 @@ struct DisplayChange final {
     std::uint64_t expectedAcquisitionRevision = 0U;
     double smithRadius = 1.0;
     bool visible = true;
+    InfoTableChange infoTable;
+    AnnotationChange annotations;
+    MarkerInfoLocation markerInfoLocation = MarkerInfoLocation::DIAGRAM;
 };
 
 struct DisplayResult final {
@@ -152,6 +201,10 @@ const char *DisplayFormatName(DisplayFormat format) noexcept;
 bool ParseDisplayFormat(const std::string &value, DisplayFormat &format) noexcept;
 const char *LayoutModeName(LayoutMode layout) noexcept;
 bool ParseLayoutMode(const std::string &value, LayoutMode &layout) noexcept;
+const char *InfoTablePositionName(InfoTablePosition position) noexcept;
+bool ParseInfoTablePosition(const std::string &value, InfoTablePosition &position) noexcept;
+const char *MarkerInfoLocationName(MarkerInfoLocation location) noexcept;
+bool ParseMarkerInfoLocation(const std::string &value, MarkerInfoLocation &location) noexcept;
 
 // 单线程显示域：由服务执行器持有，不创建线程、控制租约或采集计划。
 class DisplayWorkspace final {
