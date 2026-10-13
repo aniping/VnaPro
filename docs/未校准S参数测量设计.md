@@ -1,6 +1,8 @@
-# 未校准双端口 S 参数与 Smith 显示
+# 未校准多端口 S 参数与 Smith 显示
 
-日期：2026-10-11。交付范围：模拟后台、S11/S21/S12/S22 同源复数比值、全复数测量的 Smith/Polar 格式、运行中测量目录更新与逻辑/采集双版本、Web 与 Keysight SCPI 已核验命令子集。原始 A/B 接收波仍可单独查看，校准保持独立的后续工作。
+更新日期：2026-10-13。交付范围：按启动端口能力支持完整 S 矩阵，四端口为 S11～S44 共 16 项、二端口为 S11/S21/S12/S22 四项；共用同源复数比值、Smith/Polar 格式、运行中测量目录更新与逻辑/采集双版本、Web 与 Keysight SCPI 已核验命令子集。原始 A/B 接收波仍可单独查看，校准保持独立的后续工作。
+
+本次四端口验收：C++/真实服务 CTest **49/49**、前端合同测试 **226/226**、TypeScript 检查与生产构建通过。分别启动二端口、四端口服务，在实际页面确认选择器为 4/16 项；四端口 CONT 中原位切换 S44，刷新仍从 C++ 读回 S44。全部 12 项二端口越界 S 参数通过 HTTP 创建/更新及 SCPI 定义拒绝测试；VN08/VN10 驱动源代码、头文件和测试均未修改。
 
 ## 波量与结果合同
 
@@ -12,6 +14,7 @@
 | S21 | 端口 1 | b2 | a1 | 无量纲 `1` | 未校准 |
 | S12 | 端口 2 | b1 | a2 | 无量纲 `1` | 未校准 |
 | S22 | 端口 2 | b2 | a2 | 无量纲 `1` | 未校准 |
+| Sij，i/j 为 1～4 | 端口 j | bi | aj | 无量纲 `1` | 未校准 |
 | aN / bN | 定义的源端口 | 原始波 | 无 | a.u. | 原始 |
 
 比值包含幅度与相位，不能用幅度相除替代复数相除。参考始终是激励源对应的 `a_source`：S21 使用源 1 帧的 a1；S12 使用源 2 帧的 a2。不能取目标接收端的其他 a 波，也不能从另一激励源或另一轮扫描借参考。
@@ -20,19 +23,19 @@
 
 对数显示为 `20 log10(|S|)`，相位为 `atan2(Im, Re)` 的角度，主值范围 −180°…180°；零幅度的对数/相位显示遵循绘图模块的无效显示合同。原始波对数显示的参考仍为 `1 a.u.`。VnaDisplay 负责格式投影，前端直接绘制后端结果，不重复计算 S 参数或格式值。
 
-## 仪器能力与双端口范围
+## 仪器能力与 S 参数范围
 
 启动时从 `config/vnapro.yml` 读取 `InstrumentProfile`，默认配置为 4 端口，支持频段为 10 MHz～8 GHz。默认扫描覆盖该频段，采用 201 点、IF BW 1 kHz；扫描点数可在 2～10001 之间配置。端口数量、频率上下限及默认扫描设置经过一致性检查后固定；HTTP `capabilities`、SCPI 频率 MIN/MAX 和服务写入校验使用同一份能力数据。
 
 全新服务域默认只创建并选择 `Trc1/S21`，单端口配置回退为 `Trc1/S11`，Bootstrap 后 HOLD 且没有已完成帧。服务器随后按 `instrument.sweep.defaultSweepMode` 启动，默认 CONT，也可配置 HOLD；浏览器只读取实际服务目录，刷新不会重置已定义测量或发起采集。S21 是 [ZNB 官方 Preset 示例的默认测量，第 68 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=68)，本项目将它作为新服务初始测量，不据此假定每次打开浏览器都执行 Preset。
 
-| 配置 | 原始 a/b 波可用端口与激励源 | 本轮 S 参数 |
+| 配置 | 原始 a/b 波可用端口与激励源 | S 参数范围 |
 | --- | --- | --- |
 | 1 端口 | 端口 1 | S11 |
 | 2 端口 | 端口 1～2 | S11、S21、S12、S22 |
-| 4 端口 | 端口 1～4 | 仍为端口 1/2 组成的四个 S 参数 |
+| 4 端口 | 端口 1～4 | S11～S44，共 16 项 |
 
-4 端口配置增加原始接收波范围，不代表已实现完整四端口 S 矩阵；S31、S13、S33 等仍不在本轮范围。每个测量的源端和接收端都必须落在实际配置的端口数量内。频率端点及其联动端点必须共同合法，失败候选不改变配置和版本。历史黄金向量测试显式使用 1 Hz～1 GHz 的测试 profile，不放宽正式配置来迁就旧测试。
+每个测量的源端和接收端都必须落在实际配置的端口数量内；二端口拒绝 S13、S31、S33、S44 等所有含端口 3/4 的测量。C++ 测量模块支持物理范围 1～4，服务再按固定启动能力准入，HTTP 和 SCPI 不能绕过校验。`instrument.portCount` 只约束应用可用测量，不改变 VN08/VN10 模拟驱动的物理端口数或返回 IQ 排列。频率端点及其联动端点必须共同合法，失败候选不改变配置和版本。历史黄金向量测试显式使用 1 Hz～1 GHz 的测试 profile，不放宽正式配置来迁就旧测试。
 
 ## 分层与文件组织
 
@@ -59,7 +62,7 @@ flowchart TB
     math --> scpi
     math --> http
     http --> ui
-    ui -.->|请求当前显示的至多四条迹线| http
+    ui -.->|请求后端已保存的显示集合| http
     classDef config fill:#e7f5ff,stroke:#1971c2;
     classDef process fill:#e5dbff,stroke:#5f3dc4;
     classDef output fill:#c5f6fa,stroke:#0c8599;
@@ -93,7 +96,7 @@ WebUI/                                      严格解码与仪器显示
 
 ## 处理活动图
 
-一轮双端口四参数测量需要先后扫描源 1 和源 2。下图中的发布点是整轮完成处：
+一轮双端口四参数测量需要源 1、2，四端口十六参数需要源 1～4；单个 Sij 只要求源 j 和接收器 i、j。计划按测量目录需求合并，原始 IQ 和所有比值都从整轮完成后一次发布的不可变帧读取，不能发布某个源完成后的部分矩阵。
 
 ```mermaid
 flowchart TD
@@ -165,7 +168,7 @@ flowchart TD
 
 ## 远程合同
 
-Keysight 官方 `CALCulate:PARameter[:DEFine]:EXTended` 支持 S 参数字符串，包括单数字端口的下划线形式。本项目开放 `S11`、`S21`、`S12`、`S22` 及 `S1_1`、`S2_1`、`S1_2`、`S2_2`，保持参数大小写规则；目录统一返回紧凑名称。a/b 原始波参数保持现有合同。[官方测量定义](https://helpfiles.keysight.com/csg/NA520xA/Programming/GP-IB_Command_Finder/Calculate/Parameter.htm)
+Keysight 官方 `CALCulate:PARameter[:DEFine]:EXTended` 支持 S 参数字符串，包括单数字端口的下划线形式。本项目开放配置端口能力内的全部 `Sij` 和 `Si_j`，例如四端口的 `S34` 与 `S3_4`；保持参数大小写规则，目录统一返回紧凑名称。二端口拒绝任一下标为 3/4 的参数。a/b 原始波参数保持现有合同。[官方测量定义](https://helpfiles.keysight.com/csg/NA520xA/Programming/GP-IB_Command_Finder/Calculate/Parameter.htm)
 
 ```text
 SENS1:SWE:MODE HOLD;*OPC?
@@ -200,7 +203,7 @@ HTTP 创建示例：
 
 Meas 的测量按钮修改活动迹线，不创建新名称；这对应 [ZNB User Manual v74 第 289 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=289) 的活动 trace 合同。HTTP 使用 `PUT /api/v1/measurements/{name}`，名称只在路径中，正文必须给出 requestId、expectedRevision、kind、receiverKind、receiverPort、sourcePort，不能含 name；expectedRevision 使用服务逻辑版本。CONT/MAN 中无需先 HOLD，受理返回 202/operationId，仍须等真实完成并读回；不存在的测量拒绝，不隐式新增。完整更新与重试见[服务设计](网分服务与远程控制设计.md#6-web-接口与仪器面板)。
 
-Add Trace 在 Trace Config 中复制活动定义并生成未使用的 `Trc<n>`，复制和删除仅更新目录及逻辑版本，保留原始采集身份。可见性、图窗、格式、刻度和标记属于后端共享显示域，不要求 HOLD，写入须持有统一控制权。Ratios 及原机 All S-Params 的完整 n×n 矩阵尚未实现，不将端口 1/2 的四参数选择器称为完整四端口 S 矩阵；RAW 的全部配置端口范围保持可用。
+Add Trace 在 Trace Config 中复制活动定义并生成未使用的 `Trc<n>`，复制和删除仅更新目录及逻辑版本，保留原始采集身份。可见性、图窗、格式、刻度和标记属于后端共享显示域，不要求 HOLD，写入须持有统一控制权。Meas 按原机保留四个快捷按钮，上方 S 参数选择器按能力提供完整 n² 项；选择更新已有迹线，不自动新建迹线或图窗。Ratios 及原机 All S-Params 的批量创建操作仍未实现，不能将逐项支持完整矩阵等同于已实现整组创建。原机依据见[四端口菜单核对](research/ZNB8四端口S参数菜单核对.md)。
 
 测量目录和显示集合最多 128 项，这是项目资源预算；单个 HTTP frame 最多返回 128 条曲线，单条最多 2001 点，总迹线采样预算 8004。请求 N 条时共同绘图点数不超过 `min(2001, floor(8004 / N))`，保留端点；后端数学与标记仍使用完整原始帧。显示集合与采集目录分别管理：
 
@@ -229,6 +232,7 @@ Smith 网格是归一化阻抗网格，反射量标记读数采用 `z = (1 + Γ)
 - 实际 DLL→Core→服务→网络：从独立审核的 golden IQ 字面量用 Python 复数运算得预期四参数；对比 HTTP 和 SCPI，容差 `1e-12`，并证明错误参考或跨源参考不会通过。
 - 噪声与连续模式：保留单 HTTP 快照中 S21 与 b2/a1 的独立核对，增加四参数在双源完整帧中共同推进和变化；HOLD 后核对 HTTP、SCPI 及各源原始波的比值。
 - WebUI：严格元数据解码、测量/显示选择、幅相和导出合同；Smith 匹配、开路、短路、复数投影、坏点、圆形网格、二维标记及一次 Autoscale，并做实际页面交互验证。
+- 四端口扩展：VN08 用独立固定 IQ 字面量验证全部 16 项同源复比值，VN10 保留自身独立信号模型，以同源原始 a/b 波和 Python 复数除法逐项验证；两种原始驱动均覆盖 golden/noise。CONT 十六项共同更新，HTTP 原位选择 S44 后 SCPI 读回一致。二端口对全部 12 项越界 S 参数的创建与更新拒绝，并保留目录、显示与配置版本。
 
 上述测试证明软件比值、帧一致性与错误处理，不构成射频硬件校准准确度验收。
 

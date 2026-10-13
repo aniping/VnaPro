@@ -158,7 +158,7 @@ void TwoPortSParameterDefinitions(const std::string &driver)
     Expect(catalog.find("ReverseTransmission,S12,ReverseReflection,S22") != std::string::npos,
         "目录未规范化反向 S 参数名称");
     const auto revision = fixture.service.Settings().revision;
-    for (const auto &parameter : {"s12", "S13", "S31", "S1__2", "S_12", "S012"}) {
+    for (const auto &parameter : {"s12", "S15", "S51", "S1__2", "S_12", "S012"}) {
         Command(engine, std::string("CALC1:PAR:DEF:EXT 'Invalid','") + parameter + "'");
         Expect(Command(engine, "SYST:ERR?").find("-224,") == 0U, "非法 S 参数未记录标准错误");
     }
@@ -166,6 +166,54 @@ void TwoPortSParameterDefinitions(const std::string &driver)
     Command(engine, "CALC1:PAR:SEL 'ReverseTransmission'");
     Expect(Command(engine, "CALC1:DATA? SDATA").empty(), "未校准测量不应返回校准数据");
     Expect(Command(engine, "SYST:ERR?").find("-224,") == 0U, "SDATA 未记录标准错误");
+}
+
+void FourPortDefinitionsAndTwoPortLimits(const std::string &)
+{
+    VnaService::InstrumentProfile profile;
+    profile.portCount = 4U;
+    VnaServiceTest::Fixture fourPort(profile);
+    VnaScpi::ScpiEngine fourEngine(fourPort.service);
+    for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+        for (unsigned source = 1U; source <= 4U; ++source) {
+            const auto parameter = "S" + std::to_string(receiver) + std::to_string(source);
+            Command(fourEngine, "CALC1:PAR:DEF:EXT '" + parameter + "','" + parameter + "'");
+            Expect(Command(fourEngine, "SYST:ERR?").find("0,") == 0U, "四端口仪器拒绝标准参数：" + parameter);
+            Expect(Command(fourEngine, "CALC1:PAR:CAT:EXT?").find(parameter + "," + parameter) != std::string::npos,
+                "四端口目录未保存参数：" + parameter);
+        }
+    }
+    profile.portCount = 2U;
+    VnaServiceTest::Fixture twoPort(profile);
+    VnaScpi::ScpiEngine twoEngine(twoPort.service);
+    for (const auto &parameter : {"S11", "S12", "S21", "S22"}) {
+        Command(twoEngine, std::string("CALC1:PAR:DEF:EXT '") + parameter + "','" + parameter + "'");
+        Expect(Command(twoEngine, "SYST:ERR?").find("0,") == 0U, "双端口仪器拒绝合法参数");
+    }
+    const auto settings = twoPort.service.Settings();
+    const auto display = twoPort.service.Display();
+    const auto core = twoPort.core.ReadView();
+    const auto catalog = Command(twoEngine, "CALC1:PAR:CAT:EXT?");
+    for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+        for (unsigned source = 1U; source <= 4U; ++source) {
+            if (receiver <= 2U && source <= 2U) {
+                continue;
+            }
+            const auto parameter = "S" + std::to_string(receiver) + std::to_string(source);
+            Command(twoEngine, "CALC1:PAR:DEF:EXT 'Rejected','" + parameter + "'");
+            Expect(Command(twoEngine, "SYST:ERR?").find("-222,") == 0U,
+                "双端口配置应通过服务层拒绝越界参数：" + parameter);
+            const auto after = twoPort.core.ReadView();
+            Expect(twoPort.service.Settings().revision == settings.revision &&
+                       twoPort.service.Settings().acquisitionRevision == settings.acquisitionRevision &&
+                       twoPort.service.Display().revision == display.revision &&
+                       twoPort.service.Display().selectedMeasurement == display.selectedMeasurement &&
+                       twoPort.service.Display().selectedDiagram == display.selectedDiagram &&
+                       Command(twoEngine, "CALC1:PAR:CAT:EXT?") == catalog && after.runId == core.runId &&
+                       after.configRevision == core.configRevision && after.frame == core.frame,
+                "越界定义不能部分提交目录、显示状态或采集身份");
+        }
+    }
 }
 
 void FrequencyQueriesFollowInstrumentProfile(const std::string &)
@@ -532,6 +580,7 @@ int main(int argc, char **argv)
     Run("parser and compound responses", ParserAndCompoundResponse, driver, failed);
     Run("configuration and revision", ConfigurationAndRevision, driver, failed);
     Run("标准双端口 S 参数定义及错误合同", TwoPortSParameterDefinitions, driver, failed);
+    Run("四端口全部 S 参数和双端口配置限制", FourPortDefinitionsAndTwoPortLimits, driver, failed);
     Run("频率查询及设置遵守仪器能力", FrequencyQueriesFollowInstrumentProfile, driver, failed);
     Run("single frame and receiver mapping", SingleFrameAndReceivers, driver, failed);
     Run("pending barriers and errors", PendingBarriersAndErrors, driver, failed);

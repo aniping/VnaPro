@@ -188,10 +188,10 @@ void UnsupportedDefinitionAndRawCompatibility()
     Prepare(fixture);
     const auto revision = fixture.service.Settings().revision;
     Require(
-        !Finish(fixture, fixture.service.DefineMeasurement(SParameter("S13", 1U, 3U))).ok, "拒绝双端口范围外的 S13");
+        !Finish(fixture, fixture.service.DefineMeasurement(SParameter("S15", 1U, 5U))).ok, "拒绝物理端口范围外的 S15");
     Require(
-        !Finish(fixture, fixture.service.DefineMeasurement(SParameter("S23", 2U, 3U))).ok, "拒绝双端口范围外的 S23");
-    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("S31", 3U))).ok, "拒绝超出首发范围的 S31");
+        !Finish(fixture, fixture.service.DefineMeasurement(SParameter("S25", 2U, 5U))).ok, "拒绝物理端口范围外的 S25");
+    Require(!Finish(fixture, fixture.service.DefineMeasurement(SParameter("S51", 5U))).ok, "拒绝物理端口范围外的 S51");
     auto unknown = SParameter("Unknown", 1U);
     unknown.kind = static_cast<VnaService::MeasurementKind>(99);
     Require(!Finish(fixture, fixture.service.DefineMeasurement(unknown)).ok, "拒绝未知测量种类");

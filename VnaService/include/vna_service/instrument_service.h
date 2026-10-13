@@ -101,7 +101,7 @@ public:
     // 在 READY 或 RUNNING 下排入原子配置；完整帧边界提交，保留运行模式、控制权与版本校验。
     Operation ApplyConfiguration(ConfigPatch patch, std::uint64_t expectedRevision, const std::string &owner);
     // 添加唯一的 1～128 字节测量名称；采集中允许更新目录，新增硬件需求在完整帧边界提交。
-    // 端口必须在仪器能力内；未校准 S 参数目前支持 S11、S21、S12、S22。
+    // 未校准 Sij 的接收端口 i 和源端口 j 都必须在启动配置的仪器端口能力内。
     Operation DefineMeasurement(
         Measurement measurement, std::uint64_t expectedRevision = 0U, const std::string &owner = "SCPI");
     // 原位更新同名测量并保留顺序和选择；已有采集需求即时生效，缺少的源或接收机在帧边界提交。

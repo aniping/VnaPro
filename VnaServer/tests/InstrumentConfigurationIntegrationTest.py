@@ -77,7 +77,9 @@ def scpi_rejections(http, client, port_count):
         current = http.status()
         assert current["revision"] == baseline["revision"] and current["config"] == baseline["config"]
     if port_count == 2:
-        for parameter in ("a3,1", "b4,1", "a1,3", "b1,4"):
+        unavailable = [f"S{receiver}{source}" for receiver in range(1, 5) for source in range(1, 5)
+                       if receiver > port_count or source > port_count]
+        for parameter in ("a3,1", "b4,1", "a1,3", "b1,4", *unavailable):
             client.query(f'CALC1:PAR:DEF:EXT "OutOfProfile","{parameter}";*OPC?')
             assert client.query("SYST:ERR?").startswith("-222,"), parameter
             assert http.status()["revision"] == baseline["revision"]
@@ -86,7 +88,9 @@ def scpi_rejections(http, client, port_count):
 
 def define_supported(http, client, port_count):
     if port_count == 4:
-        definitions = (("Port3", "b3,3"), ("Port4", "b4,4"))
+        definitions = (("Port3", "b3,3"), ("Port4", "b4,4"),
+                       ("Reflect3", "S33"), ("Reflect4", "S44"),
+                       ("Transmit34", "S34"), ("Transmit43", "S43"))
     else:
         definitions = (("ReverseTransmit", "S12"), ("ReverseReflect", "S22"))
     for slot, (name, parameter) in enumerate(definitions, start=2):
@@ -101,16 +105,20 @@ def define_supported(http, client, port_count):
     if port_count == 4:
         assert traces["Port3"]["sourcePort"] == traces["Port3"]["receiverPort"] == 3
         assert traces["Port4"]["sourcePort"] == traces["Port4"]["receiverPort"] == 4
+        for name, parameter in definitions[2:]:
+            assert traces[name]["parameter"] == parameter and traces[name]["kind"] == "sParameter"
+            assert traces[name]["receiverPort"] == int(parameter[1])
+            assert traces[name]["sourcePort"] == int(parameter[2])
     else:
         for name, parameter in definitions:
             assert traces[name]["sourcePort"] == 2 and traces[name]["parameter"] == parameter
             assert traces[name]["calibration"] == "uncalibrated"
 
 
-def http_rejected(http, token, path, body):
+def http_rejected(http, token, path, body, method="POST"):
     baseline = http.status()
     body = dict(body, expectedRevision=baseline["revision"])
-    response = http.request("POST", "/api/v1/" + path, body, token, expected=(202, 409))
+    response = http.request(method, "/api/v1/" + path, body, token, expected=(202, 409))
     if "error" in response:
         assert response["error"]["code"] == "operation_rejected", response
     else:
@@ -126,6 +134,7 @@ def http_rejected(http, token, path, body):
     current = http.status()
     assert current["revision"] == baseline["revision"] and current["config"] == baseline["config"]
     assert current["measurements"] == baseline["measurements"], "非法配置不能改变测量目录"
+    assert current["display"] == baseline["display"], "非法测量不能改变活动迹线、图窗、刻度或标记"
 
 
 def http_rejections(http, port_count):
@@ -140,6 +149,18 @@ def http_rejections(http, port_count):
                     "name": "OutOfProfile", "receiverKind": "b", "receiverPort": receiver, "sourcePort": source,
                     "requestId": f"invalid-port-{receiver}-{source}",
                 })
+            for receiver in range(1, 5):
+                for source in range(1, 5):
+                    if receiver <= port_count and source <= port_count:
+                        continue
+                    parameter = f"S{receiver}{source}"
+                    http_rejected(http, token, "measurements", {
+                        "name": "Invalid" + parameter, "parameter": parameter,
+                        "requestId": "invalid-create-" + parameter,
+                    })
+                    http_rejected(http, token, "measurements/Trc1", {
+                        "parameter": parameter, "requestId": "invalid-update-" + parameter,
+                    }, method="PUT")
     finally:
         http.request("POST", "/api/v1/control/release", {}, token)
 

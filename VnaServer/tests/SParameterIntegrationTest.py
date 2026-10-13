@@ -79,7 +79,7 @@ def held_frame(http, client, golden=None):
 
 def unsupported_and_stale(http, client):
     previous = http.status()["revision"]
-    for parameter in ("S13", "S31", "s11"):
+    for parameter in ("S15", "S51", "s11"):
         client.query(f'CALC1:PAR:DEF:EXT "Unsupported","{parameter}";*OPC?')
         assert client.query("SYST:ERR?").startswith("-224,"), parameter
         assert http.status()["revision"] == previous

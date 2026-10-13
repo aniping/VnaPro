@@ -103,10 +103,10 @@ void TestSupportedParameters()
     Require(SParameter(1U).Parameter() == "S11" && SParameter(2U).Parameter() == "S21", "S 参数名称错误");
     Require(SParameter(1U, 2U).IsSupported() && SParameter(1U, 2U).Parameter() == "S12", "反向 S12 未被支持");
     Require(SParameter(2U, 2U).IsSupported() && SParameter(2U, 2U).Parameter() == "S22", "反向 S22 未被支持");
-    auto unsupported = SParameter(1U, 3U);
-    Require(!unsupported.IsSupported(), "双端口范围外的 S13 被接受");
-    unsupported = SParameter(3U);
-    Require(!unsupported.IsSupported(), "当前范围外的 S31 被接受");
+    auto unsupported = SParameter(1U, 5U);
+    Require(!unsupported.IsSupported(), "物理端口范围外的 S15 被接受");
+    unsupported = SParameter(5U);
+    Require(!unsupported.IsSupported(), "物理端口范围外的 S51 被接受");
     unsupported = SParameter(1U);
     unsupported.receiverKind = 'a';
     Require(!unsupported.IsSupported(), "使用入射波作为 S 参数分子被接受");
@@ -114,6 +114,63 @@ void TestSupportedParameters()
     Require(!raw.IsSupported(), "零号接收端口被接受");
     raw.kind = static_cast<MeasurementKind>(99);
     Require(!raw.IsSupported(), "非法测量类型被接受");
+}
+
+void TestFourPortParameterParsing()
+{
+    Measurement measurement;
+    for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+        for (unsigned source = 1U; source <= 4U; ++source) {
+            const auto parameter = "S" + std::to_string(receiver) + std::to_string(source);
+            Require(measurement.SetParameter(parameter) && measurement.IsSupported() &&
+                        measurement.kind == MeasurementKind::S_PARAMETER && measurement.receiverKind == 'b' &&
+                        measurement.receiverPort == receiver && measurement.sourcePort == source &&
+                        measurement.Parameter() == parameter,
+                "四端口 S 参数解析失败：" + parameter);
+            Require(measurement.SetParameter("S" + std::to_string(receiver) + "_" + std::to_string(source)) &&
+                        measurement.Parameter() == parameter,
+                "标准下划线参数未规范化：" + parameter);
+        }
+    }
+    for (const auto &parameter : {"S05", "S10", "S15", "S51", "S55", "S4__4", "S_44", "S044", "s44"}) {
+        Require(!measurement.SetParameter(parameter) && measurement.Parameter() == "S44" && measurement.IsSupported(),
+            "无效参数修改了已应用测量：" + std::string(parameter));
+    }
+}
+
+std::complex<double> FourPortRatio(unsigned receiver, unsigned source, std::size_t point)
+{
+    return {0.1 * receiver + 0.02 * source + 0.001 * point, 0.03 * source - 0.01 * receiver};
+}
+
+void TestAllFourPortRatiosUseTheirOwnSourceReference()
+{
+    // 源帧故意乱序，每个非参考入射接收器填入不同值，检查源与接收端口映射。
+    auto frame = Frame({4U, 2U, 1U, 3U});
+    for (auto &port : frame.ports) {
+        for (std::size_t point = 0U; point < 3U; ++point) {
+            const std::complex<double> reference(1.0 + port.sourcePort, -0.5 - point);
+            for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+                SetIq(port, point, receiver, 'a', {99.0 + receiver, -88.0 - port.sourcePort});
+                SetIq(port, point, receiver, 'b', reference * FourPortRatio(receiver, port.sourcePort, point));
+            }
+            SetIq(port, point, port.sourcePort, 'a', reference);
+        }
+    }
+    const auto original = frame.ports;
+    for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+        for (unsigned source = 1U; source <= 4U; ++source) {
+            const auto result = MeasurementProcessor::Calculate(frame, SParameter(receiver, source));
+            Require(result.available && result.points.size() == 3U,
+                "四端口复数比值不可用：S" + std::to_string(receiver) + std::to_string(source));
+            for (std::size_t point = 0U; point < 3U; ++point) {
+                RequirePoint(result.points[point], FourPortRatio(receiver, source, point));
+            }
+        }
+    }
+    for (std::size_t index = 0U; index < original.size(); ++index) {
+        Require(frame.ports[index].iq == original[index].iq, "四端口计算修改了输入 IQ 数据");
+    }
 }
 
 void TestKnownReflectionAndTransmission()
@@ -366,6 +423,8 @@ int main()
 {
     try {
         TestSupportedParameters();
+        TestFourPortParameterParsing();
+        TestAllFourPortRatiosUseTheirOwnSourceReference();
         TestKnownReflectionAndTransmission();
         TestDelayPhase();
         TestSameSourceOnly();
@@ -377,7 +436,7 @@ int main()
         TestExtremeFiniteValues();
         TestMissingAndDisabledReceivers();
         TestMalformedFrameLayouts();
-        std::cout << "测量计算：12 组场景通过\n";
+        std::cout << "测量计算：14 组场景通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

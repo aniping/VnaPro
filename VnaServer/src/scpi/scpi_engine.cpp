@@ -595,7 +595,7 @@ void ScpiEngine::DispatchDefineMeasurement(const ParsedCommand &command)
     }
     if (!measurement.SetParameter(parameter)) {
         RecordCommandError(
-            command, ILLEGAL_PARAMETER_VALUE, "Only S11/S21/S12/S22 and logical a1..a4/b1..b4 receivers are supported");
+            command, ILLEGAL_PARAMETER_VALUE, "Supported parameters are Sij (i,j=1..4) and aN,P/bN,P (N,P=1..4)");
         return;
     }
     SetOperation(service_.DefineMeasurement(measurement));

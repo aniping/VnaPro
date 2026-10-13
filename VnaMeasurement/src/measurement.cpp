@@ -46,7 +46,8 @@ std::string Measurement::Parameter() const
 bool Measurement::IsSupported() const noexcept
 {
     if (kind == MeasurementKind::S_PARAMETER) {
-        return receiverKind == 'b' && sourcePort >= 1U && sourcePort <= 2U && receiverPort >= 1U && receiverPort <= 2U;
+        return receiverKind == 'b' && sourcePort >= 1U && sourcePort <= VnaCore::PHYSICAL_PORT_COUNT &&
+               receiverPort >= 1U && receiverPort <= VnaCore::PHYSICAL_PORT_COUNT;
     }
     return kind == MeasurementKind::RECEIVER && (receiverKind == 'a' || receiverKind == 'b') && receiverPort >= 1U &&
            receiverPort <= VnaCore::PHYSICAL_PORT_COUNT && sourcePort >= 1U &&
@@ -57,8 +58,9 @@ bool Measurement::SetParameter(const std::string &parameter)
 {
     const auto text = TrimParameter(parameter);
     auto candidate = *this;
+    constexpr char maxPort = static_cast<char>('0' + VnaCore::PHYSICAL_PORT_COUNT);
     if ((text.size() == 3U || (text.size() == 4U && text[2U] == '_')) && text[0U] == 'S' && text[1U] >= '1' &&
-        text[1U] <= '2' && text.back() >= '1' && text.back() <= '2') {
+        text[1U] <= maxPort && text.back() >= '1' && text.back() <= maxPort) {
         candidate.kind = MeasurementKind::S_PARAMETER;
         candidate.receiverKind = 'b';
         candidate.receiverPort = static_cast<unsigned>(text[1U] - '0');
