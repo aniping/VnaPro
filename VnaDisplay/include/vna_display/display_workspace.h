@@ -88,7 +88,7 @@ struct TracePresentation final {
 struct DisplayDiagram final {
     unsigned number = 1U;
     std::vector<std::string> measurementNames;
-    // 每个图窗保留自己的活动迹线，控制网格并在绘制时置顶。
+    // 每个图窗保留自己的活动迹线，控制轴刻度并在绘制时置顶；背景可包含多类网格。
     std::string primaryMeasurement;
     // 显示槽身份与 Trc 名称独立；删除成员不得压缩其他槽号。
     std::vector<unsigned> traceSlots = {};

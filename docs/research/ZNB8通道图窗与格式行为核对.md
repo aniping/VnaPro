@@ -41,7 +41,7 @@ Delay Derivation
 - 格式是逐迹线设置，允许格式和测量量自由组合。[第 77、104 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=104)
 - Smith / Inv Smith / SWR 可用于传输或波量，不能以 S11/S22 白名单限制商业界面；但此时不再具有真实反射系数对应的阻抗、导纳或驻波比含义。[第 112 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=112)
 - 切格式激活对应默认刻度；改测量量会选该量的默认格式。它们都不能被推定为“自动保存并恢复各旧格式刻度”。[第 441、112 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=441)
-- Overlay All 允许同图混合 Cartesian 与复平面；网格及轴刻度按活动迹线，不强制整图迹线同格式。格式变化不应自动拆成两个图窗。[第 796 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=796)
+- Overlay All 允许同图混合 Cartesian 与复平面；第 796 页原图同时绘制矩形与 Smith 背景，轴刻度按活动迹线。此前将其解释为只画活动格式网格有误；格式变化不应自动拆成两个图窗。[第 796 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=796)，补充证据见[混合网格与整组默认格式核对](ZNB8混合网格与整组默认格式核对.md)。
 
 Polar 的曲线坐标仍是实部 / 虚部，但官方 Polar 示例的标记读数是幅值与相位：第 107 页原图显示 `493.907 mU` 和 `-65.37°`。结合 Default 随迹线格式动态调整的说明，本项目采用这一默认读数映射；手册没有逐格式列出 Default 映射表，因此这是基于官方示例的推断。显式 Marker Format 的 SCPI 枚举 `POLar` 在第 1034 页则对应 Real Imag，不能把它等同上述默认映射，也不能因此改写 Keysight 的圆图标记查询。[第 95、107、440–441、1034 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=107)
 
