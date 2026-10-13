@@ -49,11 +49,16 @@ export interface TracePresentation {
   activeMarkerId?: number
 }
 
+/** 八色循环参考 ZNB 的颜色数量配置；具体 RGB 是本项目的显示色板。 */
 export const TRACE_COLORS = [
   '#60e600',
   '#ffff26',
   '#36c5d8',
   '#d879e8',
+  '#ff9b45',
+  '#82aaff',
+  '#ff6e78',
+  '#e5e9ef',
 ] as const
 
 export function traceColor(index: number): string {
