@@ -54,6 +54,8 @@ VnaService::Operation TraceActionAdapter::Execute(
     }
     if (clone) {
         allowed.push_back("sourceName");
+    } else if (add) {
+        allowed.push_back("parameter");
     }
     for (const auto &member : body.object) {
         if (std::find(allowed.begin(), allowed.end(), member.first) == allowed.end()) {
@@ -69,6 +71,13 @@ VnaService::Operation TraceActionAdapter::Execute(
     options.diagram = Diagram(body, false);
     options.newDiagram = NewDiagram(body);
     if (add) {
+        const auto *parameter = body.Find("parameter");
+        if (parameter != nullptr) {
+            if (parameter->type != Json::Type::STRING || parameter->string.empty()) {
+                throw std::invalid_argument("parameter must be a non-empty string");
+            }
+            options.parameter = parameter->string;
+        }
         return service.AddMeasurement(revision, displayRevision, owner, options);
     }
     const auto *source = body.Find("sourceName");

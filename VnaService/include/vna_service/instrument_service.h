@@ -31,6 +31,8 @@ namespace VnaService {
 struct TraceCreationOptions final {
     unsigned diagram = 0U;
     bool newDiagram = false;
+    // 仅新增可指定测量量；为空时使用仪器默认量，复制始终继承源测量量。
+    std::string parameter;
 };
 
 // 线程约束：启动后的所有调用均由服务执行线程完成。
@@ -80,7 +82,7 @@ public:
     // 后端分配新名称并原子添加、选择副本，前端无需复制目录控制规则。
     Operation CloneMeasurement(const std::string &sourceName, std::uint64_t expectedRevision,
         std::uint64_t expectedDisplayRevision, const std::string &owner, TraceCreationOptions options = {});
-    // 原生图窗菜单新增默认 S21，与图窗创建、选择一并原子提交。
+    // 原子新增指定测量量或默认 S21（单端口 S11），同时提交命名、图窗归属与选择。
     Operation AddMeasurement(std::uint64_t expectedRevision, std::uint64_t expectedDisplayRevision,
         const std::string &owner, TraceCreationOptions options = {});
     // 原生图窗删除连同所属测量定义一起提交，并保护最后图窗和最后迹线。
@@ -165,6 +167,7 @@ private:
         const std::string &requester = "SCPI");
     Operation ConfigureMeasurements(std::function<OperationResult(InstrumentSettings &)> mutate, std::uint64_t expected,
         const std::string &requester);
+    static bool ValidMeasurement(const Measurement &measurement, const InstrumentProfile &profile) noexcept;
     bool HasMeasurement() const noexcept;
     bool HasConfiguration() const noexcept;
     void Finish(OperationResult value);

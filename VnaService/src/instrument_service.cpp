@@ -96,13 +96,6 @@ bool ValidFrequency(double value, const InstrumentProfile &profile) noexcept
     return std::isfinite(value) && value >= profile.minFrequencyHz && value <= profile.maxFrequencyHz;
 }
 
-bool ValidMeasurement(const Measurement &measurement, const InstrumentProfile &profile) noexcept
-{
-    return !measurement.name.empty() && measurement.name.size() <= MAX_MEASUREMENT_NAME_LENGTH &&
-           measurement.IsSupported() && measurement.sourcePort <= profile.portCount &&
-           measurement.receiverPort <= profile.portCount;
-}
-
 double QuantizedBandwidth(double value) noexcept
 {
     const double values[] = {10.0, 100.0, 1000.0, 10000.0, 100000.0};
@@ -265,6 +258,13 @@ DataResult ExtractMeasurement(const VnaCore::MeasurementFrame &frame, const Meas
 }
 
 }  // 匿名命名空间
+
+bool InstrumentService::ValidMeasurement(const Measurement &measurement, const InstrumentProfile &profile) noexcept
+{
+    return !measurement.name.empty() && measurement.name.size() <= MAX_MEASUREMENT_NAME_LENGTH &&
+           measurement.IsSupported() && measurement.sourcePort <= profile.portCount &&
+           measurement.receiverPort <= profile.portCount;
+}
 
 void InstrumentService::Error(int code, const std::string &text)
 {

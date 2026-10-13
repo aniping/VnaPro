@@ -505,6 +505,90 @@ void DeleteActiveTraceKeepsDiagramContextAndSavedSettings()
     VerifyShared(writer, refreshed);
 }
 
+void SpecifiedParameterCreationIsOneTransaction()
+{
+    Fixture fixture;
+    HttpApi writer(fixture.service);
+    HttpApi observer(fixture.service);
+    const auto token = Claim(writer);
+    for (const auto &parameter : {"S44", "S3_4"}) {
+        const auto before = Status(writer);
+        auto body = TraceAction(writer, std::string("create-requested-") + parameter);
+        body["parameter"] = Json(parameter);
+        body["newDiagram"] = Json(std::string(parameter) == "S3_4");
+        Finish(writer, Request(writer, "POST", "/api/v1/measurement-actions/add", body, token), token);
+        const auto after = Status(observer);
+        const auto &measurements = Field(after, "measurements").array;
+        const auto &display = Field(after, "display");
+        const auto name = Field(measurements.back(), "name").string;
+        Require(
+            std::stoull(Field(after, "revision").string) == std::stoull(Field(before, "revision").string) + 1U &&
+                measurements.size() == Field(before, "measurements").array.size() + 1U &&
+                Field(measurements.back(), "parameter").string == (std::string(parameter) == "S44" ? "S44" : "S34") &&
+                Field(display, "selectedMeasurement").string == name &&
+                Field(display, "selectedDiagram").number == (std::string(parameter) == "S44" ? 1.0 : 2.0) &&
+                Field(Presentation(display, name), "format").string == "db",
+            "指定参数创建应仅提交一次目录版本，并原子安排默认显示与目标图窗");
+        VerifyShared(writer, observer);
+    }
+}
+
+void InvalidRequestedCreationLeavesNoTrace()
+{
+    VnaService::InstrumentProfile profile;
+    profile.portCount = 2U;
+    Fixture fixture(profile);
+    HttpApi writer(fixture.service);
+    const auto token = Claim(writer);
+    const auto before = Status(writer);
+    const auto unchanged = [&] {
+        const auto after = Status(writer);
+        Require(Field(after, "revision").string == Field(before, "revision").string &&
+                    Field(after, "acquisitionRevision").string == Field(before, "acquisitionRevision").string &&
+                    VnaWeb::StringifyJson(Field(after, "measurements")) ==
+                        VnaWeb::StringifyJson(Field(before, "measurements")) &&
+                    VnaWeb::StringifyJson(Field(after, "display")) == VnaWeb::StringifyJson(Field(before, "display")),
+            "拒绝新迹线请求不得残留默认测量、图窗、标记或选择");
+    };
+    for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+        for (unsigned source = 1U; source <= 4U; ++source) {
+            if (receiver <= 2U && source <= 2U) {
+                continue;
+            }
+            const auto parameter = "S" + std::to_string(receiver) + std::to_string(source);
+            auto body = TraceAction(writer, "rejected-create-" + parameter);
+            body["parameter"] = Json(parameter);
+            body["newDiagram"] = Json(true);
+            Finish(writer, Request(writer, "POST", "/api/v1/measurement-actions/add", body, token), token, false);
+            unchanged();
+        }
+    }
+    for (const auto &parameter : {"S5_1", "S1__2", "s44"}) {
+        auto body = TraceAction(writer, std::string("malformed-create-") + parameter);
+        body["parameter"] = Json(parameter);
+        Finish(writer, Request(writer, "POST", "/api/v1/measurement-actions/add", body, token), token, false);
+        unchanged();
+    }
+    for (const auto &parameter : {Json(), Json(44U), Json(true), Json(""), Json::MakeArray()}) {
+        auto body = TraceAction(writer, "bad-type-create-" + VnaWeb::StringifyJson(parameter));
+        body["parameter"] = parameter;
+        Require(Request(writer, "POST", "/api/v1/measurement-actions/add", body, token).status == 400U,
+            "指定参数必须是非空字符串");
+        unchanged();
+    }
+    auto clone = TraceAction(writer, "clone-parameter-rejected");
+    clone["parameter"] = Json("S11");
+    Require(Request(writer, "POST", "/api/v1/measurement-actions/clone", clone, token).status == 400U,
+        "复制入口不允许指定参数");
+    unchanged();
+    for (const auto &field : {"expectedRevision", "expectedDisplayRevision"}) {
+        auto stale = TraceAction(writer, std::string("stale-create-") + field);
+        stale["parameter"] = Json("S22");
+        stale[field] = Json("0");
+        Finish(writer, Request(writer, "POST", "/api/v1/measurement-actions/add", stale, token), token, false);
+        unchanged();
+    }
+}
 }  // 匿名命名空间
 
 int main()
@@ -518,7 +602,9 @@ int main()
         MovingTraceAndDeletingActiveEmptyDiagramKeepSelectionShared();
         CloneWithoutDestinationUsesSourceDiagram();
         DeleteActiveTraceKeepsDiagramContextAndSavedSettings();
-        std::cout << "8 个 HTTP 图窗、目录、标记与 CAS 事务验收用例通过\n";
+        SpecifiedParameterCreationIsOneTransaction();
+        InvalidRequestedCreationLeavesNoTrace();
+        std::cout << "10 个 HTTP 图窗、目录、标记与 CAS 事务验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

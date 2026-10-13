@@ -342,6 +342,46 @@ void CloneCopiesDisplaySettingsAndIndependentMarkers()
                 service.Display().traces.front().markers.SameSettings(source.markers),
         "目标切回 Phase 应采用默认尺度并保留本标记集合，不得修改源格式、半径或标记");
 }
+
+void CreateRequestedParameterAndRejectCloneOverride()
+{
+    Fixture fixture;
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得指定参数创建的控制权");
+    const auto revision = service.Settings().revision;
+    VnaService::TraceCreationOptions options;
+    options.parameter = "S44";
+    Require(Finish(fixture,
+                service.AddMeasurement(service.Settings().revision, service.Display().revision, "SCPI", options))
+                    .ok &&
+                service.Settings().revision == revision + 1U && service.Settings().measurements.size() == 2U &&
+                service.Settings().measurements.back().name == "Trc2" &&
+                service.Settings().measurements.back().Parameter() == "S44" &&
+                service.Display().selectedMeasurement == "Trc2" && service.Display().selectedDiagram == 1U &&
+                service.Display().traces.back().format == VnaDisplay::DisplayFormat::DB,
+        "指定参数应与自动命名、默认显示和选择原子创建，不得残留默认迹线");
+    const auto before = service.Snapshot();
+    options.parameter = "S34";
+    Require(!Finish(fixture,
+                service.CloneMeasurement("Trc1", before.settings.revision, before.display.revision, "SCPI", options))
+                    .ok &&
+                service.Settings().revision == before.settings.revision &&
+                service.Display().revision == before.display.revision && service.Settings().measurements.size() == 2U,
+        "复制合同不能指定覆盖测量量或部分提交目录");
+}
+
+void SinglePortCreationKeepsDefaultS11()
+{
+    VnaService::InstrumentProfile profile;
+    profile.portCount = 1U;
+    Fixture fixture(profile);
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得单端口创建的控制权");
+    Require(
+        Finish(fixture, service.AddMeasurement(service.Settings().revision, service.Display().revision, "SCPI")).ok &&
+            service.Settings().measurements.back().Parameter() == "S11",
+        "无指定参数的单端口创建仍应使用默认 S11");
+}
 }  // 匿名命名空间
 
 int main()
@@ -356,6 +396,8 @@ int main()
         CloneNumbersReuseLowestFreeNameLikeZnb();
         ClonedTracesRemainDisplayedBeyondFourPorts();
         CloneCopiesDisplaySettingsAndIndependentMarkers();
+        CreateRequestedParameterAndRejectCloneOverride();
+        SinglePortCreationKeepsDefaultS11();
         std::cout << "PASS 共享显示域、控制权、版本与完整帧边界\n";
         return 0;
     } catch (const std::exception &error) {

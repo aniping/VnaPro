@@ -163,6 +163,9 @@ VnaDisplay::ProjectedTrace InstrumentService::DisplayData(const std::string &nam
 Operation InstrumentService::CloneMeasurement(const std::string &sourceName, std::uint64_t expectedRevision,
     std::uint64_t expectedDisplayRevision, const std::string &owner, TraceCreationOptions options)
 {
+    if (!options.parameter.empty()) {
+        return Rejected(Detail::INVALID_PARAMETER_ERROR, "Clone must inherit its source measurement parameter", owner);
+    }
     const auto source = sourceName.empty() ? display_.State().selectedMeasurement : sourceName;
     return CreateMeasurement(source, expectedRevision, expectedDisplayRevision, owner, options);
 }
@@ -177,7 +180,7 @@ Operation InstrumentService::CreateMeasurement(const std::string &source, std::u
     std::uint64_t expectedDisplayRevision, const std::string &owner, TraceCreationOptions options)
 {
     auto operation = ConfigureMeasurements(
-        [this, source](InstrumentSettings &candidate) {
+        [this, source, options](InstrumentSettings &candidate) {
             OperationResult result;
             const auto measurement = std::find_if(
                 candidate.measurements.begin(), candidate.measurements.end(), [&source](const Measurement &item) {
@@ -191,11 +194,23 @@ Operation InstrumentService::CreateMeasurement(const std::string &source, std::u
             }
             Measurement cloned;
             if (source.empty()) {
-                cloned.SetParameter(profile_.portCount == 1U ? "S11" : "S21");
+                const auto parameter =
+                    options.parameter.empty() ? (profile_.portCount == 1U ? "S11" : "S21") : options.parameter;
+                if (!cloned.SetParameter(parameter)) {
+                    result.errorCode = Detail::INVALID_PARAMETER_ERROR;
+                    result.message = "Unsupported measurement parameter";
+                    return result;
+                }
             } else {
                 cloned = *measurement;
             }
             cloned.name = NextMeasurementName(candidate.measurements);
+            // 创建与原位更新共享能力检查，禁止指定参数绕过启动端口数量。
+            if (!ValidMeasurement(cloned, profile_)) {
+                result.errorCode = Detail::DATA_OUT_OF_RANGE_ERROR;
+                result.message = "Unsupported measurement definition";
+                return result;
+            }
             candidate.measurements.push_back(std::move(cloned));
             result.ok = true;
             return result;
