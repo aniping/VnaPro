@@ -16,6 +16,7 @@ import type {
   SweepPatch,
   DisplayCommand,
   TraceDestination,
+  TraceCreationOptions,
 } from './types'
 
 export class ApiError extends Error {
@@ -113,10 +114,10 @@ export interface InstrumentGateway {
     expectedDisplayRevision: string,
     destination?: TraceDestination,
   ): Promise<AcceptedOperation>
-  addDefaultMeasurement(
+  createTrace(
     expectedRevision: string,
     expectedDisplayRevision: string,
-    destination?: TraceDestination,
+    destination?: TraceCreationOptions,
   ): Promise<AcceptedOperation>
   deleteDiagram(
     diagram: number,
@@ -440,10 +441,10 @@ export class InstrumentApi implements InstrumentGateway {
     )
   }
 
-  addDefaultMeasurement(
+  createTrace(
     expectedRevision: string,
     expectedDisplayRevision: string,
-    destination: TraceDestination = {},
+    destination: TraceCreationOptions = {},
   ): Promise<AcceptedOperation> {
     return this.request(
       '/measurement-actions/add',

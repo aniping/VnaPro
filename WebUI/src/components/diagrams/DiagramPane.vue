@@ -61,6 +61,7 @@ import {
 import MarkerReadout from './MarkerReadout.vue'
 import TraceStrip from './TraceStrip.vue'
 import DiagramMenu from './DiagramMenu.vue'
+import { isNewTraceDrag, NEW_TRACE_DRAG_TYPE } from '../instrument/newTraceDrag'
 
 const props = defineProps<{
   number: number
@@ -92,6 +93,7 @@ const emit = defineEmits<{
   selectMarker: [value: { name: string; markerId: number }]
   selectDiagram: [diagram: number]
   addTrace: [value: { diagram: number; newDiagram: boolean }]
+  newTrace: [diagram: number]
   deleteDiagram: [diagram: number]
   arrange: [value: { action: 'overlay' | 'split'; diagram: number }]
   markerPreview: [value: MarkerReadoutPreview | null]
@@ -319,7 +321,18 @@ function measureTitles(): void {
   )
   titleLayout.value = geometry
 }
-function markerInfoDrop(event: DragEvent): void {
+function dropOnDiagram(event: DragEvent): void {
+  if (isNewTraceDrag(event)) {
+    if (
+      props.canEditDisplay &&
+      props.canAddTrace !== false &&
+      event.dataTransfer?.getData(NEW_TRACE_DRAG_TYPE) === 'new-trace'
+    ) {
+      event.preventDefault()
+      emit('newTrace', props.number)
+    }
+    return
+  }
   if (!props.canEditDisplay) return
   const name = markerInfoDragName(event)
   if (
@@ -330,7 +343,14 @@ function markerInfoDrop(event: DragEvent): void {
     emit('relocateMarkerInfo', { name, location: 'diagram' })
   }
 }
-function markerInfoDragOver(event: DragEvent): void {
+function dragOverDiagram(event: DragEvent): void {
+  if (isNewTraceDrag(event)) {
+    if (props.canEditDisplay && props.canAddTrace !== false) {
+      event.preventDefault()
+      event.dataTransfer!.dropEffect = 'copy'
+    }
+    return
+  }
   if (
     props.canEditDisplay &&
     event.dataTransfer?.types.includes(MARKER_INFO_DRAG_TYPE)
@@ -877,8 +897,8 @@ function plotKey(event: KeyboardEvent): void {
       '--diagram-label-font-size': `${(11 * annotationFontScale) / 100}px`,
       '--diagram-label-line-height': `${(18 * annotationFontScale) / 100}px`,
     }"
-    @dragover="markerInfoDragOver"
-    @drop="markerInfoDrop"
+    @dragover="dragOverDiagram"
+    @drop="dropOnDiagram"
   >
     <header class="trace-header">
       <div

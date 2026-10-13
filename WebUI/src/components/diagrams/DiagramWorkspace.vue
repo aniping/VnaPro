@@ -50,6 +50,7 @@ const emit = defineEmits<{
   selectMarker: [value: { name: string; markerId: number }]
   selectDiagram: [diagram: number]
   addTrace: [value: { diagram: number; newDiagram: boolean }]
+  newTrace: [diagram: number]
   deleteDiagram: [diagram: number]
   arrange: [value: { action: 'overlay' | 'split'; diagram: number }]
   relocateMarkerInfo: [value: { name: string; location: MarkerInfoLocation }]
@@ -187,6 +188,7 @@ const gridStyle = computed(() => {
         @select-marker="emit('selectMarker', $event)"
         @select-diagram="emit('selectDiagram', $event)"
         @add-trace="emit('addTrace', $event)"
+        @new-trace="emit('newTrace', $event)"
         @delete-diagram="emit('deleteDiagram', $event)"
         @arrange="emit('arrange', $event)"
         @marker-preview="markerPreview = $event"

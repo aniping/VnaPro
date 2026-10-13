@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { InstrumentStatus, TraceDestination } from '../../api/types'
 import { measurementState } from '../../domain/measurements'
 import { MAX_DIAGRAMS, MAX_TRACES } from '../../domain/presentation'
+import { beginNewTraceDrag } from '../instrument/newTraceDrag'
 
 const props = defineProps<{
   status: InstrumentStatus | null
@@ -112,6 +113,9 @@ async function remove() {
       class="softtool-button"
       :disabled="!canClone"
       data-testid="trace-add"
+      :draggable="canClone"
+      title="单击复制活动迹线；拖到图窗选择新迹线的 S 参数"
+      @dragstart="beginNewTraceDrag($event, canClone)"
       @click="clone(false)"
     >
       Add Trace

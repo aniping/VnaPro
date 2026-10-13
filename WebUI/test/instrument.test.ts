@@ -150,7 +150,7 @@ class FakeGateway implements InstrumentGateway {
   ) {
     return this.submitter()
   }
-  addDefaultMeasurement(_revision: string, _displayRevision: string) {
+  createTrace(_revision: string, _displayRevision: string) {
     return this.submitter()
   }
   deleteDiagram(_diagram: number, _revision: string, _displayRevision: string) {
@@ -843,9 +843,8 @@ test('operation lookup expiration still ends observation without retrying the wr
 })
 
 test('display decoder rejects missing projection provenance and accepts an invalid marker without losing the frame', async () => {
-  const { acquiredFrame, markerProjection, receiverTrace } = await import(
-    './displayFixtures'
-  )
+  const { acquiredFrame, markerProjection, receiverTrace } =
+    await import('./displayFixtures')
   const current = acquiredFrame(receiverTrace(snapshot().measurements[0]!))
   const marker = markerProjection({
     available: true,

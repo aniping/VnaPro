@@ -13,6 +13,7 @@ import type {
   SweepPatch,
   DisplayCommand,
   TraceDestination,
+  TraceCreationOptions,
 } from '../api/types'
 
 interface InstrumentOptions {
@@ -70,21 +71,21 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const hasControl = computed(() =>
     Boolean(
       connected.value &&
-        renewing.value &&
-        status.value?.control.hasControl &&
-        !status.value.control.releasing,
+      renewing.value &&
+      status.value?.control.hasControl &&
+      !status.value.control.releasing,
     ),
   )
   const canWrite = computed(() =>
     Boolean(
       hasControl.value &&
-        !controlBusy.value &&
-        !writeInFlight.value &&
-        !uncertainWrite.value &&
-        !pendingOperation.value &&
-        !status.value?.pending &&
-        status.value &&
-        !['Faulted', 'Closed', 'Uninitialized'].includes(status.value.state),
+      !controlBusy.value &&
+      !writeInFlight.value &&
+      !uncertainWrite.value &&
+      !pendingOperation.value &&
+      !status.value?.pending &&
+      status.value &&
+      !['Faulted', 'Closed', 'Uninitialized'].includes(status.value.state),
     ),
   )
   const canConfigure = computed(
@@ -578,13 +579,17 @@ export function useInstrument(options: InstrumentOptions = {}) {
           )
         : Promise.resolve(null)
     },
-    addDefaultMeasurement: (destination?: TraceDestination) => {
+    createTrace: (
+      destination?: TraceCreationOptions,
+      expectedRevision?: string,
+      expectedDisplayRevision?: string,
+    ) => {
       const snapshot = status.value
       return snapshot
         ? submit('Add trace', 'measurement', () =>
-            api.addDefaultMeasurement(
-              snapshot.revision,
-              snapshot.display.revision,
+            api.createTrace(
+              expectedRevision ?? snapshot.revision,
+              expectedDisplayRevision ?? snapshot.display.revision,
               destination,
             ),
           )

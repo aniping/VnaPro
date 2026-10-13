@@ -18,7 +18,7 @@ test('default Add Trace, copied Trace plus Diagram and Delete Diagram each carry
       )
     },
   })
-  await api.addDefaultMeasurement('9', '10', { diagram: 3 })
+  await api.createTrace('9', '10', { diagram: 3 })
   await api.cloneMeasurement('Trc5', '9', '10', {
     newDiagram: true,
     diagram: 3,
@@ -43,6 +43,38 @@ test('default Add Trace, copied Trace plus Diagram and Delete Diagram each carry
     assert.equal(request.body.expectedDisplayRevision, '10')
     assert.equal(typeof request.body.requestId, 'string')
   }
+})
+
+test('New Trace creates the selected parameter and diagram in one request without inventing a name or feed operation', async () => {
+  const requests: { url: string; body: Record<string, unknown> }[] = []
+  const api = new InstrumentApi({
+    storage: null,
+    fetch: async (url, init) => {
+      requests.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+      return new Response(
+        JSON.stringify({ operationId: 'op-new', state: 'pending' }),
+        { status: 202 },
+      )
+    },
+  })
+  await api.createTrace('9', '10', { diagram: 2, parameter: 'S44' })
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0]!.url, '/api/v1/measurement-actions/add')
+  assert.deepEqual(
+    Object.keys(requests[0]!.body).sort(),
+    [
+      'diagram',
+      'expectedDisplayRevision',
+      'expectedRevision',
+      'newDiagram',
+      'parameter',
+      'requestId',
+    ].sort(),
+  )
+  assert.equal(requests[0]!.body.parameter, 'S44')
+  assert.equal(requests[0]!.body.diagram, 2)
+  assert.equal(requests[0]!.body.expectedRevision, '9')
+  assert.equal(requests[0]!.body.expectedDisplayRevision, '10')
 })
 
 test('explicit diagram actions remain requests and never repartition local memberships or marker state', () => {

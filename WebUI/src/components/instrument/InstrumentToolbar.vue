@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ToolbarGlyph from './ToolbarGlyph.vue'
+import { beginNewTraceDrag } from './newTraceDrag'
 import type { LayoutMode } from '../../domain/presentation'
 
 const props = defineProps<{
@@ -28,6 +29,10 @@ const emit = defineEmits<{
 
 function singleSweep() {
   if (props.canWrite && !props.busy) emit('single')
+}
+
+function addTrace() {
+  if (props.canAddTrace && props.hasTrace && !props.busy) emit('addTrace')
 }
 </script>
 
@@ -100,10 +105,12 @@ function singleSweep() {
         type="button"
         class="toolbar-button glyph-accent"
         :disabled="!canAddTrace || busy"
-        title="Add Trace · 在活动图窗添加默认迹线"
+        title="Add Trace · 单击复制活动迹线；拖到图窗选择新迹线的 S 参数"
         aria-label="Add trace"
         data-testid="toolbar-add-trace"
-        @click="emit('addTrace')"
+        :draggable="canAddTrace && !busy"
+        @dragstart="beginNewTraceDrag($event, canAddTrace && !busy)"
+        @click="addTrace"
       >
         <ToolbarGlyph name="add-trace" />
       </button>

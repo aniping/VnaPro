@@ -7,6 +7,7 @@ import DiagramWorkspace from './components/diagrams/DiagramWorkspace.vue'
 import SofttoolHost from './components/softtools/SofttoolHost.vue'
 import ChannelSettingsSofttool from './components/softtools/ChannelSettingsSofttool.vue'
 import MeasurementSofttool from './components/softtools/MeasurementSofttool.vue'
+import NewTraceWorkflow from './components/softtools/NewTraceWorkflow.vue'
 import TraceCatalogSofttool from './components/softtools/TraceCatalogSofttool.vue'
 import SweepSofttool from './components/softtools/SweepSofttool.vue'
 import TraceSofttool from './components/softtools/TraceSofttool.vue'
@@ -19,6 +20,7 @@ import { useWorkspace } from './composables/useWorkspace'
 import { enableMarkerOnEntry } from './composables/markerMenuEntry'
 import { exportVisibleFrameCsv } from './plot'
 import type { MarkerMove } from './plot/markerDrag'
+import type { TraceDestination } from './api/types'
 
 const instrument = useInstrument()
 const {
@@ -60,6 +62,7 @@ const displayedMeasurement = computed(
 )
 const activeTool = ref('start')
 const softtoolVisible = ref(true)
+const newTraceDestination = ref<TraceDestination | null>(null)
 const canvasStyle = ref({ left: '0px', top: '0px', transform: 'scale(1)' })
 const busy = computed(() =>
   Boolean(
@@ -212,7 +215,30 @@ async function addTrace(destination?: {
       status.value.display.diagrams.length >= MAX_DIAGRAMS)
   )
     return
-  await instrument.addDefaultMeasurement(destination)
+  await instrument.createTrace(destination)
+}
+
+function openNewTrace(diagram: number) {
+  if (
+    !canChangeMeasurements.value ||
+    busy.value ||
+    !status.value ||
+    measurements.value.length >= MAX_TRACES ||
+    !status.value.display.diagrams.some((item) => item.number === diagram)
+  )
+    return
+  newTraceDestination.value = { diagram }
+}
+
+async function copyActiveTrace() {
+  if (
+    canChangeMeasurements.value &&
+    !busy.value &&
+    activeMeasurement.value &&
+    measurements.value.length < MAX_TRACES
+  ) {
+    await instrument.cloneMeasurement(activeMeasurement.value.name)
+  }
 }
 async function commitMarker(value: MarkerMove): Promise<boolean> {
   return Boolean(
@@ -281,7 +307,7 @@ onBeforeUnmount(() => {
               "
               @export-csv="exportCsv"
               @single="instrument.run('single')"
-              @add-trace="addTrace"
+              @add-trace="copyActiveTrace"
               @delete-trace="deleteActive"
             />
             <DiagramWorkspace
@@ -313,6 +339,7 @@ onBeforeUnmount(() => {
               @set-layout="workspace.setLayout($event.layout, $event.diagram)"
               @select-diagram="workspace.selectDiagram"
               @add-trace="addTrace($event)"
+              @new-trace="openNewTrace"
               @delete-diagram="instrument.deleteDiagram($event)"
               @arrange="
                 $event.action === 'overlay'
@@ -495,5 +522,13 @@ onBeforeUnmount(() => {
         />
       </div>
     </div>
+    <NewTraceWorkflow
+      v-if="newTraceDestination && status"
+      :status="status"
+      :destination="newTraceDestination"
+      :disabled="!canChangeMeasurements || busy"
+      :create="instrument.createTrace"
+      @close="newTraceDestination = null"
+    />
   </main>
 </template>

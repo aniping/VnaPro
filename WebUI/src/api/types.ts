@@ -10,11 +10,7 @@ import type {
 
 /** 仪器标识保持为十进制字符串，以完整保留服务端 uint64 计数器的值。 */
 export type CoreState =
-  | 'Uninitialized'
-  | 'Ready'
-  | 'Running'
-  | 'Faulted'
-  | 'Closed'
+  'Uninitialized' | 'Ready' | 'Running' | 'Faulted' | 'Closed'
 export type RunAction = 'single' | 'continuous' | 'hold' | 'trigger'
 
 export interface SweepConfiguration {
@@ -50,12 +46,15 @@ export type ReceiverCandidate = Pick<
 >
 
 export type MeasurementCandidate =
-  | ReceiverCandidate
-  | { name: string; parameter: string }
+  ReceiverCandidate | { name: string; parameter: string }
 
 export interface TraceDestination {
   newDiagram?: boolean
   diagram?: number
+}
+
+export interface TraceCreationOptions extends TraceDestination {
+  parameter?: string
 }
 
 export interface DisplaySnapshot {
