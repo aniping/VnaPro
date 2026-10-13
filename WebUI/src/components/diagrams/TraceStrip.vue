@@ -21,6 +21,8 @@ defineProps<{
   scale: DisplayScale
   color: string
   active: boolean
+  /** 图窗保存的局部选择，非活动图窗仍显示灰色标题。 */
+  remembered?: boolean
   smithRadius: number
   canEditDisplay: boolean
   sections?: TraceTitleSections
@@ -64,6 +66,7 @@ function circularDescription(
     class="trace-strip"
     :class="{
       active,
+      remembered,
       hidden: !presentation.visible,
       'hide-reference': sections?.reference === false,
       'hide-scale': sections?.scale === false,
@@ -76,7 +79,7 @@ function circularDescription(
       class="trace-select"
       type="button"
       :disabled="!canEditDisplay"
-      :aria-pressed="active"
+      :aria-pressed="active || remembered === true"
       :title="
         isCircularFormat(presentation.format)
           ? `${measurement.name} · ${measurement.parameter} · ${circularDescription(presentation, measurement)} · 未校准 · 当前外圈幅度 ${smithRadius} · 本迹线保存值 ${presentation.smithRadius}`
@@ -126,6 +129,11 @@ function circularDescription(
   min-height: var(--diagram-label-line-height, 18px);
   color: var(--trace-color);
   background: transparent;
+}
+
+.trace-strip.remembered {
+  color: #e4edf2;
+  background: #394c59;
 }
 
 .trace-strip.active {

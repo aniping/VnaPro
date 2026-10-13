@@ -459,7 +459,8 @@ const curves = computed<SelectableCurve[]>(() =>
     const shared = {
       name: item.measurement.name,
       color: item.color,
-      active: item.measurement.name === props.activeTraceName,
+      // 各图窗保留自己的局部选择；置顶和重叠命中不依赖全局活动图窗。
+      active: item.measurement.name === props.primaryTraceName,
     }
     if (isCircularFormat(format)) {
       return [
@@ -602,7 +603,13 @@ watch(
   () => void nextTick(measureTitles),
 )
 watch(
-  [() => props.frame, traces, () => props.activeTraceName, xRange],
+  [
+    () => props.frame,
+    traces,
+    () => props.activeTraceName,
+    () => props.primaryTraceName,
+    xRange,
+  ],
   schedulePaint,
   { deep: true },
 )
@@ -897,7 +904,8 @@ function plotKey(event: KeyboardEvent): void {
           :color="trace.color"
           :smith-radius="circleRadius(trace.presentation)"
           :can-edit-display="canEditDisplay"
-          :active="trace.measurement.name === activeTraceName"
+          :active="active && trace.measurement.name === primaryTraceName"
+          :remembered="trace.measurement.name === primaryTraceName"
           :sections="titleLayout.sections"
           @select="emit('selectTrace', $event)"
           @toggle-visibility="emit('toggleVisibility', $event)"

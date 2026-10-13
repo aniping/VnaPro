@@ -41,7 +41,7 @@
 
 ### 颜色数量
 
-System Config 的官方示例为 8 种迹线颜色，颜色数量可配置；默认配色规则按图窗成员顺序循环，删除成员可能使后续成员换色。[第 803、813、1566 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=813)
+System Config 的官方示例为 8 种迹线颜色，颜色数量可配置；默认配色规则按图窗成员顺序循环，删除成员可能使后续成员换色。[第 803、815、1566 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=815) 图窗局部活动高亮及删除后选择的证据边界见[图窗活动迹线与删除行为核对](ZNB8图窗活动迹线与删除行为核对.md)。
 
 本项目由四色扩展为八色循环；每窗重新开始，标题、曲线、标记符号和读数使用同一颜色来源。保留已有绿、黄、青、紫，并补充橙、蓝、红和浅色。已核对资料没有给出完整出厂八色 RGB 表或固定色序，具体 RGB 是项目参考色板，不称为原机出厂色板的逐值还原。
 
