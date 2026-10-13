@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { DisplayFormat } from '../../domain/presentation'
 import { isCircularFormat } from '../../domain/presentation'
 import type { Measurement } from '../../api/types'
@@ -22,7 +23,14 @@ interface MarkerReadoutItem {
   active: boolean
   preview?: boolean
 }
-defineProps<{ markers: MarkerReadoutItem[]; canEditDisplay: boolean }>()
+const props = defineProps<{
+  markers: MarkerReadoutItem[]
+  canEditDisplay: boolean
+}>()
+// 多迹线可重复使用 M1..M10；归属列辅助区分，不重新编号或排序后端结果。
+const showTraceNames = computed(
+  () => new Set(props.markers.map((marker) => marker.name)).size > 1,
+)
 const emit = defineEmits<{
   select: [value: { name: string; markerId: number }]
 }>()
@@ -32,6 +40,7 @@ const emit = defineEmits<{
   <div
     v-if="markers.length"
     class="marker-readouts"
+    :class="{ 'multiple-traces': showTraceNames }"
     aria-label="Marker readout"
   >
     <button
@@ -41,7 +50,7 @@ const emit = defineEmits<{
       class="marker-row"
       :disabled="!canEditDisplay"
       :class="{ active: marker.active }"
-      :style="{ '--marker-color': marker.color }"
+      :style="{ '--marker-color': marker.color, color: marker.color }"
       :aria-current="marker.active ? 'true' : undefined"
       :data-marker-preview="marker.preview ? 'true' : undefined"
       :aria-label="`${marker.name} M${marker.markerId}, ${frequencyText(marker.result.frequencyHz, 10)}, ${marker.result.valid ? (isCircularFormat(marker.format) ? circularReadout(marker.format, marker.result, marker.measurement.unit) : numberText(marker.result.value, 8) + ' ' + measurementFormatInfo(marker.format, marker.measurement).unit) : 'invalid point'}`"
@@ -54,6 +63,7 @@ const emit = defineEmits<{
         marker.active ? '•' : ''
       }}</span>
       <span class="marker-number">M{{ marker.markerId }}</span>
+      <span v-if="showTraceNames" class="marker-trace">{{ marker.name }}</span>
       <span class="marker-frequency">{{
         markerFrequencyText(marker.result.frequencyHz)
       }}</span>
@@ -97,13 +107,13 @@ const emit = defineEmits<{
 
 .marker-row {
   display: grid;
-  grid-template-columns: 5px 21px 1fr auto;
+  grid-template-columns: 5px 25px minmax(85px, 1fr) auto;
   align-items: center;
   gap: 3px;
   min-height: 14px;
   padding: 0;
   border: 0;
-  color: #fff;
+  color: inherit;
   background: transparent;
   font:
     11px/14px Tahoma,
@@ -112,6 +122,10 @@ const emit = defineEmits<{
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.multiple-traces .marker-row {
+  grid-template-columns: 5px 25px 42px minmax(85px, 1fr) auto;
 }
 
 .active-dot {
@@ -126,6 +140,10 @@ const emit = defineEmits<{
   text-align: left;
 }
 
+.marker-trace {
+  text-align: left;
+}
+
 .marker-frequency {
   min-width: 85px;
   text-align: right;
@@ -137,7 +155,7 @@ const emit = defineEmits<{
 }
 
 .invalid {
-  color: #c6ced2;
+  font-style: italic;
 }
 
 .marker-row:focus-visible {
