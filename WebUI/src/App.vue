@@ -408,6 +408,7 @@ onBeforeUnmount(() => {
               :active-trace-name="activeTraceName"
               :mode="activeTool as 'meas' | 'meas-wave'"
               :update="instrument.updateMeasurement"
+              :all-s-parameters="instrument.createAllSParameters"
             />
             <TraceCatalogSofttool
               v-if="activeTool === 'trace-config'"

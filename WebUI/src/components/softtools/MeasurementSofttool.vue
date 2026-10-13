@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import type { InstrumentStatus, MeasurementCandidate } from '../../api/types'
 import {
   sParameterChoices,
@@ -7,6 +7,7 @@ import {
 } from '../../domain/measurements'
 import WaveQuantityDialog from './WaveQuantityDialog.vue'
 import SParameterDialog from './SParameterDialog.vue'
+import AllSParametersWorkflow from './AllSParametersWorkflow.vue'
 
 const props = defineProps<{
   status: InstrumentStatus | null
@@ -18,10 +19,27 @@ const props = defineProps<{
     candidate: MeasurementCandidate,
     expectedRevision: string,
   ) => Promise<InstrumentStatus | null>
+  allSParameters: (
+    expectedRevision: string,
+    expectedDisplayRevision: string,
+  ) => Promise<InstrumentStatus | null>
 }>()
 const working = ref(false)
 const validation = ref('')
 const moreWave = ref(false)
+const allSParametersIntent = ref<symbol | null>(null)
+// 每次打开有独立意图；旧实例的请求与关闭回调不能作用于新确认。
+const allSParametersActions = computed(() => {
+  const intent = allSParametersIntent.value
+  return {
+    create: (revision: string, displayRevision: string) =>
+      replaceAllSParameters(intent, revision, displayRevision),
+    close: () => closeAllSParameters(intent),
+  }
+})
+onScopeDispose(() => {
+  allSParametersIntent.value = null
+})
 const parameterTarget = ref<{ name: string; portCount: number } | null>(null)
 const parameterSelection = computed(() => {
   // 每次打开冻结目标；旧弹框的延迟事件不能改到随后打开的其他迹线。
@@ -129,6 +147,45 @@ function selectWave(wave: (typeof waves)[number]) {
 async function applyWave(candidate: MeasurementCandidate) {
   if (await change(candidate)) moreWave.value = false
 }
+
+function openAllSParameters() {
+  if (
+    !props.status ||
+    !props.canChangeMeasurements ||
+    props.busy ||
+    working.value ||
+    allSParametersIntent.value ||
+    !props.allSParameters
+  )
+    return
+  allSParametersIntent.value = Symbol('All S-Params')
+}
+
+async function replaceAllSParameters(
+  intent: symbol | null,
+  expectedRevision: string,
+  expectedDisplayRevision: string,
+) {
+  if (
+    !intent ||
+    intent !== allSParametersIntent.value ||
+    !props.canChangeMeasurements ||
+    props.busy ||
+    working.value
+  )
+    return null
+  working.value = true
+  try {
+    return await props.allSParameters(expectedRevision, expectedDisplayRevision)
+  } finally {
+    working.value = false
+  }
+}
+
+function closeAllSParameters(intent: symbol | null) {
+  if (!working.value && intent === allSParametersIntent.value)
+    allSParametersIntent.value = null
+}
 </script>
 
 <template>
@@ -166,8 +223,16 @@ async function applyWave(candidate: MeasurementCandidate) {
       <button
         class="measurement-key measurement-wide"
         type="button"
-        disabled
-        title="S 参数整组创建尚未实现；请通过上方选择器逐条设置活动迹线"
+        :disabled="
+          !canChangeMeasurements ||
+          busy ||
+          working ||
+          !status ||
+          !allSParameters
+        "
+        data-testid="all-s-parameters"
+        title="确认后替换当前通道的全部测量定义和图窗，扫描设置保持不变"
+        @click="openAllSParameters"
       >
         All S-Params
       </button>
@@ -239,6 +304,14 @@ async function applyWave(candidate: MeasurementCandidate) {
       :error="validation"
       @select="parameterSelection"
       @close="closeParameters"
+    />
+    <AllSParametersWorkflow
+      v-if="allSParametersIntent"
+      :status="status"
+      :active-trace-name="activeTraceName"
+      :disabled="!canChangeMeasurements || busy || working"
+      :create="allSParametersActions.create"
+      @close="allSParametersActions.close"
     />
   </section>
 </template>
