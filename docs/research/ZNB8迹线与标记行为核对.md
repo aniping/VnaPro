@@ -35,7 +35,7 @@
 - Info Table 中的行使用类似 `M1 Trc1` 的归属标识；Info Window 选择器区分 `Marker - Trc1`、`Marker - Trc2`。[第 95、805 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=95)
 - `Active Trace Only` 默认关闭，所以普通初始设置下不能只显示活动迹线标记，也不能将所有迹线的标记重新编号为一个全局集合。[第 1210 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=1210)
 
-已核对页面没有规定多迹线 Overlay 的读数必须按 Trc 名称数字排序，也没有规定默认 Marker Info 必须额外显示 Trc 列。本项目保留后端图窗成员顺序和每迹线编号，给多迹线读数增加可见的 Trc 归属列用于消歧；这是参考原机 Info Table 归属表达的显示补充。标题采用容器宽度决定的等宽列，自然排列，不再用固定 84 像素高度截断。
+已核对页面没有规定多迹线 Overlay 的读数必须按 Trc 名称数字排序，也没有规定默认 Marker Info 必须额外显示 Trc 列。本项目保留后端图窗成员顺序和每迹线编号，给多迹线读数增加可见的 Trc 归属列用于消歧；这是参考原机 Info Table 归属表达的显示补充。标题按实际字体完整字宽与可用容器宽度计算等宽列，不固定三列或四列，自然排列，不用固定 84 像素高度截断；窄图窗省略次要字段。
 
 单图窗可叠加大量迹线，不因屏幕只能容纳若干标题行就截断或删除；128 只表示项目总测量和显示资源预算。图窗数量、图窗内槽身份以及循环颜色数与迹线数量分别处理，不把四色调色板或十个普通标记编号当成单图窗迹线容量。
 
@@ -49,7 +49,7 @@ System Config 的官方示例为 8 种迹线颜色，颜色数量可配置；默
 
 手册明确支持表格和对话框滚动，但没有给出 Trace List 或图内 Marker Info 的内嵌滚动条规则。小图窗可省略部分标题字段；密集标记信息可移动到 Info Table。独立 Info Window 的文字自适应不能当作图内 Marker Info 的自动缩放依据。[第 52、92、95、804 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=95)
 
-本轮取消标题区的人为高度上限及其滚动条。Marker 浮层的高度约束仍是项目保护策略，当前尚无独立 Info Table；不能因此宣称密集标记布局与原机一致。超密度标题可用已实现的 Split All 或最大化图窗管理，不能由前端自动移动、丢弃或截断后端迹线。固定屏幕面积无法同时完整容纳任意多标题和全部标记，资源预算不等同于同屏可读性保证。
+当前取消标题区人为高度上限、标题和图内 Marker 信息列表的内部滚动条，并提供全局 Info Table 的 Bottom/Left/Right。用户将每条迹线的信息字段移入表格，由独立表格容器承接密集内容；前端不自动移动、丢弃或截断后端迹线。容器显隐、位置、每迹线字段归属、每图窗 Marker Info 开关及全局 Active Trace Only/Stimulus Info/Font Size 均由 C++ 保存。隐藏 Table 保留字段归属，移动不自动开启容器，这是项目的明确规则；标题列数和 Table 像素范围没有已核验的原机算法。详细事实与边界见[信息表与标题排版核对](ZNB8信息表与标题排版核对.md)。固定屏幕面积无法同时完整容纳任意多标题和全部标记，资源预算不等同于同屏可读性保证。
 
 ## Keysight SCPI 范围
 
