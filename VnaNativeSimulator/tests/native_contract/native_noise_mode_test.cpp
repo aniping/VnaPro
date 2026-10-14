@@ -66,7 +66,7 @@ void FrozenModeAndPendingConsumption(const NativeFunctions &functions)
     const std::vector<double> first = Acquire(functions, 0U);
     const std::vector<double> second = Acquire(functions, 0U);
     ConfigureNoiseSweep(functions, frame);
-    environment.Set("golden", "invalid-but-ignored-in-golden");
+    environment.Set("golden", "invalid-but-ignored-in-golden", "invalid-but-ignored-in-golden");
     VnaTest::Expect(functions.startSweep(3U, 0U) == OK, VnaTest::TestLocation{__FILE__, __LINE__});
     VnaTest::Expect(functions.startSweep(3U, 0U) == INVALID_STATE, VnaTest::TestLocation{__FILE__, __LINE__});
     VnaTest::Expect(functions.getSweepData(3U, nullptr) == INVALID_ARGUMENT, VnaTest::TestLocation{__FILE__, __LINE__});
@@ -99,6 +99,27 @@ void FrozenModeAndPendingConsumption(const NativeFunctions &functions)
     VnaTest::Expect(second == Acquire(functions, 0U), VnaTest::TestLocation{__FILE__, __LINE__});
 }
 
+void ConfigurableNoiseAmplitude(const NativeFunctions &functions)
+{
+    ScopedSimulatorEnvironment environment("noise", "42", "0");
+    FrameInput frame = MakeNormalFrame(3U, 0U, 1000000000ULL);
+    ConfigureNoiseSweep(functions, frame);
+    const std::vector<double> golden = Acquire(functions, 0U);
+    environment.Set("golden", "invalid", "invalid");
+    ConfigureNoiseSweep(functions, frame);
+    VnaTest::Expect(golden == Acquire(functions, 0U), VnaTest::TestLocation{__FILE__, __LINE__});
+    environment.Set("noise", "42", "0.004");
+    ConfigureNoiseSweep(functions, frame);
+    const std::vector<double> amplified = Acquire(functions, 0U);
+    environment.Set("noise", "42", "0.002");
+    ConfigureNoiseSweep(functions, frame);
+    const std::vector<double> baseline = Acquire(functions, 0U);
+    for (std::size_t index = 0U; index < golden.size(); ++index) {
+        VnaTest::ExpectNear(amplified[index] - golden[index], 2.0 * (baseline[index] - golden[index]), 1.0e-15,
+            VnaTest::TestLocation{__FILE__, __LINE__});
+    }
+}
+
 }  // 匿名命名空间
 
 void RunNativeNoiseModeTests(TestRunner &runner, NativeLibraryProbe &library)
@@ -110,6 +131,10 @@ void RunNativeNoiseModeTests(TestRunner &runner, NativeLibraryProbe &library)
 
     runner.Run("噪声模式在 Init 冻结，失败 Get 不消费、pending 不被下载改变且仅能成功 Get 一次", [&functions]() {
         FrozenModeAndPendingConsumption(functions);
+    });
+
+    runner.Run("动态库噪声幅度为零保持黄金向量，增大幅度线性改变扰动", [&functions]() {
+        ConfigurableNoiseAmplitude(functions);
     });
 }
 

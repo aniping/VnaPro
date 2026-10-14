@@ -38,6 +38,7 @@ constexpr double TRANSMISSION_GAIN = 0.02;
 constexpr double PORT_PHASE_GAIN = 0.005;
 // 每个轴的扰动不超过 0.2% / sqrt(2)，因此复数扰动幅值不超过 0.2%。
 constexpr double NOISE_AXIS_RATIO = 0.001414213562373095;
+constexpr double DEFAULT_NOISE_AMPLITUDE = 0.002;
 
 double FrequencyFactor(std::uint64_t frequencyRaw) noexcept
 {
@@ -120,7 +121,7 @@ void WriteGoldenPoint(const NormalFrameSnapshot &frame, std::size_t pointIndex, 
 }
 
 void AddPointNoise(const NormalFrameSnapshot &frame, std::size_t pointIndex, std::uint64_t sequenceKey,
-    std::vector<double> &output) noexcept
+    double axisRatio, std::vector<double> &output) noexcept
 {
     const std::uint64_t frequencyKey = MixNoiseBits(frame.points[pointIndex].frequencyRaw);
     for (std::uint32_t receiver = 0U; receiver < NATIVE_PORT_COUNT; ++receiver) {
@@ -131,7 +132,7 @@ void AddPointNoise(const NormalFrameSnapshot &frame, std::size_t pointIndex, std
                 MixNoiseBits(sequenceKey ^ frequencyKey ^ MixNoiseBits(channel ^ CHANNEL_NOISE_SALT));
             const std::size_t base = (pointIndex * IQ_VALUES_PER_POINT) + (receiver * IQ_VALUES_PER_RECEIVER) +
                                      (wave * COMPLEX_COMPONENT_COUNT);
-            const double scale = std::hypot(output[base], output[base + 1U]) * NOISE_AXIS_RATIO;
+            const double scale = std::hypot(output[base], output[base + 1U]) * axisRatio;
             output[base] += scale * SignedNoiseUnit(key);
             output[base + 1U] += scale * SignedNoiseUnit(key ^ IMAGINARY_NOISE_SALT);
         }
@@ -165,16 +166,24 @@ std::uint32_t Generate(const NormalFrameSnapshot &frame, std::vector<double> &ou
 }
 
 std::uint32_t GenerateNoisy(const NormalFrameSnapshot &frame, std::uint64_t seed, std::uint64_t sweepIndex,
-    std::vector<double> &output) noexcept
+    std::vector<double> &output, double noiseAmplitude) noexcept
 {
+    if (!std::isfinite(noiseAmplitude) || noiseAmplitude < 0.0 || noiseAmplitude > 1.0) {
+        return DRV_SIM_INVALID_ARGUMENT;
+    }
+    if (noiseAmplitude == 0.0) {
+        return Generate(frame, output);
+    }
     std::vector<double> candidate;
     const std::uint32_t status = Generate(frame, candidate);
     if (status != DRV_SIM_OK) {
         return status;
     }
+    // 默认幅度保留原有轴比例，避免改变既有种子的逐位重放结果。
+    const double axisRatio = NOISE_AXIS_RATIO * (noiseAmplitude / DEFAULT_NOISE_AMPLITUDE);
     const std::uint64_t sequenceKey = seed ^ MixNoiseBits(sweepIndex ^ SWEEP_NOISE_SALT);
     for (std::size_t pointIndex = 0U; pointIndex < frame.points.size(); ++pointIndex) {
-        AddPointNoise(frame, pointIndex, sequenceKey, candidate);
+        AddPointNoise(frame, pointIndex, sequenceKey, axisRatio, candidate);
     }
     output.swap(candidate);
     return DRV_SIM_OK;

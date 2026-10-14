@@ -45,8 +45,8 @@ public:
     // 返回九个 C ABI 函数共用的进程级状态。
     static NativeSimulatorState &Instance();
 
-    // 保存环境指定的模式和种子，重置序列、帧、配置及待取结果，并关闭射频。
-    // 模式或种子无效时，保留原状态并返回 INVALID_ARGUMENT。
+    // 保存环境指定的模式、种子和噪声幅度，重置序列、帧、配置及待取结果，并关闭射频。
+    // 噪声环境配置无效时，保留原状态并返回 INVALID_ARGUMENT。
     std::uint32_t HwInit() noexcept;
     // 可写缓冲区必须容纳 pointCount * IQ_VALUES_PER_POINT 个 double；ABI 不提供容量参数。
     // 匹配的待取结果仅能取走一次；失败时保持待取结果和调用者内存不变。
@@ -93,6 +93,7 @@ private:
     std::uint32_t fastSweepMode_ = 0U;
     bool noiseEnabled_ = false;
     std::uint64_t noiseSeed_ = 1U;
+    double noiseAmplitude_ = 0.002;
     std::uint64_t successfulSweepIndex_ = 0U;
     std::array<NativeFrameSlot, NATIVE_PORT_COUNT> downloadedFrames_;
     NativePendingSweep pendingSweep_;

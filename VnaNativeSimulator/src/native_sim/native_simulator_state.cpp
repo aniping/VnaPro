@@ -4,10 +4,14 @@
 #include "native_simulator_state.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <locale>
+#include <sstream>
+#include <string>
 #include <utility>
 
 #include "signal_model.h"
@@ -20,10 +24,44 @@ constexpr std::uint64_t DECIMAL_RADIX = 10U;
 
 const char g_simulatorIdn[] = "VnaPro,NativeSimulator,4PORT,1.0";
 
-bool ReadNoiseConfiguration(bool &enabled, std::uint64_t &seed) noexcept
+bool ReadNoiseAmplitude(double &amplitude) noexcept
+{
+    amplitude = 0.002;
+    const char *text = std::getenv("VNAPRO_SIM_NOISE_AMPLITUDE");
+    if (text == nullptr || text[0] == '\0') {
+        return true;
+    }
+    try {
+        std::istringstream input(text);
+        input.imbue(std::locale::classic());
+        double parsed = 0.0;
+        input >> std::noskipws >> parsed;
+        if (input.fail() || input.peek() != std::char_traits<char>::eof() || !std::isfinite(parsed) || parsed < 0.0 ||
+            parsed > 1.0) {
+            return false;
+        }
+        if (parsed == 0.0) {
+            // 某些运行库会把过小的非零数静默转为零，必须区分真实零与下溢。
+            const std::string value(text);
+            const std::size_t nonZeroDigit = value.find_first_of("123456789");
+            const std::size_t exponent = value.find_first_of("eE");
+            if (nonZeroDigit != std::string::npos && (exponent == std::string::npos || nonZeroDigit < exponent)) {
+                return false;
+            }
+        }
+        amplitude = parsed;
+        return true;
+    } catch (...) {
+        // 环境数字解析异常不能穿过驱动的 noexcept 边界。
+        return false;
+    }
+}
+
+bool ReadNoiseConfiguration(bool &enabled, std::uint64_t &seed, double &amplitude) noexcept
 {
     enabled = false;
     seed = 1U;
+    amplitude = 0.002;
     const char *mode = std::getenv("VNAPRO_SIM_MODE");
     if (mode == nullptr || mode[0] == '\0' || std::strcmp(mode, "golden") == 0) {
         return true;
@@ -32,6 +70,9 @@ bool ReadNoiseConfiguration(bool &enabled, std::uint64_t &seed) noexcept
         return false;
     }
     enabled = true;
+    if (!ReadNoiseAmplitude(amplitude)) {
+        return false;
+    }
     const char *text = std::getenv("VNAPRO_SIM_SEED");
     if (text == nullptr || text[0] == '\0') {
         return true;
@@ -91,7 +132,8 @@ std::uint32_t NativeSimulatorState::HwInit() noexcept
 
         bool noiseEnabled = false;
         std::uint64_t noiseSeed = 1U;
-        if (!ReadNoiseConfiguration(noiseEnabled, noiseSeed)) {
+        double noiseAmplitude = 0.002;
+        if (!ReadNoiseConfiguration(noiseEnabled, noiseSeed, noiseAmplitude)) {
             return DRV_SIM_INVALID_ARGUMENT;
         }
 
@@ -105,6 +147,7 @@ std::uint32_t NativeSimulatorState::HwInit() noexcept
         fastSweepMode_ = 0U;
         noiseEnabled_ = noiseEnabled;
         noiseSeed_ = noiseSeed;
+        noiseAmplitude_ = noiseAmplitude;
         successfulSweepIndex_ = 0U;
         return DRV_SIM_OK;
     } catch (...) {
@@ -176,9 +219,9 @@ std::uint32_t NativeSimulatorState::GeneratePending(
     NativePendingSweep candidate;
     candidate.pointCount = pointCount;
     candidate.sourcePort = sourcePort;
-    const std::uint32_t generateStatus =
-        noiseEnabled_ ? SignalModel::GenerateNoisy(frameSlot.frame, noiseSeed_, successfulSweepIndex_, candidate.iqData)
-                      : SignalModel::Generate(frameSlot.frame, candidate.iqData);
+    const std::uint32_t generateStatus = noiseEnabled_ ? SignalModel::GenerateNoisy(frameSlot.frame, noiseSeed_,
+                                                             successfulSweepIndex_, candidate.iqData, noiseAmplitude_)
+                                                       : SignalModel::Generate(frameSlot.frame, candidate.iqData);
     if (generateStatus != DRV_SIM_OK) {
         return generateStatus;
     }
