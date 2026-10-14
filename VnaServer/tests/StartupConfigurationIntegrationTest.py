@@ -37,7 +37,7 @@ def exercise(bundle, cwd, web_enabled):
     }
     configuration = {
         "server": server,
-        "driver": {"board": "tdc1vn10", "library": Path(sys.argv[2]).name,
+        "driver": {"type": "simulator", "board": "tdc1vn10", "library": Path(sys.argv[2]).name,
                    "simulator": {"mode": "noise", "seed": 18446744073709551615}},
         "instrument": {"sweep": {"defaultSweepMode": "HOLD"}},
         "log": {"file": {"enabled": False}},

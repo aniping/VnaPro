@@ -135,8 +135,9 @@ void TestDefaults(const std::string &path, const std::string &directory)
                config.server.webEnabled && config.server.scpiIp.empty() && config.server.webIp.empty() &&
                config.server.webRoot == "WebUI",
         "默认监听配置错误");
-    Expect(config.driver.api == VnaCore::DriverApi::TDC1VN10 && config.driver.library.empty() &&
-               config.driver.simulator.mode == "golden" && config.driver.simulator.seed == 42U,
+    Expect(config.driver.type == VnaServer::DriverType::HARDWARE && config.driver.api == VnaCore::DriverApi::TDC1VN10 &&
+               config.driver.library.empty() && config.driver.simulator.mode == "golden" &&
+               config.driver.simulator.seed == 42U && config.driver.simulator.noiseAmplitude == 0.002,
         "默认驱动配置错误");
     WriteConfig(path, "instrument: {portCount: 2}\nlog: {}\n");
     Expect(VnaServer::LoadServerConfig(path).instrument.portCount == 2U, "部分配置未保留其他默认值");
@@ -273,21 +274,22 @@ void TestStartupMapping(const std::string &path)
     WriteConfig(path,
         "server: {ip: 0.0.0.0, scpiIp: 127.0.0.1, webIp: 192.168.1.2, scpiPort: 6000, webPort: 8191, "
         "webEnabled: false, webRoot: '中文目录/前端 资源'}\n"
-        "driver:\n  board: tdc1vn08\n  library: '测量驱动 08.dll'\n"
+        "driver:\n  type: simulator\n  board: tdc1vn08\n  library: '测量驱动 08.dll'\n"
         "  simulator: {mode: noise, seed: 18446744073709551615}\n");
     const auto config = VnaServer::LoadServerConfig(path);
     Expect(config.server.ip == "0.0.0.0" && config.server.scpiPort == 6000U && config.server.webPort == 8191U &&
                !config.server.webEnabled && config.server.scpiIp == "127.0.0.1" &&
                config.server.webIp == "192.168.1.2" && config.server.webRoot == "中文目录/前端 资源",
         "监听配置映射错误");
-    Expect(config.driver.api == VnaCore::DriverApi::TDC1VN08 && config.driver.library == "测量驱动 08.dll",
+    Expect(config.driver.type == VnaServer::DriverType::SIMULATOR &&
+               config.driver.api == VnaCore::DriverApi::TDC1VN08 && config.driver.library == "测量驱动 08.dll",
         "驱动接口及文件名映射错误");
     Expect(config.driver.simulator.mode == "noise" &&
                config.driver.simulator.seed == std::numeric_limits<std::uint64_t>::max(),
         "噪声模式及 64 位种子映射错误");
     WriteConfig(path,
         "server: {ip: '255.255.255.255', scpiPort: 0, webPort: 65535}\n"
-        "driver: {board: tdc1vn10, simulator: {mode: golden, seed: 0}}\n");
+        "driver: {type: simulator, board: tdc1vn10, simulator: {mode: golden, seed: 0}}\n");
     const auto boundary = VnaServer::LoadServerConfig(path);
     Expect(boundary.server.scpiPort == 0U && boundary.server.webPort == 65535U, "合法端口边界被拒绝");
     Expect(boundary.driver.api == VnaCore::DriverApi::TDC1VN10 && boundary.driver.library.empty() &&
@@ -336,11 +338,49 @@ void TestDriverConstraints(const std::string &path)
         "simulator: {seed: 1.5}", "simulator: {seed: 18446744073709551616}", "simulator: {seed: null}",
         "simulator: {seed: []}", "simulator: {unexpected: true}", "simulator: null", "unexpected: true"};
     for (const auto &entry : invalid) {
-        ExpectInvalid(path, "driver: {" + entry + "}\n", "driver");
+        ExpectInvalid(path, "driver: {type: simulator, " + entry + "}\n", "driver");
     }
     ExpectInvalid(path, "driver: null\n", "driver");
     ExpectInvalid(path, "driver: {library: \"driver\\n.dll\"}\n", "driver.library");
-    ExpectInvalid(path, "driver: {simulator: {seed: 1, seed: 2}}\n", "driver.simulator.seed");
+    ExpectInvalid(path, "driver: {type: simulator, simulator: {seed: 1, seed: 2}}\n", "driver.simulator.seed");
+    ExpectInvalid(path, "driver: {type: invalid}\n", "driver.type");
+    ExpectInvalid(path, "driver: {type: null}\n", "driver.type");
+    ExpectInvalid(path, "driver: {type: []}\n", "driver.type");
+}
+
+void TestNoiseAmplitude(const std::string &path)
+{
+    const std::pair<const char *, double> values[] = {{"0", 0.0}, {"0e10", 0.0}, {"1", 1.0}, {"0.002", 0.002},
+        {"0.01", 0.01}, {"1e-7", 1e-7}, {"4.9406564584124654e-324", std::numeric_limits<double>::denorm_min()}};
+    for (const auto &value : values) {
+        WriteConfig(path, std::string("driver: {type: simulator, simulator: {noiseAmplitude: ") + value.first + "}}\n");
+        Expect(VnaServer::LoadServerConfig(path).driver.simulator.noiseAmplitude == value.second,
+            "噪声幅度边界或科学计数法映射错误");
+    }
+    const std::string invalid[] = {"-0.001", "1.001", ".nan", ".inf", "-.inf", "1e400", "1e-400", "-1e-400", "1e-324",
+        "true", "'0.002'", "null", "[]", "0.1abc", "0x1"};
+    for (const auto &value : invalid) {
+        ExpectInvalid(path, "driver: {type: simulator, simulator: {noiseAmplitude: " + value + "}}\n",
+            "driver.simulator.noiseAmplitude");
+    }
+    ExpectInvalid(
+        path, "driver: {type: simulator, simulator: {noiseAmplitude: 0.1, noiseAmplitude: 0.2}}\n", "配置键重复");
+}
+
+void TestHardwareIgnoresSimulatorConfig(const std::string &path)
+{
+    const char *unused[] = {"null", "[]", "invalid", "{mode: invalid, seed: -1, noiseAmplitude: .nan}",
+        "{noiseAmplitude: 1e400}", "{unexpected: true}"};
+    for (const char *settings : unused) {
+        for (const char *type : {"", "type: hardware, "}) {
+            WriteConfig(path, std::string("driver: {") + type +
+                                  "board: tdc1vn08, library: actual.dll, simulator: " + settings + "}\n");
+            const auto config = VnaServer::LoadServerConfig(path);
+            Expect(config.driver.type == VnaServer::DriverType::HARDWARE && config.driver.simulator.mode == "golden" &&
+                       config.driver.simulator.seed == 42U && config.driver.simulator.noiseAmplitude == 0.002,
+                "真实驱动不得解析或使用模拟信号配置");
+        }
+    }
 }
 
 void RunTests(const std::string &path, const std::string &directory)
@@ -357,6 +397,8 @@ void RunTests(const std::string &path, const std::string &directory)
     TestStartupMapping(path);
     TestListenerConstraints(path);
     TestDriverConstraints(path);
+    TestNoiseAmplitude(path);
+    TestHardwareIgnoresSimulatorConfig(path);
     TestMissingFile(path);
 }
 }  // 匿名命名空间

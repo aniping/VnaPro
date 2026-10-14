@@ -12,6 +12,8 @@ server:
 
 # 驱动 ABI 与编译后的库文件名必须匹配；库从程序所在目录加载，不填写路径。
 driver:
+  # simulator 才读取下方模拟信号参数；真实库使用 hardware，省略 type 也按 hardware 处理。
+  type: simulator
   board: tdc1vn10
   # CMake 按实际工具链生成该文件名，Windows MinGW 的默认名称如下。
   library: libtdc1vn10_drv_sim.dll
@@ -20,6 +22,9 @@ driver:
     mode: noise
     # 0..18446744073709551615；相同种子与相同扫描过程可以重放。
     seed: 42
+    # 相对 IQ 波幅的噪声系数，范围 0..1；0 无扰动，0.002 为 0.2%，0.01 为默认的 5 倍。
+    # 仅 noise 模式使用；初始化时冻结，修改后重启服务。
+    noiseAmplitude: 0.002
 
 # 仪器能力与启动默认值；默认扫描覆盖完整支持频段。
 instrument:

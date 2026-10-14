@@ -81,14 +81,18 @@ bool IsLibraryFilename(const std::string &text)
 
 void ReadSimulator(const YAML::Node &node, SimulatorConfig &config)
 {
-    YamlConfig::CheckMap(node, "driver.simulator", {"mode", "seed"});
+    YamlConfig::CheckMap(node, "driver.simulator", {"mode", "seed", "noiseAmplitude"});
     if (!node) {
         return;
     }
     YamlConfig::ReadString(node, "mode", "driver.simulator", config.mode);
     YamlConfig::ReadUint64(node, "seed", "driver.simulator", config.seed);
+    YamlConfig::ReadDouble(node, "noiseAmplitude", "driver.simulator", config.noiseAmplitude);
     if (config.mode != "golden" && config.mode != "noise") {
         YamlConfig::Invalid(node["mode"], "driver.simulator.mode", "必须为 golden 或 noise");
+    }
+    if (config.noiseAmplitude < 0.0 || config.noiseAmplitude > 1.0) {
+        YamlConfig::Invalid(node["noiseAmplitude"], "driver.simulator.noiseAmplitude", "相对幅度必须位于 0..1");
     }
 }
 }  // 匿名命名空间
@@ -117,9 +121,16 @@ void ReadListenerConfig(const YAML::Node &node, ListenerConfig &config)
 
 void ReadDriverConfig(const YAML::Node &node, DriverConfig &config)
 {
-    YamlConfig::CheckMap(node, "driver", {"board", "library", "simulator"});
+    YamlConfig::CheckMap(node, "driver", {"type", "board", "library", "simulator"});
     if (!node) {
         return;
+    }
+    std::string type = "hardware";
+    YamlConfig::ReadString(node, "type", "driver", type);
+    if (type == "simulator") {
+        config.type = DriverType::SIMULATOR;
+    } else if (type != "hardware") {
+        YamlConfig::Invalid(node["type"], "driver.type", "必须为 hardware 或 simulator");
     }
     std::string board = "tdc1vn10";
     YamlConfig::ReadString(node, "board", "driver", board);
@@ -134,7 +145,10 @@ void ReadDriverConfig(const YAML::Node &node, DriverConfig &config)
     if (node["library"] && !IsLibraryFilename(config.library)) {
         YamlConfig::Invalid(node["library"], "driver.library", "必须为动态库文件名，不能为空或包含路径");
     }
-    ReadSimulator(node["simulator"], config.simulator);
+    // 真实驱动不使用此块，遗留或错误的模拟参数不能妨碍硬件启动。
+    if (config.type == DriverType::SIMULATOR) {
+        ReadSimulator(node["simulator"], config.simulator);
+    }
 }
 
 }  // 命名空间 VnaServer

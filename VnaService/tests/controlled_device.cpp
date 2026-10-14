@@ -11,9 +11,13 @@
 
 namespace VnaServiceTest {
 
+ControlledDevice::ControlledDevice(std::string identity) : identity_(std::move(identity))
+{
+}
+
 std::string ControlledDevice::Initialize()
 {
-    return "VnaPro,NativeSimulator,TEST,1.0";
+    return identity_;
 }
 
 void ControlledDevice::ApplyPlan(const VnaCore::SweepPlan &)

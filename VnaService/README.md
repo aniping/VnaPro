@@ -6,7 +6,9 @@
 
 ## 生命周期和线程
 
-进程拥有 `AcquisitionCore`。初始化成功后构造 `InstrumentService(core, profile)`，在监听前调用 `BootstrapMockProfile(error)`；这是唯一允许阻塞等待的服务方法。它检查缓存身份必须以 `VnaPro,NativeSimulator,` 开头。服务必须先于核心销毁。
+进程拥有 `AcquisitionCore`。初始化成功后构造 `InstrumentService(core, profile, simulator)`，在监听前调用 `BootstrapProfile(error)`；这是唯一允许阻塞等待的服务方法。它要求核心 READY、没有控制者且仪器配置尚未就绪，不限制设备身份前缀。`simulator` 在构造时冻结，缺省为 `true` 以兼容模拟测试；真实驱动必须传 `false`。服务必须先于核心销毁。
+
+`IsSimulator()` 返回已冻结的驱动类别。配置就绪后，模拟服务按配置端口数返回 `VnaPro,NativeSimulator,<n>PORT,1.0`；真实服务原样返回核心缓存的设备身份，不伪装为模拟器。配置未就绪时统一返回 `VnaPro,UnverifiedBackend,0,1.0`。
 
 Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器随后按 `instrument.sweep.defaultSweepMode` 应用启动缺省：默认 CONT 自动连续扫描，也可显式 HOLD；监听前排空该启动操作并释放内部控制权。当前尚未持久化跨进程状态，启动缺省不等同于厂商 Preset。浏览器连接与服务单元夹具均不触发此启动流程。
 

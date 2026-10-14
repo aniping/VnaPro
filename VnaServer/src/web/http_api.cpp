@@ -268,7 +268,7 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
     HttpResponse response;
     Json &value = response.json = Json::MakeObject();
     value["identity"] = Json(service_.Identity());
-    value["backend"] = Json("NativeSimulator");
+    value["backend"] = Json(service_.IsSimulator() ? "NativeSimulator" : "HardwareDriver");
     const auto &profile = service_.Profile();
     Json capabilities = Json::MakeObject();
     capabilities["portCount"] = Json(profile.portCount);

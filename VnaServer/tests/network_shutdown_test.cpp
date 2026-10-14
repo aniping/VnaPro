@@ -71,7 +71,7 @@ void RunNetworkShutdown(const std::string &driver)
     Expect(core.Initialize().get().ok, "Core initialization failed");
     VnaService::InstrumentService service(core);
     std::string error;
-    Expect(service.BootstrapMockProfile(error), "Service bootstrap failed");
+    Expect(service.BootstrapProfile(error), "Service bootstrap failed");
     ExerciseNetworkShutdown(service);
     Expect(core.Close().ok, "Core close failed");
     Expect(core.ReadView().state == VnaCore::CoreState::CLOSED, "Core was not joined/closed");

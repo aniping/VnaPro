@@ -18,7 +18,7 @@ namespace VnaServiceTest {
 class ControlledDevice final : public VnaCore::Detail::DeviceSession {
 public:
     // 阻塞关卡状态和工作线程标识始终绑定到本实例。
-    ControlledDevice() = default;
+    explicit ControlledDevice(std::string identity = "VnaPro,NativeSimulator,TEST,1.0");
     ControlledDevice(const ControlledDevice &) = delete;
     ControlledDevice &operator=(const ControlledDevice &) = delete;
     ControlledDevice(ControlledDevice &&) = delete;
@@ -77,6 +77,7 @@ public:
 
 private:
     std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan);
+    const std::string identity_;
 };
 }  // 命名空间 VnaServiceTest
 #endif

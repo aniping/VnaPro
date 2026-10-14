@@ -26,6 +26,8 @@ void ReadBool(const YAML::Node &node, const std::string &key, const std::string 
 void ReadSize(const YAML::Node &node, const std::string &key, const std::string &path, std::size_t &value);
 void ReadUnsigned(const YAML::Node &node, const std::string &key, const std::string &path, unsigned &value);
 void ReadUint64(const YAML::Node &node, const std::string &key, const std::string &path, std::uint64_t &value);
+// 接受十进制和科学计数法，使用固定小数点并拒绝非有限值及尾随字符。
+void ReadDouble(const YAML::Node &node, const std::string &key, const std::string &path, double &value);
 // 频率字段使用十进制整数 Hz，并限制在公开接口可精确表示的整数范围内。
 void ReadFrequency(const YAML::Node &node, const std::string &key, const std::string &path, double &value);
 

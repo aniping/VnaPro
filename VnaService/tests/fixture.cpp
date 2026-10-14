@@ -34,7 +34,7 @@ Fixture::Fixture(std::unique_ptr<ControlledDevice> owned, VnaService::Instrument
         throw std::runtime_error("controlled initialization");
     }
     std::string error;
-    if (!service.BootstrapMockProfile(error)) {
+    if (!service.BootstrapProfile(error)) {
         throw std::runtime_error(error);
     }
 }

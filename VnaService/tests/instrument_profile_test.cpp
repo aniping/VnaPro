@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <initializer_list>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -72,6 +73,25 @@ void DefaultMeasurementIsUncalibratedSParameter()
     }
 }
 
+void HardwareProfileKeepsDeviceIdentity()
+{
+    const std::string identity = "Manufacturer,TDC1VN10,SERIAL,1.0";
+    auto device = std::make_unique<VnaServiceTest::ControlledDevice>(identity);
+    VnaCore::AcquisitionCore core(std::move(device));
+    VnaService::InstrumentService service(core, VnaService::InstrumentProfile{}, false);
+    std::string error;
+    Require(!service.IsSimulator() && service.Identity() == "VnaPro,UnverifiedBackend,0,1.0",
+        "真实驱动类型应冻结，配置未就绪前保留未验证身份");
+    Require(!service.BootstrapProfile(error), "核心未初始化时必须拒绝仪器配置");
+    Require(core.Initialize().get().ok, "初始化真实身份的受控设备");
+    Require(service.BootstrapProfile(error), "通用仪器配置不能限制 NativeSimulator 身份前缀");
+    Require(service.Identity() == identity && !service.IsSimulator(), "真实设备身份必须原样读取核心缓存");
+    const auto revision = service.Settings().revision;
+    Require(!service.BootstrapProfile(error) && service.Settings().revision == revision &&
+                service.Settings().measurements.size() == 1U,
+        "重复初始化仪器配置必须拒绝且保留原目录");
+}
+
 void CoupledEndpointsAreAtomic()
 {
     VnaServiceTest::Fixture fixture(VnaService::InstrumentProfile{});
@@ -103,7 +123,8 @@ void PortLimitsAndSinglePort()
     profile.portCount = 1U;
     VnaServiceTest::Fixture fixture(profile);
     auto &service = fixture.service;
-    Require(service.Identity() == "VnaPro,NativeSimulator,1PORT,1.0" && service.TryAcquireControl(),
+    Require(service.IsSimulator() && service.Identity() == "VnaPro,NativeSimulator,1PORT,1.0" &&
+                service.TryAcquireControl(),
         "仪器身份和控制能力符合启动配置");
     VnaService::Measurement measurement;
     measurement.name = "S11";
@@ -127,6 +148,7 @@ int main()
 {
     try {
         DefaultMeasurementIsUncalibratedSParameter();
+        HardwareProfileKeepsDeviceIdentity();
         CoupledEndpointsAreAtomic();
         PortLimitsAndSinglePort();
         std::cout << "PASS 仪器边界与原子配置\n";

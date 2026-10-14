@@ -179,8 +179,7 @@ void RunProfile(const std::string &path, std::vector<std::uint32_t> sources)
     const auto reference = ReadReference(path, plan);
     VnaCore::AcquisitionCore core(path, VnaCore::DriverApi::TDC1VN10);
     Await(core.Initialize());
-    Require(
-        core.ReadView().deviceIdn == "VnaPro,NativeSimulator,TDC1VN10,1.0", "VN10 local simulator identity missing");
+    Require(core.ReadView().deviceIdn == "VnaPro,TDC1VN10,4PORT,1.0", "VN10 adapter identity missing");
     const auto configured = Await(core.Configure(plan));
     auto shortPower = plan;
     shortPower.powerRaw.assign(TEST_POINTS, 0U);

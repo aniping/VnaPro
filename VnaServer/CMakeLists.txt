@@ -33,6 +33,14 @@ add_dependencies(vna_server tdc1vn08_drv_sim tdc1vn10_drv_sim)
 include("${CMAKE_SOURCE_DIR}/cmake/release_bundle.cmake")
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_library(vna_hardware_environment_probe SHARED tests/hardware_environment_probe.cpp)
+    target_compile_definitions(vna_hardware_environment_probe PRIVATE VNA_NATIVE_BUILD_SHARED)
+    target_include_directories(vna_hardware_environment_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/VnaNativeSimulator/include")
+    add_test(NAME hardware_driver_isolation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/HardwareDriverIsolationIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:vna_hardware_environment_probe>)
+    set_tests_properties(hardware_driver_isolation PROPERTIES TIMEOUT 30)
     add_executable(vna_startup_paths_tests tests/startup_paths_test.cpp src/startup_paths.cpp src/web/static_file.cpp)
     target_include_directories(vna_startup_paths_tests PRIVATE src)
     add_test(NAME startup_paths COMMAND vna_startup_paths_tests)
@@ -97,6 +105,10 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/SimulatorNoiseIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim>)
     set_tests_properties(noise_iq_integration PROPERTIES TIMEOUT 60)
+    add_test(NAME noise_iq_vn10_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/SimulatorNoiseIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn10_drv_sim> tdc1vn10)
+    set_tests_properties(noise_iq_vn10_integration PROPERTIES TIMEOUT 60)
     add_executable(vna_server_config_tests tests/server_config_loader_test.cpp ${SERVER_CONFIG_SOURCES})
     target_include_directories(vna_server_config_tests PRIVATE src)
     target_link_libraries(vna_server_config_tests PRIVATE vna_service vna_log yaml-cpp::yaml-cpp)

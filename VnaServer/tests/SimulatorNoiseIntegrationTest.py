@@ -11,14 +11,22 @@ import threading
 import time
 
 from WebHttpIntegrationTest import HttpClient, accepted, connect_scpi, wait_operation
-from GoldenIqIntegrationTest import running_server
+from GoldenIqIntegrationTest import listening_server
+from server_startup import isolated_server
 
 
-def run_device(seed, exercise):
-    env = dict(os.environ, VNAPRO_SIM_MODE="noise", VNAPRO_SIM_SEED=str(seed))
-    with running_server(sys.argv[1], sys.argv[2], env,
-                        config=Path(__file__).with_name("golden_test.yml")) as ports:
-        return exercise(HttpClient(ports["http"]), ports["scpi"])
+def run_device(seed, exercise, board, noise_amplitude=0.002, mode="noise",
+               conflicting_environment=False):
+    env = dict(os.environ, VNAPRO_SIM_MODE=mode, VNAPRO_SIM_SEED=str(seed),
+               VNAPRO_SIM_NOISE_AMPLITUDE=str(noise_amplitude))
+    with isolated_server(sys.argv[1], sys.argv[2], env, board=board,
+                         config=Path(__file__).with_name("golden_test.yml")) as bundle:
+        assert "VNAPRO_SIM_NOISE_AMPLITUDE" not in bundle.environment
+        if conflicting_environment:
+            # 配置已经写入 YAML 后，故意向实际进程传入非法旧值，验证服务会覆盖它。
+            bundle.environment["VNAPRO_SIM_NOISE_AMPLITUDE"] = "invalid-old-environment"
+        with listening_server(bundle) as ports:
+            return exercise(HttpClient(ports["http"]), ports["scpi"])
 
 
 def configure(http):
@@ -75,7 +83,7 @@ def data_signature(frame):
     return tuple(tuple(trace[key]) for trace in frame["traces"] for key in ("real", "imag"))
 
 
-def exercise(http, scpi_port, pressure=False):
+def exercise(http, scpi_port, pressure=False, changing=True):
     token = configure(http)
     status = http.status()
     revision = status["acquisitionRevision"]
@@ -88,7 +96,10 @@ def exercise(http, scpi_port, pressure=False):
         check_frame(frame, revision, measurement_revision)
         assert http.frame() == frame, "HOLD reads must not add fresh noise"
         scans.append(data_signature(frame))
-    assert scans[0] != scans[1] != scans[2] and scans[0] != scans[2], "Noise must change between acquisitions"
+    if changing:
+        assert scans[0] != scans[1] != scans[2] and scans[0] != scans[2], "Noise must change between acquisitions"
+    else:
+        assert scans[0] == scans[1] == scans[2], "Zero amplitude and golden mode must preserve device samples"
     if pressure:
         wait_operation(http, accepted(http, "operations",
             {"action": "continuous", "requestId": "noise-continuous"}, token), token)
@@ -145,14 +156,43 @@ def exercise(http, scpi_port, pressure=False):
     return scans
 
 
+def check_amplitude(actual, normal, golden, ratio):
+    """逐个采样分量比较同一扫描的扰动，避免不同随机序列掩盖幅度错误。"""
+    assert len(actual) == len(normal) == len(golden) == 3
+    changed = 0
+    for actual_scan, normal_scan, golden_scan in zip(actual, normal, golden):
+        assert len(actual_scan) == len(normal_scan) == len(golden_scan)
+        for actual_axis, normal_axis, golden_axis in zip(actual_scan, normal_scan, golden_scan):
+            assert len(actual_axis) == len(normal_axis) == len(golden_axis) == 65
+            for value, default, baseline in zip(actual_axis, normal_axis, golden_axis):
+                expected = (default - baseline) * ratio
+                observed = value - baseline
+                assert math.isclose(observed, expected, rel_tol=0.0, abs_tol=3e-15), \
+                    (ratio, observed, expected, baseline)
+                changed += observed != 0.0
+    assert changed > 0, "Nonzero amplitude must survive serialization and change raw IQ"
+
+
 def main():
-    assert len(sys.argv) == 3, "usage: SimulatorNoiseIntegrationTest.py <server> <driver>"
-    first = run_device(17, lambda http, port: exercise(http, port, pressure=True))
-    replay = run_device(17, exercise)
-    changed_seed = run_device(18, exercise)
+    assert len(sys.argv) in (3, 4), "usage: SimulatorNoiseIntegrationTest.py <server> <driver> [board]"
+    board = sys.argv[3] if len(sys.argv) == 4 else "tdc1vn08"
+    first = run_device(17, lambda http, port: exercise(http, port, pressure=True), board)
+    replay = run_device(17, exercise, board)
+    changed_seed = run_device(18, exercise, board)
     assert first == replay, "Fresh initialization with the same seed must replay all three full scans"
     assert first != changed_seed, "A different seed must change device samples"
-    print("Noise integration passed: four sources, changing samples, seed replay, concurrent reads, HOLD and SCPI")
+    unchanged = lambda http, port: exercise(http, port, changing=False)
+    golden = run_device(17, unchanged, board, noise_amplitude=0.01, mode="golden")
+    zero = run_device(17, unchanged, board, noise_amplitude=0.0)
+    assert zero == golden, "Zero-amplitude noise mode must produce exactly the golden IQ"
+    enlarged = run_device(17, exercise, board, noise_amplitude=0.01, conflicting_environment=True)
+    check_amplitude(enlarged, first, golden, 5.0)
+    tiny = run_device(17, exercise, board, noise_amplitude=1e-7, conflicting_environment=True)
+    check_amplitude(tiny, first, golden, 1.0 / 20000.0)
+    tiny_replay = run_device(17, exercise, board, noise_amplitude=1e-7)
+    assert tiny == tiny_replay, "Scientific-notation amplitude must replay with the same seed"
+    print("Noise integration passed:", board,
+          "four sources, seed replay, concurrent reads, HOLD, SCPI, zero/fivefold/tiny amplitudes and YAML priority")
 
 
 if __name__ == "__main__":

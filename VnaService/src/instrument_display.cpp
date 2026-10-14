@@ -117,7 +117,7 @@ VnaDisplay::FrameContext InstrumentService::DisplayFrame(bool reachedBarrier) co
     result.runId = view.runId;
     result.frequencyHz = &activePlan_.frequencyHz;
     // 当前 DISPLAY 已到队首，排在其后的有限采集不能反向阻止本次读旧完整帧。
-    result.current = mockReady_ && (reachedBarrier || !HasMeasurement()) && view.frame &&
+    result.current = profileReady_ && (reachedBarrier || !HasMeasurement()) && view.frame &&
                      view.state != VnaCore::CoreState::FAULTED && view.state != VnaCore::CoreState::CLOSED &&
                      view.configRevision == settings_.acquisitionRevision &&
                      view.frame->configRevision == settings_.acquisitionRevision && view.frame->runId == view.runId;

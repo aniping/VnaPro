@@ -93,11 +93,13 @@ server:
   webEnabled: true
   webRoot: WebUI
 driver:
+  type: simulator
   board: tdc1vn10
   library: libtdc1vn10_drv_sim.dll
   simulator:
     mode: noise
     seed: 42
+    noiseAmplitude: 0.002
 ```
 
 | 键 | 作用 |
@@ -108,11 +110,13 @@ driver:
 | `server.webEnabled` | 是否启动 Web 入口；关闭时不加载静态页面 |
 | `server.webRoot` | 静态目录，相对路径以程序所在目录为基准，也可填写绝对路径 |
 | `driver.board` | `tdc1vn10` 或 `tdc1vn08`，选择对应驱动 ABI |
-| `driver.library` | 编译后的库文件名，必须位于程序同目录；只填文件名，不填相对或绝对路径 |
+| `driver.type` | `simulator` 启用模拟参数；`hardware` 忽略整个 `simulator` 节点且不修改模拟环境变量；省略时为 `hardware` |
+| `driver.library` | 编译后的库文件名，必须位于程序同目录；只填文件名，不填路径；硬件类型必须显式填写 |
 | `driver.simulator.mode` | `noise` 为变化信号，`golden` 为固定黄金向量；在驱动初始化时冻结 |
 | `driver.simulator.seed` | 0…18446744073709551615 的整数；相同种子与相同扫描过程可重放噪声 |
+| `driver.simulator.noiseAmplitude` | 相对 IQ 波幅的噪声系数，有限数值 0…1；默认 0.002（0.2%），0 无扰动，0.01 为默认的 5 倍 |
 
-CMake 生成的配置自动匹配当前平台及工具链的库名，不应照抄其他平台的 DLL 名称。默认发布模板使用 `noise`、种子 42；旧配置省略模拟信号字段时使用 `golden`、种子 42。省略 `driver.library` 时按所选 ABI 使用对应构建库名。服务在加载驱动前将 YAML 中的模式和种子传给现有模拟接口，配置优先于旧 `VNAPRO_SIM_MODE` / `VNAPRO_SIM_SEED` 环境变量，底层模拟驱动保持不变。
+CMake 生成的配置自动匹配当前平台及工具链的库名，不应照抄其他平台的 DLL 名称。默认发布模板明确使用 `type: simulator`、`noise`、种子 42、幅度 0.002；模拟类型省略信号字段时使用 `golden`、种子 42、幅度 0.002。已有模拟配置需增加 `driver.type: simulator`。仅模拟类型省略 `driver.library` 时按所选 ABI 使用对应构建库名，硬件类型必须明确填写真实库名。模拟类型在加载驱动前将 YAML 中的模式、种子和幅度传给模拟接口，覆盖旧 `VNAPRO_SIM_MODE` / `VNAPRO_SIM_SEED` / `VNAPRO_SIM_NOISE_AMPLITUDE` 环境变量；真实类型不执行这一步，即使遗留模拟节点中的数值或结构非法也不因此拒绝启动。两种模拟驱动的数据布局不变。
 
 监听成功后的实际地址由 INFO 日志报告；端口为 0 时可从控制台或日志文件读取，日志级别需允许 INFO。不同入口可以使用不同 IPv4 地址；使用 `0.0.0.0` 监听时，浏览器或 SCPI 客户端连接本机实际地址。修改配置后重启生效，刷新页面不会重新绑定端口或加载驱动。
 
@@ -150,7 +154,7 @@ instrument:
 
 测量目录最多 32 项，显示集合最多 4 条，可在 Trace Config 切换 Display On/Off；选择目录后面的测量时按显示槽位替换，不删除测量定义。CSV 和网页显示最多 2001 个均匀选取的真实频点，超过时明确显示原始点数与展示点数；SCPI 仍返回完整数组。无帧、旧配置帧、断线与故障均显示状态，不生成演示曲线。保留旧帧时频轴和点数来自该帧，IFBW 显示 `—`，避免将新配置值标在旧数据上。校准、RF 开关、预设等未实现入口禁用。Smith 允许显示实际复数迹线；S11/S22/S33/S44 等反射参数可按 Γ 解读，传输参数不赋予反射物理含义；阻抗显示为归一化 z=(1+Γ)/(1−Γ)，不假定物理参考阻抗。|Γ|>1 不夹紧，Γ=1 显示开路状态，保留有效的原始 Γ。每条迹线独立保存格式与尺度，Smith 和直角坐标混合时分窗显示。
 
-需要观察采集变化时，设置 `driver.simulator.mode: noise` 和 `driver.simulator.seed: 42` 后重启；DLL 在每次成功采集时加入最多 0.2% 的可重放复数噪声。Continuous 配合 Autoscale 可查看细微变化，HOLD 后数据固定。选择 `golden` 保留固定数值用于验收，模式在设备 Init 时冻结；噪声幅度沿用驱动合同，不支持通过配置修改。完整验收场景、结果与 ThreadSanitizer 复验命令见[模拟设备采集验收](docs/模拟设备采集验收.md)。
+需要观察采集变化时，设置 `driver.simulator.mode: noise` 和 `driver.simulator.seed: 42` 后重启；`noiseAmplitude: 0.002` 保持原有噪声，增大为 `0.01` 可放大到原来的 5 倍，设为 `0` 关闭扰动。幅度是相对 IQ 波幅的无量纲系数，不是 dB 值，也不表示仪器测量精度；接受不加引号的十进制数和科学计数法，例如 `1e-7`。VN08 限制复数扰动的模，VN10 限制各轴扰动，细节见[模拟驱动切换](docs/模拟驱动切换.md#模拟噪声)。Continuous 配合 Autoscale 可查看细微变化，HOLD 后数据固定。选择 `golden` 保留固定数值用于验收；模式、种子和幅度在设备 Init 时冻结，修改后重启。完整验收场景、结果与 ThreadSanitizer 复验命令见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
 Autoscale 由 C++ 按执行时当前迹线的完整原始帧适配一次并固定刻度；Continuous 后续帧只更新曲线，不改变每格刻度、参考值或纵轴标签。再次点击才重新适配，其他迹线保持各自刻度；无有效显示点或无法得到有限、非零范围时禁用 Autoscale，保留原刻度。
 
@@ -230,7 +234,7 @@ Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头
 
 此前采集验收在 Windows MinGW/GCC 10.3 下通过 12 项 CTest，WSL/GCC 13.3 全目标 ThreadSanitizer 同样通过且未报告数据竞争，覆盖完整 IQ golden、11 组核心时序/并发场景、无效样本及噪声贯通。18 项前端合同测试、严格类型检查与生产构建通过，其中两项检查窗口缩放、DPR 和样本投影；Chromium 实际交互验证覆盖配置、四条波形、逐迹线格式/参考位置、扫描控制、M1、三布局菜单、CSV、多会话与断线恢复。本次按职责整理后的正式代码在 Windows 全量 12 项 CTest 通过（13.87 秒），WSL 全目标 ThreadSanitizer 12 项通过（9.98 秒），70 个正式头单独 C++14 编译通过且无头文件循环依赖。临时实际分配故障验证通过 Claim 15 个、单次写入 37 个、结果 Poll 5 个分配点，并用恢复旧危险顺序的副本确认断言可检出错误；随后命名空间统一后的终检另行补记。分阶段证据见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
-模拟 profile 明确采用整数 Hz → raw frequency、逻辑 aN/bN → Native A/B、9N 零值 opaque 表。真实驱动的单位、接收器及功率表合同尚未确认，服务启动会拒绝非 VnaPro 模拟器身份，避免误用该约定。
+真实库配置使用 `driver.type: hardware`，并填写匹配的 `driver.board` 与 `driver.library`。设备初始化不再以模拟器身份前缀作为准入条件；VN08 回报驱动的 IDN，VN10 原生接口没有 IDN 查询，回报通用适配器标识 `VnaPro,TDC1VN10,4PORT,1.0`。HTTP 的 `backend` 区分 `HardwareDriver` 与 `NativeSimulator`，网页据此显示类型。库加载、ABI 缺失、设备初始化或下发失败仍如实报告，不能把真实硬件故障当作噪声配置忽略。当前验证是独立 ABI 探针的启动隔离，未接真实板卡；整数 Hz、功率 raw/opaque、接收器映射等仍需按真实驱动合同核验，建议先配置 `defaultSweepMode: HOLD` 再做板卡采集验收。
 
 设计见 [核心采数更新软件设计](docs/网分核心采数更新软件设计.md) 和 [服务与远程控制设计](docs/网分服务与远程控制设计.md)。命令参照 [Keysight 官方 SCPI 文档](https://helpfiles.keysight.com/csg/N52xxB/Programming/GP-IB_Command_Finder/Common_Commands.htm)，具体白名单与兼容限制见服务设计。
 

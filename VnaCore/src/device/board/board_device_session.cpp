@@ -108,7 +108,8 @@ std::string BoardDeviceSession::Initialize()
         }
         throw;
     }
-    return "VnaPro,NativeSimulator,TDC1VN10,1.0";
+    // VN10 接口没有设备身份查询；回报适配器标识，不能冒充驱动提供的型号或模拟身份。
+    return "VnaPro,TDC1VN10,4PORT,1.0";
 }
 
 void BoardDeviceSession::ApplyPlan(const SweepPlan &plan)

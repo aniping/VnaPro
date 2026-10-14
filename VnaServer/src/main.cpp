@@ -54,12 +54,17 @@ void ApplyStartupConfiguration(const VnaServer::ServerConfig &config, const std:
         throw std::invalid_argument("WebUI 目录中没有 index.html：" + options.web.staticRoot);
     }
     driver.api = config.driver.api;
+    if (config.driver.type == VnaServer::DriverType::HARDWARE && config.driver.library.empty()) {
+        throw std::invalid_argument("真实驱动必须通过 driver.library 明确指定库文件名");
+    }
     const char *defaultLibrary = driver.api == VnaCore::DriverApi::TDC1VN10 ? VnaServer::DEFAULT_VN10_DRIVER_FILENAME
                                                                             : VnaServer::DEFAULT_VN08_DRIVER_FILENAME;
     driver.path = directory + "/" + (config.driver.library.empty() ? defaultLibrary : config.driver.library);
-    VnaServer::ConfigureSimulatorEnvironment(config.driver.simulator);
-    VnaLog::Info(VnaLog::Module::SERVER, "模拟驱动启动配置，mode={}，seed={}", config.driver.simulator.mode,
-        config.driver.simulator.seed);
+    if (config.driver.type == VnaServer::DriverType::SIMULATOR) {
+        VnaServer::ConfigureSimulatorEnvironment(config.driver.simulator);
+        VnaLog::Info(VnaLog::Module::SERVER, "模拟驱动启动配置，mode={}，seed={}，noiseAmplitude={}",
+            config.driver.simulator.mode, config.driver.simulator.seed, config.driver.simulator.noiseAmplitude);
+    }
 }
 
 bool LoadConfiguration(const std::string &path, VnaServer::ServerConfig &config)
@@ -110,15 +115,11 @@ int StartService(const VnaServer::DriverOptions &driver, const VnaServer::Listen
         VnaLog::Error(VnaLog::Module::SERVER, "Driver initialization failed: {}", initialized.message);
         return 1;
     }
-    if (core.ReadView().deviceIdn.find("VnaPro,NativeSimulator,") != 0U) {
-        VnaLog::Error(VnaLog::Module::SERVER, "设备身份不符合已验证的 VnaPro 模拟器合同");
-        core.Close();
-        return 1;
-    }
-    VnaService::InstrumentService service(core, config.instrument);
+    const bool simulator = config.driver.type == VnaServer::DriverType::SIMULATOR;
+    VnaService::InstrumentService service(core, config.instrument, simulator);
     std::string bootstrapError;
-    if (!service.BootstrapMockProfile(bootstrapError)) {
-        VnaLog::Error(VnaLog::Module::SERVER, "Mock configuration failed: {}", bootstrapError);
+    if (!service.BootstrapProfile(bootstrapError)) {
+        VnaLog::Error(VnaLog::Module::SERVER, "设备初始配置失败：{}", bootstrapError);
         core.Close();
         return 1;
     }

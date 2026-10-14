@@ -5,6 +5,10 @@
 #include "simulator_environment.h"
 
 #include <cstdlib>
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -36,7 +40,12 @@ void SetVariable(const char *name, const std::string &value)
 
 void ConfigureSimulatorEnvironment(const SimulatorConfig &config)
 {
+    // 保留完整双精度，避免极小幅度被六位小数截成零；与驱动约定统一使用小数点。
+    std::ostringstream amplitude;
+    amplitude.imbue(std::locale::classic());
+    amplitude << std::setprecision(std::numeric_limits<double>::max_digits10) << config.noiseAmplitude;
     SetVariable("VNAPRO_SIM_MODE", config.mode);
     SetVariable("VNAPRO_SIM_SEED", std::to_string(config.seed));
+    SetVariable("VNAPRO_SIM_NOISE_AMPLITUDE", amplitude.str());
 }
 }  // 命名空间 VnaServer

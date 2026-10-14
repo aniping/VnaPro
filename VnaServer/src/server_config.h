@@ -27,14 +27,24 @@ struct ListenerConfig final {
     std::string webRoot = "WebUI";
 };
 
-// 模拟驱动的信号模式和随机种子；服务器启动时传给驱动。
+// 模拟驱动的信号模式、随机种子和相对噪声幅度；服务器启动时传给驱动。
 struct SimulatorConfig final {
     std::string mode = "golden";
     std::uint64_t seed = 42U;
+    // 0.002 表示 0.2%，0 关闭扰动；仅在 noise 模式使用。
+    double noiseAmplitude = 0.002;
+};
+
+// 明确区分模拟与硬件职责，不能根据动态库文件名或设备身份猜测。
+enum class DriverType {
+    HARDWARE,
+    SIMULATOR
 };
 
 // 接口版本必须明确选择；动态库只能使用程序目录内的文件名。
 struct DriverConfig final {
+    // 未声明模拟类型时按真实驱动处理，不主动修改进程的模拟信号环境。
+    DriverType type = DriverType::HARDWARE;
     VnaCore::DriverApi api = VnaCore::DriverApi::TDC1VN10;
     std::string library;
     SimulatorConfig simulator;

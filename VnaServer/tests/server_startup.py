@@ -36,13 +36,14 @@ def replace_section(text, name, section):
 
 
 def write_startup_config(destination, original, driver=None, board="tdc1vn08",
-                         mode="golden", seed=42, web_enabled=True):
+                         mode="golden", seed=42, web_enabled=True, noise_amplitude=0.002):
     """网络、驱动和噪声均写入正式 YAML，不通过启动参数或环境覆盖。"""
     server = {
         "ip": "127.0.0.1", "scpiPort": 0, "webPort": 0, "webEnabled": web_enabled,
     }
     text = replace_section(original, "server", "server: " + json.dumps(server) + "\n")
-    settings = {"simulator": {"mode": mode, "seed": int(seed)}}
+    settings = {"type": "simulator", "simulator": {"mode": mode, "seed": int(seed),
+                              "noiseAmplitude": float(noise_amplitude)}}
     if board is not None:
         settings["board"] = board
     if driver is not None:
@@ -53,7 +54,7 @@ def write_startup_config(destination, original, driver=None, board="tdc1vn08",
 
 @contextmanager
 def isolated_server(server, driver, environment, config=None, board="tdc1vn08",
-                    web_enabled=True, web_root=None, directory=None):
+                    web_enabled=True, web_root=None, directory=None, noise_amplitude=None):
     """准备无参数启动的独立程序目录，不修改真实构建或发布目录。"""
     executable = Path(server).resolve()
     config_source = Path(config) if config is not None else executable.parent / "vnapro.yml"
@@ -61,6 +62,9 @@ def isolated_server(server, driver, environment, config=None, board="tdc1vn08",
     clean_environment = dict(environment)
     mode = clean_environment.pop("VNAPRO_SIM_MODE", "golden")
     seed = clean_environment.pop("VNAPRO_SIM_SEED", "42")
+    inherited_amplitude = clean_environment.pop("VNAPRO_SIM_NOISE_AMPLITUDE", "0.002")
+    if noise_amplitude is None:
+        noise_amplitude = inherited_amplitude
     with tempfile.TemporaryDirectory(prefix="vnapro-server-") as temporary:
         destination = Path(directory) if directory is not None else Path(temporary)
         destination.mkdir(parents=True, exist_ok=True)
@@ -77,7 +81,8 @@ def isolated_server(server, driver, environment, config=None, board="tdc1vn08",
                       Path(__file__).resolve().parents[2] / "WebUI" / "dist")
             shutil.copytree(assets, destination / "WebUI", copy_function=link_or_copy, dirs_exist_ok=True)
         configuration = destination / "vnapro.yml"
-        write_startup_config(configuration, original, driver, board, mode, seed, web_enabled)
+        write_startup_config(configuration, original, driver, board, mode, seed, web_enabled,
+                             noise_amplitude)
         yield SimpleNamespace(executable=packaged_executable, config=configuration,
                               environment=clean_environment)
 

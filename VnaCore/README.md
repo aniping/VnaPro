@@ -8,6 +8,8 @@ C++14 静态核心库。公开头位于 `include/vna_core`，AcquisitionCore 直
 
 `ReadView()` 一次取得状态、身份和只读帧。Ready 但 revision 为 0 表示尚未配置；Faulted 表示当前硬件配置无效，旧帧仍可供诊断。配置硬件下发失败进入 Faulted；尚未访问硬件的缓冲准备失败保留旧配置。Recover 重新初始化并应用最后成功配置，产生新 revision，不自动恢复运行。
 
+VN08 的身份来自 `DrvGetIDN`；VN10 接口没有身份查询，适配器返回 `VnaPro,TDC1VN10,4PORT,1.0`，不推断厂商或是否为模拟器。服务根据明确的驱动类型区分硬件与模拟后端。
+
 runId、configRevision 和 frameSeq 使用 `uint64_t`，最大值为 `18446744073709551615`。frameSeq 只在同一运行内递增；Start 成功取得新的 runId 后归零，下一完整帧从 1 开始。以每秒一百万帧估算，单次运行也需要约 58 万年才耗尽；HTTP 和 WebUI 将这些编号作为十进制字符串传递，避免 JavaScript 大整数精度丢失。
 
 所有身份计数在递增前检查上限，不循环归零。frameSeq 耗尽时在下一次端口采集前进入 Faulted，保留最后的完整帧；可 Recover 后启动新运行。runId 耗尽时拒绝 Start；configRevision 耗尽时拒绝 Configure，以及需要重新应用成功计划的 Recover。这些拒绝不调用设备，也不修改已有身份、配置或帧。运行或配置编号耗尽后需要重新创建核心实例。

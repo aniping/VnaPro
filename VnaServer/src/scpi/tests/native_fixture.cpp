@@ -29,7 +29,7 @@ NativeFixture::NativeFixture(const std::string &driver) : core(driver), service(
         throw std::runtime_error("initialize failed");
     }
     std::string error;
-    if (!service.BootstrapMockProfile(error)) {
+    if (!service.BootstrapProfile(error)) {
         throw std::runtime_error(error);
     }
 }

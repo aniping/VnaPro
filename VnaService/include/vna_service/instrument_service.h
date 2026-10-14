@@ -40,7 +40,8 @@ struct TraceCreationOptions final {
 class InstrumentService final {
 public:
     // 绑定生命周期覆盖本服务的核心；后续调用统一由服务执行线程完成。
-    explicit InstrumentService(VnaCore::AcquisitionCore &core, InstrumentProfile profile = {});
+    explicit InstrumentService(
+        VnaCore::AcquisitionCore &core, InstrumentProfile profile = InstrumentProfile{}, bool simulator = true);
     // 已接收的操作及协议使用者全部结束后，才能销毁本服务。
     ~InstrumentService();
     // 不能将执行线程约束及核心绑定关系转移给另一实例。
@@ -49,8 +50,8 @@ public:
     InstrumentService(const InstrumentService &) = delete;
     InstrumentService &operator=(const InstrumentService &) = delete;
 
-    // 仅在启动时调用的阻塞操作；接受已验证的 NativeSimulator 标识，并通过 error 返回失败信息。
-    bool BootstrapMockProfile(std::string &error);
+    // 仅在启动时调用的阻塞操作；核心就绪后准备仪器配置，通过 error 返回失败信息。
+    bool BootstrapProfile(std::string &error);
     // 推进一个待完成的状态迁移，不阻塞等待设备 I/O。
     void Poll();
     // 报告有限服务操作的先进先出队列中是否仍有已接收操作。
@@ -93,7 +94,9 @@ public:
         const std::string &owner);
     // 返回启动时已验证的仪器能力，引用在本服务存活期间有效。
     const InstrumentProfile &Profile() const noexcept;
-    // 返回已验证的模拟设备标识，或明确标注为未验证的后端标识。
+    // 返回初始化时确定的驱动类别，运行期间不改变。
+    bool IsSimulator() const noexcept;
+    // 返回模拟仪器能力标识或核心缓存的真实设备标识；配置未就绪时返回未验证标识。
     std::string Identity() const;
     // 将仪器支持频段内的端点加入队列；端点交叉时保持原有频率跨度。
     Operation SetStartHz(double value, std::uint64_t expectedRevision = 0U);
@@ -192,13 +195,14 @@ private:
 
     VnaCore::AcquisitionCore &core_;
     const InstrumentProfile profile_;
+    const bool simulator_;
     InstrumentSettings settings_;
     VnaDisplay::DisplayWorkspace display_;
     // 缓存核心最后成功下发的真实计划，其源和接收需求可以覆盖当前目录的子集。
     VnaCore::SweepPlan activePlan_;
     std::deque<Detail::ServiceTask> tasks_;
     std::deque<InstrumentError> errors_;
-    bool mockReady_ = false;
+    bool profileReady_ = false;
     std::string owner_;
     std::uint64_t controlGeneration_ = 0;
     bool releasing_ = false;

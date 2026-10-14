@@ -306,7 +306,7 @@ Operation InstrumentService::Enqueue(Detail::ServiceTask task, const std::string
     if (owner_ != requester || requester.empty() || releasing_) {
         return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "No active instrument control", requester);
     }
-    if (!mockReady_) {
+    if (!profileReady_) {
         return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Verified backend profile is not initialized", requester);
     }
     if (tasks_.size() >= TASK_QUEUE_CAPACITY) {
@@ -627,8 +627,8 @@ void InstrumentService::PollStartedMode(Detail::ServiceTask &task)
     }
 }
 
-InstrumentService::InstrumentService(VnaCore::AcquisitionCore &core, InstrumentProfile profile)
-    : core_(core), profile_(std::move(profile))
+InstrumentService::InstrumentService(VnaCore::AcquisitionCore &core, InstrumentProfile profile, bool simulator)
+    : core_(core), profile_(std::move(profile)), simulator_(simulator)
 {
     ValidateInstrumentProfile(profile_);
     settings_.startHz = profile_.defaultStartHz;
@@ -639,12 +639,11 @@ InstrumentService::InstrumentService(VnaCore::AcquisitionCore &core, InstrumentP
 
 InstrumentService::~InstrumentService() = default;
 
-bool InstrumentService::BootstrapMockProfile(std::string &error)
+bool InstrumentService::BootstrapProfile(std::string &error)
 {
     const auto view = core_.ReadView();
-    if (mockReady_ || !owner_.empty() || view.state != VnaCore::CoreState::READY ||
-        view.deviceIdn.find("VnaPro,NativeSimulator,") != 0U) {
-        error = "Mock profile requires an initialized NativeSimulator before connection admission";
+    if (profileReady_ || !owner_.empty() || view.state != VnaCore::CoreState::READY) {
+        error = "Instrument profile requires a ready core without a controller and may only be initialized once";
         return false;
     }
     Measurement initial;
@@ -671,9 +670,9 @@ bool InstrumentService::BootstrapMockProfile(std::string &error)
     activePlan_ = std::move(plan);
     settings_ = std::move(candidate);
     display_ = std::move(initialDisplay);
-    mockReady_ = true;
+    profileReady_ = true;
     VnaLog::Info(
-        VnaLog::Module::SERVICE, "模拟设备配置已就绪，revision={}，points={}", settings_.revision, settings_.points);
+        VnaLog::Module::SERVICE, "仪器配置已就绪，revision={}，points={}", settings_.revision, settings_.points);
     return true;
 }
 
@@ -768,8 +767,16 @@ const InstrumentProfile &InstrumentService::Profile() const noexcept
 
 std::string InstrumentService::Identity() const
 {
-    return mockReady_ ? "VnaPro,NativeSimulator," + std::to_string(profile_.portCount) + "PORT,1.0"
-                      : "VnaPro,UnverifiedBackend,0,1.0";
+    if (!profileReady_) {
+        return "VnaPro,UnverifiedBackend,0,1.0";
+    }
+    return simulator_ ? "VnaPro,NativeSimulator," + std::to_string(profile_.portCount) + "PORT,1.0"
+                      : core_.ReadView().deviceIdn;
+}
+
+bool InstrumentService::IsSimulator() const noexcept
+{
+    return simulator_;
 }
 
 Operation InstrumentService::SetStartHz(double value, std::uint64_t expected)
@@ -1007,7 +1014,7 @@ DataResult InstrumentService::StimulusAxis() const
 {
     DataResult value;
     const auto view = core_.ReadView();
-    if (!mockReady_ || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
+    if (!profileReady_ || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
         view.configRevision != settings_.acquisitionRevision) {
         value.error = "No valid committed stimulus configuration";
         return value;

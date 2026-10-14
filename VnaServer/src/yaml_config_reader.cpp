@@ -4,9 +4,12 @@
 #include "yaml_config_reader.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
+#include <locale>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 
 namespace VnaServer {
@@ -168,6 +171,29 @@ void ReadUint64(const YAML::Node &node, const std::string &key, const std::strin
     if (item) {
         value = ParseInteger(item, path + "." + key);
     }
+}
+
+void ReadDouble(const YAML::Node &node, const std::string &key, const std::string &path, double &value)
+{
+    const auto item = Scalar(node, key, path, true);
+    if (!item) {
+        return;
+    }
+    const auto text = item.Scalar();
+    std::istringstream input(text);
+    input.imbue(std::locale::classic());
+    double parsed = 0.0;
+    if (!(input >> std::noskipws >> parsed) || input.peek() != std::char_traits<char>::eof() ||
+        !std::isfinite(parsed)) {
+        Invalid(item, path + "." + key, "必须为有限十进制数，可使用科学计数法");
+    }
+    // 部分运行库会静默把非零极小值解析为零；不能把用户配置误解释成关闭噪声。
+    const auto nonzero = text.find_first_of("123456789");
+    const auto exponent = text.find_first_of("eE");
+    if (parsed == 0.0 && nonzero != std::string::npos && nonzero < exponent) {
+        Invalid(item, path + "." + key, "数值下溢，不能表示为非零 double");
+    }
+    value = parsed;
 }
 
 }  // 命名空间 YamlConfig

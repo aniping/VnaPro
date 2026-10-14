@@ -522,19 +522,19 @@ void BootstrapPreparationFailureCanRetry(const std::string &)
     Expect(core.Initialize().get().ok, "bootstrap device initialization");
     device->FailNextPlanPreparation();
     std::string error;
-    Expect(!service.BootstrapMockProfile(error), "first bootstrap must report preparation failure");
+    Expect(!service.BootstrapProfile(error), "first bootstrap must report preparation failure");
     Expect(!error.empty() && core.ReadView().state == VnaCore::CoreState::READY,
         "preparation failure must leave the device retryable");
     Expect(service.Settings().measurements.empty() && service.Display().selectedMeasurement.empty() &&
                service.Settings().revision == 0U,
         "failed bootstrap must not publish a partial default catalog");
-    Expect(service.BootstrapMockProfile(error), "bootstrap retry must succeed");
+    Expect(service.BootstrapProfile(error), "bootstrap retry must succeed");
     Expect(service.Settings().measurements.size() == 1U && service.Settings().measurements.front().name == "Trc1" &&
                service.Settings().measurements.front().Parameter() == "S21" &&
                service.Display().selectedMeasurement == "Trc1" &&
                service.Settings().revision == core.ReadView().configRevision,
         "retry must commit one default measurement and the successful revision");
-    Expect(!service.BootstrapMockProfile(error) && service.Settings().measurements.size() == 1U,
+    Expect(!service.BootstrapProfile(error) && service.Settings().measurements.size() == 1U,
         "an initialized profile must reject repeated bootstrap without catalog mutation");
 }
 
