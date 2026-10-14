@@ -43,6 +43,64 @@ void TestSharedStateAndNoOp()
     Require(!workspace.Apply(disabledMarker, catalog, Frame()).changed, "关闭已关闭标记仍修改了隐藏位置");
 }
 
+void TestAutoscaleUsesCalibrationSnapshot()
+{
+    DisplayWorkspace workspace;
+    const std::vector<VnaMeasurement::Measurement> catalog{Measurement()};
+    Require(workspace.Reconcile(catalog).ok, "初始目录失败");
+    auto context = Frame();
+    const auto change = Change(DisplayChangeKind::AUTOSCALE);
+    Require(workspace.Apply(change, catalog, context).ok, "原始比值 Autoscale 失败");
+    const auto raw = workspace.Snapshot().traces.front().scale;
+    auto calibration = std::make_shared<VnaCalibration::CalibrationData>();
+    calibration->frequencyHz = context.frame->plan.frequencyHz;
+    calibration->onePortTerms.assign(3U, {-0.5, 0.0, 0.5});
+    context.calibration = calibration;
+    Require(workspace.Apply(change, catalog, context).ok, "已校正 Autoscale 失败");
+    DisplayScale expected;
+    double radius = 1.0;
+    Require(TraceProjection::Autoscale(DisplayTest::Trace({1.2, 1.22, 1.24}), DisplayFormat::DB, expected, radius,
+                context.frame->plan.frequencyHz),
+        "独立校正期望值 Autoscale 失败");
+    const auto actual = workspace.Snapshot().traces.front().scale;
+    Near(actual.min, expected.min);
+    Near(actual.max, expected.max);
+    Require(actual.min != raw.min, "Autoscale 仍使用未校正比值");
+}
+
+void TestMarkerUsesCorrectedComplexPoints()
+{
+    auto context = Frame();
+    auto calibration = std::make_shared<VnaCalibration::CalibrationData>();
+    calibration->frequencyHz = context.frame->plan.frequencyHz;
+    calibration->onePortTerms.assign(3U, {-0.5, 0.0, 0.5});
+    context.calibration = calibration;
+    TracePresentation presentation;
+    MarkerChange marker;
+    marker.hasEnabled = true;
+    marker.enabled = true;
+    marker.hasSampleIndex = true;
+    marker.sampleIndex = 1U;
+    std::string error;
+    Require(presentation.markers.Apply(marker, context, error), "校准 Marker 位置无法设置");
+    const auto corrected =
+        VnaMeasurement::MeasurementProcessor::Calculate(*context.frame, Measurement(), context.calibration.get());
+    const auto projected = TraceProjection::Calculate(
+        presentation, corrected, context.frame->plan.frequencyHz, Measurement(), context.acquisitionRevision);
+    Require(projected.marker.available && projected.marker.valid, "校准 Marker 不可用");
+    Near(projected.marker.real, 1.22);
+    Near(projected.marker.imag, 0.0);
+    Near(projected.marker.value.primary, 20.0 * std::log10(1.22));
+    Near(projected.marker.impedance.real, (1.0 + 1.22) / (1.0 - 1.22));
+    calibration->onePortTerms[1U].reflectionTracking = 0.0;
+    const auto invalid =
+        VnaMeasurement::MeasurementProcessor::Calculate(*context.frame, Measurement(), context.calibration.get());
+    const auto invalidProjection = TraceProjection::Calculate(
+        presentation, invalid, context.frame->plan.frequencyHz, Measurement(), context.acquisitionRevision);
+    Require(
+        invalidProjection.marker.available && !invalidProjection.marker.valid, "Marker 把病态校准点误读为有效 raw 点");
+}
+
 void TestScalePatchRetainsReference()
 {
     DisplayWorkspace workspace;
@@ -421,6 +479,8 @@ int main()
         TestDisplaySlotsAndHiddenSelection();
         TestCatalogReconcilePreservesAndRemoves();
         TestAutoscaleAndPlanGuard();
+        TestAutoscaleUsesCalibrationSnapshot();
+        TestMarkerUsesCorrectedComplexPoints();
         TestMarkerSampleStepAndStalePlan();
         TestRevisionExhaustionAndSnapshotIndependence();
         TestMarkerFrequencyBeforeFirstFrame();
@@ -431,7 +491,7 @@ int main()
         TestGridAndMaximizedRetainOriginalDiagramNumber();
         TestManyTracesUseBoundedFormatSafeDiagrams();
         TestPresentationCloneIsAtomicAndOwnsMarkers();
-        std::cout << "15 个共享显示状态验收用例通过\n";
+        std::cout << "17 个共享显示状态验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

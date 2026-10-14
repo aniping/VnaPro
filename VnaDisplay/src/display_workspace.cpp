@@ -148,7 +148,8 @@ DisplayResult ApplyTrace(TracePresentation &presentation, const DisplayChange &c
                 context.frame->runId != context.runId) {
                 return Failure("Autoscale requires a current complete frame");
             }
-            const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(*context.frame, measurement);
+            const auto trace =
+                VnaMeasurement::MeasurementProcessor::Calculate(*context.frame, measurement, context.calibration.get());
             return TraceProjection::Autoscale(trace, presentation.format, presentation.scale, presentation.smithRadius,
                        context.frame->plan.frequencyHz)
                        ? Success()

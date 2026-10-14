@@ -9,7 +9,9 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <utility>
 
+#include "calibration_processor.h"
 #include "vna_core/frame_layout.h"
 
 namespace VnaMeasurement {
@@ -156,7 +158,8 @@ std::string ValidateMeasurement(const VnaCore::MeasurementFrame &frame, const Me
 
 }  // 匿名命名空间
 
-TraceResult MeasurementProcessor::Calculate(const VnaCore::MeasurementFrame &frame, const Measurement &measurement)
+TraceResult MeasurementProcessor::Calculate(const VnaCore::MeasurementFrame &frame, const Measurement &measurement,
+    const VnaCalibration::CalibrationData *calibration)
 {
     TraceResult result;
     result.error = ValidateFrame(frame);
@@ -166,6 +169,17 @@ TraceResult MeasurementProcessor::Calculate(const VnaCore::MeasurementFrame &fra
     result.error = ValidateMeasurement(frame, measurement);
     if (!result.error.empty()) {
         return result;
+    }
+    if (calibration != nullptr && measurement.kind == MeasurementKind::S_PARAMETER) {
+        result.error = Detail::ValidateCalibrationMetadata(*calibration);
+        if (!result.error.empty()) {
+            return result;
+        }
+        if (calibration->method == VnaCalibration::CalibrationMethod::TWO_PORT &&
+            calibration->Covers(measurement.receiverPort, measurement.sourcePort)) {
+            auto pair = Detail::CalculatePair(frame, *calibration);
+            return std::move(pair[Detail::PairIndex(measurement, *calibration)]);
+        }
     }
     const auto *port = FindSource(frame, measurement.sourcePort);
     result.points.reserve(frame.plan.frequencyRaw.size());
@@ -179,7 +193,33 @@ TraceResult MeasurementProcessor::Calculate(const VnaCore::MeasurementFrame &fra
         }
     }
     result.available = true;
+    if (calibration != nullptr && measurement.kind == MeasurementKind::S_PARAMETER) {
+        return Detail::ApplyCalibration(frame, measurement, *calibration, std::move(result));
+    }
     return result;
+}
+
+std::vector<TraceResult> MeasurementProcessor::CalculateMany(const VnaCore::MeasurementFrame &frame,
+    const std::vector<Measurement> &measurements, const VnaCalibration::CalibrationData *calibration)
+{
+    std::vector<TraceResult> results;
+    results.reserve(measurements.size());
+    std::array<TraceResult, 4U> pair;
+    bool pairReady = false;
+    for (const auto &measurement : measurements) {
+        if (calibration != nullptr && calibration->method == VnaCalibration::CalibrationMethod::TWO_PORT &&
+            measurement.kind == MeasurementKind::S_PARAMETER && measurement.IsSupported() &&
+            calibration->Covers(measurement.receiverPort, measurement.sourcePort)) {
+            if (!pairReady) {
+                pair = Detail::CalculatePair(frame, *calibration);
+                pairReady = true;
+            }
+            results.push_back(pair[Detail::PairIndex(measurement, *calibration)]);
+        } else {
+            results.push_back(Calculate(frame, measurement, calibration));
+        }
+    }
+    return results;
 }
 
 }  // 命名空间 VnaMeasurement

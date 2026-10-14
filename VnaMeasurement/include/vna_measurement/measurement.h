@@ -21,7 +21,7 @@ struct Measurement final {
     unsigned receiverPort = 1U;
     unsigned sourcePort = 1U;
 
-    // 返回 Keysight 兼容参数名；S 参数仅表示未校准的波量比值。
+    // 返回 Keysight 兼容参数名；S 参数从同源波量比值计算，校正由不可变上下文决定。
     std::string Parameter() const;
     // 原子解析受支持的标准参数名，各控制协议共享端口映射和参数规则。
     bool SetParameter(const std::string &parameter);

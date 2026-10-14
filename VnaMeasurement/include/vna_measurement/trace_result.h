@@ -14,7 +14,9 @@ enum class PointError {
     NONE,
     INVALID_SAMPLE,
     REFERENCE_TOO_SMALL,
-    NONFINITE_RESULT
+    NONFINITE_RESULT,
+    CALIBRATION_SINGULAR,
+    INVALID_CALIBRATION
 };
 
 struct ComplexPoint final {
@@ -26,6 +28,7 @@ struct ComplexPoint final {
 
 struct TraceResult final {
     bool available = false;
+    bool calibrated = false;
     std::string error;
     std::vector<ComplexPoint> points;
 };

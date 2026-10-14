@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "vna_calibration/calibration.h"
 #include "vna_core/measurement_frame.h"
 #include "vna_display/marker_collection.h"
 #include "vna_measurement/measurement.h"
@@ -118,6 +119,7 @@ struct DisplayState final {
 
 struct FrameContext final {
     VnaCore::FramePtr frame;
+    VnaCalibration::CalibrationPtr calibration;
     // 仅在本次同步 Apply 期间借用已提交刺激轴，不会保存在工作区或异步任务中。
     const std::vector<double> *frequencyHz = nullptr;
     std::uint64_t acquisitionRevision = 0U;

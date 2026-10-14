@@ -1,9 +1,10 @@
 add_library(vna_measurement STATIC
     src/measurement.cpp
     src/measurement_processor.cpp
+    src/calibration_processor.cpp
 )
 target_include_directories(vna_measurement PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(vna_measurement PUBLIC vna_core)
+target_link_libraries(vna_measurement PUBLIC vna_core vna_calibration)
 target_compile_features(vna_measurement PUBLIC cxx_std_14)
 set_target_properties(vna_measurement PROPERTIES CXX_EXTENSIONS OFF)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -15,4 +16,8 @@ if(BUILD_TESTING)
     target_link_libraries(vna_measurement_tests PRIVATE vna_measurement)
     add_test(NAME measurement_processing COMMAND vna_measurement_tests)
     set_tests_properties(measurement_processing PROPERTIES TIMEOUT 10)
+    add_executable(vna_calibration_processing_tests tests/calibration_processing_test.cpp)
+    target_link_libraries(vna_calibration_processing_tests PRIVATE vna_measurement)
+    add_test(NAME calibration_processing COMMAND vna_calibration_processing_tests)
+    set_tests_properties(calibration_processing PROPERTIES TIMEOUT 10)
 endif()
