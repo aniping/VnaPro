@@ -118,8 +118,14 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', schedulePaint)
   cancelAnimationFrame(paintRequest)
 })
+// 已保存标准的频轴来自 preview；同值或后续 DUT 配置不触发重绘。
 watch(
-  () => [props.preview, props.format, props.config],
+  [
+    () => props.preview,
+    () => props.format,
+    () => (props.preview ? null : props.config.startHz),
+    () => (props.preview ? null : props.config.stopHz),
+  ],
   () => void nextTick(schedulePaint),
 )
 </script>

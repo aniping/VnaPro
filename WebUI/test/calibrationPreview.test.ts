@@ -317,6 +317,245 @@ test('acquisition shows only the selected saved standard and drops a late previe
   assert.equal(loaders.length, 2)
 })
 
+test('same-value fresh status objects every 200 ms keep the saved preview and do not repeat GET', async (context) => {
+  let reads = 0
+  const snapshot = { ...instrumentStatus(), calibration: calibration() }
+  const props = reactive({
+    status: structuredClone(snapshot),
+    disabled: false,
+    command: async () => null,
+    loadPreview: async () => {
+      reads++
+      return reads === 1
+        ? preview()
+        : new Promise<CalibrationPreviewResponse>(() => {})
+    },
+  })
+  const harness = await sfcHarness(
+    'src/components/softtools/CalibrationAcquisition.vue',
+    props,
+    {},
+  )
+  context.after(harness.dispose)
+  for (let index = 0; index < 4; index++) await Promise.resolve()
+  await nextTick()
+  const saved = harness.bindings.preview as Ref<CalibrationPreview | null>
+  assert.equal(saved.value?.runId, '3')
+  assert.equal(reads, 1)
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  for (let poll = 1; poll <= 5; poll++) {
+    setTimeout(() => {
+      props.status = structuredClone(snapshot)
+    }, 200)
+    context.mock.timers.tick(200)
+    await nextTick()
+    assert.ok(
+      saved.value,
+      `unchanged poll ${poll} must not clear the saved standard`,
+    )
+    assert.equal(
+      reads,
+      1,
+      `unchanged poll ${poll} must not request the saved standard again`,
+    )
+    assert.equal((harness.bindings.previewLoading as Ref<boolean>).value, false)
+  }
+})
+
+test('unchanged polling does not repeat immediate preview reads or supersede an in-flight saved standard read', async (context) => {
+  const loaders: { resolve: (value: CalibrationPreviewResponse) => void }[] = []
+  const snapshot = { ...instrumentStatus(), calibration: calibration() }
+  const props = reactive({
+    status: structuredClone(snapshot),
+    disabled: false,
+    command: async () => null,
+    loadPreview: async () =>
+      new Promise<CalibrationPreviewResponse>((resolve) => {
+        loaders.push({ resolve })
+      }),
+  })
+  const harness = await sfcHarness(
+    'src/components/softtools/CalibrationAcquisition.vue',
+    props,
+    {},
+  )
+  context.after(harness.dispose)
+  for (let poll = 0; poll < 3; poll++) {
+    props.status = structuredClone(snapshot)
+    await nextTick()
+  }
+  assert.equal(
+    loaders.length,
+    1,
+    'same capture identity must keep the original pending GET',
+  )
+  loaders[0]!.resolve(preview())
+  for (let index = 0; index < 4; index++) await Promise.resolve()
+  await nextTick()
+  assert.equal(
+    (harness.bindings.preview as Ref<CalibrationPreview | null>).value?.runId,
+    '3',
+  )
+  let immediateReads = 0
+  props.loadPreview = async () => {
+    immediateReads++
+    return preview()
+  }
+  await (harness.bindings.refreshPreview as () => Promise<void>)()
+  for (let poll = 0; poll < 3; poll++) {
+    props.status = structuredClone(snapshot)
+    for (let index = 0; index < 4; index++) await Promise.resolve()
+    await nextTick()
+  }
+  assert.equal(
+    immediateReads,
+    1,
+    'a fast server must not hide repeated unnecessary GETs',
+  )
+})
+
+test('a changed captured run or revision reloads once and rejects the superseded response', async (context) => {
+  const loaders: { resolve: (value: CalibrationPreviewResponse) => void }[] = []
+  const props = reactive({
+    status: { ...instrumentStatus(), calibration: calibration() },
+    disabled: false,
+    command: async () => null,
+    loadPreview: async () =>
+      new Promise<CalibrationPreviewResponse>((resolve) => {
+        loaders.push({ resolve })
+      }),
+  })
+  const harness = await sfcHarness(
+    'src/components/softtools/CalibrationAcquisition.vue',
+    props,
+    {},
+  )
+  context.after(harness.dispose)
+  const changed = structuredClone({
+    ...instrumentStatus(),
+    calibration: calibration(),
+  })
+  changed.calibration.revision = '6'
+  changed.calibration.steps[0]!.runId = '7'
+  changed.calibration.steps[0]!.frameSeq = '2'
+  props.status = changed
+  await nextTick()
+  assert.equal(loaders.length, 2)
+  loaders[0]!.resolve(preview())
+  for (let index = 0; index < 4; index++) await Promise.resolve()
+  await nextTick()
+  assert.equal(
+    (harness.bindings.preview as Ref<CalibrationPreview | null>).value,
+    null,
+  )
+  loaders[1]!.resolve({
+    ...preview(),
+    calibrationRevision: '6',
+    runId: '7',
+    frameSeq: '2',
+  })
+  for (let index = 0; index < 4; index++) await Promise.resolve()
+  await nextTick()
+  assert.equal(
+    (harness.bindings.preview as Ref<CalibrationPreview | null>).value?.runId,
+    '7',
+  )
+  props.status = structuredClone(changed)
+  await nextTick()
+  assert.equal(loaders.length, 2)
+})
+
+for (const end of ['collecting', 'session'] as const) {
+  test(`a ${end} change clears the saved standard even when the capture revision is unchanged`, async (context) => {
+    let reads = 0
+    const props = reactive({
+      status: { ...instrumentStatus(), calibration: calibration() },
+      disabled: false,
+      command: async () => null,
+      loadPreview: async () => {
+        reads++
+        return preview()
+      },
+    })
+    const harness = await sfcHarness(
+      'src/components/softtools/CalibrationAcquisition.vue',
+      props,
+      {},
+    )
+    context.after(harness.dispose)
+    for (let index = 0; index < 4; index++) await Promise.resolve()
+    await nextTick()
+    assert.ok(
+      (harness.bindings.preview as Ref<CalibrationPreview | null>).value,
+    )
+    if (end === 'collecting') props.status.calibration.collecting = false
+    else props.status.calibration.sessionId = '9'
+    await nextTick()
+    assert.equal(
+      (harness.bindings.preview as Ref<CalibrationPreview | null>).value,
+      null,
+    )
+    assert.equal(reads, 1)
+  })
+}
+
+test('preview diagrams do not schedule canvas work for fresh equal configs and use saved-standard axes', async (context) => {
+  let scheduled = 0
+  const props = reactive({
+    format: 'db' as 'db' | 'phase',
+    preview: preview() as CalibrationPreview | null,
+    parameter: 'S22',
+    config: instrumentStatus().config,
+    calibrationLabel: 'OSM P2',
+    emptyText: '',
+  })
+  const harness = await sfcHarness(
+    'src/components/softtools/CalibrationPreviewDiagram.vue',
+    props,
+    {
+      cancelAnimationFrame() {},
+      requestAnimationFrame() {
+        return ++scheduled
+      },
+    },
+  )
+  context.after(harness.dispose)
+  for (let poll = 0; poll < 5; poll++) {
+    props.config = structuredClone(instrumentStatus().config)
+    await nextTick()
+    await nextTick()
+  }
+  assert.equal(
+    scheduled,
+    0,
+    'equal status snapshots must not redraw the saved standard',
+  )
+  props.config.startHz = 20e6
+  await nextTick()
+  await nextTick()
+  assert.equal(
+    scheduled,
+    0,
+    'DUT config does not change the saved standard frequency axis',
+  )
+  props.format = 'phase'
+  await nextTick()
+  await nextTick()
+  assert.equal(scheduled, 1)
+  props.preview = null
+  await nextTick()
+  await nextTick()
+  assert.equal(scheduled, 2)
+  props.config.startHz = 30e6
+  await nextTick()
+  await nextTick()
+  assert.equal(
+    scheduled,
+    3,
+    'an uncaptured empty diagram follows its fallback frequency axis',
+  )
+})
+
 test('a completed or cancelled server session closes acquisition without reopening setup after its component is removed', async (context) => {
   const harness = await sfcHarness(
     'src/App.vue',

@@ -139,14 +139,17 @@ async function refreshPreview() {
     if (epoch === previewEpoch) previewLoading.value = false
   }
 }
+// 每次轮询都会生成新状态对象；只按标准身份值变化读取，不监听临时数组引用。
 watch(
-  () => [
-    calibration.value.sessionId,
-    calibration.value.revision,
-    selectedStepId.value,
-    selectedStep.value?.captured,
-    selectedStep.value?.runId,
-    selectedStep.value?.frameSeq,
+  [
+    () => calibration.value.sessionId,
+    () => calibration.value.collecting,
+    () => calibration.value.revision,
+    () => selectedStepId.value,
+    () => selectedStep.value?.captured,
+    () => selectedStep.value?.runId,
+    () => selectedStep.value?.frameSeq,
+    () => parameter.value,
   ],
   () => void refreshPreview(),
   { immediate: true },
