@@ -37,8 +37,7 @@ const emit = defineEmits<{
       ><strong>{{ frame?.originalPointCount ?? '—' }}</strong>
     </div>
     <p class="softtool-note">
-      导出当前画面的真实频点、有效位及原始 Re/Im。超过 2001
-      点时标明显示抽取；显示投影及原始点索引来自后端，版本号随数据保留。
+      导出当前帧的完整真实频点、有效位及原始 Re/Im。显示投影及原始点索引来自后端，版本号随数据保留。
     </p>
   </section>
   <section v-else-if="mode === 'help'" class="softtool-section">

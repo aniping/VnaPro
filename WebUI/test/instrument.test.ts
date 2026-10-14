@@ -517,9 +517,9 @@ test('frame requests encode an explicit display set and an empty set separately 
   await api.frame([])
   await api.frame()
   assert.deepEqual(paths, [
-    '/api/v1/frame?trace=%E5%8F%8D%E5%B0%84%20A&trace=S22',
-    '/api/v1/frame?display=none',
-    '/api/v1/frame',
+    '/api/v1/frame?trace=%E5%8F%8D%E5%B0%84%20A&trace=S22&encoding=packed',
+    '/api/v1/frame?display=none&encoding=packed',
+    '/api/v1/frame?encoding=packed',
   ])
 })
 

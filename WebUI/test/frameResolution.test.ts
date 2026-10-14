@@ -8,6 +8,7 @@ import {
   reflection,
 } from './displayFixtures'
 import type { DisplayFormat } from '../src/domain/presentation'
+import { MAX_TRACES } from '../src/domain/presentation'
 
 function completeFrame(
   points: number,
@@ -51,13 +52,21 @@ for (const format of ['smith', 'invSmith', 'polar', 'realimag'] as const) {
   })
 }
 
-test('帧解码仍拒绝单条或整体采样容量超限', () => {
+test('最大 128 条迹线保留各自完整 10001 点采样', () => {
+  const frame = decodeFrame(completeFrame(10001, MAX_TRACES))
+  assert.equal(frame.available, true)
+  if (!frame.available) return
+  assert.equal(frame.traces.length, MAX_TRACES)
+  assert.ok(frame.traces.every((trace) => trace.real.length === 10001))
+})
+
+test('帧解码仍拒绝单条采样或迹线资源数量超限', () => {
   assert.throws(
     () => decodeFrame(completeFrame(10002)),
     /frame.displayPointCount/,
   )
   assert.throws(
-    () => decodeFrame(completeFrame(10001, 5)),
-    /frame sample budget/,
+    () => decodeFrame(completeFrame(10001, MAX_TRACES + 1)),
+    /frame.traces/,
   )
 })
