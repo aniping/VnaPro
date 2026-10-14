@@ -18,6 +18,8 @@ import type {
   TraceDestination,
   TraceCreationOptions,
 } from './types'
+import type { CalibrationCommand, CalibrationPreviewResponse, CalibrationSnapshot } from './calibrationTypes'
+import { decodeCalibration, decodeCalibrationExport, decodeCalibrationPreview } from './calibrationDecoders'
 
 export class ApiError extends Error {
   constructor(
@@ -129,6 +131,10 @@ export interface InstrumentGateway {
     expectedDisplayRevision: string,
   ): Promise<AcceptedOperation>
   abortRequests(): void
+  calibration?(command: CalibrationCommand, expectedRevision: string): Promise<AcceptedOperation>
+  calibrationStatus?(): Promise<CalibrationSnapshot>
+  exportCalibration?(setId: string): Promise<Record<string, unknown>>
+  calibrationPreview?(sessionId: string, stepId: string): Promise<CalibrationPreviewResponse>
 }
 
 /** 仅负责 JSON 传输；设备操作的完成状态和控制权由服务端管理。 */
@@ -263,6 +269,19 @@ export class InstrumentApi implements InstrumentGateway {
 
   status(): Promise<InstrumentStatus> {
     return this.request('/status', decodeStatus)
+  }
+  calibrationStatus(): Promise<CalibrationSnapshot> {
+    return this.request('/calibration', decodeCalibration)
+  }
+  calibration(command: CalibrationCommand, expectedRevision: string): Promise<AcceptedOperation> {
+    return this.request('/calibration', decodeAccepted, 'POST',
+      { ...command, expectedRevision, requestId: requestId() }, this.token, 202)
+  }
+  exportCalibration(setId: string): Promise<Record<string, unknown>> {
+    return this.request(`/calibration/sets/${encodeURIComponent(setId)}`, decodeCalibrationExport)
+  }
+  calibrationPreview(sessionId: string, stepId: string): Promise<CalibrationPreviewResponse> {
+    return this.request(`/calibration/preview?sessionId=${encodeURIComponent(sessionId)}&stepId=${encodeURIComponent(stepId)}`, decodeCalibrationPreview)
   }
   frame(names?: readonly string[]): Promise<FrameResponse> {
     const query =

@@ -7,6 +7,7 @@ import type {
   InfoTablePosition,
   MarkerInfoLocation,
 } from '../domain/presentation'
+import type { CalibrationSnapshot } from './calibrationTypes'
 
 /** 仪器标识保持为十进制字符串，以完整保留服务端 uint64 计数器的值。 */
 export type CoreState =
@@ -37,7 +38,7 @@ export interface Measurement {
   sourcePort: number
   parameter: string
   unit: 'a.u.' | '1'
-  calibration: 'raw' | 'uncalibrated'
+  calibration: 'raw' | 'uncalibrated' | 'calibrated'
 }
 
 export type ReceiverCandidate = Pick<
@@ -196,6 +197,8 @@ export interface InstrumentStatus {
   }
   measurements: Measurement[]
   display: DisplaySnapshot
+  /** 缺省表示旧服务不提供校准能力。 */
+  calibration?: CalibrationSnapshot
   control: {
     owner: 'none' | 'scpi' | 'web'
     hasControl: boolean
@@ -223,6 +226,8 @@ export interface AcquiredFrame {
   /** 本次响应计算迹线时使用的测量目录版本。 */
   measurementRevision: string
   displayRevision: string
+  /** 旧服务缺省；新版标明本次复数投影使用的校准版本。 */
+  calibrationRevision?: string
   frameSeq: string
   originalPointCount: number
   displayPointCount: number
@@ -270,7 +275,7 @@ export interface OperationSnapshot extends AcceptedOperation {
 export interface PendingOperation {
   id: string
   label: string
-  kind: 'config' | 'measurement' | 'sweep' | 'display'
+  kind: 'config' | 'measurement' | 'sweep' | 'display' | 'calibration'
   ownerSessionId: string
   readingBack: boolean
 }

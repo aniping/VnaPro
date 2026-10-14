@@ -24,6 +24,7 @@ import {
   text,
 } from './decodeValues'
 import { decodeDisplay, decodeProjection } from './displayDecoders'
+import { decodeCalibration } from './calibrationDecoders'
 
 function measurement(value: unknown): Measurement {
   const item = object(value, 'measurement')
@@ -43,6 +44,7 @@ function measurement(value: unknown): Measurement {
     calibration: choice(item.calibration, 'measurement.calibration', [
       'raw',
       'uncalibrated',
+      'calibrated',
     ]),
   }
   if (result.kind === 'receiver') {
@@ -60,7 +62,7 @@ function measurement(value: unknown): Measurement {
       result.receiverKind !== 'b' ||
       result.parameter !== parameter ||
       result.unit !== '1' ||
-      result.calibration !== 'uncalibrated'
+      !['uncalibrated', 'calibrated'].includes(result.calibration)
     ) {
       invalid('S-parameter metadata')
     }
@@ -173,6 +175,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
     },
     measurements,
     display: decodeDisplay(item.display, measurements),
+    ...(item.calibration === undefined ? {} : { calibration: decodeCalibration(item.calibration, portCount) }),
     control: {
       owner: choice(control.owner, 'control.owner', ['none', 'scpi', 'web']),
       hasControl: flag(control.hasControl, 'control.hasControl'),
@@ -267,6 +270,7 @@ export function decodeFrame(value: unknown): FrameResponse {
       'frame.measurementRevision',
     ),
     displayRevision: identity(item.displayRevision, 'frame.displayRevision'),
+    ...(item.calibrationRevision === undefined ? {} : { calibrationRevision: identity(item.calibrationRevision, 'frame.calibrationRevision') }),
     frameSeq: identity(item.frameSeq, 'frame.frameSeq'),
     originalPointCount: originalCount,
     displayPointCount: count,
