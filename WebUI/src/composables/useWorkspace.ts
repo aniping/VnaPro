@@ -70,6 +70,7 @@ export function useWorkspace(
         frame()?.displayRevision === status()?.display.revision &&
         frame()?.revision === status()?.acquisitionRevision &&
         frame()?.measurementRevision === status()?.revision &&
+        (!status()?.calibration || frame()?.calibrationRevision === status()?.calibration?.revision) &&
         frame()?.runId === status()?.runId,
     ),
   )

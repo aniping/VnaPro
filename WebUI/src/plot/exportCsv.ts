@@ -13,10 +13,10 @@ export function exportVisibleFrameCsv(
 ): string {
   const lines = [
     '# VnaPro 测量显示快照；CSV schema 4',
-    `# frameSeq=${frame.frameSeq},runId=${frame.runId},revision=${frame.revision},channelId=${frame.channelId},measurementRevision=${frame.measurementRevision},displayRevision=${frame.displayRevision}`,
+    `# frameSeq=${frame.frameSeq},runId=${frame.runId},revision=${frame.revision},channelId=${frame.channelId},measurementRevision=${frame.measurementRevision},displayRevision=${frame.displayRevision},calibrationRevision=${frame.calibrationRevision ?? 'legacy'}`,
     `# originalPointCount=${frame.originalPointCount},displayPointCount=${frame.displayPointCount},decimated=${frame.decimated}`,
     '# source_index 为后端提供的原始采样索引，display_index 为展示数组索引。',
-    '# RAW dB 参考为 1 a.u.；S 参数 dB 为无量纲比值幅度的 20 log10，未应用误差校准。',
+    '# RAW dB 参考为 1 a.u.；S 参数 dB 为无量纲比值幅度的 20 log10。校准状态见每行 calibration，calibrated 表示该复数结果已应用误差校准。',
     '# 显示值、无穷与无效状态均来自后端投影，浏览器不计算测量量。',
     'measurement,receiver,receiver_port,source_port,display_index,frequency_hz,real,imaginary,valid,format,unit,display_value,display_imaginary,kind,parameter,raw_unit,calibration,source_index,display_state,secondary_state',
   ]

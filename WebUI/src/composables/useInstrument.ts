@@ -15,6 +15,8 @@ import type {
   TraceDestination,
   TraceCreationOptions,
 } from '../api/types'
+import type { CalibrationCommand } from '../api/calibrationTypes'
+import { calibrationActionLabel, calibrationSummary } from '../domain/calibration'
 
 interface InstrumentOptions {
   api?: InstrumentGateway
@@ -76,7 +78,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
       !status.value.control.releasing,
     ),
   )
-  const canWrite = computed(() =>
+  const operationGateOpen = computed(() =>
     Boolean(
       hasControl.value &&
       !controlBusy.value &&
@@ -84,20 +86,34 @@ export function useInstrument(options: InstrumentOptions = {}) {
       !uncertainWrite.value &&
       !pendingOperation.value &&
       !status.value?.pending &&
-      status.value &&
-      !['Faulted', 'Closed', 'Uninitialized'].includes(status.value.state),
+      status.value,
     ),
   )
+  const canWrite = computed(() => operationGateOpen.value &&
+    !['Faulted', 'Closed', 'Uninitialized'].includes(status.value?.state ?? 'Uninitialized'))
   const canConfigure = computed(
     () =>
       canWrite.value &&
+      !status.value?.calibration?.collecting &&
       ['Ready', 'Running'].includes(status.value?.state ?? ''),
   )
   const canChangeMeasurements = computed(
     () =>
       canWrite.value &&
+      !status.value?.calibration?.collecting &&
       ['Ready', 'Running'].includes(status.value?.state ?? ''),
   )
+  const canCalibrate = computed(
+    () => canWrite.value && Boolean(status.value?.calibration && api.calibration),
+  )
+  const canRun = computed(
+    () => canWrite.value && !status.value?.calibration?.collecting,
+  )
+  // 故障后仍可丢弃校准会话；其他校准写动作继续服从健康状态门禁。
+  const canCancelCalibration = computed(() => Boolean(
+    operationGateOpen.value &&
+    status.value?.calibration?.collecting && api.calibration,
+  ))
 
   const frameCondition = computed<FrameCondition>(() => {
     const currentStatus = status.value
@@ -141,6 +157,9 @@ export function useInstrument(options: InstrumentOptions = {}) {
         label: 'PREVIOUS DISPLAY',
         detail: 'Retained projection · waiting for the shared display state',
       }
+    }
+    if (currentStatus.calibration && currentFrame.calibrationRevision !== currentStatus.calibration.revision) {
+      return { kind: 'stale', label: 'PREVIOUS CAL', detail: 'Retained projection · waiting for the applied calibration state' }
     }
     if (currentFrame.runId !== currentStatus.runId) {
       return {
@@ -275,7 +294,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
       if (epoch !== generation || pendingOperation.value?.id !== pending.id)
         return
       if (
-        pending.kind === 'display' &&
+        (pending.kind === 'display' || pending.kind === 'calibration') &&
         readback.display.displayedNames.length
       ) {
         // 周期轮询可能已收到旧投影；显示操作须读回同一显示版本后才撤销手势预览。
@@ -284,6 +303,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
           return
         if (projection.available) {
           if (projection.displayRevision !== readback.display.revision) return
+          if (readback.calibration && projection.calibrationRevision !== readback.calibration.revision) return
           // HOLD 保留旧采集帧也能更新显示；采集新鲜度继续交由 frameCondition 判断。
           frame.value = projection
           frameCurrent.value = projection.current
@@ -384,7 +404,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
         }
         if (epoch !== generation || !active) return
         if (!wasConnected && notice.value?.text === INITIAL_NOTICE) {
-          notify('RAW 接收波与 S 参数 · 未校准')
+          notify(calibrationSummary(status.value?.calibration))
         }
         if (
           !wasConnected &&
@@ -433,13 +453,14 @@ export function useInstrument(options: InstrumentOptions = {}) {
     label: string,
     kind: PendingOperation['kind'],
     request: () => Promise<AcceptedOperation>,
+    permission?: boolean,
   ): Promise<InstrumentStatus | null> {
-    const allowed =
+    const allowed = permission ?? (
       kind === 'config'
         ? canConfigure.value
         : kind === 'measurement'
           ? canChangeMeasurements.value
-          : canWrite.value
+          : canWrite.value)
     if (!allowed) {
       const reason = '请取得控制权，并等待当前操作完成。'
       notify(status.value?.control.readOnlyReason || reason, 'warning')
@@ -526,6 +547,9 @@ export function useInstrument(options: InstrumentOptions = {}) {
     canWrite,
     canConfigure,
     canChangeMeasurements,
+    canCalibrate,
+    canRun,
+    canCancelCalibration,
     canEditDisplay: canWrite,
     frameCondition,
     start,
@@ -615,7 +639,20 @@ export function useInstrument(options: InstrumentOptions = {}) {
         api.createAllSParameters(expectedRevision, expectedDisplayRevision),
       ),
     run: (action: RunAction) =>
-      submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)),
+      canRun.value ? submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)) : Promise.resolve(null),
+    calibrate: (command: CalibrationCommand, expectedRevision?: string) => {
+      const calibration = status.value?.calibration
+      const allowed = command.action === 'cancel' ? canCancelCalibration.value : canCalibrate.value
+      return allowed && calibration && api.calibration
+        ? submit(calibrationActionLabel(command, calibration), 'calibration', () => api.calibration!(command, expectedRevision ?? calibration.revision), allowed)
+        : Promise.resolve(null)
+    },
+    exportCalibration: (setId: string) => api.exportCalibration
+      ? api.exportCalibration(setId)
+      : Promise.reject(new Error('当前服务不支持校准集导出。')),
+    calibrationPreview: (sessionId: string, stepId: string) => api.calibrationPreview
+      ? api.calibrationPreview(sessionId, stepId)
+      : Promise.reject(new Error('当前服务未提供标准测量预览。')),
   }
 }
 

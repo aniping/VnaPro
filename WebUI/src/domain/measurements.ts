@@ -13,5 +13,5 @@ export function sParameterChoices(portCount: number): SParameterChoice[] {
 }
 
 export function measurementState(measurement: Measurement): string {
-  return measurement.calibration === 'uncalibrated' ? '未校准' : 'RAW'
+  return measurement.calibration === 'calibrated' ? 'Cal' : measurement.calibration === 'uncalibrated' ? '未校准' : 'RAW'
 }
