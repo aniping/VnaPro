@@ -5,6 +5,7 @@ import type {
   FrameCondition,
   Measurement,
   SweepConfiguration,
+  TraceDestination,
 } from '../../api/types'
 import {
   diagramTraceColor,
@@ -13,6 +14,7 @@ import {
   type TracePresentation,
   type DisplayAnnotations,
   type MarkerInfoLocation,
+  type MarkerInfoArea,
 } from '../../domain/presentation'
 import {
   markerInfoDragName,
@@ -20,6 +22,11 @@ import {
   type MarkerReadoutPreview,
 } from '../../domain/markerReadouts'
 import { measuredTraceTitleLayout } from '../../plot/titleLayout'
+import {
+  MARKER_INFO_AREAS,
+  markerInfoAreaAt,
+} from '../../domain/markerInfoArea'
+import type { TraceMoveRequest } from '../../domain/diagramLayout'
 import { measurementState } from '../../domain/measurements'
 import {
   activeMarkerId,
@@ -67,7 +74,14 @@ import {
 import MarkerReadout from './MarkerReadout.vue'
 import TraceStrip from './TraceStrip.vue'
 import DiagramMenu from './DiagramMenu.vue'
-import { isNewTraceDrag, NEW_TRACE_DRAG_TYPE } from '../instrument/newTraceDrag'
+import TraceDropZones from './TraceDropZones.vue'
+import {
+  isTraceDrag,
+  traceDragIntent,
+  traceDropPosition,
+  type TraceDropPosition,
+} from './traceDrag'
+import { isNewTraceDrag } from '../instrument/newTraceDrag'
 
 const props = defineProps<{
   number: number
@@ -79,6 +93,7 @@ const props = defineProps<{
   activeTraceName: string
   primaryTraceName: string
   selectedDiagram?: number
+  displayRevision?: string
   canAddTrace?: boolean
   canAddDiagram?: boolean
   canDeleteDiagram?: boolean
@@ -99,13 +114,22 @@ const emit = defineEmits<{
   selectMarker: [value: { name: string; markerId: number }]
   selectDiagram: [diagram: number]
   addTrace: [value: { diagram: number; newDiagram: boolean }]
-  newTrace: [diagram: number]
+  newTrace: [destination: TraceDestination]
+  moveTrace: [value: TraceMoveRequest]
   deleteDiagram: [diagram: number]
   arrange: [value: { action: 'overlay' | 'split'; diagram: number }]
   markerPreview: [value: MarkerReadoutPreview | null]
-  relocateMarkerInfo: [value: { name: string; location: MarkerInfoLocation }]
+  relocateMarkerInfo: [
+    value: {
+      name: string
+      location: MarkerInfoLocation
+      area?: MarkerInfoArea
+    },
+  ]
 }>()
 const traceList = ref<HTMLElement | null>(null)
+const traceDrop = ref<TraceDropPosition | null>(null)
+const movingTrace = ref(false)
 const titleLayout = ref({
   columns: 1,
   slotWidth: 0,
@@ -285,9 +309,37 @@ const markerInfoFields = computed(() =>
     const markers = markerReadouts.value.filter(
       (marker) => marker.name === trace.measurement.name,
     )
-    return markers.length ? [{ name: trace.measurement.name, markers }] : []
+    return markers.length
+      ? [
+          {
+            name: trace.measurement.name,
+            markers,
+            area: trace.presentation.markerInfoArea ?? 'topRight',
+          },
+        ]
+      : []
   }),
 )
+const markerInfoGroups = computed(() =>
+  MARKER_INFO_AREAS.flatMap((area) => {
+    const fields = markerInfoFields.value.filter((field) => field.area === area)
+    return fields.length ? [{ area, fields }] : []
+  }),
+)
+
+function markerInfoGroupStyle(area: MarkerInfoArea) {
+  const column = MARKER_INFO_AREAS.indexOf(area) % 3
+  const row = Math.floor(MARKER_INFO_AREAS.indexOf(area) / 3)
+  return {
+    // 单行短读数按列的实际最小宽度留空间，长响应再整体换行。
+    minWidth: `min(${((props.annotations?.stimulusInfoVisible === false ? 115 : 203) * annotationFontScale.value) / 100}px, calc(100% - 4px))`,
+    left: column === 0 ? '2px' : column === 1 ? '50%' : undefined,
+    right: column === 2 ? '2px' : undefined,
+    top: row === 0 ? '2px' : row === 1 ? '50%' : undefined,
+    bottom: row === 2 ? '2px' : undefined,
+    transform: `translate(${column === 1 ? '-50%' : '0'}, ${row === 1 ? '-50%' : '0'})`,
+  }
+}
 watch(dragPreview, (preview) =>
   emit(
     'markerPreview',
@@ -328,33 +380,76 @@ function measureTitles(): void {
   )
   titleLayout.value = geometry
 }
+function traceDropAt(event: DragEvent): TraceDropPosition | null {
+  const target = event.currentTarget as HTMLElement | null
+  const bounds = target?.getBoundingClientRect?.()
+  if (!bounds) return 'center'
+  return traceDropPosition(
+    event.clientX - bounds.left,
+    event.clientY - bounds.top,
+    bounds.width,
+    bounds.height,
+    props.canAddDiagram !== false,
+  )
+}
+
 function dropOnDiagram(event: DragEvent): void {
-  if (isNewTraceDrag(event)) {
-    if (
-      props.canEditDisplay &&
-      props.canAddTrace !== false &&
-      event.dataTransfer?.getData(NEW_TRACE_DRAG_TYPE) === 'new-trace'
+  traceDrop.value = null
+  if (!props.canEditDisplay) return
+  const intent = traceDragIntent(event)
+  if (intent) {
+    const position = traceDropAt(event)
+    if (!position || (position !== 'center' && props.canAddDiagram === false))
+      return
+    if (intent.kind === 'new' && props.canAddTrace !== false) {
+      event.preventDefault()
+      emit('newTrace', {
+        diagram: props.number,
+        ...(position !== 'center' ? { position } : {}),
+      })
+    } else if (
+      intent.kind === 'move' &&
+      intent.displayRevision === props.displayRevision &&
+      props.allMeasurements.some(
+        (measurement) => measurement.name === intent.name,
+      )
     ) {
       event.preventDefault()
-      emit('newTrace', props.number)
+      emit('moveTrace', {
+        name: intent.name,
+        diagram: props.number,
+        position,
+        displayRevision: intent.displayRevision,
+      })
     }
     return
   }
-  if (!props.canEditDisplay) return
   const name = markerInfoDragName(event)
   if (
     name &&
     props.measurements.some((measurement) => measurement.name === name)
   ) {
+    const bounds = plotArea.value?.getBoundingClientRect()
+    const area = bounds
+      ? markerInfoAreaAt({ x: event.clientX, y: event.clientY }, bounds)
+      : null
+    if (bounds && !area) return
     event.preventDefault()
-    emit('relocateMarkerInfo', { name, location: 'diagram' })
+    emit('relocateMarkerInfo', {
+      name,
+      location: 'diagram',
+      ...(area ? { area } : {}),
+    })
   }
 }
 function dragOverDiagram(event: DragEvent): void {
-  if (isNewTraceDrag(event)) {
-    if (props.canEditDisplay && props.canAddTrace !== false) {
+  if (isNewTraceDrag(event) || isTraceDrag(event)) {
+    const moving = isTraceDrag(event)
+    if (props.canEditDisplay && (moving || props.canAddTrace !== false)) {
       event.preventDefault()
-      event.dataTransfer!.dropEffect = 'copy'
+      event.dataTransfer!.dropEffect = moving ? 'move' : 'copy'
+      movingTrace.value = moving
+      traceDrop.value = traceDropAt(event)
     }
     return
   }
@@ -365,6 +460,11 @@ function dragOverDiagram(event: DragEvent): void {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
   }
+}
+function leaveDiagram(event: DragEvent): void {
+  const target = event.currentTarget as HTMLElement | null
+  if (!event.relatedTarget || !target?.contains(event.relatedTarget as Node))
+    traceDrop.value = null
 }
 const plottedMarkers = computed(() =>
   markerModels.value.flatMap((marker) => {
@@ -949,7 +1049,15 @@ function plotKey(event: KeyboardEvent): void {
     }"
     @dragover="dragOverDiagram"
     @drop="dropOnDiagram"
+    @dragleave="leaveDiagram"
+    @dragend="traceDrop = null"
   >
+    <TraceDropZones
+      v-if="traceDrop"
+      :position="traceDrop"
+      :moving="movingTrace"
+      :allow-split="canAddDiagram !== false"
+    />
     <header class="trace-header">
       <div
         ref="traceList"
@@ -974,6 +1082,7 @@ function plotKey(event: KeyboardEvent): void {
           :color="trace.color"
           :smith-radius="circleRadius(trace.presentation)"
           :can-edit-display="canEditDisplay"
+          :display-revision="displayRevision"
           :active="active && trace.measurement.name === primaryTraceName"
           :remembered="trace.measurement.name === primaryTraceName"
           :sections="titleLayout.sections"
@@ -1038,9 +1147,15 @@ function plotKey(event: KeyboardEvent): void {
         "
         >{{ tick.value }}</span
       >
-      <div v-if="infoVisible" class="marker-info-fields">
+      <div
+        v-for="group in infoVisible ? markerInfoGroups : []"
+        :key="group.area"
+        class="marker-info-fields"
+        :data-marker-info-area="group.area"
+        :style="markerInfoGroupStyle(group.area)"
+      >
         <MarkerReadout
-          v-for="field in markerInfoFields"
+          v-for="field in group.fields"
           :key="field.name"
           inline
           :show-trace-names="markerInfoFields.length > 1"
@@ -1169,7 +1284,10 @@ function plotKey(event: KeyboardEvent): void {
               ? '归一化导纳 y'
               : 'Γ · 归一化阻抗 z'
         }}
-        · {{ activeTrace ? measurementState(activeTrace.measurement) : 'Cal Off' }}</span
+        ·
+        {{
+          activeTrace ? measurementState(activeTrace.measurement) : 'Cal Off'
+        }}</span
       >
       <span class="sr-only"
         >{{ activeTrace?.measurement.name ?? 'Empty diagram' }}. Format
@@ -1183,7 +1301,15 @@ function plotKey(event: KeyboardEvent): void {
       >
     </div>
 
-    <footer class="channel-row" aria-label="Channel configuration">
+    <footer
+      class="channel-row"
+      :class="{
+        compact: width < (180 * annotationFontScale) / 100,
+        minimal: width < (100 * annotationFontScale) / 100,
+      }"
+      aria-label="Channel configuration"
+      :title="`Ch1 · Start ${frequencyText(xRange.min)} · Stop ${frequencyText(xRange.max)}`"
+    >
       <span class="channel-label" :class="{ active }">Ch1</span>
       <span class="channel-start"
         >Start <b>{{ frequencyText(xRange.min) }}</b></span
@@ -1214,6 +1340,7 @@ function plotKey(event: KeyboardEvent): void {
 
 <style scoped>
 .diagram-pane {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -1257,13 +1384,17 @@ function plotKey(event: KeyboardEvent): void {
 .marker-info-fields {
   position: absolute;
   z-index: 3;
-  top: 2px;
-  right: 2px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 3px;
-  max-width: calc(100% - 45px);
+  width: max-content;
+  min-width: 0;
+  max-width: calc(100% - 4px);
+}
+.marker-info-fields[data-marker-info-area^='bottom'] :deep(.marker-info-menu) {
+  top: auto;
+  bottom: 100%;
 }
 .plot-area:focus-visible {
   outline: 2px solid #6fc5ea;
@@ -1441,7 +1572,7 @@ function plotKey(event: KeyboardEvent): void {
 
 .channel-label.active {
   color: #fff;
-  background: #0d75bf;
+  background: var(--color-trace-active);
 }
 .channel-row b {
   margin-left: 4px;
@@ -1455,6 +1586,14 @@ function plotKey(event: KeyboardEvent): void {
 }
 .channel-stop {
   justify-self: end;
+}
+.channel-row.compact {
+  grid-template-columns: auto 1fr;
+}
+.channel-row.compact .channel-start,
+.channel-row.compact .channel-middle,
+.channel-row.minimal .channel-stop {
+  display: none;
 }
 .sr-only {
   position: absolute;

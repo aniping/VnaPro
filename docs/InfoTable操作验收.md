@@ -9,13 +9,15 @@
 1. 在持有控制权的页面打开 `Display` 软工具。`Show Table` 默认 Off，开启后选择 Bottom、Left 或 Right。
 2. 启用目标迹线的 Marker。将其图内信息字段拖到 Table；也可在该字段右键选择 `Show Info in Table`，或在 Display 中选择活动迹线的 `In Info Table`。操作迁移整条迹线的信息字段，不改变 Marker 坐标。
 3. Table 按字段分块，每行显示活动圆点、M 编号、Trc 名、频率及响应值，整行跟随迹线颜色；编号继续按迹线独立使用 M1～M10。点击某行选择对应迹线和 Marker。
-4. 将字段拖回所属图窗，或右键选择 `Show Info in Diagram`；Display 中的 `In Diagram` 也可恢复图内归属。
+4. 将字段拖回所属图窗，释放位置映射到左/中/右 × 上/中/下九个预设锚点，默认右上；在图内拖动也可改锚点。右键 `Show Info in Diagram` 或 Display 的 `In Diagram` 恢复图内归属时保留原锚点。底部字段的右键菜单向上展开。
 5. `Marker Info` 控制当前图窗所属迹线的信息字段，包括已放入 Table 的字段；它不关闭 Marker 本体。`Active Trace Only` 只显示全局活动迹线的信息，默认 Off。
 6. `Marker Stimulus Info` 只隐藏/显示 Marker 的频率，底部通道行不变。`Font Size` 输入 80%～170% 后 Apply，标题、通道列表和信息字段随保存字号显示。
 
 关闭 Table 会隐藏容器并保留字段归属，不自动把字段移回图内；重新开启后恢复。页面只有 Table 已开启时允许向其迁移字段，移动不会自动开启容器。该显隐与归属独立是明确的项目规则，手册没有规定相反的自动行为。
 
 Table 使用全部已保存图窗，Maximized 只隐藏其他绘图区，不删除其字段。底部 Table 最大高度为工作区的 35%，左右布局基准为 300 px、最大宽度 40%；内容过多时只在独立 Table 中滚动。这些 CSS 边界是项目像素布局，不是原机配置。标题按实际完整字宽排列，完整信息优先；标题变长时先减少列数，不为保留四列而隐藏信息。只有整个标题区容纳不下一条完整标题时才整字段隐藏，不截成省略号，扩大后恢复；不固定所有尺寸为四列，不删除迹线。
+
+九锚点拖动见官方 ZNB User Manual v74 [第 57 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=57)和 [第 1050 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=1050)。图内读数采用第 94 页的黑底、迹线色文字样式；同一手册第 90 页也有灰底示例，不能宣称所有固件均无灰底。窄图完整保留编号、频率和响应，长响应整体另起行；这是项目可读性适配，手册未规定响应式换行算法。同锚点字段按迹线顺序堆叠；密集信息仍可迁入 Table。
 
 ## HTTP 合同
 
@@ -26,14 +28,15 @@ Table 使用全部已保存图窗，Maximized 只隐藏其他绘图区，不删�
 | `infoTable` | `enabled`、`position` 至少一个；位置为 `bottom / left / right`，修改全局容器。 |
 | `displayAnnotations` | `activeTraceOnly`、`stimulusInfoVisible`、`fontScale` 至少一个，修改全局信息显示。 |
 | `markerInfo` | `enabled`，可指定 `diagram`；省略图号则针对执行时活动图窗。 |
-| `markerInfoLocation` | `traceName` 与 `location:"diagram" / "table"`，改变该迹线的信息字段归属。 |
+| `markerInfoLocation` | `traceName` 与 `location:"diagram" / "table"`，改变字段归属；仅 `diagram` 可带 `area`，取 `topLeft/topCenter/topRight/centerLeft/center/centerRight/bottomLeft/bottomCenter/bottomRight`。省略时保留锚点。 |
 
-`GET /api/v1/status` 的 `display.infoTable`、`annotations`、`diagrams[].markerInfoVisible` 和 `presentations[name].markerInfoLocation` 为权威读回。无变化操作不增加显示版本；无权、旧 CAS、非法位置、错误作用域或越界字号拒绝时不得部分修改状态。既有 `marker` 动作的 `markerAction:"select"` 在一次候选事务内选择 Marker 并激活所属迹线、图窗；任一步失败整体丢弃。既有 Keysight SCPI Marker 查询继续读取相同标记坐标；本次不添加未经核实的显示命令。
+`GET /api/v1/status` 的 `display.infoTable`、`annotations`、`diagrams[].markerInfoVisible` 和 `presentations[name].markerInfoLocation/markerInfoArea` 为权威读回。无变化操作不增加显示版本；无权、旧 CAS、非法位置、错误作用域或越界字号拒绝时不得部分修改状态。既有 `marker` 动作的 `markerAction:"select"` 在一次候选事务内选择 Marker 并激活所属迹线、图窗；任一步失败整体丢弃。既有 Keysight SCPI Marker 查询继续读取相同标记坐标；本次不添加未经核实的显示命令。
 
 ## 验证步骤
 
 - 默认 Table 隐藏、Bottom，字体 100%，全部迹线 Marker 信息可见，频率可见；不因新页面打开而重置已应用设置。
 - 创建至少两条不同颜色迹线，各启用重复编号 M1/M2。迁移第二条字段，确认第一条仍在图内，Table 显示正确 Trc 归属和同色读数。
+- 在 4×4、4000 点场景核对短读数与长复数读数均在图内；拖到九个预设位置，刷新和观察窗口回读相同锚点，底部右键菜单完整可见。非法 area、Table 携带 area、旧 CAS 或只读请求拒绝且 Marker 坐标不变。
 - 从非第一条迹线的字段开始拖放，确认请求目标是实际字段的迹线；返回图内、点击 Table 行及右键移动均经过后端。
 - 在 Continuous 中完成迁移、显隐与位置修改；`runId`、采集版本和 Marker 坐标不因这些纯显示操作改变，帧序号继续推进。
 - 关闭再开启 Table，迁移归属保持；另一只读观察窗口与刷新得到同一位置、显隐、字号和活动标记，观察窗口不能写。

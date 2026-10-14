@@ -103,7 +103,11 @@ flowchart TB
 
 `status.display` 返回活动测量、显示集合、布局和每条迹线的 Format/Scale/标记集合/可见性及 `allowedFormats`。每条迹线的 `markers` 保存 M1～M10，`activeMarkerId` 标识活动成员；旧 `marker` 字段由后端从活动成员派生，前端不另存一份仪器状态。`display.diagrams` 返回全部显式图窗、各窗迹线顺序与主坐标迹线，`selectedDiagram` 表示当前图窗；删除后图号可重排，前端不缓存固定图号，也不按格式创建或拆分图窗。`useWorkspace` 仅适配这些读回值，没有本地默认迹线、目录 watch 修复或乐观修改。动作写入 `POST /api/v1/display`，携带 `requestId` 和 `expectedDisplayRevision`，经同一控制租约与操作完成机制执行；`canEditDisplay` 允许 CONT 中操作，旁观窗口禁写但同步显示。刷新重建页面继续读取已有仪器显示状态；不宣称进程重启后的磁盘持久化。
 
-测量目录、显示集合和显式图窗均最多 128 项，这是项目资源预算，不是 ZNB 最大容量。Diagram 菜单 Add Trace 使用 `/api/v1/measurement-actions/add` 添加默认 S21/dB Mag 迹线；单端口时为 S11。工具栏 Trc+ 单击复制活动迹线；将 Trc+ 或 Trace Config 的 Add Trace 拖放到现有图窗，打开 New Trace 参数矩阵，点击参数后以同一个 add 事务提交 `parameter`、目标图窗和打开时的双 CAS。C++ 统一命名、创建、显示和选中，关闭弹框不写设备。当前拖放只覆盖现有图窗，原机边缘分割区域另行规划。Add Trace + Diagram 在同一后端事务中创建新图窗和默认迹线。Trace Config 的 Add Trace 使用 `/api/v1/measurement-actions/clone` 复制活动定义及显示设置；编号由后端选取最小空闲 `Trc<n>`，新增不会替换之前的迹线。图窗右键动作携带目标 `diagram`，不通过浏览器连续发两次写请求实现组合操作。
+测量目录、显示集合和显式图窗均最多 128 项，这是项目资源预算，不是 ZNB 最大容量。Diagram 菜单 Add Trace 使用 `/api/v1/measurement-actions/add` 添加默认 S21/dB Mag 迹线；单端口时为 S11。工具栏 Trc+ 单击复制活动迹线；将 Trc+ 或 Trace Config 的 Add Trace 拖入图窗，打开 New Trace 参数矩阵，点击参数后以同一个 add 事务提交 `parameter`、目标图窗、落区 `position` 和打开时的双 CAS。中心落区加入现有图窗；上下左右落区分别水平或垂直二分目标图窗，新迹线位于选定方向。C++ 统一命名、创建、显示和选中，关闭弹框不写设备。Add Trace + Diagram 在同一后端事务中创建新图窗和默认迹线。Trace Config 的 Add Trace 使用 `/api/v1/measurement-actions/clone` 复制活动定义及显示设置；编号由后端选取最小空闲 `Trc<n>`，新增不会替换之前的迹线。图窗右键动作携带目标 `diagram`，不通过浏览器连续发两次写请求实现组合操作。
+
+拖动已有迹线标题使用独立移动令牌，在上述五个落区间改变显示归属；不创建或复制测量、格式和标记。起拖时冻结 `displayRevision`，拖放过程中图窗编号或显示配置发生变化时拒绝旧手势。C++ 保存分割结构并下发归一化区域，浏览器只映射像素；移动或删除产生的空源图窗合并到兄弟区域并映射重编号。显式重新排列、Overlay All、Split All 和 All S-Parameters 清除自定义分割，恢复自动或矩阵网格；最大化保留原分割结构。拖放继续遵循控制租约、校准采集、Busy 和容量限制。
+
+标题活动色为 `#0D75BF`，非活动色和普通按钮为 `#4B5F6C`；选中硬键用 `#008FF5`，选中页签底色用 `#323F48`，角色独立且悬停不覆盖选中色。这些颜色取自官方 Getting Started v70 第 37 页无损原图，并非跨固件 RGB 协议规范。
 
 标题根据实际字体的完整标题宽度与容器可用宽度计算等宽自然槽，优先完整显示信息，不固定三列或四列。同一图窗内统一名称、测量量、格式字段宽度，再由最长可见标题确定槽宽；不跨图窗统一，不使用 `1fr` 把标题拉伸到铺满图窗，单条、两条标题也保留自然槽宽，余宽留空。标题条目与点击区域占满自己的槽位，活动蓝底不随选中文字长短缩短，测量量仍保持独立色块。空间减少时先完整换行；只有整个标题区连一条完整标题都放不下，才按 Ref、Scale Div、RAW 类型、格式的顺序整字段隐藏，放宽后恢复，不把数值截成省略号。全部标题使用相同字段集合以保持对齐，悬停仍可查看完整信息。此隐藏顺序与精确阈值是项目取舍，手册只规定缩小图窗时隐藏部分字段、放大或最大化后恢复。隐藏阈值由实际字体、完整文本和字段内边距测量得出，不能只看一个固定 diagram 像素数。标题自然显示全部行，不用 84 像素上限和内部滚动条截断，不删除迹线或改变归属。当前色板为八色循环，每个图窗重新开始；具体 RGB 是项目参考配色，不宣称完整还原原机出厂色序。标记符号和整行读数使用同一所属迹线颜色，多迹线读数增加 Trc 归属列；每迹线仍独立使用 M1～M10。
 
@@ -111,7 +115,9 @@ flowchart TB
 
 相关设置由 `status.display.infoTable`、`annotations`、`diagrams[].markerInfoVisible` 及 `presentations[name].markerInfoLocation` 读回。Marker Info 控制所属图窗字段显隐，Active Trace Only 根据全局活动迹线过滤；Marker Stimulus Info 仅控制 Marker 频率，不改变 Channel footer。Font Size 为后端保存的 80%～170%（默认 100%），应用于标题、通道列表和信息字段。隐藏 Table 保留迁移归属，移动不自动开启容器；页面先开启 Table 再允许迁入，刷新和观察窗口读取同一状态。
 
-图内信息字段不设置内部滚动条；密集内容由用户迁入独立 Table。Table 底部最大高度为工作区 35%，左右布局基准 300 px、最大宽度 40%，溢出内容在 Table 滚动；这些 CSS 范围是项目像素布局，不是原机配置。原机确切标题列数、自动密度算法及隐藏后自动恢复规则没有明确证据。容量、色数及标题密度见[迹线与标记核对](../docs/research/ZNB8迹线与标记行为核对.md)，本期合同见[Info Table 核对](../docs/research/ZNB8信息表与标题排版核对.md)和[操作验收](../docs/InfoTable操作验收.md)。独立 Info Window、Bandfilter 和 Reference/Delta 信息仍未实现。
+图内 Marker 信息可拖到左/中/右 × 上/中/下九个预设位置；`markerInfoLocation` 的可选 `area` 随归属一次提交，`markerInfoArea` 从后端快照读回，默认 `topRight`。同锚点字段堆叠，窄图长响应整体换行并保留完整文本；采用透明底、迹线色读数。底部锚点的右键菜单向上展开。
+
+图内信息字段不设置内部滚动条；密集内容由用户迁入独立 Table。Table 底部最大高度为工作区 35%，左右布局基准 300 px、最大宽度 40%，溢出内容在 Table 滚动；这些 CSS 范围是项目像素布局，不是原机配置。相对分割后的极窄图窗按可用宽度与字号整项隐藏通道行 Start/Stop，避免文字重叠；悬停通道行仍可读完整频段。原机确切标题列数、自动密度算法及隐藏后自动恢复规则没有明确证据。容量、色数及标题密度见[迹线与标记核对](../docs/research/ZNB8迹线与标记行为核对.md)，本期合同见[Info Table 核对](../docs/research/ZNB8信息表与标题排版核对.md)和[操作验收](../docs/InfoTable操作验收.md)。独立 Info Window、Bandfilter 和 Reference/Delta 信息仍未实现。
 
 Delete Diagram 使用 `/api/v1/measurement-actions/delete-diagram` 原子删除该图窗及其迹线定义，不能删除最后一个图窗；Delete Trace 不能删除最后一条迹线，并清理因删除变空的图窗。Overlay All 和 Split All 分别发送 `overlay`、`split` 显示命令，由 C++ 合并全部迹线到目标图窗或为每条迹线创建独立图窗。前端不自行命名、分配容量或改变归属。默认帧请求采用后端已提交显示集合；S 参数请求发送规范参数文本，由后端解析接收端与源端，Center/Span 请求只发送原始意图。
 

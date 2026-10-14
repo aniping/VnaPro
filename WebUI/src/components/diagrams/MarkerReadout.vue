@@ -95,6 +95,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
       '--marker-value-width': `${(75 * (fontScale ?? 100)) / 100}px`,
     }"
     aria-label="Marker readout"
+    :title="
+      canEditDisplay
+        ? 'Drag to move Marker info; right-click for options'
+        : undefined
+    "
     :draggable="canEditDisplay"
     @dragstart="beginInfoDrag"
     @keydown.esc.stop="contextTrace = ''"
@@ -178,24 +183,22 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
   gap: 0;
   max-width: calc(100% - 45px);
   padding: 1px 2px;
-  background: #323f48;
-  border: 1px solid #546a78;
+  background: transparent;
   pointer-events: auto;
 }
 .marker-readouts.inline {
   position: relative;
   top: auto;
   right: auto;
-  max-width: none;
-  align-self: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  align-self: stretch;
 }
 
 .marker-row {
-  display: grid;
-  grid-template-columns: 5px minmax(
-      var(--marker-number-width, 25px),
-      max-content
-    ) minmax(var(--marker-frequency-width, 85px), 1fr) max-content;
+  display: flex;
+  /* 按完整坐标换行，宽度不足时不截断数值。 */
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
   min-height: var(--marker-line-height, 14px);
@@ -209,29 +212,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
     sans-serif;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  white-space: nowrap;
-}
-
-.multiple-traces .marker-row {
-  grid-template-columns: 5px minmax(
-      var(--marker-number-width, 25px),
-      max-content
-    ) minmax(var(--marker-trace-width, 42px), max-content) minmax(
-      var(--marker-frequency-width, 85px),
-      1fr
-    ) max-content;
-}
-.without-stimulus .marker-row {
-  grid-template-columns: 5px minmax(
-      var(--marker-number-width, 25px),
-      max-content
-    ) max-content;
-}
-.multiple-traces.without-stimulus .marker-row {
-  grid-template-columns: 5px minmax(
-      var(--marker-number-width, 25px),
-      max-content
-    ) minmax(var(--marker-trace-width, 42px), max-content) max-content;
+  min-width: 0;
+  max-width: 100%;
 }
 .marker-info-menu {
   position: absolute;
@@ -258,6 +240,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
 }
 
 .active-dot {
+  flex: 0 0 5px;
   color: var(--marker-color);
   text-align: center;
   font-size: var(--marker-font-size, 12px);
@@ -265,21 +248,29 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
 }
 
 .marker-number {
+  flex: 0 0 var(--marker-number-width, 25px);
   font-weight: 400;
   text-align: left;
 }
 
 .marker-trace {
+  flex: 0 1 var(--marker-trace-width, 42px);
+  min-width: 0;
+  overflow-wrap: anywhere;
   text-align: left;
 }
 
 .marker-frequency {
-  min-width: var(--marker-frequency-width, 85px);
+  flex: 0 1 max-content;
+  min-width: min(var(--marker-frequency-width, 85px), 100%);
+  overflow-wrap: anywhere;
   text-align: right;
 }
 
 .marker-value {
-  min-width: var(--marker-value-width, 75px);
+  flex: 1 1 max-content;
+  min-width: min(var(--marker-value-width, 75px), 100%);
+  overflow-wrap: anywhere;
   text-align: right;
 }
 

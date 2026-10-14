@@ -6,8 +6,10 @@ import type {
   DisplayAnnotations,
   InfoTablePosition,
   MarkerInfoLocation,
+  MarkerInfoArea,
 } from '../domain/presentation'
 import type { CalibrationSnapshot } from './calibrationTypes'
+import type { TraceDropPosition } from '../domain/diagramLayout'
 
 /** 仪器标识保持为十进制字符串，以完整保留服务端 uint64 计数器的值。 */
 export type CoreState =
@@ -52,6 +54,7 @@ export type MeasurementCandidate =
 export interface TraceDestination {
   newDiagram?: boolean
   diagram?: number
+  position?: TraceDropPosition
 }
 
 export interface TraceCreationOptions extends TraceDestination {
@@ -77,9 +80,11 @@ export interface DiagramDefinition {
   measurementNames: string[]
   primaryMeasurement: string
   markerInfoVisible?: boolean
+  region?: { left: number; top: number; width: number; height: number }
 }
 
 export type DisplayCommand =
+  | { action: 'traceMove'; traceName: string; diagram: number; position: TraceDropPosition }
   | { action: 'infoTable'; enabled?: boolean; position?: InfoTablePosition }
   | {
       action: 'displayAnnotations'
@@ -92,6 +97,7 @@ export type DisplayCommand =
       action: 'markerInfoLocation'
       traceName: string
       location: MarkerInfoLocation
+      area?: MarkerInfoArea
     }
   | { action: 'select'; traceName: string; diagram?: number }
   | { action: 'diagramSelect'; diagram: number }

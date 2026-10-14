@@ -25,6 +25,7 @@ import { enableMarkerOnEntry } from './composables/markerMenuEntry'
 import { exportVisibleFrameCsv } from './plot'
 import type { MarkerMove } from './plot/markerDrag'
 import type { TraceDestination } from './api/types'
+import type { TraceMoveRequest } from './domain/diagramLayout'
 
 const instrument = useInstrument()
 const {
@@ -240,16 +241,22 @@ async function addTrace(destination?: {
   await instrument.createTrace(destination)
 }
 
-function openNewTrace(diagram: number) {
+function openNewTrace(destination: TraceDestination) {
   if (
     !canChangeMeasurements.value ||
     busy.value ||
     !status.value ||
     measurements.value.length >= MAX_TRACES ||
-    !status.value.display.diagrams.some((item) => item.number === diagram)
+    !status.value.display.diagrams.some((item) => item.number === destination.diagram)
   )
     return
-  newTraceDestination.value = { diagram }
+  newTraceDestination.value = destination
+}
+
+function moveTrace(request: TraceMoveRequest) {
+  if (!canEditDisplay.value || busy.value) return
+  const { name, diagram, position, displayRevision } = request
+  return instrument.display({ action: 'traceMove', traceName: name, diagram, position }, displayRevision)
 }
 
 async function copyActiveTrace() {
@@ -350,6 +357,7 @@ onBeforeUnmount(() => {
               :presentations="presentations"
               :active-trace-name="activeTraceName"
               :selected-diagram="status?.display.selectedDiagram"
+              :display-revision="status?.display.revision"
               :can-add-trace="
                 canChangeMeasurements && measurements.length < MAX_TRACES
               "
@@ -367,7 +375,7 @@ onBeforeUnmount(() => {
               :info-table="status?.display.infoTable"
               :annotations="status?.display.annotations"
               @relocate-marker-info="
-                workspace.setMarkerInfoLocation($event.name, $event.location)
+                workspace.setMarkerInfoLocation($event.name, $event.location, $event.area)
               "
               @select-trace="workspace.selectTrace"
               @toggle-visibility="workspace.toggleVisibility"
@@ -375,6 +383,7 @@ onBeforeUnmount(() => {
               @select-diagram="workspace.selectDiagram"
               @add-trace="addTrace($event)"
               @new-trace="openNewTrace"
+              @move-trace="moveTrace"
               @delete-diagram="instrument.deleteDiagram($event)"
               @arrange="
                 $event.action === 'overlay'

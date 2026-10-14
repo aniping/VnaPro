@@ -4,6 +4,7 @@ import type {
   MarkerInfoLocation,
 } from '../domain/presentation'
 import { MAX_DIAGRAMS, MAX_TRACES } from '../domain/presentation'
+import { MARKER_INFO_AREAS } from '../domain/markerInfoArea'
 import { FRAME_POINT_LIMIT } from './frameLimits'
 import {
   decodeMarkerCollection,
@@ -122,6 +123,9 @@ function presentation(value: unknown): TracePresentation {
             'display.markerInfoLocation',
             ['diagram', 'table'],
           ),
+    markerInfoArea: item.markerInfoArea === undefined
+      ? 'topRight'
+      : choice(item.markerInfoArea, 'display.markerInfoArea', MARKER_INFO_AREAS),
   }
 }
 
@@ -145,6 +149,15 @@ function diagrams(
       item.primaryMeasurement,
       'display.diagram.primaryMeasurement',
     )
+    const region = item.region === undefined ? undefined : object(item.region, 'display.diagram.region')
+    const rectangle = region === undefined ? undefined : {
+      left: number(region.left, 'display.region.left', 0, 1),
+      top: number(region.top, 'display.region.top', 0, 1),
+      width: number(region.width, 'display.region.width', Number.MIN_VALUE, 1),
+      height: number(region.height, 'display.region.height', Number.MIN_VALUE, 1),
+    }
+    if (rectangle && (rectangle.left + rectangle.width > 1 + 1e-12 || rectangle.top + rectangle.height > 1 + 1e-12))
+      invalid('display.region.bounds')
     if (
       measurementNames.length
         ? !measurementNames.includes(primaryMeasurement)
@@ -155,6 +168,7 @@ function diagrams(
       number: integer(item.number, 'display.diagram.number', 1, MAX_DIAGRAMS),
       measurementNames,
       primaryMeasurement,
+      ...(rectangle ? { region: rectangle } : {}),
       markerInfoVisible:
         item.markerInfoVisible === undefined
           ? true
@@ -166,6 +180,8 @@ function diagrams(
     new Set(result.map((diagram) => diagram.number)).size !== result.length
   )
     invalid('display.diagrams')
+  if (result.some((diagram) => diagram.region) && result.some((diagram) => !diagram.region))
+    invalid('display.region.incomplete')
   return result
 }
 

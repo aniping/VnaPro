@@ -8,6 +8,7 @@ import type {
 import { isCircularFormat } from '../../domain/presentation'
 import { FORMAT_INFO, numberText, scaleValue } from '../../plot/formatting'
 import { measurementState } from '../../domain/measurements'
+import { beginTraceDrag } from './traceDrag'
 import type { TraceTitleSections } from '../../plot/titleLayout'
 import {
   referenceLevel,
@@ -15,7 +16,7 @@ import {
   scaleCoordinate,
 } from '../../plot/traceMath'
 
-defineProps<{
+const props = defineProps<{
   measurement: Measurement
   presentation: TracePresentation
   scale: DisplayScale
@@ -25,12 +26,22 @@ defineProps<{
   remembered?: boolean
   smithRadius: number
   canEditDisplay: boolean
+  /** 起拖时冻结版本，避免拖放过程中图窗重编号后移动至错误目标。 */
+  displayRevision?: string
   sections?: TraceTitleSections
 }>()
 const emit = defineEmits<{
   select: [name: string]
   toggleVisibility: [name: string]
 }>()
+
+function startDrag(event: DragEvent): void {
+  beginTraceDrag(
+    event,
+    { name: props.measurement.name, displayRevision: props.displayRevision ?? '' },
+    props.canEditDisplay,
+  )
+}
 
 function divisionText(
   scale: DisplayScale,
@@ -79,6 +90,7 @@ function circularDescription(
       class="trace-select"
       type="button"
       :disabled="!canEditDisplay"
+      :draggable="canEditDisplay && Boolean(displayRevision)"
       :aria-pressed="active || remembered === true"
       :title="
         isCircularFormat(presentation.format)
@@ -87,6 +99,7 @@ function circularDescription(
       "
       :aria-label="`Select ${measurement.name}, ${measurement.parameter}, ${measurementState(measurement)}`"
       @click="emit('select', measurement.name)"
+      @dragstart="startDrag"
     >
       <span class="trace-number">{{ measurement.name }}</span>
       <span class="measurement-chip">{{ measurement.parameter }}</span>
@@ -133,12 +146,12 @@ function circularDescription(
 
 .trace-strip.remembered {
   color: #e4edf2;
-  background: #394c59;
+  background: var(--color-trace-title);
 }
 
 .trace-strip.active {
   color: #fff;
-  background: #0d75bf;
+  background: var(--color-trace-active);
 }
 
 .trace-strip.hidden {
@@ -223,7 +236,7 @@ button:focus-visible {
   outline-offset: -2px;
 }
 
-button:hover {
+.trace-strip:not(.active):not(.remembered) button:not(:disabled):hover {
   background: #ffffff12;
 }
 </style>

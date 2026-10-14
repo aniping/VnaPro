@@ -1,4 +1,6 @@
 import type { MarkerDefinition, MarkerState } from './markers'
+import type { MarkerInfoArea } from './markerInfoArea'
+export type { MarkerInfoArea } from './markerInfoArea'
 
 /** 本项目的共享迹线资源上限，与物理端口数、图窗数相互独立。 */
 export const MAX_TRACES = 128
@@ -61,6 +63,7 @@ export interface TracePresentation {
   markers?: MarkerDefinition[]
   activeMarkerId?: number
   markerInfoLocation?: MarkerInfoLocation
+  markerInfoArea?: MarkerInfoArea
 }
 
 /** 八色循环参考 ZNB 的颜色数量配置；具体 RGB 是本项目的显示色板。 */

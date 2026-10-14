@@ -6,6 +6,7 @@ import type {
   FrameCondition,
   Measurement,
   SweepConfiguration,
+  TraceDestination,
 } from '../../api/types'
 import {
   diagramTraceColor,
@@ -14,6 +15,7 @@ import {
   type InfoTableSettings,
   type DisplayAnnotations,
   type MarkerInfoLocation,
+  type MarkerInfoArea,
 } from '../../domain/presentation'
 import {
   markerReadouts,
@@ -21,6 +23,7 @@ import {
   type MarkerReadoutPreview,
 } from '../../domain/markerReadouts'
 import type { MarkerMove } from '../../plot/markerDrag'
+import type { TraceMoveRequest } from '../../domain/diagramLayout'
 import DiagramPane from './DiagramPane.vue'
 import InfoTable from './InfoTable.vue'
 
@@ -31,6 +34,7 @@ const props = defineProps<{
   presentations: Record<string, TracePresentation>
   activeTraceName: string
   selectedDiagram?: number
+  displayRevision?: string
   canAddTrace?: boolean
   canAddDiagram?: boolean
   layout: LayoutMode
@@ -52,10 +56,17 @@ const emit = defineEmits<{
   selectMarker: [value: { name: string; markerId: number }]
   selectDiagram: [diagram: number]
   addTrace: [value: { diagram: number; newDiagram: boolean }]
-  newTrace: [diagram: number]
+  newTrace: [destination: TraceDestination]
+  moveTrace: [value: TraceMoveRequest]
   deleteDiagram: [diagram: number]
   arrange: [value: { action: 'overlay' | 'split'; diagram: number }]
-  relocateMarkerInfo: [value: { name: string; location: MarkerInfoLocation }]
+  relocateMarkerInfo: [
+    value: {
+      name: string
+      location: MarkerInfoLocation
+      area?: MarkerInfoArea
+    },
+  ]
 }>()
 const markerPreview = ref<MarkerReadoutPreview | null>(null)
 const infoSettings = computed(
@@ -135,6 +146,24 @@ const gridStyle = computed(() => {
     gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
   }
 })
+const relativeLayout = computed(
+  () =>
+    props.layout !== 'maximized' &&
+    panes.value.length > 0 &&
+    panes.value.every((pane) => pane.region),
+)
+function paneStyle(pane: DiagramDefinition) {
+  const region = relativeLayout.value ? pane.region : undefined
+  return region
+    ? {
+        position: 'absolute' as const,
+        left: `calc(${region.left * 100}% + 1px)`,
+        top: `calc(${region.top * 100}% + 1px)`,
+        width: `calc(${region.width * 100}% - 2px)`,
+        height: `calc(${region.height * 100}% - 2px)`,
+      }
+    : undefined
+}
 </script>
 
 <template>
@@ -150,7 +179,10 @@ const gridStyle = computed(() => {
       :class="[
         layout,
         `pane-count-${panes.length}`,
-        { 'mixed-formats': layout === 'single' && panes.length > 1 },
+        {
+          'mixed-formats': layout === 'single' && panes.length > 1,
+          'relative-layout': relativeLayout,
+        },
       ]"
       aria-label="Measurement diagrams"
       :style="gridStyle"
@@ -162,6 +194,8 @@ const gridStyle = computed(() => {
         v-for="pane in panes"
         :key="`${pane.number}-${JSON.stringify(pane.measurementNames)}`"
         :number="pane.number"
+        :style="paneStyle(pane)"
+        :display-revision="displayRevision"
         :layout="layout"
         :frame="frame"
         :measurements="pane.measurements"
@@ -189,6 +223,7 @@ const gridStyle = computed(() => {
         @select-diagram="emit('selectDiagram', $event)"
         @add-trace="emit('addTrace', $event)"
         @new-trace="emit('newTrace', $event)"
+        @move-trace="emit('moveTrace', $event)"
         @delete-diagram="emit('deleteDiagram', $event)"
         @arrange="emit('arrange', $event)"
         @marker-preview="markerPreview = $event"
@@ -236,5 +271,9 @@ const gridStyle = computed(() => {
   gap: 2px;
   background: #0a1115;
   overflow: hidden;
+}
+.diagram-workspace.relative-layout {
+  position: relative;
+  display: block;
 }
 </style>

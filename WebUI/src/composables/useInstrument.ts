@@ -585,8 +585,8 @@ export function useInstrument(options: InstrumentOptions = {}) {
       submit('Delete measurement', 'measurement', () =>
         api.deleteMeasurement(name, expectedRevision),
       ),
-    display: (command: DisplayCommand) => {
-      const revision = status.value?.display.revision
+    display: (command: DisplayCommand, expectedDisplayRevision?: string) => {
+      const revision = expectedDisplayRevision ?? status.value?.display.revision
       return revision
         ? submit('Apply display', 'display', () =>
             api.display(command, revision),

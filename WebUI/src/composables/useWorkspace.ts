@@ -11,6 +11,7 @@ import type {
   InfoTablePosition,
   DisplayAnnotations,
   MarkerInfoLocation,
+  MarkerInfoArea,
 } from '../domain/presentation'
 
 export interface MarkerCommand {
@@ -104,8 +105,9 @@ export function useWorkspace(
   function setMarkerInfoLocation(
     traceName: string,
     location: MarkerInfoLocation,
+    area?: MarkerInfoArea,
   ) {
-    return send({ action: 'markerInfoLocation', traceName, location })
+    return send({ action: 'markerInfoLocation', traceName, location, ...(area ? { area } : {}) })
   }
   function overlayAll(diagram?: number) {
     return send({
