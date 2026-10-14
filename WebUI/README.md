@@ -13,7 +13,9 @@ npm.cmd test
 
 `package-lock.json` 固定依赖。回到仓库根目录构建 `vna_server`，CMake 会自动执行前端构建检查，需要更新时调用 `npm run build`：先执行 `vue-tsc --noEmit`，再生成 `dist/index.html` 和 `dist/assets`。成功后将完整 `dist` 内容复制到**项目根目录的 `release/WebUI`**，并汇总服务、驱动、运行库和配置。部署时复制整个 `release` 目录，直接启动其中的程序，无需指定资源路径或安装 Node.js；默认访问 [http://127.0.0.1:8080](http://127.0.0.1:8080/)。完整步骤见 [自动生成发布目录](../README.md#自动生成发布目录)。
 
-修改页面后直接构建 `vna_server`。源码、public 资源、Vite/TypeScript 配置、包清单或依赖锁变化会重新构建；前端产物缺失、损坏也会重新生成。输入和产物未变化时跳过 npm 构建，仅同步发布文件。类型检查或构建失败会阻止打包。共享 `dist` 的前端生成和复制使用锁串行执行。该流程不自动安装或下载 npm 依赖，缺少 `node_modules` 时需首次执行 `npm ci`；公司离线环境应预先准备依赖。仍可单独执行 `npm run build` 进行前端开发验证。SCPI 专用构建可配置 `-DVNAPRO_BUNDLE_WEBUI=OFF` 并使用 `--no-web` 启动。CLion 原 `bin` 运行目标继续支持源码目录的 `WebUI/dist`，也可用 `--web-root` 显式指定静态目录。
+修改页面后直接构建 `vna_server`。源码、public 资源、Vite/TypeScript 配置、包清单或依赖锁变化会重新构建；前端产物缺失、损坏也会重新生成。输入和产物未变化时跳过 npm 构建，仅同步发布文件。类型检查或构建失败会阻止打包。共享 `dist` 的前端生成和复制使用锁串行执行。该流程不自动安装或下载 npm 依赖，缺少 `node_modules` 时需首次执行 `npm ci`；公司离线环境应预先准备依赖。仍可单独执行 `npm run build` 进行前端开发验证。SCPI 专用构建可配置 `-DVNAPRO_BUNDLE_WEBUI=OFF`，并在程序旁的 `vnapro.yml` 中设置 `server.webEnabled: false`。
+
+服务无参数启动，固定读取自身目录的 `vnapro.yml`。`server.ip`、`server.webPort` 和可选的 `server.webIp` 决定 Web 监听地址，`server.webRoot` 指定静态目录，相对路径以程序所在目录为基准。发布包默认加载同目录的 `WebUI`；开发 `bin` 的默认目录不存在时继续使用源码目录的 `WebUI/dist`，填写其他静态目录不回退。驱动、噪声、仪器能力和日志共用这份配置；字段见[网络与驱动配置](../README.md#网络与驱动配置)，修改后重启生效。已有发布配置会保留，对照 `vnapro.example.yml` 合并新增字段。
 
 开发时保持 C++ 服务运行在 `127.0.0.1:8080`，另外执行：
 
@@ -21,7 +23,7 @@ npm.cmd test
 npm.cmd run dev
 ```
 
-访问 [开发页面](http://127.0.0.1:5173/)；Vite 对 `/api` 的请求代理到 `127.0.0.1:8080`，无需跨域配置。`vite.config.ts` 的开发端口固定为 5173。`npm run preview` 仅预览构建的静态页面，没有 `/api` 代理，完整采数验收应从 C++ 服务加载 `dist`。
+访问 [开发页面](http://127.0.0.1:5173/)；Vite 对 `/api` 的请求代理到 `127.0.0.1:8080`，无需跨域配置。改变 C++ 配置中的 Web 地址或端口时，开发代理的目标也需同步调整；发布页面使用同源 API，无需另配代理。`vite.config.ts` 的开发端口固定为 5173。`npm run preview` 仅预览构建的静态页面，没有 `/api` 代理，完整采数验收应从 C++ 服务加载 `dist`。
 
 ## 目录与依赖
 

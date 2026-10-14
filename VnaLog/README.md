@@ -27,17 +27,17 @@ HTTP 方法、已解析路径和响应状态在 DEBUG 输出，不记录控制�
 ## 配置
 
 默认配置源为 [config/vnapro.yml](../config/vnapro.yml)。
-CMake 配置时复制到开发目录 `bin/vnapro.yml`；构建 `vna_server` 后首次发布同步到项目根目录的 `release/vnapro.yml`。
-程序默认读取自身目录的配置。重复发布保留已有 `vnapro.yml`，最新源配置更新到 `vnapro.example.yml`，按需合并后重启；开发目录的配置在重新执行 CMake 配置时更新。需要独立配置时，显式指定文件：
+CMake 配置时生成适配当前平台驱动库名的开发配置 `bin/vnapro.yml`；构建 `vna_server` 后首次发布同步到项目根目录的 `release/vnapro.yml`。
+程序固定读取自身目录的 `vnapro.yml`，不接受启动参数。重复发布保留已有配置，最新默认配置更新到 `vnapro.example.yml`，按需合并后重启；开发目录的配置在重新执行 CMake 配置时更新。启动示例：
 
 ```powershell
-.\build\bin\vna_server.exe --config I:\vnapro-config\vnapro.yml
+.\release\vna_server.exe
 ```
 
-部署时复制整个 `release` 目录，配置随程序携带，无需另填 `--config`。日志在运行时创建，发布同步保留已有日志和用户文件；步骤见[自动生成发布目录](../README.md#自动生成发布目录)。
+部署时复制整个 `release` 目录，配置随程序携带。日志在运行时创建，发布同步保留已有日志和用户文件；步骤见[自动生成发布目录](../README.md#自动生成发布目录)。
 配置变更在服务重启后生效，不提供运行中热更新。
-文件路径相对**配置文件所在目录**解析，Windows 支持中文配置目录、配置文件名和日志路径。
-设备库和 Web 根目录仍遵循既有启动参数合同。
+日志路径相对**配置文件所在目录**解析，Windows 支持中文程序目录和日志路径。
+监听、驱动及模拟噪声也由同一 YAML 配置；驱动库只填写文件名并从程序目录加载，Web 根目录相对程序目录解析，配置项见[网络与驱动配置](../README.md#网络与驱动配置)。
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ CMake 配置时复制到开发目录 `bin/vnapro.yml`；构建 `vna_server` 后�
 用原生 spdlog 选项调整格式，不能直接填 SLF4J/Logback 的格式语法或 XML。
 其他字段见 [spdlog 格式说明](https://github.com/gabime/spdlog/wiki/Custom-formatting)。
 
-统一使用 UTF-8 YAML，全部日志项置于 `log` 映射下，示例见默认配置。支持空行、`#` 注释与可选 UTF-8 BOM；只接受一个文档、已登记的键及严格类型，拒绝 null、未知键、重复键与溢出。布尔值为不加引号的 `true` / `false`，大小和个数为不加引号的无符号十进制整数。配置文件最多 64 KiB。旧 properties 和 `--log-config` 已移除，部署时改用 `--config vnapro.yml`。
+统一使用 UTF-8 YAML，全部日志项置于 `log` 映射下，示例见默认配置。支持空行、`#` 注释与可选 UTF-8 BOM；只接受一个文档、已登记的键及严格类型，拒绝 null、未知键、重复键与溢出。布尔值为不加引号的 `true` / `false`，大小和个数为不加引号的无符号十进制整数。配置文件最多 64 KiB。旧 properties 和启动配置参数均已移除，部署时编辑程序旁的 `vnapro.yml`。
 配置不存在或日志目标无法打开时，在创建设备前报错并以退出码 2 结束。
 
 ## 大小与保留边界

@@ -18,7 +18,7 @@ cmake -E chdir build ctest --output-on-failure
 
 替换编译器路径。Linux/macOS 可去掉 MinGW 编译器参数，使用当地工具链。独立构建见 [TDC1VN10 模拟驱动](VnaBoardSimulator/README.md)及保留的 [TDC1VN08 模拟驱动](VnaNativeSimulator/README.md)。本轮已验证 Windows MinGW/GCC 10.3 和 WSL/Linux GCC 13.3 的全目标 ThreadSanitizer；macOS 和既定 GCC 7.3 发布门禁需在对应环境复验。
 
-构建 `vna_server` 自动执行前端构建检查。首次构建、源码或构建配置变化、`dist` 缺失或被修改时，先执行 `npm run build`（包含 Vue/TypeScript 类型检查），成功后再打包；输入和产物未变化时跳过 npm 构建。该流程不自动安装或下载依赖，缺少依赖会提示首次执行 `npm ci`。WebUI 依赖未纳入离线源码包，公司离线环境需预先准备 Node/npm 和已安装的 `WebUI/node_modules`。只构建 SCPI 服务时，可跳过 Node/npm 步骤，在 CMake 配置参数中添加 `-DVNAPRO_BUNDLE_WEBUI=OFF`，运行时使用 `--no-web`；Web HTTP 集成测试仍需要前端产物。旧 `FETCHCONTENT_SOURCE_DIR_*` 参数不再生效。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
+构建 `vna_server` 自动执行前端构建检查。首次构建、源码或构建配置变化、`dist` 缺失或被修改时，先执行 `npm run build`（包含 Vue/TypeScript 类型检查），成功后再打包；输入和产物未变化时跳过 npm 构建。该流程不自动安装或下载依赖，缺少依赖会提示首次执行 `npm ci`。WebUI 依赖未纳入离线源码包，公司离线环境需预先准备 Node/npm 和已安装的 `WebUI/node_modules`。只构建 SCPI 服务时，可跳过 Node/npm 步骤，在 CMake 配置参数中添加 `-DVNAPRO_BUNDLE_WEBUI=OFF`，并在程序旁的 `vnapro.yml` 中设置 `server.webEnabled: false`；Web HTTP 集成测试仍需要前端产物。旧 `FETCHCONTENT_SOURCE_DIR_*` 参数不再生效。前端开发与目录说明见 [WebUI/README.md](WebUI/README.md)。
 
 ## 自动生成发布目录
 
@@ -43,7 +43,7 @@ release/
 └─ .vnapro-release-files              构建托管文件清单，随整包保留
 ```
 
-运行库按程序和两种动态加载驱动的实际依赖收集，系统自带库不复制。部署时复制整个 `release` 目录；程序默认从自身目录读取配置、对应驱动和 `WebUI`，不依赖当前工作目录、原源码目录或 MinGW PATH，支持中文和空格路径。可用 `--config`、`--driver`、`--web-root` 显式覆盖；发布包缺少必需资源会报错。日志默认写入配置文件旁的 `logs`，运行后创建，无需复制开发日志。
+运行库按程序和两种动态加载驱动的实际依赖收集，系统自带库不复制。部署时复制整个 `release` 目录；程序从自身目录读取 `vnapro.yml`，再按其中的配置加载驱动与 `WebUI`，不依赖当前工作目录、原源码目录或 MinGW PATH，支持中文和空格路径。服务不接受启动参数；发布包缺少必需资源会报错。日志默认写入配置文件旁的 `logs`，运行后创建，无需复制开发日志。
 
 重复构建只清理上次托管清单中的过期文件，保留日志及用户额外文件。已有 `vnapro.yml` 不被覆盖；修改源配置后，可对照更新后的 `vnapro.example.yml` 合并配置并重启。WebUI 更新后直接构建 `vna_server`；前端类型检查或生成失败会阻止本次打包，已有发布文件保持原状。多个构建树共用 `WebUI/dist` 时，前端生成和复制通过锁串行执行，避免互相清空产物。SCPI 专用包按上文关闭 WebUI 构建及打包。
 
@@ -74,10 +74,47 @@ clang-format --style=file --dry-run --Werror $cppFiles
 ## 启动与测量
 
 ```powershell
-.\release\vna_server.exe --bind 127.0.0.1 --port 5025
+.\release\vna_server.exe
 ```
 
-默认加载构建生成的 **TDC1VN10 新接口模拟库**，启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。`--board tdc1vn08` 使用保留的 VN08 旧接口库 `tdc1vn08_drv_sim`，`--board tdc1vn10` 显式选择当前基准接口 `tdc1vn10_drv_sim`；CLion、命令行和部署路径的具体设置见[模拟驱动切换](docs/模拟驱动切换.md)。未来 VN08 驱动对齐新接口后应使用新接口适配器。两个接口有同名异签名函数，不能仅换 DLL 路径。发布程序从同目录 `WebUI` 加载静态页面；CLion 原 `bin` 运行目标在旁边没有静态资源时，继续使用源码目录的 `WebUI/dist`。浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作；不能把未构建的 `WebUI/src` 作为静态根目录。`--port 0` / `--web-port 0` 自动选择空闲端口，实际地址由 INFO 监听日志报告；关闭控制台输出时可在日志文件读取，日志级别须允许 INFO。SCPI 与 Web 分别通过 `--bind` / `--web-bind` 指定 IPv4 地址，默认绑定本机；`--no-web` 关闭 Web 入口。
+默认加载构建生成的 **TDC1VN10 新接口模拟库**，启动 SCPI `127.0.0.1:5025` 和 Web `http://127.0.0.1:8080`。修改监听地址、端口、驱动或噪声时，停止服务，编辑程序旁的 `vnapro.yml`，再无参数启动。CLion 的 `vna_server` 目标保持不变，Program arguments 留空；编辑的是 `cmake-build-debug/bin/vnapro.yml`，而直接运行发布程序时编辑 `release/vnapro.yml`。两个驱动接口有同名异签名函数，切换时必须同时匹配 `driver.board` 与 `driver.library`，具体步骤见[模拟驱动切换](docs/模拟驱动切换.md)。
+
+发布程序默认从同目录 `WebUI` 加载静态页面；开发 `bin` 的默认 `WebUI` 不存在时，仍使用源码目录的 `WebUI/dist`，配置其他静态目录则不回退。浏览器打开 [Web 面板](http://127.0.0.1:8080/) 即可操作；不能把未构建的 `WebUI/src` 作为静态根目录。
+
+## 网络与驱动配置
+
+网络配置在 `server` 下，驱动与模拟信号配置在 `driver` 下。例如 Windows MinGW 默认配置：
+
+```yaml
+server:
+  ip: 127.0.0.1
+  scpiPort: 5025
+  webPort: 8080
+  webEnabled: true
+  webRoot: WebUI
+driver:
+  board: tdc1vn10
+  library: libtdc1vn10_drv_sim.dll
+  simulator:
+    mode: noise
+    seed: 42
+```
+
+| 键 | 作用 |
+| --- | --- |
+| `server.ip` | Web 与 SCPI 的共同监听 IPv4 地址；默认 `127.0.0.1`，`0.0.0.0` 表示监听所有本机 IPv4 网卡 |
+| `server.scpiIp` / `server.webIp` | 可选的分别监听地址，未配置时继承 `server.ip` |
+| `server.scpiPort` / `server.webPort` | 0…65535 的整数端口；常规部署使用固定端口，0 由操作系统分配空闲端口 |
+| `server.webEnabled` | 是否启动 Web 入口；关闭时不加载静态页面 |
+| `server.webRoot` | 静态目录，相对路径以程序所在目录为基准，也可填写绝对路径 |
+| `driver.board` | `tdc1vn10` 或 `tdc1vn08`，选择对应驱动 ABI |
+| `driver.library` | 编译后的库文件名，必须位于程序同目录；只填文件名，不填相对或绝对路径 |
+| `driver.simulator.mode` | `noise` 为变化信号，`golden` 为固定黄金向量；在驱动初始化时冻结 |
+| `driver.simulator.seed` | 0…18446744073709551615 的整数；相同种子与相同扫描过程可重放噪声 |
+
+CMake 生成的配置自动匹配当前平台及工具链的库名，不应照抄其他平台的 DLL 名称。默认发布模板使用 `noise`、种子 42；旧配置省略模拟信号字段时使用 `golden`、种子 42。省略 `driver.library` 时按所选 ABI 使用对应构建库名。服务在加载驱动前将 YAML 中的模式和种子传给现有模拟接口，配置优先于旧 `VNAPRO_SIM_MODE` / `VNAPRO_SIM_SEED` 环境变量，底层模拟驱动保持不变。
+
+监听成功后的实际地址由 INFO 日志报告；端口为 0 时可从控制台或日志文件读取，日志级别需允许 INFO。不同入口可以使用不同 IPv4 地址；使用 `0.0.0.0` 监听时，浏览器或 SCPI 客户端连接本机实际地址。修改配置后重启生效，刷新页面不会重新绑定端口或加载驱动。
 
 ## 仪器与日志配置
 
@@ -103,7 +140,7 @@ instrument:
 
 服务采用 spdlog，默认 INFO，同时输出终端 stderr 和配置文件旁的 `logs/vnapro.log`；发布包为 `release/logs/vnapro.log`，开发运行为 `bin/logs/vnapro.log`。日志包含毫秒时间、等级、线程、模块和消息。单文件 10 MiB，保留 5 个备份，单条完整记录最多 64 KiB；逐帧摘要只在 TRACE 打开时输出。
 
-默认配置源为 [config/vnapro.yml](config/vnapro.yml)，CMake 配置时复制到开发目录 `bin/vnapro.yml`，发布首次同步时复制到 `release/vnapro.yml`。启动优先读取程序旁的配置，发布目录的已有配置保留，最新默认配置另存为 `vnapro.example.yml`。可用 `--config 配置文件` 指定独立配置，相对日志路径按配置文件目录解析；修改配置后重启生效。大小、备份、刷新、格式、中文路径及历史文件边界见[日志模块说明](VnaLog/README.md)，库的公开采用证据见[选型调研](docs/research/C++日志库选型.md)。
+默认配置源为 [config/vnapro.yml](config/vnapro.yml)，CMake 生成适配当前平台库名的开发配置 `bin/vnapro.yml`，发布首次同步到 `release/vnapro.yml`。程序固定读取自身目录的配置；发布目录的已有配置保留，最新默认配置另存为 `vnapro.example.yml`。修改源码配置并重新配置 CMake 会更新开发目录的配置；已有发布配置需对照示例手动合并，再重启生效。相对日志路径按配置文件目录解析。大小、备份、刷新、格式、中文路径及历史文件边界见[日志模块说明](VnaLog/README.md)，库的公开采用证据见[选型调研](docs/research/C++日志库选型.md)。
 
 ## 使用 Web 验证
 
@@ -113,13 +150,13 @@ instrument:
 
 测量目录最多 32 项，显示集合最多 4 条，可在 Trace Config 切换 Display On/Off；选择目录后面的测量时按显示槽位替换，不删除测量定义。CSV 和网页显示最多 2001 个均匀选取的真实频点，超过时明确显示原始点数与展示点数；SCPI 仍返回完整数组。无帧、旧配置帧、断线与故障均显示状态，不生成演示曲线。保留旧帧时频轴和点数来自该帧，IFBW 显示 `—`，避免将新配置值标在旧数据上。校准、RF 开关、预设等未实现入口禁用。Smith 允许显示实际复数迹线；S11/S22/S33/S44 等反射参数可按 Γ 解读，传输参数不赋予反射物理含义；阻抗显示为归一化 z=(1+Γ)/(1−Γ)，不假定物理参考阻抗。|Γ|>1 不夹紧，Γ=1 显示开路状态，保留有效的原始 Γ。每条迹线独立保存格式与尺度，Smith 和直角坐标混合时分窗显示。
 
-需要观察采集变化时，在启动服务前设置 `$env:VNAPRO_SIM_MODE = 'noise'` 和 `$env:VNAPRO_SIM_SEED = '42'`；DLL 在每次成功采集时加入最多 0.2% 的可重放复数噪声。Continuous 配合 Autoscale 可查看细微变化，HOLD 后数据固定。默认 `golden` 保留固定数值用于验收，模式在设备 Init 时冻结。完整验收场景、结果与 ThreadSanitizer 复验命令见[模拟设备采集验收](docs/模拟设备采集验收.md)。
+需要观察采集变化时，设置 `driver.simulator.mode: noise` 和 `driver.simulator.seed: 42` 后重启；DLL 在每次成功采集时加入最多 0.2% 的可重放复数噪声。Continuous 配合 Autoscale 可查看细微变化，HOLD 后数据固定。选择 `golden` 保留固定数值用于验收，模式在设备 Init 时冻结；噪声幅度沿用驱动合同，不支持通过配置修改。完整验收场景、结果与 ThreadSanitizer 复验命令见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
 Autoscale 由 C++ 按执行时当前迹线的完整原始帧适配一次并固定刻度；Continuous 后续帧只更新曲线，不改变每格刻度、参考值或纵轴标签。再次点击才重新适配，其他迹线保持各自刻度；无有效显示点或无法得到有限、非零范围时禁用 Autoscale，保留原刻度。
 
-从 CLion 启动时，在 `vna_server` 的运行配置中，将 Environment variables 填为 `VNAPRO_SIM_MODE=noise;VNAPRO_SIM_SEED=42`，两项用分号分隔，值不带引号或前后空格；也可打开变量表格，分别填写名称和值。模式 `noise `（末尾含空格）会使模拟器初始化返回 `1`（参数无效）。设置完成后停止并重新运行服务。只在另一个 PowerShell 窗口设置变量，不会改变已经运行的 CLion 或服务进程。网页重新连接后按 Continuous，等新帧出现，再按 Autoscale；固定数据模式下得到的微小刻度不适合噪声模式。
+CLion 不再需要配置模拟模式和种子的环境变量，只需编辑运行目标旁的 YAML。切换模拟模式后重新启动，网页连接后等新帧出现再按 Autoscale；固定数据模式下得到的微小刻度不适合噪声模式。
 
-Sweep 面板的 Run 是本次运行编号，连续采集期间保持不变；底部状态栏的 `F` 是帧序号，完整帧发布后才递增。判断采集是否推进，应观察 `F`。在默认 `golden` 模式中，帧序号递增而曲线保持相同属于预期行为。
+Sweep 面板的 Run 是本次运行编号，连续采集期间保持不变；底部状态栏的 `F` 是帧序号，完整帧发布后才递增。判断采集是否推进，应观察 `F`。在 `golden` 模式中，帧序号递增而曲线保持相同属于预期行为。
 
 Web 与 SCPI 共用唯一写控制权：其他网页及 SCPI 连接可只读观察。SCPI 最多 8 个连接，已有控制者时新连接固定为观察者；写请求或读清查询会关闭观察连接，不执行混合消息的前缀。Web token 的 30 秒租约由页面每 10 秒续租，释放或到期后先排空已接受有限操作，再允许接管。接管者继承实际扫描状态；修改频率、点数、IFBW 和测量目录均可保持 CONT，并保留执行时控制权与 CAS 校验。Web 观察不消费 SCPI 错误队列。开发时运行 `WebUI` 中的 `npm run dev`，访问 `127.0.0.1:5173`，Vite 将 `/api` 代理到 `127.0.0.1:8080`。详细分层、使用与限制见 [前端说明](WebUI/README.md) 和 [服务设计](docs/网分服务与远程控制设计.md)。
 
