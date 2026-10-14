@@ -1,14 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import ToolbarGlyph from './ToolbarGlyph.vue'
 import { beginNewTraceDrag } from './newTraceDrag'
-import type { CalibrationSnapshot } from '../../api/calibrationTypes'
-import { calibrationSummary, selectedCalibrationSet } from '../../domain/calibration'
 import type { LayoutMode } from '../../domain/presentation'
 
 const props = defineProps<{
   backend?: string
-  calibration?: CalibrationSnapshot
   layout: LayoutMode
   hasTrace: boolean
   canAutoscale: boolean
@@ -20,10 +16,6 @@ const props = defineProps<{
   canDelete: boolean
   canAddTrace: boolean
 }>()
-
-const currentCalSet = computed(() => selectedCalibrationSet(props.calibration))
-const calibrationLabel = computed(() => calibrationSummary(props.calibration))
-const calibrationActive = computed(() => Boolean(props.calibration?.enabled && props.calibration.compatible))
 
 const emit = defineEmits<{
   selectTool: [id: string]
@@ -199,21 +191,9 @@ function addTrace() {
     <span class="toolbar-flex-spacer" />
     <span
       class="toolbar-identity"
-      :title="`VnaPro · ${backend ?? '—'} · ${calibrationLabel ?? 'Cal Off · 未校准'}`"
+      :title="`VnaPro · ${backend ?? '—'}`"
       >Vna<span>Pro</span></span
     >
-    <button
-      type="button"
-      class="toolbar-calibration"
-      :class="{ 'is-active': calibrationActive }"
-      :title="`${calibrationLabel} · 打开 Use Cal`"
-      aria-label="Current calibration set · Open Use Cal"
-      data-testid="toolbar-calibration"
-      @click="emit('selectTool', 'cal-use')"
-    >
-      <small>Ch1 · {{ calibrationActive ? 'Cal On' : 'Cal Off' }}</small>
-      <span>{{ currentCalSet?.name ?? 'No Cal Set' }}</span>
-    </button>
     <button
       type="button"
       class="toolbar-button toolbar-rf"

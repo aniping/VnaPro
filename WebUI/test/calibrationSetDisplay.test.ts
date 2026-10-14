@@ -26,32 +26,19 @@ function text(node: VNode): string {
     : ''
 }
 
-test('toolbar persistently identifies the current channel set and opens Use Cal for observers', async (context) => {
+test('toolbar keeps the instrument identity without a calibration card', async (context) => {
   const props = reactive({
-    calibration: calibration(), layout: 'grid', hasTrace: true,
+    backend: 'NativeSimulator', layout: 'grid', hasTrace: true,
     canAutoscale: false, canEditDisplay: false, markerEnabled: false,
     canExport: false, canWrite: false, busy: false, canDelete: false, canAddTrace: false,
   })
   const harness = await sfcHarness('src/components/instrument/InstrumentToolbar.vue', props, {})
   context.after(harness.dispose)
-  const button = () => findElements(harness.render(), (node) => node.props?.['data-testid'] === 'toolbar-calibration')[0]!
-  assert.match(text(button()), /Ch1.*Cal On.*Cable A/)
-  assert.match(button().props!.title, /Cable A.*Refl OSM.*P1/)
-  assert.notEqual(button().props!.disabled, true)
-  ;(button().props!.onClick as () => void)()
-  assert.deepEqual(harness.emitted, [['selectTool', 'cal-use']])
-
-  props.calibration.enabled = false
-  await nextTick()
-  assert.match(text(button()), /Cal Off.*Cable A/)
-  props.calibration.enabled = true
-  props.calibration.compatible = false
-  await nextTick()
-  assert.match(text(button()), /Cal Off.*Cable A/)
-  props.calibration.selectedSetId = ''
-  props.calibration.enabled = false
-  await nextTick()
-  assert.match(text(button()), /Cal Off.*No Cal Set/)
+  const identity = findElements(harness.render(), (node) => node.props?.class === 'toolbar-identity')[0]!
+  assert.equal(text(identity), 'VnaPro')
+  assert.equal(identity.props!.title, 'VnaPro · NativeSimulator')
+  assert.equal(findElements(harness.render(), (node) => node.props?.['data-testid'] === 'toolbar-calibration').length, 0)
+  assert.deepEqual(harness.emitted, [])
 })
 
 test('Cal Manager distinguishes browsing a pool set from the channel current set until readback', async (context) => {
@@ -95,13 +82,13 @@ test('Cal Manager distinguishes browsing a pool set from the channel current set
   assert.ok(findElements(harness.render(), (node) => text(node).includes('Frequency axis mismatch')).length)
 })
 
-test('App supplies the authoritative calibration snapshot and summary keeps the set name', async (context) => {
+test('App keeps calibration details outside the toolbar and summary preserves the current set name', async (context) => {
   const harness = await sfcHarness('src/App.vue', {}, { fetch: async () => new Response('{}'), setTimeout, clearTimeout })
   context.after(harness.dispose)
   const status = harness.bindings.status as { value: InstrumentStatus | null }
   status.value = { ...instrumentStatus(), calibration: calibration() }
   const toolbar = findComponent(harness.render(), 'InstrumentToolbar')!
-  assert.equal((toolbar.props!.calibration as CalibrationSnapshot).selectedSetId, '1')
+  assert.equal(toolbar.props!.calibration, undefined)
   const bar = findComponent(harness.render(), 'InstrumentStatusBar')!
   assert.match(bar.props!['calibration-label'], /Cable A/)
   assert.match(calibrationSummary(status.value.calibration), /User Cal On.*Cable A/)
