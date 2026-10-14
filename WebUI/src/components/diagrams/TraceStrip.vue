@@ -82,7 +82,7 @@ function circularDescription(
       :aria-pressed="active || remembered === true"
       :title="
         isCircularFormat(presentation.format)
-          ? `${measurement.name} · ${measurement.parameter} · ${circularDescription(presentation, measurement)} · 未校准 · 当前外圈幅度 ${smithRadius} · 本迹线保存值 ${presentation.smithRadius}`
+          ? `${measurement.name} · ${measurement.parameter} · ${circularDescription(presentation, measurement)} · ${measurementState(measurement)} · 当前外圈幅度 ${smithRadius} · 本迹线保存值 ${presentation.smithRadius}`
           : `${measurement.name} · ${measurement.parameter} · ${measurementState(measurement)} · ${divisionText(scale, presentation.format, measurement)} per division · Ref ${scaleValue(referenceLevel(scale, presentation.format), presentation.format, 9, measurement)}${usesRelativeAxis(scale, presentation.format) ? ' · Δ 刻度为相对 Ref 的偏移' : ''}`
       "
       :aria-label="`Select ${measurement.name}, ${measurement.parameter}, ${measurementState(measurement)}`"
@@ -114,8 +114,8 @@ function circularDescription(
           }}</span
         >
       </template>
-      <span v-if="measurement.kind === 'receiver'" class="trace-state"
-        >RAW</span
+      <span class="trace-state"
+        >{{ measurement.kind === 'receiver' ? 'RAW' : measurement.calibration === 'calibrated' ? 'Cal' : 'Cal Off' }}</span
       >
     </button>
   </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import InstrumentToolbar from './components/instrument/InstrumentToolbar.vue'
 import HardkeyPanel from './components/instrument/HardkeyPanel.vue'
 import InstrumentStatusBar from './components/instrument/InstrumentStatusBar.vue'
@@ -12,6 +12,10 @@ import TraceCatalogSofttool from './components/softtools/TraceCatalogSofttool.vu
 import SweepSofttool from './components/softtools/SweepSofttool.vue'
 import TraceSofttool from './components/softtools/TraceSofttool.vue'
 import MarkerSofttool from './components/softtools/MarkerSofttool.vue'
+import CalibrationSofttool from './components/softtools/CalibrationSofttool.vue'
+import CalibrationWorkflow from './components/softtools/CalibrationWorkflow.vue'
+import CalibrationAcquisition from './components/softtools/CalibrationAcquisition.vue'
+import { calibrationSummary } from './domain/calibration'
 import { MAX_DIAGRAMS, MAX_TRACES } from './domain/presentation'
 import SystemSofttool from './components/softtools/SystemSofttool.vue'
 import DisplaySofttool from './components/softtools/DisplaySofttool.vue'
@@ -28,10 +32,12 @@ const {
   frame,
   connected,
   hasControl,
-  canWrite,
   canConfigure,
   canChangeMeasurements,
-  canEditDisplay,
+  canCalibrate,
+  canRun,
+  canCancelCalibration,
+  canEditDisplay: canWriteDisplay,
   pendingOperation,
   writeInFlight,
   controlBusy,
@@ -63,6 +69,14 @@ const displayedMeasurement = computed(
 const activeTool = ref('start')
 const softtoolVisible = ref(true)
 const newTraceDestination = ref<TraceDestination | null>(null)
+const calibrationWorkflowOpen = ref(false)
+const calibrationAcquisitionVisible = computed(() => Boolean(calibrationWorkflowOpen.value && status.value?.calibration?.collecting))
+// 结束会话会先卸载采集组件；不能等待它的异步 close 事件来关闭向导。
+watch(() => status.value?.calibration?.collecting, (collecting, previous) => {
+  if (previous === true && collecting === false) calibrationWorkflowOpen.value = false
+})
+const canEditDisplay = computed(() => canWriteDisplay.value && !calibrationAcquisitionVisible.value)
+const calibrationLabel = computed(() => calibrationSummary(status.value?.calibration))
 const canvasStyle = ref({ left: '0px', top: '0px', transform: 'scale(1)' })
 const busy = computed(() =>
   Boolean(
@@ -78,9 +92,11 @@ const group = computed(() =>
         ? 'trace'
         : ['sweep', 'sweep-control', 'trigger'].includes(activeTool.value)
           ? 'sweep'
-          : activeTool.value === 'bandwidth'
-            ? 'bandwidth'
-            : 'system',
+          : ['cal', 'cal-use'].includes(activeTool.value)
+            ? 'calibration'
+            : activeTool.value === 'bandwidth'
+              ? 'bandwidth'
+              : 'system',
 )
 const focusField = computed(() =>
   group.value === 'stimulus'
@@ -95,6 +111,7 @@ const title = computed(
       trace: activeTool.value === 'marker' ? 'Markers' : 'Trace',
       sweep: 'Sweep',
       bandwidth: 'Pwr Bw Avg',
+      calibration: 'Calibration',
       system: 'System',
     })[group.value],
 )
@@ -125,14 +142,19 @@ const tabs = computed(() =>
               { id: 'sweep-control', label: 'Sweep Control' },
               { id: 'trigger', label: 'Trigger' },
             ]
-          : group.value === 'bandwidth'
-            ? [{ id: 'bandwidth', label: 'Bandwidth' }]
-            : [
-                { id: 'setup', label: 'State' },
-                { id: 'display', label: 'Display' },
-                { id: 'file', label: 'File' },
-                { id: 'help', label: 'Help' },
-              ],
+          : group.value === 'calibration'
+            ? [
+                { id: 'cal', label: 'Start Cal' },
+                { id: 'cal-use', label: 'Use Cal' },
+              ]
+            : group.value === 'bandwidth'
+              ? [{ id: 'bandwidth', label: 'Bandwidth' }]
+              : [
+                  { id: 'setup', label: 'State' },
+                  { id: 'display', label: 'Display' },
+                  { id: 'file', label: 'File' },
+                  { id: 'help', label: 'Help' },
+                ],
 )
 const activeTab = computed(() =>
   group.value === 'stimulus'
@@ -282,13 +304,14 @@ onBeforeUnmount(() => {
           <section class="measurement-stage" aria-label="Measurement display">
             <InstrumentToolbar
               :backend="status?.backend"
+              :calibration-label="calibrationLabel"
               :layout="layout"
-              :has-trace="Boolean(activeMeasurement)"
+              :has-trace="Boolean(activeMeasurement) && !calibrationAcquisitionVisible"
               :can-autoscale="canEditDisplay && canAutoscale"
               :can-edit-display="canEditDisplay"
               :marker-enabled="activePresentation?.marker.enabled ?? false"
-              :can-export="Boolean(frame)"
-              :can-write="canWrite"
+              :can-export="Boolean(frame) && !calibrationAcquisitionVisible"
+              :can-write="canRun"
               :busy="busy"
               :can-delete="canChangeMeasurements && measurements.length > 1"
               :can-add-trace="
@@ -311,7 +334,17 @@ onBeforeUnmount(() => {
               @add-trace="copyActiveTrace"
               @delete-trace="deleteActive"
             />
+            <CalibrationAcquisition
+              v-if="calibrationAcquisitionVisible && status"
+              :status="status"
+              :disabled="!canCalibrate || busy"
+              :can-cancel="canCancelCalibration"
+              :command="instrument.calibrate"
+              :load-preview="instrument.calibrationPreview"
+              @close="calibrationWorkflowOpen = false"
+            />
             <DiagramWorkspace
+              v-else
               :diagrams="status?.display.diagrams ?? []"
               :frame="frame"
               :measurements="measurements"
@@ -453,15 +486,25 @@ onBeforeUnmount(() => {
               v-show="group === 'sweep' && activeTool !== 'sweep'"
               :mode="activeTool === 'trigger' ? 'trigger' : 'sweep-control'"
               :status="status"
-              :can-write="canWrite"
+              :can-write="canRun"
               :busy="busy"
               :action="instrument.run"
+            />
+            <CalibrationSofttool
+              v-if="group === 'calibration'"
+              :mode="activeTool as 'cal' | 'cal-use'"
+              :status="status"
+              :can-calibrate="canCalibrate"
+              :busy="busy"
+              :command="instrument.calibrate"
+              :export-set="instrument.exportCalibration"
+              @start="calibrationWorkflowOpen = true"
             />
             <SystemSofttool
               v-if="group === 'system' && activeTool !== 'display'"
               :mode="activeTool"
               :status="status"
-              :frame="frame"
+              :frame="calibrationAcquisitionVisible ? null : frame"
               :connected="connected"
               :has-control="hasControl"
               :control-busy="controlBusy"
@@ -497,10 +540,11 @@ onBeforeUnmount(() => {
               softtoolVisible
                 ? activeTool === 'sweep-control'
                   ? 'sweep'
-                  : activeTool
+                  : activeTool === 'cal-use' ? 'cal' : activeTool
                 : ''
             "
-            :has-trace="Boolean(activeMeasurement)"
+            :has-trace="Boolean(activeMeasurement) && !calibrationAcquisitionVisible"
+            :calibration-supported="Boolean(status?.calibration)"
             @select="selectTool"
           />
         </div>
@@ -514,6 +558,7 @@ onBeforeUnmount(() => {
           :frame-seq="frame?.frameSeq ?? null"
           :run-id="status?.runId ?? null"
           :revision="status?.revision ?? null"
+          :calibration-label="calibrationLabel"
           :notice="
             pendingOperation
               ? `${pendingOperation.label} · ${pendingOperation.readingBack ? 'Readback' : 'Pending'}`
@@ -534,6 +579,13 @@ onBeforeUnmount(() => {
       :disabled="!canChangeMeasurements || busy"
       :create="instrument.createTrace"
       @close="newTraceDestination = null"
+    />
+    <CalibrationWorkflow
+      v-if="calibrationWorkflowOpen && status?.calibration && !status.calibration.collecting"
+      :status="status"
+      :disabled="!canCalibrate || busy"
+      :command="instrument.calibrate"
+      @close="calibrationWorkflowOpen = false"
     />
   </main>
 </template>

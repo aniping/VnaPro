@@ -14,6 +14,7 @@ const props = defineProps<{
   notice: string;
   noticeKind: string;
   error?: string;
+  calibrationLabel?: string;
 }>();
 
 const emit = defineEmits<{
@@ -31,7 +32,7 @@ let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => { clock = setInterval(() => { now.value = new Date(); }, 1000); });
 onBeforeUnmount(() => { if (clock) clearInterval(clock); });
 const time = computed(() => now.value.toLocaleTimeString('en-GB', { hour12: false }));
-const summary = computed(() => props.error || props.notice || (props.connected ? '原始接收波 · 未校准' : '连接中…'));
+const summary = computed(() => props.error || props.notice || (props.connected ? props.calibrationLabel || 'Cal Off · 未校准' : '连接中…'));
 const status = computed(() => !props.connected ? 'Offline' : props.coreState === 'Faulted' ? 'Fault' : props.mode || props.coreState);
 const ownerLabel = computed(() => props.hasControl ? 'Local' : props.controller === 'scpi' ? 'SCPI' : props.controller === 'web' ? 'Remote Web' : 'Observer');
 </script>

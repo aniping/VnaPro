@@ -20,6 +20,7 @@ import {
   type MarkerReadoutPreview,
 } from '../../domain/markerReadouts'
 import { measuredTraceTitleLayout } from '../../plot/titleLayout'
+import { measurementState } from '../../domain/measurements'
 import {
   activeMarkerId,
   MARKER_COUNT,
@@ -636,12 +637,14 @@ watch(
       props.primaryTraceName,
       smithRadius.value,
       annotationFontScale.value,
+      props.frame?.traces.map((trace) => [trace.name, trace.calibration]),
       props.measurements.map((measurement) => {
         const presentation = props.presentations[measurement.name]
         return [
           measurement.name,
           measurement.parameter,
           measurement.unit,
+          measurement.calibration,
           presentation?.format,
           presentation?.scale,
           presentation?.smithRadius,
@@ -1149,7 +1152,7 @@ function plotKey(event: KeyboardEvent): void {
               ? '归一化导纳 y'
               : 'Γ · 归一化阻抗 z'
         }}
-        · 未校准</span
+        · {{ activeTrace ? measurementState(activeTrace.measurement) : 'Cal Off' }}</span
       >
       <span class="sr-only"
         >{{ activeTrace?.measurement.name ?? 'Empty diagram' }}. Format

@@ -3,6 +3,7 @@ const props = defineProps<{
   activeKey: string | null
   hasTrace: boolean
   backend?: string
+  calibrationSupported?: boolean
 }>()
 const emit = defineEmits<{ select: [id: string] }>()
 
@@ -50,7 +51,7 @@ const groups: { title: string; keys: Hardkey[] }[] = [
         label: 'Power / Bw / Avg',
       },
       { id: 'sweep', lines: ['Sweep'], label: 'Sweep' },
-      { id: 'cal', lines: ['Cal'], label: 'Cal', unsupported: '尚未实现校准' },
+      { id: 'cal', lines: ['Cal'], label: 'Cal' },
       {
         id: 'channel-config',
         lines: ['Channel', 'Config'],
@@ -86,7 +87,7 @@ const groups: { title: string; keys: Hardkey[] }[] = [
 ]
 
 function disabled(key: Hardkey): boolean {
-  return Boolean(key.unsupported || (key.requiresTrace && !props.hasTrace))
+  return Boolean(key.unsupported || (key.id === 'cal' && !props.calibrationSupported) || (key.requiresTrace && !props.hasTrace))
 }
 
 function select(key: Hardkey) {
@@ -107,7 +108,9 @@ function select(key: Hardkey) {
           :class="[key.accent, { active: activeKey === key.id }]"
           :disabled="disabled(key)"
           :title="
-            key.unsupported
+            key.id === 'cal' && !calibrationSupported
+              ? 'Cal — 当前服务不提供校准能力'
+              : key.unsupported
               ? `${key.label} — ${key.unsupported}`
               : key.requiresTrace && !hasTrace
                 ? `${key.label} — 请先选择测量`

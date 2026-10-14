@@ -37,7 +37,7 @@ const emit = defineEmits<{
       ><strong>{{ frame?.originalPointCount ?? '—' }}</strong>
     </div>
     <p class="softtool-note">
-      导出当前画面的真实频点、有效位及原始 Re/Im。超过 2001
+      导出当前画面的真实频点、有效位及测量 Re/Im。超过 2001
       点时标明显示抽取；显示投影及原始点索引来自后端，版本号随数据保留。
     </p>
   </section>
@@ -57,6 +57,7 @@ const emit = defineEmits<{
         Sweep → Sweep Control：Single 采一帧；Continuous 连续采集；Hold 停止。
       </li>
       <li>点击图内迹线条，Format / Scale / Marker 只调整该迹线显示。</li>
+      <li>Cal → Start Cal：选择端口、确认理想 50 Ω 校准件，逐项采集标准后 Apply。Use Cal 启停并管理校准集。</li>
     </ol>
     <div class="softtool-divider" />
     <h2 class="softtool-section-title">Markers</h2>
@@ -67,9 +68,9 @@ const emit = defineEmits<{
     </p>
     <div class="softtool-divider" />
     <p class="softtool-note">
-      支持已配置端口的 RAW 与完整未校准 Sij；Meas 上方选择器提供全部合法参数。
-      Smith 显示复数轨迹，反射参数可读取 Γ 与归一化阻抗。校准与 RF
-      控制尚未实现。界面参考 ZNB，远程 SCPI 使用已有 Keysight 命令子集。
+      支持已配置端口的 RAW 与完整 Sij；Meas 上方选择器提供全部合法参数。
+      Smith 显示复数轨迹，反射参数可读取 Γ 与归一化阻抗。每条 S 参数显示 Cal / Cal Off；RAW 接收波不应用误差校准。
+      RF 控制尚未实现。界面参考 ZNB，远程 SCPI 使用项目支持的命令子集。
     </p>
   </section>
   <section v-else class="softtool-section">

@@ -172,7 +172,7 @@ function applyScale() {
       <p class="softtool-note">
         {{
           measurement?.kind === 'sParameter'
-            ? '显示同帧波量的比值，幅度无量纲，dB = 20 log₁₀ |S|；未应用误差校准。'
+            ? `显示同帧复数 S 参数，幅度无量纲，dB = 20 log₁₀ |S|；${measurement.calibration === 'calibrated' ? 'Cal · 已应用误差校准' : 'Cal Off · 未应用误差校准'}。`
             : '仅转换当前接收波的显示格式。幅度未经功率或电压标定；dB 参考 1 a.u.。'
         }}
       </p>
