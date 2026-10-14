@@ -281,6 +281,32 @@ void WebEndpoint::Respond(HttpConnection &client, HttpResponse response)
     // 只记录已解析路径和结果，不输出头、控制令牌或请求正文。
     VnaLog::Debug(VnaLog::Module::WEB, "HTTP method={} path={} status={}", client.request.method, client.request.path,
         response.status);
+    const auto *available = response.json.Find("available");
+    client.frameDiagnostics = client.request.path == "/api/v1/frame" && response.status == 200U &&
+                              client.dispatchStarted != Clock::time_point{} && available != nullptr &&
+                              available->type == Json::Type::BOOLEAN && available->boolean &&
+                              VnaLog::Logger::Instance().Enabled(VnaLog::Level::DEBUG);
+    if (client.frameDiagnostics) {
+        const auto identity = [&response](const std::string &name) {
+            const auto *value = response.json.Find(name);
+            return value != nullptr && value->type == Json::Type::STRING ? value->string : std::string{};
+        };
+        client.frameSeq = identity("frameSeq");
+        client.runId = identity("runId");
+        client.displayRevision = identity("displayRevision");
+        client.encodingStarted = Clock::now();
+        const auto buildTime = client.dispatchStarted == Clock::time_point{}
+                                   ? std::chrono::microseconds{0}
+                                   : std::chrono::duration_cast<std::chrono::microseconds>(
+                                         client.encodingStarted - client.dispatchStarted);
+        const auto *points = response.json.Find("originalPointCount");
+        const auto *traces = response.json.Find("traces");
+        VnaLog::Debug(VnaLog::Module::WEB,
+            "frame_build conn={} frameSeq={} runId={} displayRevision={} points={} traces={} buildUs={}",
+            client.connectionId, client.frameSeq, client.runId, client.displayRevision,
+            points != nullptr && points->type == Json::Type::NUMBER ? points->number : 0.0,
+            traces != nullptr && traces->type == Json::Type::ARRAY ? traces->array.size() : 0U, buildTime.count());
+    }
     client.dispatched = true;
     client.input.clear();
     client.status = response.status;
@@ -372,6 +398,7 @@ void WebEndpoint::Dispatch(HttpConnection &client)
 {
     client.request.body = client.input.substr(client.headerLength, client.bodyLength);
     if (client.request.path.find("/api/") == 0U) {
+        client.dispatchStarted = Clock::now();
         Respond(client, api_.Handle(client.request));
         return;
     }
@@ -430,10 +457,26 @@ bool WebEndpoint::Receive(HttpConnection &client)
 void WebEndpoint::EncodeOutput(HttpConnection &client)
 {
     try {
-        if (client.encoderActive && client.encoder.Advance(JSON_ENCODING_BUDGET)) {
-            std::string body = client.encoder.Take();
-            client.encoderActive = false;
-            client.output = ResponseHeader(client.status, client.contentType, body.size()) + body;
+        if (client.encoderActive) {
+            const auto started = client.frameDiagnostics ? Clock::now() : Clock::time_point{};
+            const bool completed = client.encoder.Advance(JSON_ENCODING_BUDGET);
+            if (client.frameDiagnostics) {
+                client.encodingCpu += std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started);
+            }
+            if (completed) {
+                std::string body = client.encoder.Take();
+                client.encoderActive = false;
+                client.responseBytes = body.size();
+                client.output = ResponseHeader(client.status, client.contentType, body.size()) + body;
+                if (client.frameDiagnostics) {
+                    client.encodedAt = Clock::now();
+                    const auto wallTime = std::chrono::duration_cast<std::chrono::microseconds>(
+                        client.encodedAt - client.encodingStarted);
+                    VnaLog::Debug(VnaLog::Module::WEB,
+                        "frame_encode conn={} frameSeq={} bytes={} encodeCpuUs={} encodeWallUs={}", client.connectionId,
+                        client.frameSeq, client.responseBytes, client.encodingCpu.count(), wallTime.count());
+                }
+            }
         }
         if (client.fileActive && client.file.Advance(client.fileOutput)) {
             client.output =
@@ -442,13 +485,17 @@ void WebEndpoint::EncodeOutput(HttpConnection &client)
             client.fileActive = false;
             client.fileOutput.clear();
         }
-    } catch (const std::exception &) {
+    } catch (const std::exception &failure) {
+        VnaLog::Debug(VnaLog::Module::WEB, "http_encode_failed conn={} frameSeq={} reason={}", client.connectionId,
+            client.frameSeq, failure.what());
         client.encoderActive = false;
         client.file.Close();
         client.fileActive = false;
         client.fileOutput.clear();
         const std::string body = "{\"error\":{\"code\":\"output_failed\",\"message\":\"Response encoding failed\"}}";
         client.output = ResponseHeader(500, "application/json", body.size()) + body;
+        client.responseBytes = body.size();
+        client.encodedAt = Clock::now();
     }
 }
 
@@ -461,10 +508,25 @@ bool WebEndpoint::SendOutput(HttpConnection &client)
     const std::size_t count = (std::min)(client.output.size() - client.sent, SEND_BUDGET);
     const int sent = VnaServer::Network::SendSocket(client.socket.Get(), client.output.data() + client.sent, count);
     if (sent <= 0) {
-        return sent < 0 && WouldBlock(SocketError());
+        const int socketError = sent < 0 ? SocketError() : 0;
+        const bool blocked = sent < 0 && WouldBlock(socketError);
+        if (blocked) {
+            ++client.writeBlocked;
+        } else if (client.frameDiagnostics) {
+            VnaLog::Debug(VnaLog::Module::WEB, "frame_send_failed conn={} frameSeq={} sent={} total={} socketError={}",
+                client.connectionId, client.frameSeq, client.sent, client.output.size(), socketError);
+        }
+        return blocked;
     }
     client.sent += static_cast<std::size_t>(sent);
     client.progress = Clock::now();
+    if (client.frameDiagnostics && client.sent == client.output.size()) {
+        const auto sendTime = std::chrono::duration_cast<std::chrono::microseconds>(client.progress - client.encodedAt);
+        VnaLog::Debug(VnaLog::Module::WEB,
+            "frame_send conn={} frameSeq={} runId={} displayRevision={} bytes={} sendUs={} writeBlocked={}",
+            client.connectionId, client.frameSeq, client.runId, client.displayRevision, client.responseBytes,
+            sendTime.count(), client.writeBlocked);
+    }
     return client.sent != client.output.size();
 }
 
@@ -483,7 +545,7 @@ void WebEndpoint::AcceptConnections()
             continue;
         }
         VnaServer::Network::ConfigureStreamSocket(socket);
-        clients_.emplace_back(std::move(acceptedSocket));
+        clients_.emplace_back(std::move(acceptedSocket), ++nextConnectionId_);
     }
 }
 
@@ -493,6 +555,11 @@ void WebEndpoint::PollClients()
     for (auto client = clients_.begin(); client != clients_.end();) {
         if (!client->dispatched && (time - client->started) >= g_requestTimeout) {
             Error(*client, 408, "Request receive timeout");
+        }
+        if (client->frameDiagnostics && (time - client->progress) >= g_writeProgressTimeout) {
+            VnaLog::Debug(VnaLog::Module::WEB,
+                "frame_send_timeout conn={} frameSeq={} sent={} total={} writeBlocked={}", client->connectionId,
+                client->frameSeq, client->sent, client->output.size(), client->writeBlocked);
         }
         const bool alive = client->dispatched
                                ? ((time - client->progress) < g_writeProgressTimeout && SendOutput(*client))

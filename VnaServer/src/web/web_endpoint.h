@@ -51,8 +51,11 @@ public:
 private:
     struct HttpConnection final {
         // 接管已接受的套接字，其余状态初始化为空闲。
-        explicit HttpConnection(VnaServer::Network::SocketOwner ownedSocket)
-            : socket(std::move(ownedSocket)), started(std::chrono::steady_clock::now()), progress(started)
+        HttpConnection(VnaServer::Network::SocketOwner ownedSocket, std::uint64_t identifier)
+            : socket(std::move(ownedSocket)),
+              started(std::chrono::steady_clock::now()),
+              progress(started),
+              connectionId(identifier)
         {
         }
 
@@ -80,6 +83,18 @@ private:
         bool encoderActive = false;
         StaticFile file;
         bool fileActive = false;
+        // 仅在 DEBUG 请求中关联阶段，不保存控制令牌或原始采样数组。
+        const std::uint64_t connectionId;
+        bool frameDiagnostics = false;
+        std::string frameSeq;
+        std::string runId;
+        std::string displayRevision;
+        std::chrono::steady_clock::time_point dispatchStarted{};
+        std::chrono::steady_clock::time_point encodingStarted{};
+        std::chrono::steady_clock::time_point encodedAt{};
+        std::chrono::microseconds encodingCpu{0};
+        std::size_t responseBytes = 0U;
+        std::size_t writeBlocked = 0U;
     };
 
     void Respond(HttpConnection &client, HttpResponse response);
@@ -100,6 +115,7 @@ private:
     std::list<HttpConnection> clients_;
     std::uint16_t actualPort_ = 0;
     bool closing_ = false;
+    std::uint64_t nextConnectionId_ = 0U;
 };
 }  // 命名空间 VnaWeb
 #endif
