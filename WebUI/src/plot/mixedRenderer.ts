@@ -66,7 +66,10 @@ export function paintMixedDiagram(
       (background) => !isCircularFormat(background.format),
     )
   ) {
-    paintDiagram(canvas, { ...diagram, curves: [] }, bounds, { clear: false })
+    paintDiagram(canvas, { ...diagram, curves: [] }, bounds, {
+      clear: false,
+      labels: false,
+    })
   }
   const circularBackgrounds = new Map<string, MixedBackground>()
   for (const background of diagram.backgrounds) {
@@ -92,30 +95,11 @@ export function paintMixedDiagram(
       { clear: false, labels: false },
     )
   }
-  for (const curve of curves) {
-    if (curve.kind === 'circular') {
-      paintSmithDiagram(
-        canvas,
-        {
-          width: diagram.width,
-          height: diagram.height,
-          radius: curve.radius,
-          format: curve.format,
-          curves: [curve],
-        },
-        bounds,
-        { clear: false, grid: false },
-      )
-    } else {
-      paintDiagram(
-        canvas,
-        { ...diagram, curves: [curve], references: [] },
-        bounds,
-        { clear: false, grid: false },
-      )
-    }
-  }
-  // 混合圆图的数字统一放在全部网格和迹线之后，后画网格不能再穿过文字。
+  // 所有网格完成后再画刻度，测量曲线最后叠加，黑底不会擦掉迹线。
+  paintDiagram(canvas, { ...diagram, curves: [], references: [] }, bounds, {
+    clear: false,
+    grid: false,
+  })
   for (const background of circularBackgrounds.values()) {
     paintSmithDiagram(
       canvas,
@@ -130,5 +114,28 @@ export function paintMixedDiagram(
       bounds,
       { clear: false, grid: false, labels: true },
     )
+  }
+  for (const curve of curves) {
+    if (curve.kind === 'circular') {
+      paintSmithDiagram(
+        canvas,
+        {
+          width: diagram.width,
+          height: diagram.height,
+          radius: curve.radius,
+          format: curve.format,
+          curves: [curve],
+        },
+        bounds,
+        { clear: false, grid: false, labels: false },
+      )
+    } else {
+      paintDiagram(
+        canvas,
+        { ...diagram, curves: [curve], references: [] },
+        bounds,
+        { clear: false, grid: false, labels: false },
+      )
+    }
   }
 }

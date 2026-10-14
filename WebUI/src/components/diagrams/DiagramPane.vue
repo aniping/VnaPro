@@ -118,6 +118,7 @@ let titleObserver: ResizeObserver | undefined
 let titleMeasure: CanvasRenderingContext2D | null = null
 const plotArea = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
+const tickLabels = ref<HTMLSpanElement[]>([])
 const width = ref(700)
 const height = ref(500)
 const screenScale = ref({ x: 1, y: 1 })
@@ -546,6 +547,16 @@ function schedulePaint(): void {
       x: bounds.width / width.value,
       y: bounds.height / height.value,
     }
+    // 批量读取字框，再绘制黑底；DOM 仅保留透明文字层，不遮挡采样曲线。
+    const labelMasks = tickLabels.value.map((label) => {
+      const box = label.getBoundingClientRect()
+      return {
+        left: (box.left - bounds.left) / screenScale.value.x,
+        top: (box.top - bounds.top) / screenScale.value.y,
+        width: box.width / screenScale.value.x,
+        height: box.height / screenScale.value.y,
+      }
+    })
     const references = traces.value
       .filter(
         (item) =>
@@ -572,6 +583,7 @@ function schedulePaint(): void {
         backgrounds: backgrounds.value,
         references,
         curves: curves.value,
+        labelMasks,
       },
       bounds,
     )
@@ -1003,6 +1015,7 @@ function plotKey(event: KeyboardEvent): void {
       <canvas ref="canvas" class="diagram-canvas" aria-hidden="true" />
       <span
         v-for="tick in circularAxis ? [] : yTicks"
+        ref="tickLabels"
         :key="`y-${tick.division}`"
         class="y-tick"
         :class="{
@@ -1264,7 +1277,7 @@ function plotKey(event: KeyboardEvent): void {
   transform: translateY(-50%);
   text-align: left;
   color: #4b5f6c;
-  background: var(--color-plot, #000000);
+  background: transparent;
   font-size: var(--diagram-axis-font-size, 11px);
   line-height: var(--diagram-axis-line-height, 14px);
   white-space: nowrap;

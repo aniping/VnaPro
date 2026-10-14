@@ -84,6 +84,7 @@ export interface CanvasDiagram {
   xMax: number
   references: readonly CanvasReference[]
   curves: readonly CanvasCurve[]
+  labelMasks?: readonly PlotRect[]
 }
 
 export function plotRect(width: number, height: number): PlotRect {
@@ -234,6 +235,7 @@ export function prepareCanvas(
 export interface PaintPass {
   clear?: boolean
   grid?: boolean
+  labels?: boolean
 }
 
 export function paintDiagram(
@@ -317,6 +319,13 @@ export function paintDiagram(
       context.lineTo(left + width, referenceY + 4)
       context.closePath()
       context.fill()
+    }
+  }
+  // 刻度黑底仅擦除已画网格，随后绘制的测量曲线仍能穿过字框。
+  if (pass.labels !== false) {
+    context.fillStyle = '#000000'
+    for (const mask of diagram.labelMasks ?? []) {
+      context.fillRect(mask.left, mask.top, mask.width, mask.height)
     }
   }
   context.save()
