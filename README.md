@@ -135,10 +135,11 @@ instrument:
     defaultStopHz: 8000000000
     defaultPoints: 201
     defaultIfBandwidthHz: 1000
+    defaultPowerRaw: 0
     defaultSweepMode: CONT
 ```
 
-频率配置使用不加引号的正十进制整数 Hz，点数支持 2–10001。默认频率必须落在支持范围内，IFBW 默认值必须为支持档位。配置在启动时验证并冻结，HTTP/SCPI 的设置和测量源/接收端口都受此能力约束；Web 输入范围从 `/api/v1/status` 的 `capabilities` 读取。错误配置在创建设备前退出，退出码为 2。省略配置项使用程序默认值；修改支持范围时应同时调整默认扫描范围。
+频率配置使用不加引号的正十进制整数 Hz，点数支持 2–10001。默认频率必须落在支持范围内，IFBW 默认值必须为支持档位。`defaultPowerRaw` 是 VN10 逐点原始功率编码，支持不加引号的 0…18446744073709551615 整数，启动时冻结；0 已确认是合法默认值，不标注为 0 dBm，也不代替尚未实现的功率菜单/SCPI 命令。配置在启动时验证并冻结，HTTP/SCPI 的设置和测量源/接收端口都受此能力约束；Web 输入范围从 `/api/v1/status` 的 `capabilities` 读取。错误配置在创建设备前退出，退出码为 2。省略配置项使用程序默认值；修改支持范围时应同时调整默认扫描范围。
 
 `instrument.sweep.defaultSweepMode` 只接受 `CONT` 或 `HOLD`，省略时为 `CONT`。它是无已恢复状态时的服务器启动缺省，不是强制调用仪器 Preset；本版尚未保存跨进程的仪器状态。服务器在监听前应用一次，随后释放内部控制权；设为 `HOLD` 时等待用户触发。服务领域的初始化仍保持 HOLD，单元测试夹具不自动扫描。
 
@@ -234,7 +235,7 @@ Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头
 
 此前采集验收在 Windows MinGW/GCC 10.3 下通过 12 项 CTest，WSL/GCC 13.3 全目标 ThreadSanitizer 同样通过且未报告数据竞争，覆盖完整 IQ golden、11 组核心时序/并发场景、无效样本及噪声贯通。18 项前端合同测试、严格类型检查与生产构建通过，其中两项检查窗口缩放、DPR 和样本投影；Chromium 实际交互验证覆盖配置、四条波形、逐迹线格式/参考位置、扫描控制、M1、三布局菜单、CSV、多会话与断线恢复。本次按职责整理后的正式代码在 Windows 全量 12 项 CTest 通过（13.87 秒），WSL 全目标 ThreadSanitizer 12 项通过（9.98 秒），70 个正式头单独 C++14 编译通过且无头文件循环依赖。临时实际分配故障验证通过 Claim 15 个、单次写入 37 个、结果 Poll 5 个分配点，并用恢复旧危险顺序的副本确认断言可检出错误；随后命名空间统一后的终检另行补记。分阶段证据见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
-真实库配置使用 `driver.type: hardware`，并填写匹配的 `driver.board` 与 `driver.library`。设备初始化不再以模拟器身份前缀作为准入条件；VN08 回报驱动的 IDN，VN10 原生接口没有 IDN 查询，回报通用适配器标识 `VnaPro,TDC1VN10,4PORT,1.0`。HTTP 的 `backend` 区分 `HardwareDriver` 与 `NativeSimulator`，网页据此显示类型。库加载、ABI 缺失、设备初始化或下发失败仍如实报告，不能把真实硬件故障当作噪声配置忽略。当前验证是独立 ABI 探针的启动隔离，未接真实板卡；整数 Hz、功率 raw/opaque、接收器映射等仍需按真实驱动合同核验，建议先配置 `defaultSweepMode: HOLD` 再做板卡采集验收。
+真实库配置使用 `driver.type: hardware`，并填写匹配的 `driver.board` 与 `driver.library`。设备初始化不再以模拟器身份前缀作为准入条件；VN08 回报驱动的 IDN，VN10 原生接口没有 IDN 查询，回报通用适配器标识 `VnaPro,TDC1VN10,4PORT,1.0`。HTTP 的 `backend` 区分 `HardwareDriver` 与 `NativeSimulator`，网页据此显示类型。库加载、ABI 缺失、设备初始化或下发失败仍如实报告，不能把真实硬件故障当作噪声配置忽略。TDC1VN10 已确认 0 为成功、频率/IFBW 使用 Hz、功率原始值 0 合法、端口为 0～3。初始化显式关端口；Start 后全部源/频点取数完成才发布帧及允许下次扫描，Start/Get 失败而结束状态未知时拒绝重新初始化，保留旧完整帧供诊断。RF OFF 只关端口，不中止扫描；Close 等在途整帧取数收尾后关端口，运行期不卸载驱动，DLL 与借用缓冲保留到进程退出。原生取数若永久阻塞，现接口无法限时关闭。独立 VN10 ABI 探针现已覆盖完整采集、关闭屏障及 HTTP/SCPI 数值链路，仍未连接真实板卡。
 
 设计见 [核心采数更新软件设计](docs/网分核心采数更新软件设计.md) 和 [服务与远程控制设计](docs/网分服务与远程控制设计.md)。命令参照 [Keysight 官方 SCPI 文档](https://helpfiles.keysight.com/csg/N52xxB/Programming/GP-IB_Command_Finder/Common_Commands.htm)，具体白名单与兼容限制见服务设计。
 

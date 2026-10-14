@@ -86,11 +86,13 @@ void ReadInstrument(const YAML::Node &node, ServerConfig &config)
     YamlConfig::ReadFrequency(frequency, "maxHz", "instrument.frequency", profile.maxFrequencyHz);
     const auto sweep = node["sweep"];
     YamlConfig::CheckMap(sweep, "instrument.sweep",
-        {"defaultStartHz", "defaultStopHz", "defaultPoints", "defaultIfBandwidthHz", "defaultSweepMode"});
+        {"defaultStartHz", "defaultStopHz", "defaultPoints", "defaultIfBandwidthHz", "defaultPowerRaw",
+            "defaultSweepMode"});
     YamlConfig::ReadFrequency(sweep, "defaultStartHz", "instrument.sweep", profile.defaultStartHz);
     YamlConfig::ReadFrequency(sweep, "defaultStopHz", "instrument.sweep", profile.defaultStopHz);
     YamlConfig::ReadUnsigned(sweep, "defaultPoints", "instrument.sweep", profile.defaultPoints);
     YamlConfig::ReadFrequency(sweep, "defaultIfBandwidthHz", "instrument.sweep", profile.defaultIfBandwidthHz);
+    YamlConfig::ReadUint64(sweep, "defaultPowerRaw", "instrument.sweep", profile.defaultPowerRaw);
     std::string mode = "CONT";
     YamlConfig::ReadString(sweep, "defaultSweepMode", "instrument.sweep", mode);
     if (mode == "CONT") {

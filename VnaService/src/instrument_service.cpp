@@ -107,10 +107,11 @@ double QuantizedBandwidth(double value) noexcept
     return 0.0;
 }
 
-VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings)
+VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings, const InstrumentProfile &profile)
 {
     VnaCore::SweepPlan plan;
     plan.ifBandwidthRaw = static_cast<std::uint32_t>(settings.ifBandwidthHz);
+    plan.powerRaw.assign(settings.points, profile.defaultPowerRaw);
     std::set<unsigned> sources;
     for (const Measurement &measurement : settings.measurements) {
         sources.insert(measurement.sourcePort);
@@ -130,11 +131,12 @@ VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings)
     for (unsigned point = 0; point < settings.points; ++point) {
         const double hz = settings.startHz + (settings.stopHz - settings.startHz) * static_cast<double>(point) /
                                                  static_cast<double>(settings.points - 1U);
-        // 明确的模拟设备约定：一个原始频率计数对应 1 Hz；此处不解释驱动数据表。
+        // 已确认 VN10 的频率和中频列表使用 Hz；旧接口的原始表由对应设备适配器处理。
         const std::uint64_t raw = static_cast<std::uint64_t>(std::llround(hz));
         plan.frequencyRaw.push_back(raw);
         plan.frequencyHz.push_back(static_cast<double>(raw));
     }
+    // 保留旧 VN08 接口必需的 9N 表；VN10 下发不读取此字段。
     plan.tableData.assign(static_cast<std::size_t>(settings.points) * VnaCore::TABLE_VALUES_PER_POINT, 0.0);
     return plan;
 }
@@ -143,7 +145,8 @@ bool CoversPlan(const VnaCore::SweepPlan &active, const VnaCore::SweepPlan &requ
 {
     // 保留已下发的源和接收机；目录收缩不重启扫描，也不使已有完整 IQ 失效。
     return active.frequencyRaw == requested.frequencyRaw && active.frequencyHz == requested.frequencyHz &&
-           active.ifBandwidthRaw == requested.ifBandwidthRaw && active.tableData == requested.tableData &&
+           active.ifBandwidthRaw == requested.ifBandwidthRaw && active.powerRaw == requested.powerRaw &&
+           active.tableData == requested.tableData &&
            (active.receiverMask & requested.receiverMask) == requested.receiverMask &&
            std::includes(active.sourcePorts.begin(), active.sourcePorts.end(), requested.sourcePorts.begin(),
                requested.sourcePorts.end());
@@ -181,13 +184,13 @@ OperationResult ApplyFrequencyPatch(
     double stop = settings.stopHz;
     if (patch.hasStartHz) {
         if (!ValidFrequency(patch.startHz, profile)) {
-            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of mock range");
+            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of instrument range");
         }
         start = std::round(patch.startHz);
     }
     if (patch.hasStopHz) {
         if (!ValidFrequency(patch.stopHz, profile)) {
-            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of mock range");
+            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of instrument range");
         }
         stop = std::round(patch.stopHz);
     }
@@ -201,7 +204,7 @@ OperationResult ApplyFrequencyPatch(
         start = stop - span;
     }
     if (!ValidFrequency(start, profile) || !ValidFrequency(stop, profile)) {
-        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled frequency endpoint out of mock range");
+        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled frequency endpoint out of instrument range");
     }
     settings.startHz = start;
     settings.stopHz = stop;
@@ -225,7 +228,7 @@ OperationResult ApplySettingsPatch(
     if (patch.hasIfBandwidthHz) {
         if (!std::isfinite(patch.ifBandwidthHz) || patch.ifBandwidthHz <= 0 ||
             QuantizedBandwidth(patch.ifBandwidthHz) == 0) {
-            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of mock range");
+            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of instrument range");
         }
         settings.ifBandwidthHz = QuantizedBandwidth(patch.ifBandwidthHz);
     }
@@ -462,7 +465,7 @@ bool InstrumentService::PrepareConfiguration(Detail::ServiceTask &task)
         return false;
     }
     task.candidate.revision = settings_.revision + 1U;
-    task.plan = MakePlan(task.candidate);
+    task.plan = MakePlan(task.candidate, profile_);
     if (!PrepareDisplayConfiguration(task)) {
         return false;
     }
@@ -659,7 +662,7 @@ bool InstrumentService::BootstrapProfile(std::string &error)
         error = reconciled.error;
         return false;
     }
-    auto plan = MakePlan(candidate);
+    auto plan = MakePlan(candidate, profile_);
     const auto configured = core_.Configure(plan).get();
     if (!configured.ok) {
         error = configured.message;
@@ -784,13 +787,13 @@ Operation InstrumentService::SetStartHz(double value, std::uint64_t expected)
     return Configure(
         [this, value](InstrumentSettings &settings) {
             if (!ValidFrequency(value, profile_)) {
-                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of instrument range");
             }
             const double span = settings.stopHz - settings.startHz;
             const double start = std::round(value);
             const double stop = start > settings.stopHz ? start + span : settings.stopHz;
             if (!ValidFrequency(stop, profile_)) {
-                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled stop frequency out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled stop frequency out of instrument range");
             }
             settings.startHz = start;
             settings.stopHz = stop;
@@ -804,13 +807,14 @@ Operation InstrumentService::SetStopHz(double value, std::uint64_t expected)
     return Configure(
         [this, value](InstrumentSettings &settings) {
             if (!ValidFrequency(value, profile_)) {
-                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of instrument range");
             }
             const double span = settings.stopHz - settings.startHz;
             const double stop = std::round(value);
             const double start = stop < settings.startHz ? stop - span : settings.startHz;
             if (!ValidFrequency(start, profile_)) {
-                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled start frequency out of mock range");
+                return Result(
+                    false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled start frequency out of instrument range");
             }
             settings.startHz = start;
             settings.stopHz = stop;
@@ -824,7 +828,7 @@ Operation InstrumentService::SetPoints(unsigned value, std::uint64_t expected)
     return Configure(
         [value](InstrumentSettings &settings) {
             if (value < MIN_SWEEP_POINTS || value > MAX_SWEEP_POINTS) {
-                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Point count outside 2..10001 mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Point count outside 2..10001 instrument range");
             }
             settings.points = value;
             return Result(true);
@@ -841,7 +845,7 @@ Operation InstrumentService::SetIfBandwidthHz(double value, std::uint64_t expect
             }
             const double quantized = QuantizedBandwidth(value);
             if (quantized == 0.0) {
-                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of mock range");
+                return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of instrument range");
             }
             settings.ifBandwidthHz = quantized;
             return Result(true);
@@ -1019,7 +1023,7 @@ DataResult InstrumentService::StimulusAxis() const
         value.error = "No valid committed stimulus configuration";
         return value;
     }
-    value.values = MakePlan(settings_).frequencyHz;
+    value.values = activePlan_.frequencyHz;
     value.ok = true;
     return value;
 }

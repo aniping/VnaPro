@@ -2,6 +2,7 @@
  * Copyright (c) 2026 Huawei Device Co., Ltd.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <initializer_list>
@@ -92,6 +93,74 @@ void HardwareProfileKeepsDeviceIdentity()
         "重复初始化仪器配置必须拒绝且保留原目录");
 }
 
+void RawPowerIsFrozenAcrossPlanUpdates()
+{
+    VnaService::InstrumentProfile profile;
+    profile.defaultPoints = 3U;
+    profile.defaultPowerRaw = 0xFEDCBA9876543210ULL;
+    const auto expectedPower = profile.defaultPowerRaw;
+    VnaServiceTest::Fixture fixture(profile);
+    profile.defaultPowerRaw = 7U;
+    auto &service = fixture.service;
+    Require(
+        service.TryAcquireControl() && Finish(fixture, service.RunSingle("SCPI")).ok, "显式原始功率配置完成首次采集");
+    const auto first = service.Snapshot().core.frame;
+    Require(first && first->plan.powerRaw.size() == 3U &&
+                std::all_of(first->plan.powerRaw.begin(), first->plan.powerRaw.end(),
+                    [expectedPower](std::uint64_t value) {
+                        return value == expectedPower;
+                    }),
+        "逐点功率必须保留完整64位编码，不能截断或暗中解释为 dBm");
+    Require(Finish(fixture, service.SetPoints(5U)).ok && Finish(fixture, service.RunSingle("SCPI")).ok,
+        "修改点数后使用冻结的原始功率重新采集");
+    const auto updated = service.Snapshot().core.frame;
+    Require(updated && updated->plan.powerRaw.size() == 5U &&
+                std::all_of(updated->plan.powerRaw.begin(), updated->plan.powerRaw.end(),
+                    [expectedPower](std::uint64_t value) {
+                        return value == expectedPower;
+                    }) &&
+                first->plan.powerRaw.size() == 3U,
+        "新增频点沿用启动功率编码，外部 profile 变更和新扫描不得修改旧完整帧");
+}
+
+void StimulusAxisUsesCommittedConfiguration()
+{
+    VnaService::InstrumentProfile profile;
+    profile.defaultPoints = 3U;
+    VnaServiceTest::Fixture fixture(profile);
+    auto &service = fixture.service;
+    const auto original = service.StimulusAxis();
+    Require(original.ok && original.values.size() == 3U && !service.Snapshot().core.frame,
+        "初始配置成功后无需采集即可查询刺激轴");
+    Require(service.TryAcquireControl(), "取得刺激轴配置测试控制权");
+    fixture.device->ArmPlan();
+    const auto update = service.SetPoints(5U);
+    service.Poll();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (!fixture.device->HasPlanEntered()) {
+        Require(std::chrono::steady_clock::now() < deadline, "等待物理计划下发关卡超时");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const auto pending = service.StimulusAxis();
+    Require(pending.ok && pending.values == original.values && service.Settings().points == 3U,
+        "候选计划尚未下发成功时必须继续查询上一次提交的刺激轴");
+    fixture.device->Release();
+    Require(Finish(fixture, update).ok, "提交新五点刺激轴");
+    const auto committed = service.StimulusAxis();
+    Require(committed.ok && committed.values.size() == 5U && committed.values.front() == original.values.front() &&
+                committed.values.back() == original.values.back() && !service.Snapshot().core.frame,
+        "物理计划成功后刺激轴立即更新，不等待扫描结果");
+    const auto revision = service.Settings().revision;
+    fixture.device->FailNextPlanPreparation();
+    Require(!Finish(fixture, service.SetPoints(7U)).ok && service.Settings().revision == revision &&
+                service.StimulusAxis().values == committed.values,
+        "物理计划准备失败必须保留已提交的刺激轴和版本");
+    const auto invalid = Finish(fixture, service.SetStartHz(profile.minFrequencyHz - 1.0));
+    Require(!invalid.ok && invalid.message.find("instrument range") != std::string::npos &&
+                service.Settings().revision == revision && service.StimulusAxis().values == committed.values,
+        "替换模拟器错误文案后仍拒绝越界频率，不修改已提交的刺激轴");
+}
+
 void CoupledEndpointsAreAtomic()
 {
     VnaServiceTest::Fixture fixture(VnaService::InstrumentProfile{});
@@ -149,6 +218,8 @@ int main()
     try {
         DefaultMeasurementIsUncalibratedSParameter();
         HardwareProfileKeepsDeviceIdentity();
+        RawPowerIsFrozenAcrossPlanUpdates();
+        StimulusAxisUsesCommittedConfiguration();
         CoupledEndpointsAreAtomic();
         PortLimitsAndSinglePort();
         std::cout << "PASS 仪器边界与原子配置\n";

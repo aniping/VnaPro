@@ -24,6 +24,7 @@ Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器随后�
 
 - InstrumentProfile 在启动时验证并冻结；默认 4 端口、频率 10 MHz–8 GHz，201 点，IFBW 1 kHz。全新服务只创建并选择 `Trc1/S21`；单端口配置回退为 `Trc1/S11`，均为未校准测量，初始 HOLD 且没有已完成帧。
 - 仅模拟合同规定一个 frequencyRaw 计数等于 1 Hz，IFBW raw 采用相同整数；9N 表全零且为 opaque 数据，不代表真实功率、增益或校准表。
+- InstrumentProfile 的 `defaultPowerRaw` 为启动时冻结的 64 位原始功率编码，每个扫描计划显式生成 N 个相同值；修改点数时重新填充。0 已确认是 VN10 的合法启动默认值，但不等同于 0 dBm；VN10 直接下发该编码，其他数值的物理功率映射仍由驱动合同决定。
 - 默认支持频率范围 10 MHz–8 GHz，由 instrument.frequency 配置，端点按整数 Hz 回读；端点交叉保留旧 span，联动另一端点，联动后超范围则拒绝整个候选。
 - 点数 2–10001；IFBW 有效值为 10、100、1000、10000、100000 Hz，向上取适用值。频率、点数及 IFBW 等物理配置允许 Ready/Running，复用核心完整帧边界替换计划；不 Stop/Start，不改变 CONT/MAN、触发源或 runId。有限 SING/Trigger 前的请求先完成原测量，再按 FIFO 执行配置；执行时重新校验控制权、状态及逻辑 expectedRevision。
 - 协议测量选择走 DISPLAY FIFO，不覆盖正在提交的配置候选；有限采集期间可受理并在先前完整帧终结后执行。保留的原生同步选择入口仅在 SCPI 持权且 FIFO 为空时使用；触发范围修改仍须持权且无待处理配置。
@@ -36,7 +37,7 @@ Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器随后�
 
 `InstrumentSettings.revision` 是物理配置及测量目录的逻辑 CAS 版本，每个成功事务增加一次。`acquisitionRevision` 是核心最后成功下发的计划版本，对应 `CoreView.configRevision` 和 `MeasurementFrame.configRevision`。两者从启动时的 1 开始，但目录更新后可以不同；逻辑版本耗尽时在驱动调用前拒绝，不能回绕。
 
-服务保存最后成功下发的 `activePlan_`，而不是仅从当前目录推断实际硬件状态。候选的频轴、IFBW、表数据相同且源集合、接收器掩码被该计划覆盖时，只提交目录和逻辑版本，直接用同一完整原始帧重新计算。删除或减少需求保留实际计划的已有源和接收器；空目录也不下发虚构的新需求。
+服务保存最后成功下发的 `activePlan_`，而不是仅从当前目录推断实际硬件状态。候选的频轴、IFBW、原始功率和表数据相同且源集合、接收器掩码被该计划覆盖时，只提交目录和逻辑版本，直接用同一完整原始帧重新计算。删除或减少需求保留实际计划的已有源和接收器；空目录也不下发虚构的新需求。刺激轴查询直接读取该成功计划的 Hz 轴，候选下发期间及准备失败后保留上次提交的轴，不重新构造另一份计划。
 
 缺少激励源或接收器时，完整候选交给 Core FIFO，等待正在进行的完整多源帧结束再 Configure。设备成功后才提交目录、新逻辑版本、acquisitionRevision 和 activePlan_；旧帧保持不可变，直到当前物理版本的新完整帧到来前不能作为当前数据。CONT 保持连续运行，MAN 保持 armed 并等待用户触发；不调用 Stop/Start，不改变 runId，不重置 frameSeq。
 

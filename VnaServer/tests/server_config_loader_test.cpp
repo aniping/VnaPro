@@ -98,7 +98,7 @@ void TestMapping(const std::string &path, const std::string &directory)
         "  pattern: '%Y [%K] %n - value=%v'\n"
         "instrument:\n  portCount: 2\n  frequency: {minHz: 10000000, maxHz: 8000000000}\n"
         "  sweep: {defaultStartHz: 20000000, defaultStopHz: 6000000000, defaultPoints: 401, defaultIfBandwidthHz: "
-        "100, defaultSweepMode: HOLD}\n");
+        "100, defaultPowerRaw: 18446744073709551615, defaultSweepMode: HOLD}\n");
     const auto config = VnaServer::LoadServerConfig(path);
     Expect(config.log.level == VnaLog::Level::DEBUG && config.log.flushLevel == VnaLog::Level::ERROR_LEVEL,
         "级别映射错误");
@@ -111,7 +111,9 @@ void TestMapping(const std::string &path, const std::string &directory)
     Expect(profile.portCount == 2U && profile.minFrequencyHz == 1e7 && profile.maxFrequencyHz == 8e9,
         "二端口能力映射错误");
     Expect(profile.defaultStartHz == 2e7 && profile.defaultStopHz == 6e9 && profile.defaultPoints == 401U &&
-               profile.defaultIfBandwidthHz == 100.0 && config.defaultSweepMode == VnaService::SweepMode::HOLD,
+               profile.defaultIfBandwidthHz == 100.0 &&
+               profile.defaultPowerRaw == std::numeric_limits<std::uint64_t>::max() &&
+               config.defaultSweepMode == VnaService::SweepMode::HOLD,
         "扫描默认配置映射错误");
 }
 
@@ -129,7 +131,7 @@ void TestDefaults(const std::string &path, const std::string &directory)
         "默认四端口能力错误");
     Expect(profile.defaultStartHz == profile.minFrequencyHz && profile.defaultStopHz == profile.maxFrequencyHz &&
                profile.defaultPoints == 201U && profile.defaultIfBandwidthHz == 1000.0 &&
-               config.defaultSweepMode == VnaService::SweepMode::CONTINUOUS,
+               profile.defaultPowerRaw == 0U && config.defaultSweepMode == VnaService::SweepMode::CONTINUOUS,
         "默认扫描未覆盖完整频段");
     Expect(config.server.ip == "127.0.0.1" && config.server.scpiPort == 5025U && config.server.webPort == 8080U &&
                config.server.webEnabled && config.server.scpiIp.empty() && config.server.webIp.empty() &&
@@ -243,7 +245,9 @@ void TestInstrumentConstraints(const std::string &path)
         "frequency: {minHz: 9000000000}", "sweep: {defaultStartHz: 9999999}", "sweep: {defaultStopHz: 8000000001}",
         "sweep: {defaultStartHz: 20000000, defaultStopHz: 10000000}", "sweep: {defaultPoints: 1}",
         "sweep: {defaultPoints: 10002}", "sweep: {defaultIfBandwidthHz: 123}", "sweep: {defaultSweepMode: SING}",
-        "sweep: {defaultSweepMode: hold}", "sweep: {defaultSweepMode: null}", "sweep: {defaultSweepMode: []}"};
+        "sweep: {defaultSweepMode: hold}", "sweep: {defaultSweepMode: null}", "sweep: {defaultSweepMode: []}",
+        "sweep: {defaultPowerRaw: -1}", "sweep: {defaultPowerRaw: '0'}", "sweep: {defaultPowerRaw: 1.5}",
+        "sweep: {defaultPowerRaw: 18446744073709551616}"};
     for (const auto &entry : invalid) {
         ExpectInvalid(path, "instrument: {" + entry + "}\n", "instrument");
     }

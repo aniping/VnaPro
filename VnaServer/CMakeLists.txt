@@ -41,6 +41,10 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/HardwareDriverIsolationIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:vna_hardware_environment_probe>)
     set_tests_properties(hardware_driver_isolation PROPERTIES TIMEOUT 30)
+    add_test(NAME hardware_board_acquisition
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/HardwareBoardAcquisitionIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:vna_board_hardware_probe>)
+    set_tests_properties(hardware_board_acquisition PROPERTIES TIMEOUT 60)
     add_executable(vna_startup_paths_tests tests/startup_paths_test.cpp src/startup_paths.cpp src/web/static_file.cpp)
     target_include_directories(vna_startup_paths_tests PRIVATE src)
     add_test(NAME startup_paths COMMAND vna_startup_paths_tests)
