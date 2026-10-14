@@ -1,3 +1,26 @@
+# 网络监听；ip 默认同时用于 Web 与 SCPI，0.0.0.0 表示所有本机 IPv4 网卡。
+server:
+  ip: 127.0.0.1
+  scpiPort: 5025
+  webPort: 8080
+  webEnabled: true
+  # 相对路径以程序所在目录为基准；开发构建的默认 WebUI 使用源码目录的 dist。
+  webRoot: WebUI
+  # 需要分开绑定时取消注释；未配置时继承上面的 ip。
+  # scpiIp: 127.0.0.1
+  # webIp: 127.0.0.1
+
+# 驱动 ABI 与编译后的库文件名必须匹配；库从程序所在目录加载，不填写路径。
+driver:
+  board: tdc1vn10
+  # CMake 按实际工具链生成该文件名，Windows MinGW 的默认名称如下。
+  library: libtdc1vn10_drv_sim.dll
+  simulator:
+    # noise 为随采集变化的模拟信号，golden 为固定黄金向量。
+    mode: noise
+    # 0..18446744073709551615；相同种子与相同扫描过程可以重放。
+    seed: 42
+
 # 仪器能力与启动默认值；默认扫描覆盖完整支持频段。
 instrument:
   # 仅限制应用可用端口；2 端口只允许四项 S 参数，4 端口允许完整 16 项，不改变驱动数据格式。

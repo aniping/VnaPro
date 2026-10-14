@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 
-from server_startup import listening_port
+from server_startup import isolated_server, listening_port
 
 
 class Client:
@@ -186,47 +186,50 @@ def exercise(port):
 def main():
     environment = dict(os.environ, VNAPRO_SIM_MODE="golden")
     environment.pop("VNAPRO_SIM_SEED", None)
-    process = subprocess.Popen(
-        [sys.argv[1], "--port", "0", "--no-web", "--board", "tdc1vn08", "--driver", os.path.abspath(sys.argv[2]),
-         "--config", os.fspath(Path(__file__).with_name("golden_test.yml"))],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=environment,
-    )
-    lines = queue.Queue()
+    with isolated_server(
+        sys.argv[1], sys.argv[2], environment,
+        config=Path(__file__).with_name("golden_test.yml"), board="tdc1vn08", web_enabled=False,
+    ) as server:
+        process = subprocess.Popen(
+            [os.fspath(server.executable)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=server.environment,
+        )
+        lines = queue.Queue()
 
-    def collect():
-        for line in process.stdout:
-            lines.put(line.rstrip())
-        lines.put(None)
+        def collect():
+            for line in process.stdout:
+                lines.put(line.rstrip())
+            lines.put(None)
 
-    collector = threading.Thread(target=collect, daemon=True)
-    collector.start()
-    startup = []
-    try:
-        deadline = time.monotonic() + 10
-        while True:
-            line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
-            assert line is not None, "Server exited before the SCPI listener became ready"
-            startup.append(line)
-            listener = listening_port(line)
-            if listener is not None and listener[0] == "scpi":
-                port = listener[1]
-                break
-            if time.monotonic() >= deadline:
-                raise AssertionError("Server did not start")
-        exercise(port)
-        print("TCP SCPI integration passed: framing, completion, snapshots, ownership, limits")
-    except Exception:
-        print("Server output:", startup)
-        while not lines.empty():
-            print(lines.get_nowait())
-        raise
-    finally:
-        process.terminate()
+        collector = threading.Thread(target=collect, daemon=True)
+        collector.start()
+        startup = []
         try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+            deadline = time.monotonic() + 10
+            while True:
+                line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
+                assert line is not None, "Server exited before the SCPI listener became ready"
+                startup.append(line)
+                listener = listening_port(line)
+                if listener is not None and listener[0] == "scpi":
+                    port = listener[1]
+                    break
+                if time.monotonic() >= deadline:
+                    raise AssertionError("Server did not start")
+            exercise(port)
+            print("TCP SCPI integration passed: framing, completion, snapshots, ownership, limits")
+        except Exception:
+            print("Server output:", startup)
+            while not lines.empty():
+                print(lines.get_nowait())
+            raise
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 
 if __name__ == "__main__":

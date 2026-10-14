@@ -4,22 +4,27 @@ add_subdirectory(src/scpi)
 add_subdirectory(src/web)
 set(SERVER_CONFIG_SOURCES src/server_config_loader.cpp src/server_config_io.cpp src/yaml_config_reader.cpp
     src/server_startup_config_reader.cpp)
-add_executable(vna_server src/main.cpp ${SERVER_CONFIG_SOURCES} src/utf8_argument.cpp src/startup_paths.cpp
+add_executable(vna_server src/main.cpp ${SERVER_CONFIG_SOURCES} src/startup_paths.cpp src/simulator_environment.cpp
     src/scpi_tcp_server.cpp src/scpi_connection.cpp)
 target_link_libraries(vna_server PRIVATE vna_scpi vna_web vna_log yaml-cpp::yaml-cpp)
-set(DEFAULT_VN08_DRIVER_PATH "$<TARGET_FILE:tdc1vn08_drv_sim>")
-set(DEFAULT_VN10_DRIVER_PATH "$<TARGET_FILE:tdc1vn10_drv_sim>")
 set(DEFAULT_VN08_DRIVER_FILENAME "$<TARGET_FILE_NAME:tdc1vn08_drv_sim>")
 set(DEFAULT_VN10_DRIVER_FILENAME "$<TARGET_FILE_NAME:tdc1vn10_drv_sim>")
 set(DEFAULT_WEB_ROOT_PATH "${CMAKE_SOURCE_DIR}/WebUI/dist")
-set(DEFAULT_CONFIG_PATH "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/vnapro.yml")
-configure_file("${CMAKE_SOURCE_DIR}/config/vnapro.yml" "${DEFAULT_CONFIG_PATH}" COPYONLY)
+set(DEFAULT_CONFIG_PATH "$<TARGET_FILE_DIR:vna_server>/vnapro.yml")
+# 源模板保留可直接阅读的 MinGW 文件名；生成时替换为当前工具链真实产物名称。
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/config/vnapro.yml")
+file(READ "${CMAKE_SOURCE_DIR}/config/vnapro.yml" DEFAULT_CONFIG_CONTENT)
+string(REPLACE "libtdc1vn10_drv_sim.dll" "$<TARGET_FILE_NAME:tdc1vn10_drv_sim>"
+    DEFAULT_CONFIG_CONTENT "${DEFAULT_CONFIG_CONTENT}")
+string(REPLACE "libtdc1vn08_drv_sim.dll" "$<TARGET_FILE_NAME:tdc1vn08_drv_sim>"
+    DEFAULT_CONFIG_CONTENT "${DEFAULT_CONFIG_CONTENT}")
+file(GENERATE OUTPUT "${DEFAULT_CONFIG_PATH}" CONTENT "${DEFAULT_CONFIG_CONTENT}")
 configure_file(src/server_defaults.h.in generated/server_defaults.h.in @ONLY)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>/server_defaults.h"
     INPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/server_defaults.h.in")
 target_include_directories(vna_server PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
 if(WIN32)
-    target_link_libraries(vna_server PRIVATE ws2_32 shell32)
+    target_link_libraries(vna_server PRIVATE ws2_32)
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(vna_server PRIVATE -Wall -Wextra -Wpedantic)
@@ -31,6 +36,10 @@ if(BUILD_TESTING)
     add_executable(vna_startup_paths_tests tests/startup_paths_test.cpp src/startup_paths.cpp src/web/static_file.cpp)
     target_include_directories(vna_startup_paths_tests PRIVATE src)
     add_test(NAME startup_paths COMMAND vna_startup_paths_tests)
+    add_test(NAME startup_configuration_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/StartupConfigurationIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn10_drv_sim>)
+    set_tests_properties(startup_configuration_integration PROPERTIES TIMEOUT 30)
     if(VNAPRO_BUNDLE_WEBUI)
         add_test(NAME webui_build_pipeline
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/tests/WebUiBuildTest.py
@@ -40,7 +49,7 @@ if(BUILD_TESTING)
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/tests/ReleaseBundleTest.py
                 "${VNAPRO_RELEASE_OUTPUT}" $<TARGET_FILE_NAME:vna_server>
                 $<TARGET_FILE_NAME:tdc1vn10_drv_sim> $<TARGET_FILE_NAME:tdc1vn08_drv_sim>
-                ${CMAKE_SOURCE_DIR}/config/vnapro.yml ${CMAKE_SOURCE_DIR}/WebUI/dist)
+                "${DEFAULT_CONFIG_PATH}" ${CMAKE_SOURCE_DIR}/WebUI/dist)
         set_tests_properties(release_bundle PROPERTIES TIMEOUT 60)
     endif()
     add_test(NAME scpi_tcp_integration

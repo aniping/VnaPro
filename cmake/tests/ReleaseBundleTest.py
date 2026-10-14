@@ -13,6 +13,9 @@ import tempfile
 import time
 from urllib.parse import quote
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "VnaServer/tests"))
+from server_startup import write_startup_config
+
 
 def require(condition, message):
     if not condition:
@@ -70,17 +73,21 @@ def stop_process(process):
 
 
 @contextmanager
-def copied_server(server, cwd, output, environment, board=None):
+def copied_server(server, cwd, output, environment, board=None, library=None):
     # 自定义配置可能关闭全部日志，直接选取空闲端口，不以日志输出作为启动条件。
     with socket.socket() as scpi, socket.socket() as http:
         scpi.bind(("127.0.0.1", 0))
         http.bind(("127.0.0.1", 0))
         ports = {"scpi": scpi.getsockname()[1], "http": http.getsockname()[1]}
-    arguments = [str(server), "--port", str(ports["scpi"]), "--web-port", str(ports["http"])]
-    if board is not None:
-        arguments += ["--board", board]
+    config = server.parent / "vnapro.yml"
+    original = config.read_text(encoding="utf-8")
+    write_startup_config(config, original, library, board, "noise", 42)
+    content = config.read_text(encoding="utf-8")
+    content = content.replace('"scpiPort": 0', f'"scpiPort": {ports["scpi"]}')
+    content = content.replace('"webPort": 0', f'"webPort": {ports["http"]}')
+    config.write_text(content, encoding="utf-8")
     with output.open("wb") as stream:
-        process = subprocess.Popen(arguments, cwd=cwd, env=environment, stdout=stream, stderr=subprocess.STDOUT)
+        process = subprocess.Popen([str(server)], cwd=cwd, env=environment, stdout=stream, stderr=subprocess.STDOUT)
         try:
             deadline = time.monotonic() + 10
             while True:
@@ -151,9 +158,9 @@ def verify_acquisition(port, status):
         time.sleep(0.01)
 
 
-def exercise(bundle, server_name, cwd, environment, files, label, board=None, custom=False):
+def exercise(bundle, server_name, cwd, environment, files, label, library, board=None, custom=False):
     output = cwd.parent / (label + ".stdout.log")
-    with copied_server(bundle / server_name, cwd, output, environment, board) as (ports, startup):
+    with copied_server(bundle / server_name, cwd, output, environment, board, library) as (ports, startup):
         expected_board = "TDC1VN10" if board is None else board.upper()
         if "board=" in startup:
             require("board=" + expected_board in startup, "复制包没有选择预期单板接口")
@@ -175,9 +182,11 @@ def exercise(bundle, server_name, cwd, environment, files, label, board=None, cu
 def reject_missing_driver(bundle, server_name, driver_name, cwd, environment):
     driver = bundle / driver_name
     driver.rename(driver.with_name(driver.name + ".disabled"))
+    config = bundle / "vnapro.yml"
+    write_startup_config(config, config.read_text(encoding="utf-8"), driver_name, "tdc1vn10", "noise", 42)
     output = cwd.parent / "missing-driver.stdout.log"
     with output.open("wb") as stream:
-        process = subprocess.Popen([str(bundle / server_name), "--port", "0", "--web-port", "0"],
+        process = subprocess.Popen([str(bundle / server_name)],
                                    cwd=cwd, env=environment, stdout=stream, stderr=subprocess.STDOUT)
         try:
             process.wait(timeout=8)
@@ -202,14 +211,17 @@ def main():
         cwd = root / "无关工作目录"
         cwd.mkdir()
         environment = isolated_environment()
-        exercise(copied, sys.argv[2], cwd, environment, files, "default-vn10")
+        # 配置必须覆盖旧环境变量；错误环境不能破坏合法发布配置。
+        environment.update(VNAPRO_SIM_MODE="invalid", VNAPRO_SIM_SEED="invalid")
+        exercise(copied, sys.argv[2], cwd, environment, files, "default-vn10", sys.argv[3])
         # 只修改测试复制品，用非默认值证明配置来自包内且不依赖原构建路径。
         (copied / "vnapro.yml").write_text(
             "instrument: {portCount: 2, sweep: {defaultPoints: 17, defaultSweepMode: HOLD}}\n"
             "log: {level: INFO, console: {enabled: true}, file: {enabled: true, path: logs/bundle-acceptance.log}}\n",
             encoding="utf-8")
-        exercise(copied, sys.argv[2], cwd, environment, files, "two-port-vn10", custom=True)
-        exercise(copied, sys.argv[2], cwd, environment, files, "two-port-vn08", board="tdc1vn08", custom=True)
+        exercise(copied, sys.argv[2], cwd, environment, files, "two-port-vn10", sys.argv[3], custom=True)
+        exercise(copied, sys.argv[2], cwd, environment, files, "two-port-vn08", sys.argv[4],
+                 board="tdc1vn08", custom=True)
         reject_missing_driver(copied, sys.argv[2], sys.argv[3], cwd, environment)
     print("发布包离线复制、双板默认路径、配置生效、Web 资源及缺驱动拒绝启动验收通过")
 

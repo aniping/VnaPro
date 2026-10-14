@@ -11,7 +11,7 @@
 
 namespace VnaServer {
 
-// 接口版本由启动参数明确选择；同名导出函数不能用于猜测驱动 ABI。
+// 接口版本由启动配置明确选择；同名导出函数不能用于猜测驱动 ABI。
 struct DriverOptions final {
     VnaCore::DriverApi api = VnaCore::DriverApi::TDC1VN10;
     std::string path;

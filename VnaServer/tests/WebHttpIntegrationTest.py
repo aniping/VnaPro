@@ -15,7 +15,7 @@ import threading
 import time
 from urllib.parse import quote
 
-from server_startup import listening_port
+from server_startup import isolated_server, listening_port
 
 
 def reject_constant(value):
@@ -519,50 +519,52 @@ def assert_atomic(http, previous, target):
 def main():
     environment = dict(os.environ, VNAPRO_SIM_MODE="golden")
     environment.pop("VNAPRO_SIM_SEED", None)
-    process = subprocess.Popen(
-        [sys.argv[1], "--port", "0", "--web-port", "0", "--board", "tdc1vn08", "--driver", os.path.abspath(sys.argv[2]),
-         "--web-root", os.path.abspath(sys.argv[3]),
-         "--config", os.fspath(Path(__file__).with_name("golden_test.yml"))],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=environment,
-    )
-    lines = queue.Queue()
+    with isolated_server(
+        sys.argv[1], sys.argv[2], environment,
+        config=Path(__file__).with_name("golden_test.yml"), board="tdc1vn08", web_root=sys.argv[3],
+    ) as server:
+        process = subprocess.Popen(
+            [os.fspath(server.executable)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=server.environment,
+        )
+        lines = queue.Queue()
 
-    def collect():
-        for line in process.stdout:
-            lines.put(line.rstrip())
-        lines.put(None)
+        def collect():
+            for line in process.stdout:
+                lines.put(line.rstrip())
+            lines.put(None)
 
-    threading.Thread(target=collect, daemon=True).start()
-    startup = []
-    try:
-        deadline = time.monotonic() + 10
-        ports = {}
-        while len(ports) != 2:
-            line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
-            assert line is not None, "Server exited before both listeners became ready"
-            startup.append(line)
-            listener = listening_port(line)
-            if listener is not None:
-                ports[listener[0]] = listener[1]
-            assert time.monotonic() < deadline, "Both listeners did not start"
-        exercise(ports["http"], ports["scpi"])
-        assert process.poll() is None, "Server exited during integration checks"
-        print("HTTP/SCPI integration passed: static assets, typed operations, frames, ownership, input limits")
-    except Exception:
-        print("Server startup:", startup)
-        while not lines.empty():
-            print(lines.get_nowait())
-        raise
-    finally:
-        # 清理进程不等同于验证优雅关闭，尤其是在 Windows 上。
-        # 等待操作完成、关闭射频和回收线程的顺序由受控 C++ 生命周期测试验证。
-        if process.poll() is None:
-            process.terminate()
+        threading.Thread(target=collect, daemon=True).start()
+        startup = []
         try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+            deadline = time.monotonic() + 10
+            ports = {}
+            while len(ports) != 2:
+                line = lines.get(timeout=max(0.01, deadline - time.monotonic()))
+                assert line is not None, "Server exited before both listeners became ready"
+                startup.append(line)
+                listener = listening_port(line)
+                if listener is not None:
+                    ports[listener[0]] = listener[1]
+                assert time.monotonic() < deadline, "Both listeners did not start"
+            exercise(ports["http"], ports["scpi"])
+            assert process.poll() is None, "Server exited during integration checks"
+            print("HTTP/SCPI integration passed: static assets, typed operations, frames, ownership, input limits")
+        except Exception:
+            print("Server startup:", startup)
+            while not lines.empty():
+                print(lines.get_nowait())
+            raise
+        finally:
+            # 清理进程不等同于验证优雅关闭，尤其是在 Windows 上。
+            # 等待操作完成、关闭射频和回收线程的顺序由受控 C++ 生命周期测试验证。
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 
 if __name__ == "__main__":

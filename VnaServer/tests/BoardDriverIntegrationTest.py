@@ -8,6 +8,7 @@ import tempfile
 import time
 
 from GoldenIqIntegrationTest import running_server
+from server_startup import isolated_server, listening_ports
 from InstrumentConfigurationIntegrationTest import (
     assert_frame, define_supported, scpi_rejections, status_defaults,
 )
@@ -60,11 +61,10 @@ def exercise(config, port_count, driver, board, mode):
 def wrong_abi(config, board, driver):
     environment = dict(os.environ, VNAPRO_SIM_MODE="golden")
     environment.pop("VNAPRO_SIM_SEED", None)
-    result = subprocess.run(
-        [sys.argv[1], "--board", board, "--driver", os.path.abspath(driver),
-         "--config", str(config), "--no-web", "--port", "0"],
-        capture_output=True, text=True, encoding="utf-8", env=environment, timeout=8,
-    )
+    with isolated_server(sys.argv[1], driver, environment, config=config, board=board,
+                         web_enabled=False) as bundle:
+        result = subprocess.run([bundle.executable], capture_output=True, text=True,
+                                encoding="utf-8", env=bundle.environment, timeout=8)
     assert result.returncode == 1, (board, result.returncode, result.stdout, result.stderr)
     assert "symbol missing" in result.stdout + result.stderr, result
 
@@ -74,7 +74,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="vnapro-board-") as temporary:
         config = Path(temporary) / "four-port.yml"
         config.write_text("log: {file: {enabled: false}}\n", encoding="utf-8")
-        # 不传 --board 或 --driver，实测服务默认路径确实选择 VN10。
+        # 配置不指定单板和驱动，实测解析后的缺省确实选择 VN10。
         exercise(config, 4, None, None, "noise")
         exercise(config, 4, sys.argv[2], "tdc1vn10", "golden")
         two_port = Path(temporary) / "two-port.yml"
@@ -84,8 +84,18 @@ def main():
         # 选错接口时先完成必需符号绑定校验，不调用任何同名异签名函数。
         wrong_abi(config, "tdc1vn10", sys.argv[3])
         wrong_abi(config, "tdc1vn08", sys.argv[2])
-        invalid = subprocess.run([sys.argv[1], "--board", "unknown"], capture_output=True, timeout=5)
-        assert invalid.returncode == 2, invalid
+        with isolated_server(sys.argv[1], sys.argv[2], dict(os.environ), config=config,
+                             board="unknown", web_enabled=False) as bundle:
+            invalid = subprocess.run([bundle.executable], capture_output=True, text=True,
+                                     encoding="utf-8", env=bundle.environment, timeout=5)
+            assert invalid.returncode == 2 and "driver.board" in invalid.stderr, invalid
+            assert not listening_ports(invalid.stdout + invalid.stderr), invalid
+        with isolated_server(sys.argv[1], sys.argv[2], dict(os.environ), config=config,
+                             board="tdc1vn10", web_enabled=False) as bundle:
+            rejected = subprocess.run([bundle.executable, "--port", "0"], capture_output=True,
+                                      text=True, encoding="utf-8", env=bundle.environment, timeout=5)
+            assert rejected.returncode == 2, rejected
+            assert not listening_ports(rejected.stdout + rejected.stderr), rejected
     print("VN10 默认/显式启动、双/四端口、共享显示、HOLD 及 VN08 兼容验收通过")
 
 

@@ -106,7 +106,9 @@ std::string ExecutablePath()
 }
 #endif
 
-bool ResourceExists(const std::string &path, StartupPathKind kind)
+}  // 匿名命名空间
+
+bool StartupResourceExists(const std::string &path, StartupPathKind kind)
 {
 #ifdef _WIN32
     const DWORD attributes = GetFileAttributesW(WindowsPath(path).c_str());
@@ -124,7 +126,6 @@ bool ResourceExists(const std::string &path, StartupPathKind kind)
     return kind == StartupPathKind::DIRECTORY ? S_ISDIR(information.st_mode) : S_ISREG(information.st_mode);
 #endif
 }
-}  // 匿名命名空间
 
 std::string ExecutableDirectory()
 {
@@ -143,7 +144,8 @@ std::string DefaultStartupPath(const std::string &executableDirectory, const std
 {
     const std::string path = executableDirectory + "/" + adjacentRelativePath;
     // 发布包缺少依赖必须显式失败，不能偷偷依赖编译机器上的旧文件。
-    const bool releaseBundle = ResourceExists(executableDirectory + "/.vnapro-release-files", StartupPathKind::FILE);
-    return releaseBundle || ResourceExists(path, kind) ? path : developmentFallback;
+    const bool releaseBundle =
+        StartupResourceExists(executableDirectory + "/.vnapro-release-files", StartupPathKind::FILE);
+    return releaseBundle || StartupResourceExists(path, kind) ? path : developmentFallback;
 }
 }  // 命名空间 VnaServer

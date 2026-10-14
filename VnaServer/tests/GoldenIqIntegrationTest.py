@@ -17,7 +17,7 @@ import threading
 import time
 
 from WebHttpIntegrationTest import HttpClient, connect_scpi, identity_number
-from server_startup import listening_port
+from server_startup import isolated_server, listening_port
 
 
 def golden_vectors(path):
@@ -98,16 +98,17 @@ def exercise(http_port, scpi_port, vectors):
 @contextmanager
 def running_server(server, driver, environment, config=None, board="tdc1vn08"):
     """返回新启动服务的监听端口；优雅关闭由生命周期测试验证。"""
-    arguments = [server, "--port", "0", "--web-port", "0"]
-    if board is not None:
-        arguments += ["--board", board]
-    if driver is not None:
-        arguments += ["--driver", os.path.abspath(driver)]
-    if config is not None:
-        arguments += ["--config", os.fspath(config)]
+    with isolated_server(server, driver, environment, config=config, board=board) as bundle:
+        with listening_server(bundle) as ports:
+            yield ports
+
+
+@contextmanager
+def listening_server(bundle):
+    """实际进程只接收可执行文件，端口及驱动来自同目录 YAML。"""
     process = subprocess.Popen(
-        arguments,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=environment,
+        [bundle.executable], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", env=bundle.environment,
     )
     lines = queue.Queue()
 

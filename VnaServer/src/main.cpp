@@ -3,9 +3,10 @@
  */
 #include <chrono>
 #include <csignal>
-#include <cstdlib>
+#include <cstdint>
 #include <exception>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -13,8 +14,8 @@
 #include "scpi_tcp_server.h"
 #include "server_config_loader.h"
 #include "server_defaults.h"
+#include "simulator_environment.h"
 #include "startup_paths.h"
-#include "utf8_argument.h"
 #include "vna_core/acquisition_core.h"
 #include "vna_log/logger.h"
 #include "vna_service/instrument_service.h"
@@ -22,127 +23,43 @@
 namespace {
 // 信号处理函数只能为 volatile sig_atomic_t 赋值，不能访问服务状态。
 volatile std::sig_atomic_t g_signalReceived = 0;
-constexpr long TCP_PORT_MAXIMUM = 65535;
-enum class ArgumentResult {
-    READY,
-    HELP,
-    ERROR
-};
 
 void HandleSignal(int) noexcept
 {
     g_signalReceived = 1;
 }
 
-void PrintHelp()
+bool IsAbsolutePath(const std::string &path)
 {
-    std::cout << "VnaPro mock SCPI and Web service\n"
-                 "Usage: vna_server [--bind IPv4] [--port 0..65535] [--driver absolute-simulator-path]\n"
-                 "                  [--board tdc1vn10|tdc1vn08]\n"
-                 "                  [--web-bind IPv4] [--web-port 0..65535] [--web-root directory] [--no-web]\n"
-                 "                  [--config yaml-file]\n"
-                 "Defaults: TDC1VN10 simulator, SCPI 127.0.0.1:5025, Web http://127.0.0.1:8080.\n"
-                 "Simulators: tdc1vn08_drv_sim and tdc1vn10_drv_sim.\n"
-                 "--board selects the API and default library; an explicit --driver path overrides that library.\n"
-                 "Packaged config, WebUI, and libraries are resolved beside vna_server; explicit paths take priority.\n"
-                 "Port 0 selects an available port. Only the VnaPro mock profile is implemented.\n";
+    return !path.empty() && (path.front() == '/' || path.front() == '\\' ||
+                                (path.size() >= 3U && path[1] == ':' && (path[2] == '/' || path[2] == '\\')));
 }
 
-bool ParsePort(const std::string &value, std::uint16_t &port)
+void ApplyStartupConfiguration(const VnaServer::ServerConfig &config, const std::string &directory,
+    VnaServer::ListenOptions &options, VnaServer::DriverOptions &driver)
 {
-    char *end = nullptr;
-    const long parsed = std::strtol(value.c_str(), &end, 10);
-    if (value.empty() || *end != '\0' || parsed < 0 || parsed > TCP_PORT_MAXIMUM) {
-        std::cerr << "Invalid port\n";
-        return false;
-    }
-    port = static_cast<std::uint16_t>(parsed);
-    return true;
-}
-
-bool ParseOption(const std::string &argument, const std::string &value, VnaServer::ListenOptions &options,
-    VnaServer::DriverOptions &driver, std::string &configPath)
-{
-    if (argument == "--bind") {
-        options.bindAddress = value;
-    } else if (argument == "--web-bind") {
-        options.web.bindAddress = value;
-    } else if (argument == "--web-root") {
-        options.web.staticRoot = value;
-    } else if (argument == "--driver") {
-        driver.path = value;
-    } else if (argument == "--board") {
-        if (value == "tdc1vn10") {
-            driver.api = VnaCore::DriverApi::TDC1VN10;
-        } else if (value == "tdc1vn08") {
-            driver.api = VnaCore::DriverApi::TDC1VN08;
-        } else {
-            std::cerr << "Invalid board: " << value << '\n';
-            return false;
-        }
-    } else if (argument == "--config") {
-        configPath = value;
-    } else if (argument == "--port") {
-        return ParsePort(value, options.port);
-    } else if (argument == "--web-port") {
-        return ParsePort(value, options.web.port);
-    } else {
-        std::cerr << "Unknown option: " << argument << '\n';
-        return false;
-    }
-    return true;
-}
-
-ArgumentResult ParseArguments(int argc, const char * const *argv, VnaServer::ListenOptions &options,
-    VnaServer::DriverOptions &driver, std::string &configPath)
-{
-    for (int index = 1; index < argc; ++index) {
-        const std::string argument = argv[index];
-        if (argument == "--help") {
-            return ArgumentResult::HELP;
-        }
-        if (argument == "--no-web") {
-            options.web.enabled = false;
-            continue;
-        }
-        if (index + 1 >= argc) {
-            std::cerr << "Missing option value: " << argument << '\n';
-            return ArgumentResult::ERROR;
-        }
-        ++index;
-        try {
-            const std::string value = (argument == "--config" || argument == "--driver" || argument == "--web-root")
-                                          ? VnaServer::Utf8Argument(index, argv[index])
-                                          : argv[index];
-            if (!ParseOption(argument, value, options, driver, configPath)) {
-                return ArgumentResult::ERROR;
-            }
-        } catch (const std::exception &error) {
-            // 日志初始化前的路径编码错误仍按参数错误返回，避免直接终止进程。
-            std::cerr << "Invalid option value: " << argument << ": " << error.what() << '\n';
-            return ArgumentResult::ERROR;
-        }
-    }
-    return ArgumentResult::READY;
-}
-
-void ApplyDefaultPaths(VnaServer::ListenOptions &options, VnaServer::DriverOptions &driver, std::string &configPath)
-{
-    const std::string directory = VnaServer::ExecutableDirectory();
-    if (configPath.empty()) {
-        configPath = VnaServer::DefaultStartupPath(directory, "vnapro.yml", VnaServer::DEFAULT_CONFIG_PATH);
-    }
-    if (options.web.staticRoot.empty()) {
+    options.bindAddress = config.server.scpiIp.empty() ? config.server.ip : config.server.scpiIp;
+    options.port = static_cast<std::uint16_t>(config.server.scpiPort);
+    options.web.bindAddress = config.server.webIp.empty() ? config.server.ip : config.server.webIp;
+    options.web.port = static_cast<std::uint16_t>(config.server.webPort);
+    options.web.enabled = config.server.webEnabled;
+    const auto &webRoot = config.server.webRoot;
+    options.web.staticRoot = IsAbsolutePath(webRoot) ? webRoot : directory + "/" + webRoot;
+    if (webRoot == "WebUI") {
         options.web.staticRoot = VnaServer::DefaultStartupPath(
-            directory, "WebUI", VnaServer::DEFAULT_WEB_ROOT_PATH, VnaServer::StartupPathKind::DIRECTORY);
+            directory, webRoot, VnaServer::DEFAULT_WEB_ROOT_PATH, VnaServer::StartupPathKind::DIRECTORY);
     }
-    // 最后选择默认库，保证 --board 与 --driver 的参数顺序不影响结果。
-    if (driver.path.empty()) {
-        const bool vn10 = driver.api == VnaCore::DriverApi::TDC1VN10;
-        driver.path = VnaServer::DefaultStartupPath(directory,
-            vn10 ? VnaServer::DEFAULT_VN10_DRIVER_FILENAME : VnaServer::DEFAULT_VN08_DRIVER_FILENAME,
-            vn10 ? VnaServer::DEFAULT_VN10_DRIVER_PATH : VnaServer::DEFAULT_VN08_DRIVER_PATH);
+    if (options.web.enabled &&
+        !VnaServer::StartupResourceExists(options.web.staticRoot + "/index.html", VnaServer::StartupPathKind::FILE)) {
+        throw std::invalid_argument("WebUI 目录中没有 index.html：" + options.web.staticRoot);
     }
+    driver.api = config.driver.api;
+    const char *defaultLibrary = driver.api == VnaCore::DriverApi::TDC1VN10 ? VnaServer::DEFAULT_VN10_DRIVER_FILENAME
+                                                                            : VnaServer::DEFAULT_VN08_DRIVER_FILENAME;
+    driver.path = directory + "/" + (config.driver.library.empty() ? defaultLibrary : config.driver.library);
+    VnaServer::ConfigureSimulatorEnvironment(config.driver.simulator);
+    VnaLog::Info(VnaLog::Module::SERVER, "模拟驱动启动配置，mode={}，seed={}", config.driver.simulator.mode,
+        config.driver.simulator.seed);
 }
 
 bool LoadConfiguration(const std::string &path, VnaServer::ServerConfig &config)
@@ -223,27 +140,24 @@ int StartService(const VnaServer::DriverOptions &driver, const VnaServer::Listen
 }
 }  // 匿名命名空间
 
-int main(int argc, char **argv)
+int main(int argc, char **)
 {
+    if (argc != 1) {
+        std::cerr << "不再支持启动参数，请修改程序所在目录的 vnapro.yml\n";
+        return 2;
+    }
     VnaServer::ListenOptions options;
     VnaServer::DriverOptions driver;
-    std::string configPath;
-    const ArgumentResult parsed = ParseArguments(argc, argv, options, driver, configPath);
-    if (parsed == ArgumentResult::HELP) {
-        PrintHelp();
-        return 0;
-    }
-    if (parsed == ArgumentResult::ERROR) {
-        return 2;
-    }
-    try {
-        ApplyDefaultPaths(options, driver, configPath);
-    } catch (const std::exception &error) {
-        std::cerr << "Startup resource resolution failed: " << error.what() << '\n';
-        return 2;
-    }
     VnaServer::ServerConfig config;
-    if (!LoadConfiguration(configPath, config)) {
+    try {
+        const std::string directory = VnaServer::ExecutableDirectory();
+        if (!LoadConfiguration(directory + "/vnapro.yml", config)) {
+            return 2;
+        }
+        ApplyStartupConfiguration(config, directory, options, driver);
+    } catch (const std::exception &error) {
+        std::cerr << "Startup configuration failed: " << error.what() << '\n';
+        VnaLog::Logger::Instance().Shutdown();
         return 2;
     }
     std::signal(SIGINT, HandleSignal);

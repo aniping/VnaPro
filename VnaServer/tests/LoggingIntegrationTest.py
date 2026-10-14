@@ -10,7 +10,7 @@ import sys
 import tempfile
 import time
 
-from server_startup import listening_ports
+from server_startup import isolated_server, listening_ports
 
 
 def environment(mode="golden"):
@@ -30,11 +30,6 @@ def config_file(directory, extra=""):
     return path
 
 
-def command(config):
-    return [sys.argv[1], "--port", "0", "--no-web", "--board", "tdc1vn08", "--driver",
-            os.path.abspath(sys.argv[2]), "--config", str(config)]
-
-
 def logs(directory):
     return sorted((directory / "logs").glob("service*.log"))
 
@@ -45,14 +40,22 @@ def contents(directory):
 
 @contextmanager
 def running(config):
-    process = subprocess.Popen(command(config), stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True, encoding="utf-8", env=environment())
+    with isolated_server(sys.argv[1], sys.argv[2], environment(), config=config,
+                         web_enabled=False, directory=config.parent) as bundle:
+        with listening_server(bundle) as port:
+            yield port
+
+
+@contextmanager
+def listening_server(bundle):
+    process = subprocess.Popen([bundle.executable], stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, encoding="utf-8", env=bundle.environment)
     try:
         deadline = time.monotonic() + 10
         while True:
             assert process.poll() is None, "服务在完成监听前退出"
             # 控制台关闭时从实际文件判断就绪，不能临时打开控制台绕过配置验收。
-            ports = listening_ports(contents(config.parent))
+            ports = listening_ports(contents(bundle.config.parent))
             if "scpi" in ports:
                 yield ports["scpi"]
                 break
@@ -108,36 +111,54 @@ def exercise_logging(directory):
 
 
 def exercise_unicode_path(directory):
-    config = directory / "服务配置.yml"
+    config = directory / "vnapro.yml"
     config.write_text("log:\n  console: {enabled: false}\n  file: {path: 日志/采集.log}\n", encoding="utf-8")
-    failed = subprocess.run(command(config), capture_output=True, text=True,
-                            encoding="utf-8", env=environment("invalid"), timeout=10)
-    assert failed.returncode == 1, failed.stderr
+    with isolated_server(sys.argv[1], sys.argv[2], environment(), config=config,
+                         web_enabled=False, directory=directory) as bundle:
+        text = bundle.config.read_text(encoding="utf-8")
+        bundle.config.write_text(text.replace(Path(sys.argv[2]).name, "缺失驱动.dll"), encoding="utf-8")
+        failed = subprocess.run([bundle.executable], capture_output=True, text=True,
+                                encoding="utf-8", env=bundle.environment, timeout=10)
+        assert failed.returncode == 1, failed.stderr
     output = (directory / "日志" / "采集.log").read_text(encoding="utf-8")
-    assert "DrvHwInit returned 1" in output and "服务退出" in output, output
+    assert "缺失驱动.dll" in output and "服务退出" in output, output
+
+
+def failed_start(config, mode="golden", transform=None):
+    """在真实配置目录启动失败场景，保留日志相对路径语义。"""
+    with isolated_server(sys.argv[1], sys.argv[2], environment(mode), config=config,
+                         web_enabled=False, directory=config.parent) as bundle:
+        if transform is not None:
+            transform(bundle.config)
+        return subprocess.run([bundle.executable], capture_output=True, text=True,
+                              encoding="utf-8", env=bundle.environment, timeout=10)
 
 
 def exercise_startup_failures(directory):
     config = config_file(directory, "unknown: true\n")
-    invalid = subprocess.run(command(config), capture_output=True, text=True,
-                             encoding="utf-8", env=environment(), timeout=10)
+    invalid = failed_start(config)
     assert invalid.returncode == 2, invalid
     assert "unknown" in invalid.stderr, invalid.stderr
     assert not listening_ports(invalid.stdout + invalid.stderr)
     assert not logs(directory), "无效配置应在设备启动和创建日志目标前拒绝"
-    if os.name == "nt":
-        # Windows 原始命令行可以含孤立 UTF-16 代理，参数边界应拒绝而非崩溃。
-        invalid_unicode = subprocess.run(command("\ud800.yml"), capture_output=True, text=True,
-                                         encoding="utf-8", env=environment(), timeout=10)
-        assert invalid_unicode.returncode == 2, invalid_unicode
-        assert "Invalid option value: --config" in invalid_unicode.stderr, invalid_unicode.stderr
     config = config_file(directory)
-    # 模拟设备 Init 返回非零，错误和退出日志应在进程结束前写出。
-    failed = subprocess.run(command(config), capture_output=True, text=True,
-                            encoding="utf-8", env=environment("invalid"), timeout=10)
+    invalid_mode = failed_start(config, mode="invalid")
+    assert invalid_mode.returncode == 2 and "driver.simulator.mode" in invalid_mode.stderr, invalid_mode
+    assert not logs(directory), "非法噪声配置必须在驱动和日志初始化前拒绝"
+    invalid_utf8 = failed_start(config, transform=lambda path: path.write_bytes(b"log: \xff\n"))
+    assert invalid_utf8.returncode == 2, invalid_utf8
+    assert not listening_ports(invalid_utf8.stdout + invalid_utf8.stderr)
+    assert not logs(directory), "非法编码配置必须在创建日志前拒绝"
+    config = config_file(directory)
+    # 合法配置引用缺失驱动，加载失败和退出日志应在进程结束前刷盘。
+    def missing_driver(path):
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace(Path(sys.argv[2]).name, "missing-driver.dll"), encoding="utf-8")
+
+    failed = failed_start(config, transform=missing_driver)
     assert failed.returncode == 1, failed
     output = contents(directory)
-    assert "[ERROR]" in output and "DrvHwInit returned 1" in output, output
+    assert "[ERROR]" in output and "missing-driver.dll" in output, output
     assert "服务退出，exit_code=1" in output, output
     assert not listening_ports(failed.stdout + output)
 
