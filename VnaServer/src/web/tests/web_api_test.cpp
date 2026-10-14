@@ -280,14 +280,14 @@ void SnapshotAndSampling()
         Accepted(Request(api, "POST", "/api/v1/operations", "{\"action\":\"single\",\"requestId\":\"first\"}", token));
     Require(StringField(Finish(api, single, token).json, "state") == "completed", "Large single completes");
     response = Request(api, "GET", "/api/v1/frame");
-    Require(Field(response.json, "current").boolean && Field(response.json, "decimated").boolean,
-        "Completed frame current and sampled");
+    Require(Field(response.json, "current").boolean && !Field(response.json, "decimated").boolean,
+        "Completed single trace preserves the full sweep");
     Require(Field(response.json, "originalPointCount").number == 10001.0 &&
-                Field(response.json, "displayPointCount").number == 2001.0,
+                Field(response.json, "displayPointCount").number == 10001.0,
         "Sampling metadata truthful");
     const auto &axis = Field(response.json, "frequencyHz").array;
-    Require(axis.size() == 2001U && axis.front().number == 1000000.0 && axis.back().number == 100000000.0,
-        "Sampling includes endpoints");
+    Require(axis.size() == 10001U && axis.front().number == 1000000.0 && axis.back().number == 100000000.0,
+        "The complete axis includes every original sample");
     const auto &traces = Field(response.json, "traces").array;
     Require(traces.size() == 1U && Field(traces.front(), "real").array.size() == axis.size() &&
                 Field(traces.front(), "valid").array.front().boolean,

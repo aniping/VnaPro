@@ -7,6 +7,7 @@ add_library(vna_web STATIC
     calibration_preview_json.cpp
     trace_action_adapter.cpp
     frame_selection.cpp
+    frame_array_json.cpp
     json.cpp
     json_parser.cpp
     json_encoder.cpp
@@ -31,6 +32,10 @@ if(BUILD_TESTING)
     target_compile_options(vna_calibration_protocol_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME calibration_protocol COMMAND vna_calibration_protocol_tests)
     set_tests_properties(calibration_protocol PROPERTIES TIMEOUT 60)
+    add_executable(vna_frame_array_json_tests tests/frame_array_json_test.cpp)
+    target_link_libraries(vna_frame_array_json_tests PRIVATE vna_web)
+    add_test(NAME web_frame_array_json COMMAND vna_frame_array_json_tests)
+    set_tests_properties(web_frame_array_json PROPERTIES TIMEOUT 10)
     add_executable(vna_web_all_sparameters_tests tests/all_sparameters_test.cpp)
     target_link_libraries(vna_web_all_sparameters_tests PRIVATE vna_web vna_service_test_support)
     add_test(NAME web_all_sparameters COMMAND vna_web_all_sparameters_tests)

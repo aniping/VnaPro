@@ -25,6 +25,7 @@ import {
 } from './decodeValues'
 import { decodeDisplay, decodeProjection } from './displayDecoders'
 import { decodeCalibration } from './calibrationDecoders'
+import { FRAME_POINT_LIMIT, FRAME_SAMPLE_BUDGET } from './frameLimits'
 
 function measurement(value: unknown): Measurement {
   const item = object(value, 'measurement')
@@ -192,14 +193,14 @@ export function decodeStatus(value: unknown): InstrumentStatus {
 
 function trace(value: unknown, count: number): ReceiverTrace {
   const item = object(value, 'trace')
-  const real = array(item.real, 'trace.real', 2001).map((entry) =>
+  const real = array(item.real, 'trace.real', FRAME_POINT_LIMIT).map((entry) =>
     entry === null ? null : number(entry, 'trace.real'),
   )
-  const imag = array(item.imag, 'trace.imag', 2001).map((entry) =>
+  const imag = array(item.imag, 'trace.imag', FRAME_POINT_LIMIT).map((entry) =>
     entry === null ? null : number(entry, 'trace.imag'),
   )
-  const valid = array(item.valid, 'trace.valid', 2001).map((entry) =>
-    flag(entry, 'trace.valid'),
+  const valid = array(item.valid, 'trace.valid', FRAME_POINT_LIMIT).map(
+    (entry) => flag(entry, 'trace.valid'),
   )
   if (
     [real.length, imag.length, valid.length].some((length) => length !== count)
@@ -236,17 +237,19 @@ export function decodeFrame(value: unknown): FrameResponse {
     item.displayPointCount,
     'frame.displayPointCount',
     1,
-    2001,
+    FRAME_POINT_LIMIT,
   )
   const originalCount = integer(
     item.originalPointCount,
     'frame.originalPointCount',
     count,
-    10001,
+    FRAME_POINT_LIMIT,
   )
-  const axis = array(item.frequencyHz, 'frame.frequencyHz', 2001).map((entry) =>
-    number(entry, 'frame.frequencyHz', Number.MIN_VALUE),
-  )
+  const axis = array(
+    item.frequencyHz,
+    'frame.frequencyHz',
+    FRAME_POINT_LIMIT,
+  ).map((entry) => number(entry, 'frame.frequencyHz', Number.MIN_VALUE))
   if (
     axis.length !== count ||
     axis.some((entry, index) => index > 0 && entry < axis[index - 1]!)
@@ -254,9 +257,10 @@ export function decodeFrame(value: unknown): FrameResponse {
     invalid('frame axis')
   const decimated = flag(item.decimated, 'frame.decimated')
   if (decimated !== originalCount > count) invalid('frame.decimated')
-  const traces = array(item.traces, 'frame.traces', MAX_TRACES).map((entry) =>
-    trace(entry, count),
-  )
+  const entries = array(item.traces, 'frame.traces', MAX_TRACES)
+  if (entries.length * count > FRAME_SAMPLE_BUDGET)
+    invalid('frame sample budget')
+  const traces = entries.map((entry) => trace(entry, count))
   if (new Set(traces.map((entry) => entry.name)).size !== traces.length)
     invalid('trace names')
   const result: AcquiredFrame = {
@@ -276,9 +280,11 @@ export function decodeFrame(value: unknown): FrameResponse {
     displayPointCount: count,
     decimated,
     frequencyHz: axis,
-    sampleIndexes: array(item.sampleIndexes, 'frame.sampleIndexes', 2001).map(
-      (entry) => integer(entry, 'frame.sampleIndex', 0, originalCount - 1),
-    ),
+    sampleIndexes: array(
+      item.sampleIndexes,
+      'frame.sampleIndexes',
+      FRAME_POINT_LIMIT,
+    ).map((entry) => integer(entry, 'frame.sampleIndex', 0, originalCount - 1)),
     traces,
   }
   if (

@@ -16,7 +16,7 @@ from WebHttpIntegrationTest import HttpClient, accepted, connect_scpi, wait_oper
 
 
 POINT_COUNT = 4000
-DISPLAY_POINT_COUNT = 2001
+DISPLAY_POINT_COUNT = POINT_COUNT
 FRAME_MEDIAN_LIMIT = 1.0
 CONTROL_MEDIAN_LIMIT = 0.25
 

@@ -18,6 +18,7 @@
 
 #include "vna_core/frame_layout.h"
 #include "vna_measurement/measurement_processor.h"
+#include "vna_service/instrument_profile.h"
 #include "vna_service/instrument_service.h"
 #include "vna_service/service_error_code.h"
 #include "web/calibration_json.h"
@@ -50,11 +51,11 @@ constexpr std::size_t RETRY_LIMIT = 32U;
 constexpr std::size_t RETRY_BYTE_LIMIT = 64U * 1024U * 1024U;
 constexpr std::size_t OPERATION_LIMIT = 128U;
 constexpr std::size_t NAME_LENGTH_LIMIT = 128U;
-constexpr unsigned DISPLAY_POINT_LIMIT = 2001U;
+constexpr unsigned DISPLAY_POINT_LIMIT = VnaService::MAX_SWEEP_POINTS;
 // 即使请求128条迹线，也不同时保留全部完整频轴的复数结果。
 constexpr std::size_t CALCULATION_BATCH_SIZE = 4U;
-// 保持原四条满分辨率迹线的总传输预算；更多迹线共享抽点额度。
-constexpr std::size_t DISPLAY_SAMPLE_BUDGET = 8004U;
+// 常用一至四条迹线保留完整扫频；更多迹线共享有界的传输额度。
+constexpr std::size_t DISPLAY_SAMPLE_BUDGET = static_cast<std::size_t>(DISPLAY_POINT_LIMIT) * 4U;
 constexpr unsigned SWEEP_POINT_LIMIT = 10001U;
 constexpr unsigned TOKEN_WORD_COUNT = 4U;
 constexpr int TOKEN_WORD_HEX_WIDTH = 8;

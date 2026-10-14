@@ -184,7 +184,7 @@ Smith 的 Γ 和归一化阻抗均由后端随正常帧下发，拖动期间直�
 
 所有图来自一个完整帧。无帧仍显示网格；断线、配置已变或新 run 尚未发布数据时保留旧帧并明确标记。旧帧的频轴和点数来自该帧，IFBW 显示 `—`，因为该 API 帧不携带采集带宽，不能用新配置冒充旧数据的带宽。
 
-Web 单条最多返回 2001 个均匀选取的真实点，总迹线采样预算为 8004；请求 N 条时共同绘图点数不超过 `min(2001, floor(8004 / N))`，保留端点并显示原始/展示点数。曲线和 CSV 使用这些真实展示点及其原始索引；所有标记使用后端完整帧结果，不受显示抽取限制。CSV 保存 calibrationRevision，逐行区分 raw、uncalibrated、calibrated。参考波过小或无效时，后端将对应 S 参数点标为无效；图线断开、标记显示 Invalid point，前端不补造比值。SCPI 读取完整扫描数组。Reference/Delta/Coupled 标记、RF 开关和预设尚未实现，相关入口禁用。普通多标记的交互依据见[ZNB8 官方行为核对](../docs/research/ZNB8迹线与标记行为核对.md)，不宣称完整标记能力 1:1。
+Web 单条最多返回 10001 个真实点，总迹线采样预算为 40004（2026-10-14 更新）；常用一至四条迹线保留全部扫频点，请求 N 条时共同绘图点数不超过 `min(10001, floor(40004 / N))`，仅超预算时抽点并保留端点，画面显示原始/展示点数。该限制是本项目资源策略，不是 ZNB 的原机显示规则。曲线和 CSV 使用这些真实展示点及其原始索引；所有标记使用后端完整帧结果，不受显示抽取限制。CSV 保存 calibrationRevision，逐行区分 raw、uncalibrated、calibrated。参考波过小或无效时，后端将对应 S 参数点标为无效；图线断开、标记显示 Invalid point，前端不补造比值。SCPI 读取完整扫描数组。Reference/Delta/Coupled 标记、RF 开关和预设尚未实现，相关入口禁用。普通多标记的交互依据见[ZNB8 官方行为核对](../docs/research/ZNB8迹线与标记行为核对.md)，不宣称完整标记能力 1:1。
 
 CSV 使用 schema 4，记录采集、目录、显示版本、抽取信息及后端 Re/Im、格式投影。追加 `source_index,display_state,secondary_state`；移除前端计算的逐点归一化阻抗列。`display_value` 与 `display_imaginary` 直接使用后端 primary/secondary 投影，Smith 对应 Γ 实虚部；负无穷写为 `-Infinity`，未定义留空并保留状态。原始有效位与格式状态分离。读取旧格式的程序必须检查 schema/表头。
 

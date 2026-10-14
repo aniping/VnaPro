@@ -475,10 +475,10 @@ def exercise(http_port, scpi_port):
         assert "Web B" not in {trace["name"] for trace in displayed["traces"]}, (
             "Defining and selecting a hidden measurement does not assign a display slot"
         )
-        # 隐藏定义可被显式查询；抽点验收读取 SCPI 当前选中的同一完整测量。
+        # 隐藏定义可被显式查询；常用四迹线预算内保留 SCPI 同一测量的全部频点。
         reduced = http.frame(("Web B",))
-        assert reduced["current"] is True and reduced["decimated"] is True, reduced
-        assert reduced["originalPointCount"] == 2501 and reduced["displayPointCount"] == 2001, reduced
+        assert reduced["current"] is True and reduced["decimated"] is False, reduced
+        assert reduced["originalPointCount"] == 2501 and reduced["displayPointCount"] == 2501, reduced
         assert reduced["revision"] == status["acquisitionRevision"] and len(reduced["traces"]) == 1, (
             "Explicit query returns exactly the requested hidden measurement", reduced["revision"]
         )
@@ -487,9 +487,9 @@ def exercise(http_port, scpi_port):
         full_iq = [float(value) for value in scpi.query("CALC1:DATA? RDATA").split(",")]
         samples = {hz: (full_iq[2 * index], full_iq[2 * index + 1]) for index, hz in enumerate(full_axis)}
         receiver = next(trace for trace in reduced["traces"] if trace["name"] == "Web B")
-        assert len(reduced["frequencyHz"]) == len(receiver["real"]) == len(receiver["imag"]) == 2001
+        assert len(reduced["frequencyHz"]) == len(receiver["real"]) == len(receiver["imag"]) == 2501
         for hz, real, imaginary in zip(reduced["frequencyHz"], receiver["real"], receiver["imag"]):
-            assert samples[hz] == (real, imaginary), "Display decimation must preserve the physical receiver samples"
+            assert samples[hz] == (real, imaginary), "Full display data must preserve the physical receiver samples"
         assert all(receiver["valid"]), receiver
     finally:
         scpi.close()

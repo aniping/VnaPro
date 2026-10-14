@@ -48,3 +48,29 @@ ctest --test-dir cmake-build-debug --output-on-failure -R "^(web_frame_schedulin
 ```
 
 本次正式 Debug 构建全量 42 项 CTest 通过，包括采集并发、共享显示状态、HTTP、SCPI、驱动、离线依赖与有序关闭。前端源代码及采集配置未因提速而调整。
+
+## 2026-10-14 完整扫频显示修正
+
+以上记录保留 2026-10-12 的真实验收结果。2026-10-14 发现固定 2001 点上限使 4000 和 8000 点扫描都只向网页提供 2001 点；同一 HOLD 帧的 SCPI 分别返回完整 4000 和 8000 点，采集配置已经生效，损失发生在 HTTP 传输选点。
+
+当前合同改为单条最多 10001 点、总采样预算 40004，一至四迹线保留全部原始扫频点。更多迹线仅在总预算不足时抽点，并通过 `originalPointCount`、`displayPointCount`、`decimated` 明示；这是项目资源限制，不是 ZNB 原机规则。前端只是解码和逐点绘制后端数据，格式和采样策略仍在 C++ 中确定。
+
+JSON 编码上限调整为 16 MiB，以覆盖完整 Smith、逆 Smith、Polar 和实虚投影；静态文件上限保持 4 MiB。每轮 256 步编码、32 KiB 发送和有界连接数保持，单连接仍只保留当前响应，不积压连续帧。
+
+`WebFrameResolutionTest.py` 对 201、4000、8000、10001 点分别验证一至四条迹线，与同一冻结帧的 SCPI 完整频轴及 IQ 逐值一致。`WebFrameSchedulingTest.py` 改为实际传输四条 4000 点完整迹线，并继续验证控制查询公平性和慢客户端隔离。多迹线总预算及完整最大点数 Smith 编码由 `web_frame_selection` 验收。
+
+```powershell
+ctest --test-dir cmake-build-debug --output-on-failure -R "^(web_frame_resolution|web_frame_scheduling|web_frame_selection|web_display_control|web_api|web_http_integration)$"
+```
+
+完整数据修正后的独立随机端口实测（Windows、MinGW/GCC 10.3 Debug、同一 VN10 noise/seed 42、HOLD，四条 S21）：
+
+| 原始点数 | 修正前 HTTP 点数 / 中位耗时 | 修正后 HTTP 点数 / 中位耗时 | 修正后响应字节 |
+| --- | --- | --- | --- |
+| 4000 | 2001 / 61.45 ms | 4000 / 107.94 ms | 1,587,325 |
+| 8000 | 2001 / 65.39 ms | 8000 / 215.37 ms | 3,155,544 |
+| 10001 | 2001 / 67.59 ms | 10001 / 261.32 ms | 3,940,181 |
+
+每组十次请求，时间包含后端投影、编码和本机完整响应收取，不包含浏览器绘制。10001 点四迹线另外五次实测：Smith 5,351,225 字节 / 342.79 ms，逆 Smith 5,351,238 字节 / 332.09 ms，Polar 6,884,770 字节 / 438.81 ms，实虚格式 4,551,170 字节 / 294.82 ms，均在 16 MiB 有界响应内。更高传输成本来自完整采样保留，不应恢复固定 2001 点截断来掩盖；后续若继续提高多迹线吞吐，应采用保真显示投影或标准二进制传输。
+
+定向 `web_frame_resolution`、`web_frame_scheduling`、`web_frame_selection`、`web_display_control`、`web_api`、`web_http_integration` 六项通过。前端协议验收覆盖九项：完整点数组、圆图/实虚投影以及单条和整体容量拒绝。

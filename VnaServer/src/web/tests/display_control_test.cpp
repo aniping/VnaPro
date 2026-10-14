@@ -148,26 +148,36 @@ void FullFrameMarkerSurvivesDecimation()
     config["expectedRevision"] = Json(std::to_string(fixture.service.Settings().revision));
     config["points"] = Json(10001U);
     Complete(api, Request(api, "POST", "/api/v1/config", config, token), token);
+    // 超过四条完整迹线预算后才抽点，仍须从完整帧读取标记。
+    for (unsigned number = 2U; number <= 5U; ++number) {
+        Json clone = Json::MakeObject();
+        clone["requestId"] = Json("clone-" + std::to_string(number));
+        clone["sourceName"] = Json("Trc1");
+        clone["expectedRevision"] = Json(std::to_string(fixture.service.Settings().revision));
+        clone["expectedDisplayRevision"] = Json(std::to_string(fixture.service.Display().revision));
+        Complete(api, Request(api, "POST", "/api/v1/measurement-actions/clone", clone, token), token);
+    }
+    Complete(api, Request(api, "POST", "/api/v1/display", Change(api, "select", "select-original"), token), token);
     Json single = Json::MakeObject();
     single["requestId"] = Json("single");
     single["action"] = Json("single");
     Complete(api, Request(api, "POST", "/api/v1/operations", single, token), token);
     auto marker = Change(api, "marker", "original-marker");
     marker["enabled"] = Json(true);
-    marker["sampleIndex"] = Json(1001U);
+    marker["sampleIndex"] = Json(1004U);
     marker["acquisitionRevision"] = Json(std::to_string(fixture.service.Settings().acquisitionRevision));
     Complete(api, Request(api, "POST", "/api/v1/display", marker, token), token);
     const auto frame = Request(api, "GET", "/api/v1/frame");
     const auto &indexes = Field(frame.json, "sampleIndexes").array;
-    Require(indexes.size() == 2001U && indexes.front().number == 0.0 && indexes.back().number == 10000.0,
+    Require(indexes.size() == 8000U && indexes.front().number == 0.0 && indexes.back().number == 10000.0,
         "HTTP sends original sample indexes alongside the physical frequency axis");
     for (const auto &index : indexes) {
-        Require(index.number != 1001.0, "Chosen marker is intentionally omitted by transmission decimation");
+        Require(index.number != 1004.0, "Chosen marker is intentionally omitted by transmission decimation");
     }
     const auto &trace = Field(frame.json, "traces").array.front();
     const auto &readout = Field(Field(trace, "projection"), "marker");
-    Require(Field(readout, "available").boolean && Field(readout, "sampleIndex").number == 1001.0 &&
-                Field(readout, "frequencyHz").number == fixture.service.Snapshot().core.frame->plan.frequencyHz[1001U],
+    Require(Field(readout, "available").boolean && Field(readout, "sampleIndex").number == 1004.0 &&
+                Field(readout, "frequencyHz").number == fixture.service.Snapshot().core.frame->plan.frequencyHz[1004U],
         "Marker readout remains exact outside the displayed sample array");
     Require(Field(frame.json, "displayRevision").string == std::to_string(fixture.service.Display().revision),
         "Projection carries the exact display settings revision");
