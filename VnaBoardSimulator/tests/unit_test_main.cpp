@@ -4,6 +4,7 @@
 #include <iostream>
 #include <type_traits>
 
+#include "scoped_simulator_environment.h"
 #include "test_support.h"
 #include "vna_board/board_api_exports.h"
 
@@ -20,9 +21,11 @@ static_assert(std::is_same<decltype(&DrvGetSweepData), VnaBoard::DrvGetSweepData
 int main()
 {
     try {
+        BoardTest::ScopedSimulatorEnvironment environment;
         BoardTest::SetEnvironment("VNAPRO_SIM_MODE", "golden");
         BoardTest::SetEnvironment("VNAPRO_SIM_SEED", "42");
         BoardTest::TestState();
+        BoardTest::TestNoiseAmplitude();
         BoardTest::TestAsync();
         std::cout << "TDC1VN10 simulator unit tests passed\n";
         return 0;

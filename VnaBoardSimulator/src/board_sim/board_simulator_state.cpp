@@ -5,8 +5,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include <string>
 
 #include "board_signal_model.h"
@@ -20,20 +23,31 @@ enum ProductionTiming : std::size_t {
     PRODUCTION_DELAY_MS = 1U
 };
 
-bool ReadSettings(SignalSettings &settings)
+bool ReadNoiseAmplitude(double &amplitude)
 {
-    const char *mode = std::getenv("VNAPRO_SIM_MODE");
-    if (mode != nullptr) {
-        const std::string value(mode);
-        if (value == "noise") {
-            settings.mode = SignalMode::NOISE;
-        } else if (!value.empty() && value != "golden") {
-            return false;
-        }
-    }
-    if (settings.mode != SignalMode::NOISE) {
+    const char *value = std::getenv("VNAPRO_SIM_NOISE_AMPLITUDE");
+    if (value == nullptr || *value == '\0') {
         return true;
     }
+    // 固定小数点语法，不接受空白、非有限数和尾随内容；初始化后不再读取环境。
+    std::istringstream input(value);
+    input.imbue(std::locale::classic());
+    double parsed = 0.0;
+    input >> std::noskipws >> parsed;
+    if (input.fail() || !input.eof() || !std::isfinite(parsed) || parsed < 0.0 || parsed > 1.0) {
+        return false;
+    }
+    // 流解析可能把过小的非零数静默舍入为正负零，须按尾数拒绝，避免绕过非负范围。
+    const std::string text(value);
+    if (parsed == 0.0 && text.find_first_of("123456789") < text.find_first_of("eE")) {
+        return false;
+    }
+    amplitude = parsed;
+    return true;
+}
+
+bool ReadNoiseSeed(std::uint64_t &result)
+{
     const char *seed = std::getenv("VNAPRO_SIM_SEED");
     if (seed == nullptr || *seed == '\0') {
         return true;
@@ -49,8 +63,25 @@ bool ReadSettings(SignalSettings &settings)
         }
         parsed = parsed * 10U + value;
     }
-    settings.seed = parsed;
+    result = parsed;
     return true;
+}
+
+bool ReadSettings(SignalSettings &settings)
+{
+    const char *mode = std::getenv("VNAPRO_SIM_MODE");
+    if (mode != nullptr) {
+        const std::string value(mode);
+        if (value == "noise") {
+            settings.mode = SignalMode::NOISE;
+        } else if (!value.empty() && value != "golden") {
+            return false;
+        }
+    }
+    if (settings.mode != SignalMode::NOISE) {
+        return true;
+    }
+    return ReadNoiseSeed(settings.seed) && ReadNoiseAmplitude(settings.noiseAmplitude);
 }
 
 std::uint32_t ValidatePlan(SweepPlan &plan)

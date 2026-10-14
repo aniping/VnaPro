@@ -61,6 +61,7 @@ if(BUILD_TESTING)
         tests/test_assertions.cpp
         tests/test_support.cpp
         tests/board_state_test.cpp
+        tests/noise_amplitude_test.cpp
         tests/board_async_test.cpp
         tests/unit_test_main.cpp
     )

@@ -7,6 +7,7 @@
 #include <limits>
 
 #include "board_library_probe.h"
+#include "scoped_simulator_environment.h"
 #include "test_support.h"
 
 namespace BoardTest {
@@ -128,6 +129,7 @@ void TestReloadAndNoise(const std::string &path)
 int main(int argc, char *argv[])
 {
     try {
+        BoardTest::ScopedSimulatorEnvironment environment;
         BoardTest::Require(argc == 2, "需要动态库绝对路径");
         BoardTest::SetEnvironment("VNAPRO_SIM_MODE", "golden");
         BoardTest::SetEnvironment("VNAPRO_SIM_SEED", "42");

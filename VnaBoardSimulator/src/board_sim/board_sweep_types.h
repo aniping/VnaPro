@@ -47,6 +47,8 @@ enum class SignalMode {
 struct SignalSettings {
     SignalMode mode = SignalMode::GOLDEN;
     std::uint64_t seed = 42U;
+    // 相对于模拟复数波幅值的扰动系数；0.002 保持原有 0.2% 噪声。
+    double noiseAmplitude = 0.002;
 };
 
 }  // 命名空间 VnaBoard

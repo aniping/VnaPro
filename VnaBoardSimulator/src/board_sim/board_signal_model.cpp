@@ -21,7 +21,6 @@ constexpr double TRANSMISSION_RIPPLE = 0.006;
 constexpr double TRANSMISSION_PHASE_FACTOR = 0.35;
 constexpr double TRANSMISSION_RECEIVER_PHASE_STEP = 0.1;
 constexpr double TRANSMISSION_SOURCE_PHASE_STEP = 0.2;
-constexpr double MAX_RELATIVE_NOISE = 0.002;
 constexpr double NOISE_MANTISSA_RANGE = 9007199254740992.0;
 
 std::uint64_t Mix(std::uint64_t value)
@@ -42,13 +41,13 @@ BoardSignalModel::BoardSignalModel(SignalSettings settings, std::uint64_t sweepN
 double BoardSignalModel::Noise(
     std::size_t point, std::uint32_t source, std::uint32_t receiver, std::uint32_t component) const
 {
-    if (settings_.mode == SignalMode::GOLDEN) {
+    if (settings_.mode == SignalMode::GOLDEN || settings_.noiseAmplitude == 0.0) {
         return 0.0;
     }
     const auto key = settings_.seed ^ Mix(sweepNumber_) ^ Mix(static_cast<std::uint64_t>(point)) ^
                      Mix(17U * source + 5U * receiver + component + 1U);
     const double unit = static_cast<double>(Mix(key) >> 11U) / NOISE_MANTISSA_RANGE;
-    return (2.0 * unit - 1.0) * MAX_RELATIVE_NOISE;
+    return (2.0 * unit - 1.0) * settings_.noiseAmplitude;
 }
 
 void BoardSignalModel::GenerateSourcePoint(

@@ -18,6 +18,7 @@ void Prepare(VnaBoard::BoardSimulatorState &state, std::size_t points, const std
 std::vector<double> Read(VnaBoard::BoardSimulatorState &state, std::uint32_t points, std::size_t sourceCount = 1U);
 void TestState();
 void TestAsync();
+void TestNoiseAmplitude();
 
 }  // 命名空间 BoardTest
 #endif  // VNAPRO_BOARD_TEST_SUPPORT_H
