@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "server_config_io.h"
+#include "server_startup_config_reader.h"
 #include "yaml_config_reader.h"
 
 namespace VnaServer {
@@ -110,8 +111,10 @@ void ReadInstrument(const YAML::Node &node, ServerConfig &config)
 ServerConfig LoadServerConfig(const std::string &path)
 {
     const auto root = YamlConfig::ParseDocument(ConfigIo::ReadUtf8(path));
-    YamlConfig::CheckMap(root, "", {"log", "instrument"});
+    YamlConfig::CheckMap(root, "", {"server", "driver", "log", "instrument"});
     ServerConfig config;
+    ReadListenerConfig(root["server"], config.server);
+    ReadDriverConfig(root["driver"], config.driver);
     ReadLog(root["log"], config.log);
     ReadInstrument(root["instrument"], config);
     config.log.filePath = ConfigIo::ResolveFilePath(config.log.filePath, path);

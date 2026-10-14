@@ -7,6 +7,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <string>
 
@@ -24,6 +25,7 @@ void ReadString(const YAML::Node &node, const std::string &key, const std::strin
 void ReadBool(const YAML::Node &node, const std::string &key, const std::string &path, bool &value);
 void ReadSize(const YAML::Node &node, const std::string &key, const std::string &path, std::size_t &value);
 void ReadUnsigned(const YAML::Node &node, const std::string &key, const std::string &path, unsigned &value);
+void ReadUint64(const YAML::Node &node, const std::string &key, const std::string &path, std::uint64_t &value);
 // 频率字段使用十进制整数 Hz，并限制在公开接口可精确表示的整数范围内。
 void ReadFrequency(const YAML::Node &node, const std::string &key, const std::string &path, double &value);
 

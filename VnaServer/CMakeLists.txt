@@ -2,7 +2,8 @@ include("${CMAKE_SOURCE_DIR}/cmake/yaml_cpp.cmake")
 add_subdirectory(src/network)
 add_subdirectory(src/scpi)
 add_subdirectory(src/web)
-set(SERVER_CONFIG_SOURCES src/server_config_loader.cpp src/server_config_io.cpp src/yaml_config_reader.cpp)
+set(SERVER_CONFIG_SOURCES src/server_config_loader.cpp src/server_config_io.cpp src/yaml_config_reader.cpp
+    src/server_startup_config_reader.cpp)
 add_executable(vna_server src/main.cpp ${SERVER_CONFIG_SOURCES} src/utf8_argument.cpp src/startup_paths.cpp
     src/scpi_tcp_server.cpp src/scpi_connection.cpp)
 target_link_libraries(vna_server PRIVATE vna_scpi vna_web vna_log yaml-cpp::yaml-cpp)

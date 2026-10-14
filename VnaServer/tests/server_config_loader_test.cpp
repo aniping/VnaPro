@@ -131,6 +131,13 @@ void TestDefaults(const std::string &path, const std::string &directory)
                profile.defaultPoints == 201U && profile.defaultIfBandwidthHz == 1000.0 &&
                config.defaultSweepMode == VnaService::SweepMode::CONTINUOUS,
         "默认扫描未覆盖完整频段");
+    Expect(config.server.ip == "127.0.0.1" && config.server.scpiPort == 5025U && config.server.webPort == 8080U &&
+               config.server.webEnabled && config.server.scpiIp.empty() && config.server.webIp.empty() &&
+               config.server.webRoot == "WebUI",
+        "默认监听配置错误");
+    Expect(config.driver.api == VnaCore::DriverApi::TDC1VN10 && config.driver.library.empty() &&
+               config.driver.simulator.mode == "golden" && config.driver.simulator.seed == 42U,
+        "默认驱动配置错误");
     WriteConfig(path, "instrument: {portCount: 2}\nlog: {}\n");
     Expect(VnaServer::LoadServerConfig(path).instrument.portCount == 2U, "部分配置未保留其他默认值");
 }
@@ -261,6 +268,81 @@ void TestMissingFile(const std::string &path)
     Expect(rejected, "缺失配置文件未被拒绝");
 }
 
+void TestStartupMapping(const std::string &path)
+{
+    WriteConfig(path,
+        "server: {ip: 0.0.0.0, scpiIp: 127.0.0.1, webIp: 192.168.1.2, scpiPort: 6000, webPort: 8191, "
+        "webEnabled: false, webRoot: '中文目录/前端 资源'}\n"
+        "driver:\n  board: tdc1vn08\n  library: '测量驱动 08.dll'\n"
+        "  simulator: {mode: noise, seed: 18446744073709551615}\n");
+    const auto config = VnaServer::LoadServerConfig(path);
+    Expect(config.server.ip == "0.0.0.0" && config.server.scpiPort == 6000U && config.server.webPort == 8191U &&
+               !config.server.webEnabled && config.server.scpiIp == "127.0.0.1" &&
+               config.server.webIp == "192.168.1.2" && config.server.webRoot == "中文目录/前端 资源",
+        "监听配置映射错误");
+    Expect(config.driver.api == VnaCore::DriverApi::TDC1VN08 && config.driver.library == "测量驱动 08.dll",
+        "驱动接口及文件名映射错误");
+    Expect(config.driver.simulator.mode == "noise" &&
+               config.driver.simulator.seed == std::numeric_limits<std::uint64_t>::max(),
+        "噪声模式及 64 位种子映射错误");
+    WriteConfig(path,
+        "server: {ip: '255.255.255.255', scpiPort: 0, webPort: 65535}\n"
+        "driver: {board: tdc1vn10, simulator: {mode: golden, seed: 0}}\n");
+    const auto boundary = VnaServer::LoadServerConfig(path);
+    Expect(boundary.server.scpiPort == 0U && boundary.server.webPort == 65535U, "合法端口边界被拒绝");
+    Expect(boundary.driver.api == VnaCore::DriverApi::TDC1VN10 && boundary.driver.library.empty() &&
+               boundary.driver.simulator.seed == 0U,
+        "合法驱动配置边界被拒绝");
+}
+
+void TestListenerConstraints(const std::string &path)
+{
+    const std::string invalidAddresses[] = {"", "localhost", "::1", "127.1", "127.0.0.256", "127.0.0.1.", "127..0.1",
+        "127.0.0.-1", "127.0.0.+1", "127.00.0.1", "127.0.0.001", " 127.0.0.1", "127.0.0.1 ", "127.0.0.1:8080",
+        "127.0.0.1/path", "12345678901234567890.0.0.1"};
+    for (const auto &address : invalidAddresses) {
+        ExpectInvalid(path, "server: {ip: '" + address + "'}\n", "server.ip");
+        ExpectInvalid(path, "server: {scpiIp: '" + address + "'}\n", "server.scpiIp");
+        ExpectInvalid(path, "server: {webIp: '" + address + "'}\n", "server.webIp");
+    }
+    const std::string invalid[] = {"scpiPort: 65536", "webPort: 4294967296", "scpiPort: -1", "webPort: +8080",
+        "scpiPort: 0x1389", "webPort: '8080'", "webPort: 1.0", "scpiPort: null", "webPort: []", "webEnabled: TRUE",
+        "webEnabled: 'false'", "unexpected: true", "ip: null", "ip: []", "scpiIp: null", "webIp: []", "webRoot: ''",
+        "webRoot: null", "webRoot: []", "webRoot: \"WebUI\\n\"", "webRoot: \"WebUI\\t\""};
+    for (const auto &entry : invalid) {
+        ExpectInvalid(path, "server: {" + entry + "}\n", "server");
+    }
+    ExpectInvalid(path, "server: null\n", "server");
+    ExpectInvalid(path, "server: {scpiPort: 5025, scpiPort: 5026}\n", "server.scpiPort");
+    const std::string roots[] = {
+        "C:/service/WebUI", "/opt/vnapro/WebUI", "D:\\前端资源\\dist", "\\\\server\\share\\WebUI", "../WebUI/dist"};
+    for (const auto &root : roots) {
+        WriteConfig(path, "server: {webRoot: '" + root + "'}\n");
+        Expect(VnaServer::LoadServerConfig(path).server.webRoot == root, "前端目录被配置解析器提前转换");
+    }
+}
+
+void TestDriverConstraints(const std::string &path)
+{
+    const std::string invalidFilenames[] = {"", ".", "..", "../driver.dll", "sub/driver.dll", "sub\\driver.dll",
+        "/driver.dll", "C:driver.dll", "C:\\driver.dll", "\\\\host\\driver.dll", "driver.dll:stream", "driver.dll.",
+        " driver.dll", "driver.dll ", "driver?.dll", "driver*.dll", "driver|name.dll"};
+    for (const auto &filename : invalidFilenames) {
+        ExpectInvalid(path, "driver: {library: '" + filename + "'}\n", "driver.library");
+    }
+    const std::string invalid[] = {"board: unknown", "board: TDC1VN10", "board: null", "board: []", "library: null",
+        "library: []", "simulator: {mode: invalid}", "simulator: {mode: NOISE}", "simulator: {mode: null}",
+        "simulator: {seed: -1}", "simulator: {seed: +42}", "simulator: {seed: 0x2a}", "simulator: {seed: '42'}",
+        "simulator: {seed: 1.5}", "simulator: {seed: 18446744073709551616}", "simulator: {seed: null}",
+        "simulator: {seed: []}", "simulator: {unexpected: true}", "simulator: null", "unexpected: true"};
+    for (const auto &entry : invalid) {
+        ExpectInvalid(path, "driver: {" + entry + "}\n", "driver");
+    }
+    ExpectInvalid(path, "driver: null\n", "driver");
+    ExpectInvalid(path, "driver: {library: \"driver\\n.dll\"}\n", "driver.library");
+    ExpectInvalid(path, "driver: {simulator: {seed: 1, seed: 2}}\n", "driver.simulator.seed");
+}
+
 void RunTests(const std::string &path, const std::string &directory)
 {
     TestMapping(path, directory);
@@ -272,6 +354,9 @@ void RunTests(const std::string &path, const std::string &directory)
     TestEncodingAndSize(path);
     TestLogConstraints(path);
     TestInstrumentConstraints(path);
+    TestStartupMapping(path);
+    TestListenerConstraints(path);
+    TestDriverConstraints(path);
     TestMissingFile(path);
 }
 }  // 匿名命名空间

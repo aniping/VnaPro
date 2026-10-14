@@ -162,5 +162,13 @@ void ReadFrequency(const YAML::Node &node, const std::string &key, const std::st
     value = static_cast<double>(parsed);
 }
 
+void ReadUint64(const YAML::Node &node, const std::string &key, const std::string &path, std::uint64_t &value)
+{
+    const auto item = Scalar(node, key, path, true);
+    if (item) {
+        value = ParseInteger(item, path + "." + key);
+    }
+}
+
 }  // 命名空间 YamlConfig
 }  // 命名空间 VnaServer
