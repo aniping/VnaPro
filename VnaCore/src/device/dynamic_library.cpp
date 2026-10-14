@@ -114,5 +114,11 @@ void DynamicLibrary::Close() noexcept
     }
 }
 
+void DynamicLibrary::KeepLoadedUntilExit() noexcept
+{
+    // 不减少加载引用；析构不能再次卸载仍可能被驱动线程执行的代码。
+    handle_ = nullptr;
+}
+
 }  // 命名空间 Detail
 }  // 命名空间 VnaCore

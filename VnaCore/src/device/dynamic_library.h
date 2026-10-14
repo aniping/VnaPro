@@ -25,6 +25,8 @@ public:
     void Open(const std::string &path);
     // 调用者必须先停止库内的设备工作线程，再释放句柄。
     void Close() noexcept;
+    // 接口没有释放契约时保留操作系统引用，交给进程退出释放，不在析构时卸载。
+    void KeepLoadedUntilExit() noexcept;
 
     template <typename Function>
     Function Resolve(const char *name) const

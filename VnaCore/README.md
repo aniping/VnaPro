@@ -6,7 +6,7 @@ C++14 静态核心库。公开头位于 `include/vna_core`，AcquisitionCore 直
 
 普通控制方法返回 `shared_future<CommandResult>`。排队不代表操作生效；检查 ticket 的 `ok` 和运行/配置编号。`TriggerOnce(runId, revision)` 成功时，多源完整帧已发布。`Stop(runId)` 是扫描边界屏障，拒绝零编号和旧运行编号；不关闭 RF。`Close()` 由生命周期拥有线程调用，关闭准入、执行所有已接受命令、尝试关闭 RF，然后 join；不要并发调用 close/析构。
 
-`ReadView()` 一次取得状态、身份和只读帧。Ready 但 revision 为 0 表示尚未配置；Faulted 表示当前硬件配置无效，旧帧仍可供诊断。配置硬件下发失败进入 Faulted；尚未访问硬件的缓冲准备失败保留旧配置。Recover 重新初始化并应用最后成功配置，产生新 revision，不自动恢复运行。
+`ReadView()` 一次取得状态、身份和只读帧。Ready 但 revision 为 0 表示尚未配置；Faulted 表示当前硬件配置无效，旧帧仍可供诊断。配置硬件下发失败进入 Faulted；尚未访问硬件的缓冲准备失败保留旧配置。Recover 在没有未完成扫描时重新初始化并应用最后成功配置，产生新 revision，不自动恢复运行。VN10 的 Start 已尝试而完整取数未成功时，扫描状态不明，拒绝重新初始化；RF OFF 不作为中止扫描的依据。
 
 VN08 的身份来自 `DrvGetIDN`；VN10 接口没有身份查询，适配器返回 `VnaPro,TDC1VN10,4PORT,1.0`，不推断厂商或是否为模拟器。服务根据明确的驱动类型区分硬件与模拟后端。
 
@@ -20,9 +20,13 @@ SweepPlan 自有频点、可选不透明 9N 旧接口表和可选逐点 `powerRa
 
 软件资源策略：普通命令队列最多 64 项，Close 有独立保留入口；每帧 IQ 最多 64 MiB，连续帧间至少等待 10 ms，命令可唤醒等待。所有 Drv 调用都在同一工作线程中完成。原生返回码以失败步骤和数值保留，不按模拟器枚举解释厂商码。ABI 没有取消/超时；若原生调用不返回，Stop 和 Close 也无法完成。
 
-原生动态库必须提供绝对路径，不接受 `C:relative` 等路径。Windows 使用 UTF-8 路径转换后的 LoadLibraryExW 与 LOAD_WITH_ALTERED_SEARCH_PATH，从明确的库目录解析依赖；初始化失败返回终结的错误 ticket。共用操作系统句柄管理，VN08/VN10 分别绑定自己的强类型函数表，全部必需符号绑定成功前不调用驱动。VN10 关闭 RF 后回收模拟线程，再卸载动态库。
+原生动态库必须提供绝对路径，不接受 `C:relative` 等路径。Windows 使用 UTF-8 路径转换后的 LoadLibraryExW 与 LOAD_WITH_ALTERED_SEARCH_PATH，从明确的库目录解析依赖；初始化失败返回终结的错误 ticket。共用操作系统句柄管理，VN08/VN10 分别绑定自己的强类型函数表，全部必需符号绑定成功前不调用驱动。VN10 初始化成功后显式关闭 RF；它的 RF OFF 只关端口，不停止扫描，且 ABI 没有设备释放入口。Close 在核心工作线程中等当前整帧读回后关端口并 join 主机 worker，运行期不卸载 VN10 DLL；对象析构后保留加载引用与驱动借用缓冲至进程退出。RF OFF 失败或无法确认扫描结束时，Close 返回失败并保留原始错误，不能宣称设备已停止。
+
+VN10 的四个 SET 数组由设备会话持有，组帧失败时同时保留上次成功配置和本次候选；只有新配置组帧成功后才替换旧列表。取数缓冲在读取失败后仍保持有效。已确认的原始契约为返回值 0 成功、频率与 IFBW 使用 Hz、原始功率 0 合法、端口编号 0～3；功率原始编码不等于 dBm。服务显式填写 `instrument.sweep.defaultPowerRaw`，不在适配器内替换真实采样值。
 
 顶层 CMake 先加入 VnaNativeSimulator 和 VnaBoardSimulator，再加入 VnaCore，可注册两种动态模拟集成测试。核心库只复用 ABI 头，不链接模拟实现。
+
+`core_hardware_board_lifecycle` 使用独立复写九个 VN10 签名的探针，检查同线程调用、SET 数组借用、两/四源分块与分段容量、连续整帧、阻塞 GET 下的关闭准入/收尾、厂商数字错误传播、未完成扫描拒绝恢复，以及运行期 DLL 驻留。它不引用模拟器模型、状态机或错误码；SDK 永久阻塞的取消和实机采集能力不由该探针证明。
 
 ```powershell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug

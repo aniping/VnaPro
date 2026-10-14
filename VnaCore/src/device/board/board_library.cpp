@@ -36,7 +36,13 @@ void BoardLibrary::Open(const std::string &path)
 void BoardLibrary::Close() noexcept
 {
     functions_ = BoardFunctions();
-    library_.Close();
+    // 关闭的是主机绑定；VN10 模块统一驻留，包含解析符号失败的路径。
+    library_.KeepLoadedUntilExit();
+}
+
+void BoardLibrary::KeepLoadedUntilExit() noexcept
+{
+    Close();
 }
 
 }  // 命名空间 Detail
