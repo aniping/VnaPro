@@ -1,6 +1,6 @@
 # 仪器服务与 SCPI 引擎
 
-`vna_service` 使用 `vna_core`、`vna_measurement` 与 `vna_display` 的公开接口；`vna_scpi` 将已登记的 Keysight N52xxB 命令转换为服务操作，不访问驱动。当前实现单通道，SCPI 与 Web 共用服务及独占控制权，兼容范围为已登记的 PNA 命令子集。
+`vna_service` 使用 `vna_core`、`vna_calibration`、`vna_measurement` 与 `vna_display` 的公开接口；`vna_scpi` 将已登记的命令转换为服务操作，不访问驱动。当前实现单通道，SCPI 与 Web 共用服务及独占控制权，兼容范围以实际登记的命令子集为准。
 
 按职责组织类型：instrument_settings.h 放置 InstrumentSettings、ConfigPatch 与配置关联的 TriggerSource/SweepMode；service_task.h 将内部 ServiceTask 与 Kind/Stage 放在一起。Measurement、OperationResult、InstrumentError、DataResult、InstrumentSnapshot 各自有独立的测量定义、异步结果、错误队列、查询数据和状态快照职责，保留独立头文件。instrument_service.h 声明服务入口并包含所需类型。Measurement::Parameter 的行为在 VnaMeasurement/src/measurement.cpp，InstrumentService 直接管理控制归属、设置、错误寄存器和任务 FIFO。ServiceTask 按值存储，Kind 区分物理配置 CONFIGURE 与测量目录 MEASUREMENTS，Stage 标明配置、触发和停止屏障；每个状态推进函数独立可读。测试受控设备和 Fixture 各自独立，通过 Core 的公开所有权注入构造函数接入；长实现位于对应 cpp，由 vna_service_test_support 链接到测试目标。
 
@@ -57,7 +57,7 @@ SING 或手动 Trigger 的有限任务尚未完成时，目录写请求仍可受
 
 `CALC:PAR:SEL` 选择测量，不隐式显示隐藏项。`DISP:WIND<w>[:STAT]`、`SIZE`、`CAT?`、`TRAC<t>:FEED/DEL/SEL/STAT` 与 Y Scale 操作映射到共享图窗域；w/t 预算均为 1～128，局部槽身份支持稀疏编号并独立于 Trc 名称，删除槽不压缩其他槽号。CAT 返回局部槽号，FEED/DEL 只写且不删除测量定义；窗口 OFF 保护最后一个图窗。只读观察连接可查询所有已登记窗口状态、目录、尺度。CALC:FORM 增加官方 SWR、UPHase、GDELay、POLar；Web 特有格式没有自创 SCPI 名称。命令表及官方依据见[服务设计](../docs/网分服务与远程控制设计.md#42-首期实现命令)。
 
-SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC 响应前通道进入 HOLD。MAN+CONT 等待 INIT；INIT:CONT OFF 选择手动源，不等同 HOLD。忙时 INIT、中止 ABOR、复位 RST、外触发、组数、校准及二进制格式尚未开放；未校准 S11/S21/S12/S22 已开放。
+SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC 响应前通道进入 HOLD。MAN+CONT 等待 INIT；INIT:CONT OFF 选择手动源，不等同 HOLD。忙时 INIT、中止 ABOR、复位 RST、外触发、组数及二进制格式尚未开放；机械 OSL/SOLT 校准范围见下节。
 
 刺激轴从已提交物理配置生成，不要求先扫描。RDATA 必须来自当前有效 acquisitionRevision 和 run 的完整帧；纯目录更新可即时重新计算已有 IQ，物理计划更新后的旧帧、有限扫描未终结、故障或非有限数据都报告错误，不返回伪造全零曲线。连续扫描下多条独立查询可能跨帧；同轮读取需要单次完成/HOLD 后保持配置和触发不变。
 
@@ -78,3 +78,29 @@ SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC �
 共享仪器显示状态、完整帧投影、跨协议同步和显示写入活动图见[共享显示域设计](../docs/共享显示域设计.md)。
 
 显示域接口采用独立 displayRevision CAS；控制者与观察者读取同一 DisplayState。观察连接不自动升级，写命令、事件读清及错误出队整条拒绝并关闭；不会释放其他控制者，也不会修改全局错误队列。
+
+## 机械校准与系数集
+
+`ApplyCalibration(change, expectedCalibrationRevision, owner)` 复用已有控制者、有限 FIFO、操作 future 和 OPC 屏障。校准状态由 `CalibrationWorkspace` 唯一管理，`calibration.h` 是校准请求、步骤和系数集元数据的公开合同；数学求解在无设备依赖的 `VnaCalibration`，完整帧归一化与可选校正在 `VnaMeasurement`。`InstrumentSnapshot` 携带同一次读出的原始帧、校准状态和不可变 `correction`，协议不能在每条迹线重新取得另一当前帧。
+
+首版支持能力范围内任意单端口的 OSL、任意不同端口对的 SOLT。校准件明确采用理想 50 Ω模型：OPEN Γ=+1、SHORT Γ=−1、LOAD Γ=0、零损耗零延时匹配 THRU。双端口可附加 ISOLATION 两方向实测，不选时显式假设隔离为零；系数集保存 `includeIsolation`，选择另一个集时状态按该集回报此假设。尚不支持真实校准件参数模型、CW/重复整数 Hz 频点、TRL、ECal 硬件控制、频轴插值或厂商校准文件直接兼容。
+
+BEGIN、每次 CAPTURE、FINISH、CANCEL 完成后都进入 HOLD，用户换件或恢复正常扫描需要显式操作。session 存在期间，刺激、测量目录、RUN、INIT 的队首执行检查均拒绝，显示格式、Marker 等独立显示事务仍可使用。拒绝不仅在网络入口检查，已排在 BEGIN 后的旧配置请求也不能绕过冻结的校准刺激。
+
+CAPTURE 先完成旧运行的 Stop，再以新 run ID 启动 MANUAL、触发完整多源帧、经过最后 Stop 屏障，核对成功触发票据的 run/configRevision/frameSeq 后才保存标准。标准始终经过原始 `b_i/a_j` 计算，即使已有校正集启用也不校正标准。失败不修改先前成功的标准，不将保留的旧 DUT 帧标为本次标准。FINITE 操作进行期间，当前数据读取仍遵循已有屏障限制。
+
+`CalibrationPreview(sessionId, stepId)` 只读已确认标准的原始复数向量，供校准向导绘制 dBMag/Phase；反射标准返回该端口 Spp，THRU/ISOLATION 返回所选端口对的正向传输。频轴和 IFBW 来自 session 冻结刺激，run/frameSeq 来自该标准实际捕获身份。未采集、未知步骤和旧 session 返回 unavailable 及请求身份，不构造零曲线、不套用旧校准、不改变 DUT 目录或保留整个采集帧；核心故障后仍可查看先前成功标准的历史数据。
+
+实际扫描源与接收机是测量目录、活跃 session、选中校准集所需端口的并集；关闭校正或缩减目录不强制缩小已下发计划。十二项校正从同帧四个 S 参数求完整端口对，只有一条 S21 类迹线时仍保留反向源。纯采集需求扩张更新 `acquisitionRevision`，不改变 `settings.revision` 或物理校准指纹，也不创建隐藏测量定义。
+
+校准集有效性比较设备身份、精确 Hz 轴、IFBW、逐点原始功率编码；名称、图窗、格式和采集版本不参与物理指纹。集摘要中的 startHz、stopHz、points、ifBandwidthHz 始终取自该集冻结的刺激，方便管理器解释当前不兼容原因，不以当前仪器设置覆盖。刺激变化后保留集并显示 incompatible，`correction` 为空；恢复完全相同刺激可重新兼容。Faulted、Closed 或绕过服务的计划版本变化也不能提供当前校正上下文。`MeasurementData(true)` 默认读取可用校正结果，`MeasurementData(false)` 始终读取未校正归一化值；非比值 a/b 波量不应用误差校正。
+
+新 session 不替换已完成集；只有全部标准可用且每个频点求解成功，FINISH 才以不可变数据一次发布、选中并启用新集。内存池上限16，支持 ENABLE/SELECT/DELETE_SET/IMPORT_SET 与只读 `FindCalibrationSet(id)` 导出。导入在受理入队时冻结名称、刺激和系数，队首再次检查端口能力、有限系数、轴、IFBW、形状和容量；调用者保留的可变别名不能改变已受理内容。首版跨进程恢复通过用户导出/导入 schema 1，服务不自动写全局配置或用户文件。
+
+校准有独立 revision；非 SCPI 请求严格使用 CAS，SCPI revision=0 保持既有省略版本惯例。取消复用 FIFO：已接受扫描先停止，再清除相同 session；同 session 的 CANCEL 允许其 expected revision 落后于先前 capture 提交，以免扫描过程中发出的取消因正常完成而变旧。session ID 仍必须准确，旧 session 请求不能取消新 session。采集故障后仍允许取消 session，故障不因此恢复。
+
+采集/求解的工作区错误仅由已通过版本、session、标准和刺激检查的任务回写。旧 session、失配 CAS 或不存在标准的拒绝只返回操作错误，不能污染当前 session.error 或改变其校准版本。
+
+现有 VN08/VN10 模拟驱动生成固定 DUT，未提供实际换接 OPEN/SHORT/LOAD 的模型。点击向导不会凭空替换其原始测量；不换件得到重复标准时求解拒绝奇异数据。功能验收使用按源区分的受控 `DeviceSession`，独立前向误差模型生成标准和 DUT，经过真实 core/service 采集链；它不改变产品模拟器原生 ABI。
+
+`service_calibration` 覆盖新扫描身份、任意2/4端口 SOLT、实测隔离、仅一条迹线时的反向源需求、原始读取与校正开关、已有校正时标准采集绕过校正、排队配置/RUN拒绝、取消屏障、奇异求解保留旧集、16集池和非有限导入拒绝、刺激恢复兼容及硬件故障拒绝旧帧。

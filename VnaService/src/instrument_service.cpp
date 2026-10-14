@@ -11,6 +11,7 @@
 #include <deque>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <set>
 #include <utility>
 
@@ -58,6 +59,8 @@ const char *TaskName(Detail::ServiceTaskKind kind) noexcept
             return "MODE";
         case Detail::ServiceTaskKind::TRIGGER:
             return "TRIGGER";
+        case Detail::ServiceTaskKind::CALIBRATION:
+            return "CALIBRATION";
         default:
             return "UNKNOWN";
     }
@@ -238,10 +241,11 @@ OperationResult ApplySettingsPatch(
     return Result(true);
 }
 
-DataResult ExtractMeasurement(const VnaCore::MeasurementFrame &frame, const Measurement &measurement)
+DataResult ExtractMeasurement(const VnaCore::MeasurementFrame &frame, const Measurement &measurement,
+    const VnaCalibration::CalibrationData *calibration)
 {
     DataResult value;
-    const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(frame, measurement);
+    const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(frame, measurement, calibration);
     if (!trace.available) {
         value.error = trace.error;
         return value;
@@ -314,6 +318,15 @@ Operation InstrumentService::Enqueue(Detail::ServiceTask task, const std::string
     }
     if (tasks_.size() >= TASK_QUEUE_CAPACITY) {
         return Rejected(Detail::INPUT_BUFFER_OVERRUN, "Control input buffer overrun", requester);
+    }
+    if (task.kind == Detail::ServiceTaskKind::CALIBRATION &&
+        task.calibrationChange.kind == CalibrationChangeKind::IMPORT_SET && task.calibrationChange.importedSet) {
+        CalibrationSet snapshot = *task.calibrationChange.importedSet;
+        if (snapshot.data) {
+            snapshot.data = std::make_shared<const VnaCalibration::CalibrationData>(*snapshot.data);
+        }
+        // 与配置值一样冻结受理时的输入，调用者保留的可变别名不能改变排队请求。
+        task.calibrationChange.importedSet = std::make_shared<const CalibrationSet>(std::move(snapshot));
     }
     task.owner = requester;
     task.generation = controlGeneration_;
@@ -434,6 +447,8 @@ void InstrumentService::PollTask()
         PollDisplay(task);
     } else if (task.kind == Detail::ServiceTaskKind::TRIGGER) {
         PollTrigger(task);
+    } else if (task.kind == Detail::ServiceTaskKind::CALIBRATION) {
+        PollCalibration(task);
     } else {
         PollMode(task);
     }
@@ -441,6 +456,10 @@ void InstrumentService::PollTask()
 
 bool InstrumentService::PrepareConfiguration(Detail::ServiceTask &task)
 {
+    if (calibration_.Collecting()) {
+        Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration is locked during calibration collection"));
+        return false;
+    }
     const auto view = core_.ReadView();
     if (view.state != VnaCore::CoreState::READY && view.state != VnaCore::CoreState::RUNNING) {
         Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Configuration requires Ready or Running"));
@@ -466,6 +485,7 @@ bool InstrumentService::PrepareConfiguration(Detail::ServiceTask &task)
     }
     task.candidate.revision = settings_.revision + 1U;
     task.plan = MakePlan(task.candidate, profile_);
+    calibration_.ExtendPlan(task.plan);
     if (!PrepareDisplayConfiguration(task)) {
         return false;
     }
@@ -512,6 +532,10 @@ void InstrumentService::PollConfiguration(Detail::ServiceTask &task)
 void InstrumentService::PollTrigger(Detail::ServiceTask &task)
 {
     if (task.stage == Detail::ServiceTaskStage::PENDING) {
+        if (calibration_.Collecting()) {
+            Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "INIT is locked during calibration collection"));
+            return;
+        }
         const auto view = core_.ReadView();
         if (settings_.triggerSource != TriggerSource::MANUAL || settings_.sweepMode == SweepMode::HOLD ||
             view.state != VnaCore::CoreState::RUNNING) {
@@ -539,6 +563,10 @@ void InstrumentService::PollTrigger(Detail::ServiceTask &task)
 
 bool InstrumentService::BeginMode(Detail::ServiceTask &task)
 {
+    if (calibration_.Collecting() && (task.kind != Detail::ServiceTaskKind::MODE || task.mode != SweepMode::HOLD)) {
+        Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "RUN is locked during calibration collection"));
+        return false;
+    }
     const auto view = core_.ReadView();
     if (view.state != VnaCore::CoreState::READY && view.state != VnaCore::CoreState::RUNNING) {
         Finish(Result(false, Detail::SETTINGS_CONFLICT_ERROR, "Instrument is not ready"));
@@ -751,6 +779,14 @@ InstrumentSnapshot InstrumentService::Snapshot() const
     value.settings = settings_;
     value.display = display_.Snapshot();
     value.core = core_.ReadView();
+    value.calibration = calibration_.Snapshot(Identity(), activePlan_);
+    if (profileReady_ && value.core.state != VnaCore::CoreState::FAULTED &&
+        value.core.state != VnaCore::CoreState::CLOSED && value.core.configRevision == settings_.acquisitionRevision) {
+        value.correction = calibration_.Correction(Identity(), activePlan_);
+    } else {
+        value.calibration.compatible = false;
+        value.calibration.reason = "No valid committed acquisition configuration";
+    }
     value.controlOwner = owner_;
     value.releasing = releasing_;
     value.pending = !tasks_.empty();
@@ -1028,7 +1064,7 @@ DataResult InstrumentService::StimulusAxis() const
     return value;
 }
 
-DataResult InstrumentService::MeasurementData() const
+DataResult InstrumentService::MeasurementData(bool calibrated) const
 {
     DataResult value;
     if (HasMeasurement()) {
@@ -1052,7 +1088,9 @@ DataResult InstrumentService::MeasurementData() const
         value.error = "No complete measurement for the current configuration";
         return value;
     }
-    return ExtractMeasurement(*view.frame, measurement);
+    const auto correction =
+        calibrated ? calibration_.Correction(Identity(), activePlan_) : VnaCalibration::CalibrationPtr{};
+    return ExtractMeasurement(*view.frame, measurement, correction.get());
 }
 
 void InstrumentService::RecordError(int code, const std::string &message)

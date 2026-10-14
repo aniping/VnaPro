@@ -12,6 +12,7 @@
 #include "vna_core/core_types.h"
 #include "vna_core/sweep_plan.h"
 #include "vna_display/display_workspace.h"
+#include "vna_service/calibration_workspace.h"
 #include "vna_service/instrument_settings.h"
 #include "vna_service/operation_result.h"
 
@@ -23,7 +24,8 @@ enum class ServiceTaskKind {
     DISPLAY,
     SOURCE,
     MODE,
-    TRIGGER
+    TRIGGER,
+    CALIBRATION
 };
 
 enum class ServiceTaskStage {
@@ -67,6 +69,13 @@ struct ServiceTask final {
     VnaCore::Ticket ticket;
     std::promise<OperationResult> promise;
     Operation operation;
+    CalibrationChange calibrationChange;
+    CalibrationWorkspace calibrationCandidate;
+    bool calibrationContextValidated = false;
+    std::uint64_t captureRunId = 0U;
+    std::uint64_t captureConfigRevision = 0U;
+    std::uint64_t captureFrameSeq = 0U;
+    VnaCore::FramePtr capturedFrame;
 
     ServiceTask(const ServiceTask &) = delete;
     ServiceTask &operator=(const ServiceTask &) = delete;

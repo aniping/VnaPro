@@ -116,6 +116,7 @@ VnaDisplay::FrameContext InstrumentService::DisplayFrame(bool reachedBarrier) co
     result.acquisitionRevision = settings_.acquisitionRevision;
     result.runId = view.runId;
     result.frequencyHz = &activePlan_.frequencyHz;
+    result.calibration = calibration_.Correction(Identity(), activePlan_);
     // 当前 DISPLAY 已到队首，排在其后的有限采集不能反向阻止本次读旧完整帧。
     result.current = profileReady_ && (reachedBarrier || !HasMeasurement()) && view.frame &&
                      view.state != VnaCore::CoreState::FAULTED && view.state != VnaCore::CoreState::CLOSED &&
@@ -169,7 +170,8 @@ VnaDisplay::ProjectedTrace InstrumentService::DisplayData(const std::string &nam
         result.error = "No measurement selected";
         return result;
     }
-    const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(*context.frame, *measurement);
+    const auto trace =
+        VnaMeasurement::MeasurementProcessor::Calculate(*context.frame, *measurement, context.calibration.get());
     return VnaDisplay::TraceProjection::Calculate(
         *presentation, trace, context.frame->plan.frequencyHz, *measurement, context.acquisitionRevision);
 }

@@ -16,6 +16,7 @@
 #include "vna_core/sweep_plan.h"
 #include "vna_display/display_workspace.h"
 #include "vna_display/trace_projection.h"
+#include "vna_service/calibration_workspace.h"
 #include "vna_service/data_result.h"
 #include "vna_service/instrument_error.h"
 #include "vna_service/instrument_profile.h"
@@ -135,7 +136,13 @@ public:
     // 返回已提交的 Hz 频率轴；核心故障或版本尚未提交时返回错误。
     DataResult StimulusAxis() const;
     // 仅从当前扫描轮次和版本的完整帧计算交错复数数据；任一点无效时整条读取失败。
-    DataResult MeasurementData() const;
+    DataResult MeasurementData(bool calibrated = true) const;
+    // 校准事务复用仪器控制权和有限 FIFO；原始标准每次启动全新完整扫描。
+    Operation ApplyCalibration(
+        CalibrationChange change, std::uint64_t expectedCalibrationRevision = 0U, const std::string &owner = "SCPI");
+    CalibrationSnapshot Calibration() const;
+    CalibrationSetPtr FindCalibrationSet(std::uint64_t id) const;
+    CalibrationPreviewResult CalibrationPreview(std::uint64_t sessionId, const std::string &stepId) const;
 
     // 追加 IEEE 488.2/SCPI 错误，并更新对应的事件寄存器位。
     void RecordError(int code, const std::string &message);
@@ -192,12 +199,17 @@ private:
     bool BeginMode(Detail::ServiceTask &task);
     void PollMode(Detail::ServiceTask &task);
     void PollStartedMode(Detail::ServiceTask &task);
+    void PollCalibration(Detail::ServiceTask &task);
+    bool PrepareCalibration(Detail::ServiceTask &task);
+    void ContinueCalibration(Detail::ServiceTask &task);
+    void FailCalibration(const std::string &error, int code);
 
     VnaCore::AcquisitionCore &core_;
     const InstrumentProfile profile_;
     const bool simulator_;
     InstrumentSettings settings_;
     VnaDisplay::DisplayWorkspace display_;
+    CalibrationWorkspace calibration_;
     // 缓存核心最后成功下发的真实计划，其源和接收需求可以覆盖当前目录的子集。
     VnaCore::SweepPlan activePlan_;
     std::deque<Detail::ServiceTask> tasks_;
