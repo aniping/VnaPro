@@ -8,12 +8,16 @@ export function calibrationPorts(method: CalibrationMethod, port1: number, port2
   return method === 'onePort' ? `P${port1}` : `P${port1}, P${port2}`
 }
 
+export function selectedCalibrationSet(calibration?: CalibrationSnapshot) {
+  return calibration?.sets.find((entry) => entry.id === calibration.selectedSetId)
+}
+
 export function calibrationSummary(calibration?: CalibrationSnapshot): string {
   if (!calibration) return 'RAW 接收波与 S 参数 · 未校准'
   if (!calibration?.selectedSetId) return 'Cal Off · 无活动校准'
-  const set = calibration.sets.find((entry) => entry.id === calibration.selectedSetId)
+  const set = selectedCalibrationSet(calibration)
   const state = calibration.enabled && calibration.compatible ? 'User Cal On' : 'Cal Off'
-  return set ? `${state} · ${calibrationMethodLabel(set.method)} · ${calibrationPorts(set.method, set.port1, set.port2)}` : state
+  return set ? `${state} · ${set.name} · ${calibrationMethodLabel(set.method)} · ${calibrationPorts(set.method, set.port1, set.port2)}` : state
 }
 
 export function calibrationConnection(step: CalibrationStep): string {

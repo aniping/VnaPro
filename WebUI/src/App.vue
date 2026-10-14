@@ -304,7 +304,7 @@ onBeforeUnmount(() => {
           <section class="measurement-stage" aria-label="Measurement display">
             <InstrumentToolbar
               :backend="status?.backend"
-              :calibration-label="calibrationLabel"
+              :calibration="status?.calibration"
               :layout="layout"
               :has-trace="Boolean(activeMeasurement) && !calibrationAcquisitionVisible"
               :can-autoscale="canEditDisplay && canAutoscale"

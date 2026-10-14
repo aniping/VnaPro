@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { InstrumentStatus } from '../../api/types'
 import type { CalibrationCommand } from '../../api/calibrationTypes'
-import { calibrationMethodLabel, calibrationPorts, calibrationSummary } from '../../domain/calibration'
+import { calibrationMethodLabel, calibrationPorts, selectedCalibrationSet } from '../../domain/calibration'
 import { frequencyText } from '../../plot/formatting'
 
 const props = defineProps<{
@@ -16,6 +16,7 @@ const props = defineProps<{
 const emit = defineEmits<{ start: [] }>()
 const calibration = computed(() => props.status?.calibration)
 const active = computed(() => Boolean(calibration.value?.enabled && calibration.value.compatible))
+const currentSet = computed(() => selectedCalibrationSet(calibration.value))
 const selected = ref(calibration.value?.selectedSetId ?? '')
 const working = ref(false)
 const error = ref('')
@@ -71,6 +72,13 @@ async function importSelected(event: Event) {
 
 <template>
   <section class="softtool-section" aria-label="Calibration controls">
+    <div class="softtool-readout" data-testid="current-calibration-set" aria-label="Current channel calibration">
+      <span>Current Cal Set · Ch1</span>
+      <strong>{{ currentSet?.name ?? 'No calibration data' }}</strong>
+      <span>{{ active ? 'User Cal On' : 'Cal Off' }}<template v-if="currentSet"> · {{ calibrationMethodLabel(currentSet.method) }} · {{ calibrationPorts(currentSet.method, currentSet.port1, currentSet.port2) }}</template></span>
+    </div>
+    <p v-if="calibration?.reason" class="softtool-note" :class="{ warning: !calibration.compatible }">{{ calibration.reason }}</p>
+    <div class="softtool-divider" />
     <template v-if="mode === 'cal'">
       <h2 class="softtool-section-title">Calibration</h2>
       <button type="button" class="softtool-button softtool-primary" :disabled="busy || working || (!calibration?.collecting && !canCalibrate)" @click="emit('start')">
@@ -90,16 +98,15 @@ async function importSelected(event: Event) {
         User Cal Active · {{ active ? 'On' : 'Off' }}
         <small v-if="calibration?.enabled && !calibration.compatible">请求 On 未生效 · 点击关闭请求</small>
       </button>
-      <p class="softtool-note" role="status">{{ calibrationSummary(calibration) }}</p>
-      <p v-if="calibration?.reason" class="softtool-note" :class="{ warning: !calibration.compatible }">{{ calibration.reason }}</p>
       <div class="softtool-divider" />
       <h2 class="softtool-section-title">Cal Manager</h2>
-      <label class="softtool-label" for="calibration-set">Calibration Set</label>
+      <label class="softtool-label" for="calibration-set">Available Cal Sets</label>
       <select id="calibration-set" v-model="selected" class="field-input" :disabled="working">
         <option value="">{{ calibration?.sets.length ? 'Select set…' : 'No calibration data' }}</option>
         <option v-for="set in calibration?.sets ?? []" :key="set.id" :value="set.id">{{ set.name }}{{ set.compatible ? '' : ' · 不适用' }}</option>
       </select>
       <div v-if="selectedSet" class="softtool-readout"><span>{{ calibrationMethodLabel(selectedSet.method) }}</span><strong>{{ calibrationPorts(selectedSet.method, selectedSet.port1, selectedSet.port2) }}</strong></div>
+      <p v-if="selectedSet && selectedSet.id !== calibration?.selectedSetId" class="softtool-note">仅查看此集；点击 Use Set 后才会用于 Ch1。</p>
       <div v-if="selectedSet" class="softtool-readout"><span>Calibrated frequency range</span><strong>{{ selectedSet.startHz === undefined || selectedSet.stopHz === undefined ? '未记录' : `${frequencyText(selectedSet.startHz)}–${frequencyText(selectedSet.stopHz)}` }}</strong><span>Points / IFBW</span><strong>{{ selectedSet.points ?? '未记录' }} pts · {{ selectedSet.ifBandwidthHz === undefined ? '未记录' : frequencyText(selectedSet.ifBandwidthHz) }} IFBW</strong></div>
       <p v-if="selectedSet?.method === 'twoPort'" class="softtool-note">{{ selectedSet.includeIsolation === undefined ? 'Isolation 模型未说明' : selectedSet.includeIsolation ? 'Isolation：已测串扰' : 'Isolation：假定串扰为零' }}</p>
       <div class="softtool-grid">
