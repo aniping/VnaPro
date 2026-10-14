@@ -61,6 +61,7 @@ export function presentation(format: DisplayFormat = 'db'): TracePresentation {
     smithRadius: 1,
     visible: true,
     markerInfoLocation: 'diagram',
+    markerInfoArea: 'topRight',
     marker: {
       enabled: false,
       frequencyHz: null,

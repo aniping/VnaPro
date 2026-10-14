@@ -114,3 +114,40 @@ test('a single-trace marker field stays compact and readonly rows retain the tra
     readout.dispose()
   }
 })
+
+test('long marker coordinates remain visible text and readonly fields cannot start a relocation drag', async () => {
+  const marker = item('Trc128', 10, '#60e600')
+  marker.result.frequencyHz = 4.005e9
+  marker.result.value = -123456.7891
+  const props = reactive({
+    markers: [marker],
+    canEditDisplay: false,
+    showTraceNames: true,
+    fontScale: 170,
+  })
+  const readout = await sfcHarness(
+    'src/components/diagrams/MarkerReadout.vue',
+    props,
+    {},
+  )
+  try {
+    const root = readout.render()
+    const frequency = findElements(root, (node) =>
+      hasClass(node, 'marker-frequency'),
+    )[0]!
+    const value = findElements(root, (node) => hasClass(node, 'marker-value'))[0]!
+    assert.equal(textContent(frequency), '4.005000 GHz')
+    assert.match(textContent(value), /-123456\.7891/)
+    assert.equal(root.props!.draggable, false)
+    let prevented = false
+    root.props!.onDragstart({
+      preventDefault() { prevented = true },
+      dataTransfer: { setData() { assert.fail('Readonly fields cannot move') } },
+    })
+    assert.equal(prevented, true)
+    assert.deepEqual(readout.emitted, [])
+    assert.equal(marker.result.value, -123456.7891)
+  } finally {
+    readout.dispose()
+  }
+})

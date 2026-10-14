@@ -3,6 +3,7 @@ import test from 'node:test'
 import { nextTick, reactive, type Ref, type VNode } from 'vue'
 import { decodeDisplay } from '../src/api/displayDecoders'
 import { useWorkspace } from '../src/composables/useWorkspace'
+import { MARKER_INFO_AREAS } from '../src/domain/markerInfoArea'
 import {
   MARKER_INFO_DRAG_TYPE,
   type MarkerReadoutPreview,
@@ -119,6 +120,64 @@ test('annotation command adapters dispatch one atomic backend patch without chan
     { action: 'displayAnnotations', activeTraceOnly: true, fontScale: 120.5 },
     { action: 'markerInfo', enabled: false, diagram: 1 },
     { action: 'markerInfoLocation', traceName: 'Reflect', location: 'table' },
+  ])
+  assert.equal(JSON.stringify(status.display), before)
+})
+
+test('marker info decoder preserves all nine backend areas and defaults only a missing optional field', () => {
+  const display = displaySnapshot([reflection])
+  delete display.presentations.Reflect!.markerInfoArea
+  assert.equal(
+    decodeDisplay(display, [reflection]).presentations.Reflect!.markerInfoArea,
+    'topRight',
+  )
+  for (const area of MARKER_INFO_AREAS) {
+    display.presentations.Reflect!.markerInfoArea = area
+    assert.equal(
+      decodeDisplay(display, [reflection]).presentations.Reflect!.markerInfoArea,
+      area,
+    )
+  }
+  const before = JSON.stringify(display)
+  for (const invalid of [null, 'TOP_RIGHT', 'middleTop', 9, {}]) {
+    assert.throws(() => decodeDisplay({
+      ...display,
+      presentations: {
+        ...display.presentations,
+        Reflect: { ...display.presentations.Reflect, markerInfoArea: invalid },
+      },
+    }, [reflection]), /markerInfoArea/)
+  }
+  assert.equal(JSON.stringify(display), before)
+})
+
+test('marker info relocation sends one atomic location and area intent without writing the applied snapshot', async () => {
+  const status = reactive(instrumentStatus([reflection]))
+  status.display.presentations.Reflect!.markerInfoArea = 'bottomLeft'
+  const sent: unknown[] = []
+  const workspace = useWorkspace(
+    () => status,
+    () => null,
+    (command) => {
+      sent.push(command)
+      return Promise.resolve(false)
+    },
+  )
+  const before = JSON.stringify(status.display)
+  for (const area of MARKER_INFO_AREAS) {
+    const result = workspace.setMarkerInfoLocation('Reflect', 'diagram', area)
+    assert.equal(JSON.stringify(status.display), before)
+    assert.equal(await result, false)
+    assert.equal(JSON.stringify(status.display), before)
+  }
+  await workspace.setMarkerInfoLocation('Reflect', 'table')
+  await workspace.setMarkerInfoLocation('Reflect', 'diagram')
+  assert.deepEqual(sent, [
+    ...MARKER_INFO_AREAS.map((area) => ({
+      action: 'markerInfoLocation', traceName: 'Reflect', location: 'diagram', area,
+    })),
+    { action: 'markerInfoLocation', traceName: 'Reflect', location: 'table' },
+    { action: 'markerInfoLocation', traceName: 'Reflect', location: 'diagram' },
   ])
   assert.equal(JSON.stringify(status.display), before)
 })
@@ -569,4 +628,110 @@ test('changing the active Smith axis remeasures current title text without resiz
   } finally {
     pane.dispose()
   }
+})
+
+test('diagram marker fields consume each backend anchor and stack fields sharing the same anchor', async () => {
+  const items = MARKER_INFO_AREAS.map((area, index) => {
+    const value = measured(`Trc${index + 1}`, 10e6, -12 - index)
+    value.view.markerInfoLocation = 'diagram'
+    value.view.markerInfoArea = area
+    return value
+  })
+  const extra = measured('Trc10', 10e6, -45)
+  extra.view.markerInfoLocation = 'diagram'
+  extra.view.markerInfoArea = 'center'
+  items.push(extra)
+  const frame = acquiredFrame(items[0]!.trace)
+  frame.traces.push(...items.slice(1).map((item) => item.trace))
+  const props = reactive({
+    number: 1,
+    layout: 'single',
+    frame,
+    measurements: items.map((item) => item.trace),
+    allMeasurements: items.map((item) => item.trace),
+    presentations: Object.fromEntries(items.map((item) => [item.trace.name, item.view])),
+    activeTraceName: 'Trc1',
+    primaryTraceName: 'Trc1',
+    config: { startHz: 10e6, stopHz: 8e9, points: 201, ifBandwidthHz: 1000 },
+    frameCondition: { kind: 'current', label: '', detail: '' },
+    canEditDisplay: true,
+    commitMarker: async () => true,
+    markerInfoVisible: true,
+    annotations: { activeTraceOnly: false, stimulusInfoVisible: true, fontScale: 100 },
+  })
+  const pane = await sfcHarness('src/components/diagrams/DiagramPane.vue', props, {})
+  const groups = () => findElements(pane.render(), (node) =>
+    !!node.props?.['data-marker-info-area'],
+  )
+  try {
+    assert.deepEqual(groups().map((node) => node.props!['data-marker-info-area']), MARKER_INFO_AREAS)
+    const center = groups().find((node) => node.props!['data-marker-info-area'] === 'center')!
+    const centerFields = findElements(center, (node) => component(node, 'MarkerReadout'))
+    assert.deepEqual(centerFields.map((field) => field.props!.markers[0].name), ['Trc5', 'Trc10'])
+    const { left, top, transform } = center.props!.style
+    assert.deepEqual({ left, top, transform }, {
+      left: '50%', top: '50%',
+      transform: 'translate(-50%, -50%)',
+    })
+    const bottomRight = groups().find((node) => node.props!['data-marker-info-area'] === 'bottomRight')!
+    assert.equal(bottomRight.props!.style.right, '2px')
+    assert.equal(bottomRight.props!.style.bottom, '2px')
+    props.presentations.Trc1!.markerInfoArea = 'bottomRight'
+    assert.equal(groups().some((node) => node.props!['data-marker-info-area'] === 'topLeft'), false)
+    assert.equal(findElements(groups().find((node) => node.props!['data-marker-info-area'] === 'bottomRight')!,
+      (node) => component(node, 'MarkerReadout')).length, 2)
+    props.annotations.activeTraceOnly = true
+    assert.deepEqual(groups().map((node) => node.props!['data-marker-info-area']), ['bottomRight'])
+    props.markerInfoVisible = false
+    assert.equal(groups().length, 0)
+    assert.equal(frame.traces[0]!.projection.marker.frequencyHz, 10e6)
+    assert.deepEqual(pane.emitted, [])
+  } finally { pane.dispose() }
+})
+
+test('actual diagram drop forwards the nine marker info areas without optimistically changing backend placement', async () => {
+  const a = measured('Trc1', 10e6, -12)
+  const props = reactive({
+    number: 1, layout: 'single', frame: acquiredFrame(a.trace),
+    measurements: [a.trace], allMeasurements: [a.trace],
+    presentations: { Trc1: a.view }, activeTraceName: 'Trc1', primaryTraceName: 'Trc1',
+    config: { startHz: 10e6, stopHz: 8e9, points: 201, ifBandwidthHz: 1000 },
+    frameCondition: { kind: 'current', label: '', detail: '' },
+    canEditDisplay: true, commitMarker: async () => true,
+  })
+  const pane = await sfcHarness('src/components/diagrams/DiagramPane.vue', props, {})
+  const bounds = { left: 50, top: 80, width: 900, height: 300 }
+  ;(pane.bindings.plotArea as Ref<unknown>).value = { getBoundingClientRect: () => bounds }
+  let prevented = 0
+  function drop(name: string, index: number) {
+    pane.render().props!.onDrop({
+      clientX: bounds.left + ((index % 3) + 0.5) * bounds.width / 3,
+      clientY: bounds.top + (Math.floor(index / 3) + 0.5) * bounds.height / 3,
+      dataTransfer: {
+        types: [MARKER_INFO_DRAG_TYPE],
+        getData: (type: string) => type === MARKER_INFO_DRAG_TYPE ? name : '',
+      },
+      preventDefault() { prevented += 1 },
+    })
+  }
+  const before = JSON.stringify(props.presentations)
+  try {
+    for (let index = 0; index < MARKER_INFO_AREAS.length; index++) drop('Trc1', index)
+    assert.deepEqual(JSON.parse(JSON.stringify(pane.emitted)), MARKER_INFO_AREAS.map((area) => [
+      'relocateMarkerInfo', { name: 'Trc1', location: 'diagram', area },
+    ]))
+    assert.equal(prevented, 9)
+    assert.equal(JSON.stringify(props.presentations), before)
+    bounds.width = 0
+    drop('Trc1', 0)
+    bounds.width = 900
+    drop('Trc1', NaN)
+    assert.equal(pane.emitted.length, 9, 'Invalid drop geometry cannot silently migrate a table field')
+    drop('AnotherDiagramTrace', 0)
+    props.canEditDisplay = false
+    drop('Trc1', 0)
+    assert.equal(pane.emitted.length, 9)
+    assert.equal(prevented, 9)
+    assert.equal(JSON.stringify(props.presentations), before)
+  } finally { pane.dispose() }
 })
