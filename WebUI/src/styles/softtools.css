@@ -1,11 +1,11 @@
 .softtool-host { display: grid; grid-template-rows: 38px minmax(0,1fr); min-height: 0; min-width: 0; background: #1d282f; border-left: 2px solid #080e12; border-right: 1px solid #080e12; }
 .softtool-header { display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid #0b1216; background: #33434d; }
 .softtool-header h1 { flex: 1; margin: 0; color: #f5f8fa; font-size: 14px; font-weight: 500; }
-.softtool-header button { width: 25px; height: 25px; padding: 0; border: 1px solid #576b77; background: #415561; color: white; font-size: 22px; line-height: 20px; }
+.softtool-header button { width: 25px; height: 25px; padding: 0; border: 1px solid #576b77; background: var(--color-button); color: white; font-size: 22px; line-height: 20px; }
 .softtool-body { display: grid; grid-template-columns: minmax(0,1fr) 70px; min-height: 0; }
 .softtool-tabs { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 3px; padding: 5px 3px; background: #101a20; border-left: 1px solid #060d10; }
-.softtool-tabs button { min-width: 0; min-height: 43px; padding: 8px 3px; border: 1px solid #51616b; border-radius: 1px; color: #d1dce2; background: #33454f; font-size: 11px; line-height: 1.25; text-align: left; white-space: normal; overflow-wrap: anywhere; }
-.softtool-tabs button.is-active { color: #fff; background: #0b83bc; border-color: #47b2df; }
+.softtool-tabs button { min-width: 0; min-height: 43px; padding: 8px 3px; border: 1px solid #51616b; border-radius: 1px; color: #d1dce2; background: var(--color-tab); font-size: 11px; line-height: 1.25; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.softtool-tabs button.is-active:not(:disabled) { color: #fff; background: var(--color-tab-active); border-color: #51616b; box-shadow: inset -3px 0 var(--color-button-active); }
 .softtool-tabs button:disabled { color: var(--color-disabled); background: #29383f; border-color: #40515b; cursor: default; }
 .softtool-content { grid-column: 1; grid-row: 1; min-width: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #647985 #1c282e; }
 .softtool-section { display: flex; flex-direction: column; gap: 9px; padding: 12px 11px; }
@@ -18,15 +18,14 @@
 .frequency-input .field-input { min-width: 0; border-right: 0; }
 .frequency-input select { flex: 0 0 62px; width: 62px; height: 35px; padding-left: 3px; color: #183343; background: #dce7ed; border: 1px solid #9eb1bc; font-size: 12px; color-scheme: light; }
 .softtool-section select.field-input { font-size: 13px; }
-.softtool-button,.softtool-choice { min-height: 37px; padding: 8px 7px; border: 1px solid #607b8a; border-radius: 1px; color: #f2f7fa; background: #455f6f; font-size: 12px; line-height: 1.25; text-align: center; }
-.softtool-button:hover:not(:disabled),.softtool-choice:hover:not(:disabled) { background: #547589; border-color: #98b6c6; }
+.softtool-button,.softtool-choice { min-height: 37px; padding: 8px 7px; border: 1px solid #607b8a; border-radius: 1px; color: #f2f7fa; background: var(--color-button); font-size: 12px; line-height: 1.25; text-align: center; }
+.softtool-button:hover:not(:disabled):not(.is-active),.softtool-choice:hover:not(:disabled):not(.is-active) { background: var(--color-button-hover); border-color: #98b6c6; }
 .softtool-button:disabled,.softtool-choice:disabled { color: #80929d; background: #2d3d47; border-color: #3f515d; }
-.softtool-primary { border-color: #44b2e2; background: #087eaf; }
 .softtool-apply { margin-top: 7px; }
 div.softtool-apply { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
 .softtool-button small { display: block; margin-top: 3px; color: #c3d4de; font-size: 10px; }
-.softtool-button.is-active:not(:disabled) { border-color: #49bded; background: #007faf; }
-.softtool-choice.is-active:not(:disabled) { border-color: #49bded; background: #007faf; color: white; }
+.softtool-button.is-active:not(:disabled) { border-color: #49bded; background: var(--color-button-active); }
+.softtool-choice.is-active:not(:disabled) { border-color: #49bded; background: var(--color-button-active); color: white; }
 .softtool-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
 .softtool-note { margin: 1px 0; color: #a7b9c3; font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
 .softtool-note.warning { color: #ffd580; }
