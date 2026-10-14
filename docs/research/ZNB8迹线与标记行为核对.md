@@ -26,6 +26,8 @@
 
 官方图中的 `Markers` 页依次放置 Stimulus、Marker On、All Off、Delta Mode；随后是双列 Mkr 1～10，末行 Ref Mkr / Add Marker，底部 Coupled Markers。尚未实现的能力应禁用或隐藏，不能假装可操作。[同一手册，第 501 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=501)
 
+2026-10-14 复核：ZNB 手册的 Marker addressing 明确命令作用于 `<Chn>` 通道的活动迹线；`<Chn>` 只选通道，不能由这个前缀推断 Marker 是通道共享对象。[同一手册，第 1029 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=1029) Coupled Markers 联动同编号标记的添加、删除和刺激位置，各迹线的 Y 读数仍由各自测量响应决定。[同一手册，第 97 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=97) 范围可选全部通道、同通道或同图窗，对应 `ALL / CHAN / DIAG`。[同一手册，第 522–523 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=522) 当前 VnaPro 保留独立普通标记，并在 Marker 页明确当前迹线及 Coupled 未实现的边界。
+
 工具栏新增标记放到目标图表的活动迹线上；右上角同时显示 X/Y，持续扫描时 Y 随测量更新。删除可将单个标记或整组读数拖到垃圾桶；最后一条迹线不能删除。[官方 Getting Started v70，第 47–48 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/getting_started/1316_0062_01/ZNB_GettingStarted_en_70.pdf#page=48)
 
 ## 标题与右上角读数

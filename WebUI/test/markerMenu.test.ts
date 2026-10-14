@@ -172,6 +172,49 @@ test('real Add Marker asks the backend to choose a slot and All Off retains all 
   }
 })
 
+test('real Marker menu identifies the active trace scope when selection changes', async () => {
+  const props = menuProps()
+  const menu = await sfcHarness(
+    'src/components/softtools/MarkerSofttool.vue',
+    props,
+    {},
+  )
+  try {
+    for (const name of ['Reflect', 'Second Trace']) {
+      props.measurement = { ...reflection, name }
+      await nextTick()
+      const scope = findElements(
+        menu.render(),
+        (node) => node.props?.['data-testid'] === 'marker-scope',
+      )[0]!
+      assert.equal(
+        findElements(scope, (node) => node.type === 'span')[0]!.children,
+        'Active Trace · Ch1',
+      )
+      assert.equal(
+        findElements(scope, (node) => node.type === 'strong')[0]!.children,
+        name,
+      )
+      const choices = findElements(
+        menu.render(),
+        (node) => node.props?.['data-marker-id'] !== undefined,
+      )
+      assert.deepEqual(
+        choices.map((choice) => choice.props!.title),
+        Array.from({ length: 10 }, (_, index) => `${name} · M${index + 1}`),
+      )
+      const allOff = findElements(
+        menu.render(),
+        (node) => node.props?.['data-testid'] === 'markers-all-off',
+      )[0]!
+      assert.equal(allOff.props!.title, `Turn off all markers on ${name}`)
+    }
+    assert.deepEqual(JSON.parse(JSON.stringify(menu.emitted)), [])
+  } finally {
+    menu.dispose()
+  }
+})
+
 test('readonly marker menu disables all writes, including direct stale event handlers', async () => {
   const props = menuProps()
   props.canEditDisplay = false

@@ -86,8 +86,10 @@ function applyFrequency() {
   <section class="softtool-section" aria-label="Markers">
     <div
       class="softtool-readout"
+      data-testid="marker-scope"
       :style="{ borderLeft: `3px solid ${color}`, paddingLeft: '7px' }"
     >
+      <span>Active Trace · Ch1</span>
       <strong>{{ measurement?.name ?? 'No active trace' }}</strong>
       <span
         >{{ measurement?.parameter ?? '请选择测量' }} · M{{ selectedId }}</span
@@ -128,6 +130,7 @@ function applyFrequency() {
         type="button"
         :disabled="!editable || !markers.some((marker) => marker.enabled)"
         data-testid="markers-all-off"
+        :title="`Turn off all markers on ${measurement?.name ?? 'the active trace'}`"
         @click="update({ markerAction: 'allOff' })"
       >
         All Off
@@ -148,7 +151,7 @@ function applyFrequency() {
           ),
         }"
         :data-marker-id="id"
-        :title="`Marker ${id}`"
+        :title="`${measurement?.name ?? 'Active trace'} · M${id}`"
         @click="select(id)"
       >
         Mkr {{ id }}
@@ -215,7 +218,8 @@ function applyFrequency() {
       }}</span>
     </div>
     <p class="softtool-note">
-      每条迹线独立保存 M1–M10。选择标记即启用；All Off 保留各标记位置。
+      M1–M10 属于当前迹线；All Off 只关闭该迹线标记并保留位置。
+      同频联动由 Coupled Markers 控制，当前尚未实现。
     </p>
   </section>
 </template>
