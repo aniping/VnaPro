@@ -1,6 +1,7 @@
 add_library(vna_display STATIC
     src/display_workspace.cpp
     src/diagram_collection.cpp
+    src/diagram_layout.cpp
     src/display_format.cpp
     src/trace_projection.cpp
     src/trace_sequence_formatter.cpp
@@ -17,6 +18,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+    add_executable(vna_diagram_layout_tests tests/diagram_layout_test.cpp)
+    target_link_libraries(vna_diagram_layout_tests PRIVATE vna_display)
+    add_test(NAME diagram_layout COMMAND vna_diagram_layout_tests)
+    set_tests_properties(diagram_layout PROPERTIES TIMEOUT 10)
     add_executable(vna_sparameter_matrix_display_tests tests/sparameter_matrix_test.cpp)
     target_link_libraries(vna_sparameter_matrix_display_tests PRIVATE vna_display)
     add_test(NAME sparameter_matrix_display COMMAND vna_sparameter_matrix_display_tests)
