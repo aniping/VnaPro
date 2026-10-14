@@ -148,8 +148,8 @@ for (const axisFormat of ['smith', 'db'] as const) {
     const firstLabel = probe.events.indexOf('label')
     assert.ok(firstLabel > 0)
     assert.ok(
-      probe.events.slice(firstLabel).every((event) => event === 'label'),
-      'mixed backgrounds and traces must not paint over coordinate labels',
+      probe.events.lastIndexOf('label') < probe.events.lastIndexOf('stroke'),
+      'coordinate labels mask grids before traces, preserving measurement lines',
     )
     assert.ok(
       probe.strokes.some(
