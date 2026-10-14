@@ -4,6 +4,7 @@ import type {
   MarkerInfoLocation,
 } from '../domain/presentation'
 import { MAX_DIAGRAMS, MAX_TRACES } from '../domain/presentation'
+import { FRAME_POINT_LIMIT } from './frameLimits'
 import {
   decodeMarkerCollection,
   decodeMarkerProjections,
@@ -352,21 +353,23 @@ export function decodeProjection(
   const marker = markerProjection(item.marker)
   const result: TraceProjection = {
     format,
-    values: array(item.values, 'projection.values', 2001).map((value) =>
-      nullableNumber(value, 'projection.value'),
+    values: array(item.values, 'projection.values', FRAME_POINT_LIMIT).map(
+      (value) => nullableNumber(value, 'projection.value'),
     ),
     secondaryValues: array(
       item.secondaryValues,
       'projection.secondaryValues',
-      2001,
+      FRAME_POINT_LIMIT,
     ).map((value) => nullableNumber(value, 'projection.secondaryValue')),
-    valueStates: array(item.valueStates, 'projection.valueStates', 2001).map(
-      (value) => choice(value, 'projection.valueState', STATES),
-    ),
+    valueStates: array(
+      item.valueStates,
+      'projection.valueStates',
+      FRAME_POINT_LIMIT,
+    ).map((value) => choice(value, 'projection.valueState', STATES)),
     secondaryStates: array(
       item.secondaryStates,
       'projection.secondaryStates',
-      2001,
+      FRAME_POINT_LIMIT,
     ).map((value) => choice(value, 'projection.secondaryState', STATES)),
     ...pointImpedance(item, format, count),
     ...pointAdmittance(item, format, count),
@@ -419,17 +422,17 @@ function pointImpedance(
   const impedanceRealValues = array(
     item.impedanceRealValues,
     'projection.impedanceRealValues',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => nullableNumber(value, 'projection.impedanceRealValue'))
   const impedanceImagValues = array(
     item.impedanceImagValues,
     'projection.impedanceImagValues',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => nullableNumber(value, 'projection.impedanceImagValue'))
   const impedanceStates = array(
     item.impedanceStates,
     'projection.impedanceStates',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => choice(value, 'projection.impedanceState', IMPEDANCE_STATES))
   const expected = format === 'smith' ? count : 0
   if (
@@ -508,17 +511,17 @@ function pointAdmittance(
   const admittanceRealValues = array(
     item.admittanceRealValues,
     'projection.admittanceRealValues',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => nullableNumber(value, 'projection.admittanceReal'))
   const admittanceImagValues = array(
     item.admittanceImagValues,
     'projection.admittanceImagValues',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => nullableNumber(value, 'projection.admittanceImag'))
   const admittanceStates = array(
     item.admittanceStates,
     'projection.admittanceStates',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) =>
     choice<AdmittanceState>(value, 'projection.admittanceState', [
       'finite',
@@ -575,22 +578,22 @@ function pointMarkerValues(
   const markerValues = array(
     item.markerValues,
     'projection.markerValues',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => nullableNumber(value, 'projection.markerValue'))
   const markerSecondaryValues = array(
     item.markerSecondaryValues,
     'projection.markerSecondaryValues',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => nullableNumber(value, 'projection.markerSecondaryValue'))
   const markerValueStates = array(
     item.markerValueStates,
     'projection.markerValueStates',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => choice(value, 'projection.markerValueState', STATES))
   const markerSecondaryStates = array(
     item.markerSecondaryStates,
     'projection.markerSecondaryStates',
-    2001,
+    FRAME_POINT_LIMIT,
   ).map((value) => choice(value, 'projection.markerSecondaryState', STATES))
   const expected = format === 'polar' ? count : 0
   if (

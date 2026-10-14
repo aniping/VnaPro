@@ -156,7 +156,7 @@ void ManySmithTracesRespectAggregateTransportBudget()
         const auto response = api.Handle(request);
         Require(response.status == 200U && Field(response.json, "current").boolean, "预算内全部迹线使用当前完整帧");
         const auto count = static_cast<std::size_t>(Field(response.json, "displayPointCount").number);
-        const auto expected = std::min<std::size_t>(2001U, 8004U / number);
+        const auto expected = std::min<std::size_t>(10001U, 40004U / number);
         Require(count == expected && Field(response.json, "originalPointCount").number == 10001.0 &&
                     Field(response.json, "traces").array.size() == number,
             "扩大迹线容量不能扩大总采样传输预算或截断迹线");
@@ -170,7 +170,7 @@ void ManySmithTracesRespectAggregateTransportBudget()
                         Field(projection, "impedanceImagValues").array.size() == count,
                 "IQ 与 Smith 阻抗投影必须共同按总预算抽点");
         }
-        Require(VnaWeb::StringifyJson(response.json).size() < 4U * 1024U * 1024U,
+        Require(VnaWeb::StringifyJson(response.json).size() < 16U * 1024U * 1024U,
             "最大点数与全部 Smith 迹线的响应必须在现有 JSON 上限内可编码");
     }
 }

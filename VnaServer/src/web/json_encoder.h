@@ -47,7 +47,7 @@ public:
     JsonEncoder &operator=(JsonEncoder &&) = delete;
     // 丢弃先前输出并持有稳定的文档；调用 Take 或发生错误后，必须先调用 Reset。
     void Reset(Json value);
-    // 每次最多推进 budget 个节点步骤；每次追加前检查输出不超过 4 MiB。
+    // 每次最多推进 budget 个节点步骤；每次追加前检查输出不超过 16 MiB。
     // 完成时返回 true；状态或 UTF-8 无效、分配失败时抛出异常，重试前必须重置。
     bool Advance(unsigned budget = DEFAULT_ENCODING_BUDGET);
     // 仅允许移出完整输出一次；未完成、空闲、失败或已取出时抛出异常。
