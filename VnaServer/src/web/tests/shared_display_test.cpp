@@ -457,6 +457,88 @@ void InfoTableStrictContractAndRevision()
     Shared(writer, observer);
 }
 
+void MarkerInfoAreasAreSharedAndAtomic()
+{
+    Fixture fixture;
+    HttpApi writer(fixture.service);
+    HttpApi observer(fixture.service);
+    const auto token = Claim(writer);
+    const auto original = Field(Display(writer), "selectedMeasurement").string;
+    Require(Field(Presentation(Display(observer), original), "markerInfoArea").string == "topRight",
+        "新字段的出厂锚点必须由后端提供");
+    auto move = Action(writer, "markerInfoLocation", original, "marker-info-before-clone");
+    move["location"] = Json("diagram");
+    move["area"] = Json("bottomLeft");
+    Apply(writer, move, token);
+    const auto copy = Clone(writer, original, token);
+    Single(writer, token);
+    const auto physical = fixture.core.ReadView();
+    const auto logical = fixture.service.Settings().revision;
+    const auto selected = Field(Display(writer), "selectedMeasurement").string;
+    for (const std::string area : {"topLeft", "topCenter", "topRight", "centerLeft", "center", "centerRight",
+             "bottomLeft", "bottomCenter", "bottomRight"}) {
+        move = Action(writer, "markerInfoLocation", original, "marker-info-area-" + area);
+        move["location"] = Json("diagram");
+        move["area"] = Json(area);
+        Apply(writer, move, token);
+        const auto display = Display(observer);
+        Require(Field(Presentation(display, original), "markerInfoArea").string == area &&
+                    Field(Presentation(display, copy), "markerInfoArea").string == "bottomLeft" &&
+                    Field(display, "selectedMeasurement").string == selected,
+            "观察器必须读到独立迹线字段定位，复制字段随后独立且不能切换活动迹线");
+    }
+    const auto revision = Field(Display(writer), "revision").string;
+    move["requestId"] = Json("marker-info-area-no-op");
+    move["expectedDisplayRevision"] = Json(revision);
+    Apply(writer, move, token);
+    Require(Field(Display(observer), "revision").string == revision, "重复字段锚点不增加显示版本");
+    move = Action(writer, "markerInfoLocation", original, "marker-info-area-to-table");
+    move["location"] = Json("table");
+    Apply(writer, move, token);
+    move = Action(writer, "markerInfoLocation", original, "marker-info-area-back-diagram");
+    move["location"] = Json("diagram");
+    Apply(writer, move, token);
+    Require(Field(Presentation(Display(observer), original), "markerInfoArea").string == "bottomRight",
+        "表格归属变化与图内锚点必须独立保存");
+    auto stale = Action(writer, "markerInfoLocation", original, "marker-info-area-stale");
+    stale["location"] = Json("diagram");
+    stale["area"] = Json("topLeft");
+    move = Action(writer, "markerInfoLocation", original, "marker-info-area-fresh");
+    move["location"] = Json("diagram");
+    move["area"] = Json("topCenter");
+    Apply(writer, move, token);
+    const auto saved = VnaWeb::StringifyJson(Display(writer));
+    Require(Request(writer, "POST", "/api/v1/display", stale, token).status == 409U &&
+                VnaWeb::StringifyJson(Display(observer)) == saved,
+        "过期显示版本不能覆盖已完成的字段定位");
+    auto invalid = Action(writer, "markerInfoLocation", original, "marker-info-area-read-only");
+    invalid["location"] = Json("diagram");
+    invalid["area"] = Json("center");
+    Require(Request(observer, "POST", "/api/v1/display", invalid).status == 403U &&
+                VnaWeb::StringifyJson(Display(observer)) == saved,
+        "观察器不得拖动字段位置");
+    unsigned index = 0U;
+    for (const auto area : {Json("unknown"), Json("TopLeft"), Json(1U), Json()}) {
+        invalid["requestId"] = Json("marker-info-area-invalid-" + std::to_string(index++));
+        invalid["area"] = area;
+        Require(Request(writer, "POST", "/api/v1/display", invalid, token).status == 400U &&
+                    VnaWeb::StringifyJson(Display(observer)) == saved,
+            "非法位置名称或类型必须原子拒绝");
+    }
+    invalid["requestId"] = Json("marker-info-area-table-conflict");
+    invalid["location"] = Json("table");
+    invalid["area"] = Json("bottomLeft");
+    Require(Request(writer, "POST", "/api/v1/display", invalid, token).status == 400U &&
+                VnaWeb::StringifyJson(Display(observer)) == saved,
+        "表格与图内定位的混合请求不能部分迁移字段");
+    HttpApi refreshed(fixture.service);
+    Shared(writer, refreshed);
+    const auto unchanged = fixture.core.ReadView();
+    Require(unchanged.configRevision == physical.configRevision && unchanged.runId == physical.runId &&
+                unchanged.frame == physical.frame && fixture.service.Settings().revision == logical,
+        "字段拖动不得修改扫描状态、完整帧或测量目录");
+}
+
 void MarkerSelectionNavigatesOwnerAcrossWindows()
 {
     Fixture fixture;
@@ -510,6 +592,7 @@ int main()
         {"shared-numbered-markers", NumberedMarkersAreSharedAndAtomic},
         {"shared-info-table-and-window-annotations", InfoTableAndWindowAnnotationsAreShared},
         {"shared-info-table-strict-contract-and-cas", InfoTableStrictContractAndRevision},
+        {"shared-marker-info-area-and-cas", MarkerInfoAreasAreSharedAndAtomic},
         {"shared-marker-selection-navigates-owner", MarkerSelectionNavigatesOwnerAcrossWindows}};
     unsigned failures = 0U;
     for (const auto &test : tests) {

@@ -68,6 +68,7 @@ const std::string *DiagramCollection::NameAtSlot(const DisplayDiagram &diagram, 
 void DiagramCollection::Refresh(DisplayState &state)
 {
     if (state.diagrams.empty()) {
+        state.diagramLayout.Clear();
         state.diagrams.push_back({1U, {}, {}});
     }
     state.displayedNames.clear();
@@ -103,6 +104,7 @@ void DiagramCollection::Reconcile(DisplayState &state, const std::vector<std::st
         }
         // 删除最后一条所属迹线会删除图窗；主动创建的空窗口则继续保留。
         if (occupied && names.empty() && state.diagrams.size() > 1U) {
+            state.diagramLayout.Remove(diagram.number);
             diagram.number = 0U;
         }
     }
@@ -118,12 +120,15 @@ void DiagramCollection::Reconcile(DisplayState &state, const std::vector<std::st
         const unsigned previousSelection = state.selectedDiagram;
         unsigned nextSelection = 0U;
         unsigned next = 1U;
+        std::vector<std::pair<unsigned, unsigned>> mapping;
         for (auto &diagram : state.diagrams) {
             if (previousSelection == diagram.number) {
                 nextSelection = next;
             }
+            mapping.emplace_back(diagram.number, next);
             diagram.number = next++;
         }
+        state.diagramLayout.Renumber(mapping);
         state.selectedDiagram = nextSelection == 0U ? 1U : nextSelection;
     }
     Refresh(state);
@@ -137,14 +142,15 @@ DisplayResult DiagramCollection::Add(DisplayState &state, unsigned number)
     }
     if (number == 0U) {
         number = 1U;
-        for (const auto &diagram : state.diagrams) {
-            number = std::max(number, diagram.number + 1U);
+        while (number <= MAX_DISPLAY_DIAGRAMS && Find(state, number) != nullptr) {
+            ++number;
         }
     }
     if (number > MAX_DISPLAY_DIAGRAMS || Find(state, number) != nullptr) {
         return Result("Diagram number is invalid or already exists");
     }
     state.diagrams.push_back({number, {}, {}});
+    state.diagramLayout.Clear();
     state.selectedDiagram = number;
     state.layout = LayoutMode::GRID;
     return Result();
@@ -158,6 +164,7 @@ DisplayResult DiagramCollection::Remove(DisplayState &state, unsigned number, bo
     }
     const bool removedSelectedTrace = Contains(removed->measurementNames, state.selectedMeasurement);
     const unsigned previousSelection = state.selectedDiagram;
+    state.diagramLayout.Remove(number);
     state.diagrams.erase(std::remove_if(state.diagrams.begin(), state.diagrams.end(),
                              [number](const DisplayDiagram &diagram) {
                                  return diagram.number == number;
@@ -166,12 +173,15 @@ DisplayResult DiagramCollection::Remove(DisplayState &state, unsigned number, bo
     if (renumber) {
         unsigned nextSelection = 0U;
         unsigned next = 1U;
+        std::vector<std::pair<unsigned, unsigned>> mapping;
         for (auto &diagram : state.diagrams) {
             if (previousSelection == diagram.number) {
                 nextSelection = next;
             }
+            mapping.emplace_back(diagram.number, next);
             diagram.number = next++;
         }
+        state.diagramLayout.Renumber(mapping);
         state.selectedDiagram = nextSelection == 0U ? 1U : nextSelection;
     }
     Refresh(state);
@@ -250,6 +260,57 @@ DisplayResult DiagramCollection::Feed(DisplayState &state, const std::string &na
     return Result();
 }
 
+DisplayResult DiagramCollection::Place(
+    DisplayState &state, const std::string &name, unsigned target, TraceDropPosition position, bool newDiagram)
+{
+    target = target == 0U ? state.selectedDiagram : target;
+    const auto *window = Find(state, target);
+    if ((!newDiagram && window == nullptr) || TraceDropPositionName(position) == nullptr ||
+        (newDiagram && position != TraceDropPosition::CENTER)) {
+        return Result("Trace destination is invalid");
+    }
+    const auto sourceWindow =
+        std::find_if(state.diagrams.begin(), state.diagrams.end(), [&name](const DisplayDiagram &diagram) {
+            return Contains(diagram.measurementNames, name);
+        });
+    const unsigned source = sourceWindow == state.diagrams.end() ? 0U : sourceWindow->number;
+    if (position != TraceDropPosition::CENTER) {
+        const bool markerInfoVisible = window->markerInfoVisible;
+        if (state.diagramLayout.Empty()) {
+            std::vector<unsigned> numbers;
+            for (const auto &diagram : state.diagrams) {
+                numbers.push_back(diagram.number);
+            }
+            const auto grid = DisplayWorkspace::GridGeometry(state);
+            state.diagramLayout.Initialize(numbers, grid.columns, grid.rows);
+        }
+        auto layout = state.diagramLayout;
+        const auto added = Add(state);
+        if (!added.ok) {
+            return added;
+        }
+        state.diagramLayout = std::move(layout);
+        if (!state.diagramLayout.Split(target, state.selectedDiagram, position)) {
+            return Result("Cannot split the target diagram");
+        }
+        target = state.selectedDiagram;
+        Find(state, target)->markerInfoVisible = markerInfoVisible;
+        state.gridColumns = 0U;
+    } else if (newDiagram) {
+        const auto added = Add(state);
+        if (!added.ok) {
+            return added;
+        }
+        target = state.selectedDiagram;
+    }
+    const auto fed = Feed(state, name, target);
+    const auto *old = Find(state, source);
+    if (fed.ok && source != target && old != nullptr && old->measurementNames.empty() && state.diagrams.size() > 1U) {
+        return Remove(state, source, true);
+    }
+    return fed;
+}
+
 void DiagramCollection::Unfeed(DisplayState &state, const std::string &name, unsigned number)
 {
     bool removed = false;
@@ -291,6 +352,7 @@ void DiagramCollection::Overlay(DisplayState &state)
     state.diagrams.front().markerInfoVisible = markerInfoVisible;
     state.selectedDiagram = 1U;
     state.layout = LayoutMode::SINGLE;
+    state.diagramLayout.Clear();
     Refresh(state);
 }
 
@@ -316,6 +378,7 @@ void DiagramCollection::Split(DisplayState &state)
         ++number;
     }
     state.layout = LayoutMode::GRID;
+    state.diagramLayout.Clear();
     Refresh(state);
 }
 

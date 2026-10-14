@@ -57,6 +57,7 @@ VnaService::Operation TraceActionAdapter::Execute(
     }
     if (!remove && !matrix) {
         allowed.push_back("newDiagram");
+        allowed.push_back("position");
     }
     if (clone) {
         allowed.push_back("sourceName");
@@ -83,6 +84,14 @@ VnaService::Operation TraceActionAdapter::Execute(
     VnaService::TraceCreationOptions options;
     options.diagram = Diagram(body, false);
     options.newDiagram = NewDiagram(body);
+    const auto *position = body.Find("position");
+    if (position != nullptr && (position->type != Json::Type::STRING ||
+                                   !VnaDisplay::ParseTraceDropPosition(position->string, options.position))) {
+        throw std::invalid_argument("position must be center, above, below, left or right");
+    }
+    if (options.position != VnaDisplay::TraceDropPosition::CENTER && (options.diagram == 0U || options.newDiagram)) {
+        throw std::invalid_argument("Relative split requires diagram and cannot combine newDiagram");
+    }
     if (add) {
         const auto *parameter = body.Find("parameter");
         if (parameter != nullptr) {

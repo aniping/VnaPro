@@ -32,6 +32,7 @@ namespace VnaService {
 struct TraceCreationOptions final {
     unsigned diagram = 0U;
     bool newDiagram = false;
+    VnaDisplay::TraceDropPosition position = VnaDisplay::TraceDropPosition::CENTER;
     // 仅新增可指定测量量；为空时使用仪器默认量，复制始终继承源测量量。
     std::string parameter;
 };

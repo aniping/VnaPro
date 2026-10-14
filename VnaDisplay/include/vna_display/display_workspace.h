@@ -12,6 +12,7 @@
 
 #include "vna_calibration/calibration.h"
 #include "vna_core/measurement_frame.h"
+#include "vna_display/diagram_layout.h"
 #include "vna_display/marker_collection.h"
 #include "vna_measurement/measurement.h"
 
@@ -56,6 +57,18 @@ enum class MarkerInfoLocation {
     TABLE
 };
 
+enum class MarkerInfoArea {
+    TOP_LEFT,
+    TOP_CENTER,
+    TOP_RIGHT,
+    CENTER_LEFT,
+    CENTER,
+    CENTER_RIGHT,
+    BOTTOM_LEFT,
+    BOTTOM_CENTER,
+    BOTTOM_RIGHT
+};
+
 struct InfoTableSettings final {
     bool visible = false;
     InfoTablePosition position = InfoTablePosition::BOTTOM;
@@ -84,6 +97,7 @@ struct TracePresentation final {
     MarkerCollection markers;
     // 信息字段的归属独立于标记开关和全局 Info Table 容器的显隐。
     MarkerInfoLocation markerInfoLocation = MarkerInfoLocation::DIAGRAM;
+    MarkerInfoArea markerInfoArea = MarkerInfoArea::TOP_RIGHT;
 };
 
 struct DisplayDiagram final {
@@ -110,6 +124,7 @@ struct DisplayState final {
     LayoutMode layout = LayoutMode::SINGLE;
     // 零表示普通图窗的自动排列；整组矩阵保存明确列数，最大化不覆盖它。
     unsigned gridColumns = 0U;
+    DiagramLayout diagramLayout;
     std::vector<TracePresentation> traces;
     std::vector<DisplayDiagram> diagrams;
     unsigned selectedDiagram = 1U;
@@ -146,7 +161,8 @@ enum class DisplayChangeKind {
     INFO_TABLE,
     DISPLAY_ANNOTATIONS,
     MARKER_INFO,
-    MARKER_INFO_LOCATION
+    MARKER_INFO_LOCATION,
+    TRACE_MOVE
 };
 
 struct ScaleChange final {
@@ -197,6 +213,9 @@ struct DisplayChange final {
     InfoTableChange infoTable;
     AnnotationChange annotations;
     MarkerInfoLocation markerInfoLocation = MarkerInfoLocation::DIAGRAM;
+    bool hasMarkerInfoArea = false;
+    MarkerInfoArea markerInfoArea = MarkerInfoArea::TOP_RIGHT;
+    TraceDropPosition dropPosition = TraceDropPosition::CENTER;
 };
 
 struct DisplayResult final {
@@ -214,6 +233,8 @@ const char *InfoTablePositionName(InfoTablePosition position) noexcept;
 bool ParseInfoTablePosition(const std::string &value, InfoTablePosition &position) noexcept;
 const char *MarkerInfoLocationName(MarkerInfoLocation location) noexcept;
 bool ParseMarkerInfoLocation(const std::string &value, MarkerInfoLocation &location) noexcept;
+const char *MarkerInfoAreaName(MarkerInfoArea area) noexcept;
+bool ParseMarkerInfoArea(const std::string &value, MarkerInfoArea &area) noexcept;
 
 // 单线程显示域：由服务执行器持有，不创建线程、控制租约或采集计划。
 class DisplayWorkspace final {
@@ -233,10 +254,11 @@ public:
     DisplayResult Reconcile(const std::vector<VnaMeasurement::Measurement> &catalog);
     // 复制已协调源迹线的全部显示设置并选择目标；失败不改变任何状态，标记集合独立持有。
     DisplayResult ClonePresentation(const std::string &sourceName, const std::string &targetName,
-        const std::vector<VnaMeasurement::Measurement> &catalog, unsigned diagram = 0U, bool newDiagram = false);
+        const std::vector<VnaMeasurement::Measurement> &catalog, unsigned diagram = 0U, bool newDiagram = false,
+        TraceDropPosition position = TraceDropPosition::CENTER);
     // 新测量使用默认显示设置，归属与选择在一个候选中完成。
     DisplayResult AddPresentation(const std::string &name, const std::vector<VnaMeasurement::Measurement> &catalog,
-        unsigned diagram = 0U, bool newDiagram = false);
+        unsigned diagram = 0U, bool newDiagram = false, TraceDropPosition position = TraceDropPosition::CENTER);
     // 整组替换旧图窗和迹线设置；接收端口分行、源端口分列，每个参数一图窗。
     DisplayResult ReplaceSParameterMatrix(const std::vector<VnaMeasurement::Measurement> &catalog, unsigned portCount);
     // 原生删除图窗时连续重编号；SCPI 删除显示窗口不删除测量定义。

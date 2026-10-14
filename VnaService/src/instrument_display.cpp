@@ -94,10 +94,10 @@ bool InstrumentService::PrepareDisplayConfiguration(Detail::ServiceTask &task)
     }
     if (result.ok && task.selectClonedMeasurement) {
         result = task.displayCandidate.ClonePresentation(task.cloneSourceName, task.candidate.measurements.back().name,
-            task.candidate.measurements, task.targetDiagram, task.newDiagram);
+            task.candidate.measurements, task.targetDiagram, task.newDiagram, task.dropPosition);
     } else if (result.ok && task.selectNewMeasurement) {
-        result = task.displayCandidate.AddPresentation(
-            task.candidate.measurements.back().name, task.candidate.measurements, task.targetDiagram, task.newDiagram);
+        result = task.displayCandidate.AddPresentation(task.candidate.measurements.back().name,
+            task.candidate.measurements, task.targetDiagram, task.newDiagram, task.dropPosition);
     }
     if (!result.ok) {
         auto failure = DisplayResult(result);
@@ -279,6 +279,7 @@ Operation InstrumentService::CreateMeasurement(const std::string &source, std::u
         task.cloneSourceName = source;
         task.targetDiagram = options.diagram;
         task.newDiagram = options.newDiagram;
+        task.dropPosition = options.position;
         task.expectedDisplayRevision = expectedDisplayRevision;
     }
     return operation;

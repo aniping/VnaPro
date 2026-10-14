@@ -57,6 +57,7 @@ struct ServiceTask final {
     bool selectClonedMeasurement = false;
     bool selectNewMeasurement = false;
     bool newDiagram = false;
+    VnaDisplay::TraceDropPosition dropPosition = VnaDisplay::TraceDropPosition::CENTER;
     unsigned targetDiagram = 0U;
     unsigned deletedDiagram = 0U;
     // 非零表示整组替换；端口数量取自启动配置，不由客户端覆盖。

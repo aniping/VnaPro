@@ -61,15 +61,15 @@ bool EqualTrace(const TracePresentation &left, const TracePresentation &right)
            left.scale.min == right.scale.min && left.scale.max == right.scale.max &&
            left.scale.referencePosition == right.scale.referencePosition && left.smithRadius == right.smithRadius &&
            left.visible == right.visible && left.markerInfoLocation == right.markerInfoLocation &&
-           left.markers.SameSettings(right.markers);
+           left.markerInfoArea == right.markerInfoArea && left.markers.SameSettings(right.markers);
 }
 
 bool EqualState(const DisplayState &left, const DisplayState &right)
 {
     return left.selectedMeasurement == right.selectedMeasurement && left.selectedDiagram == right.selectedDiagram &&
            left.layout == right.layout && left.gridColumns == right.gridColumns &&
-           left.traces.size() == right.traces.size() && left.infoTable.visible == right.infoTable.visible &&
-           left.infoTable.position == right.infoTable.position &&
+           left.diagramLayout.SameSettings(right.diagramLayout) && left.traces.size() == right.traces.size() &&
+           left.infoTable.visible == right.infoTable.visible && left.infoTable.position == right.infoTable.position &&
            left.annotations.activeTraceOnly == right.annotations.activeTraceOnly &&
            left.annotations.stimulusInfoVisible == right.annotations.stimulusInfoVisible &&
            left.annotations.fontScale == right.annotations.fontScale && left.diagrams.size() == right.diagrams.size() &&
@@ -112,6 +112,7 @@ DisplayResult ReplaceDisplayed(
     const bool markerInfoVisible = previousDiagram == nullptr || previousDiagram->markerInfoVisible;
     state.diagrams = {{1U, names, state.selectedMeasurement}};
     state.gridColumns = 0U;
+    state.diagramLayout.Clear();
     state.diagrams.front().markerInfoVisible = markerInfoVisible;
     state.selectedDiagram = 1U;
     if (!names.empty() && seen.count(state.selectedMeasurement) == 0U) {
@@ -170,7 +171,14 @@ DisplayResult ApplyTrace(TracePresentation &presentation, const DisplayChange &c
             if (MarkerInfoLocationName(change.markerInfoLocation) == nullptr) {
                 return Failure("Marker info location is not supported");
             }
+            if (change.hasMarkerInfoArea && (change.markerInfoLocation != MarkerInfoLocation::DIAGRAM ||
+                                                MarkerInfoAreaName(change.markerInfoArea) == nullptr)) {
+                return Failure("Marker info area requires a supported diagram position");
+            }
             presentation.markerInfoLocation = change.markerInfoLocation;
+            if (change.hasMarkerInfoArea) {
+                presentation.markerInfoArea = change.markerInfoArea;
+            }
             return Success();
         default:
             return Failure("Display operation is not supported");
@@ -331,6 +339,26 @@ bool ParseMarkerInfoLocation(const std::string &value, MarkerInfoLocation &locat
     return false;
 }
 
+const char *MarkerInfoAreaName(MarkerInfoArea area) noexcept
+{
+    static constexpr const char *NAMES[] = {"topLeft", "topCenter", "topRight", "centerLeft", "center", "centerRight",
+        "bottomLeft", "bottomCenter", "bottomRight"};
+    const auto index = static_cast<unsigned>(area);
+    return index < sizeof(NAMES) / sizeof(NAMES[0]) ? NAMES[index] : nullptr;
+}
+
+bool ParseMarkerInfoArea(const std::string &value, MarkerInfoArea &area) noexcept
+{
+    for (unsigned index = 0U; index < 9U; ++index) {
+        const auto candidate = static_cast<MarkerInfoArea>(index);
+        if (value == MarkerInfoAreaName(candidate)) {
+            area = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
 DisplayWorkspace::DisplayWorkspace(DisplayState state) : state_(std::move(state))
 {
     if (state_.diagrams.empty()) {
@@ -383,6 +411,7 @@ DisplayResult DisplayWorkspace::ReplaceSParameterMatrix(
     // 同名也代表新定义，不能继承被确认删除的旧格式、刻度或 Marker。
     candidate.traces.clear();
     candidate.diagrams.clear();
+    candidate.diagramLayout.Clear();
     for (std::size_t index = 0U; index < catalog.size(); ++index) {
         const auto &measurement = catalog[index];
         const auto &name = measurement.name;
@@ -429,7 +458,8 @@ DisplayResult DisplayWorkspace::Reconcile(const std::vector<VnaMeasurement::Meas
 }
 
 DisplayResult DisplayWorkspace::ClonePresentation(const std::string &sourceName, const std::string &targetName,
-    const std::vector<VnaMeasurement::Measurement> &catalog, unsigned diagram, bool newDiagram)
+    const std::vector<VnaMeasurement::Measurement> &catalog, unsigned diagram, bool newDiagram,
+    TraceDropPosition position)
 {
     if (sourceName == targetName || FindMeasurement(catalog, sourceName) == nullptr) {
         return Failure("Trace clone requires a distinct catalog source and destination");
@@ -442,13 +472,7 @@ DisplayResult DisplayWorkspace::ClonePresentation(const std::string &sourceName,
     }
     *target = *source;
     target->name = targetName;
-    if (newDiagram) {
-        const auto added = DiagramCollection::Add(candidate);
-        if (!added.ok) {
-            return added;
-        }
-        diagram = candidate.selectedDiagram;
-    } else if (diagram == 0U) {
+    if (!newDiagram && diagram == 0U) {
         // 同图复制跟随源迹线归属；活动空图窗不改变源迹线所在图窗。
         const auto sourceDiagram = std::find_if(
             candidate.diagrams.begin(), candidate.diagrams.end(), [&sourceName](const DisplayDiagram &value) {
@@ -459,25 +483,19 @@ DisplayResult DisplayWorkspace::ClonePresentation(const std::string &sourceName,
             diagram = sourceDiagram->number;
         }
     }
-    const auto fed = DiagramCollection::Feed(candidate, targetName, diagram);
+    const auto fed = DiagramCollection::Place(candidate, targetName, diagram, position, newDiagram);
     return fed.ok ? Commit(std::move(candidate)) : fed;
 }
 
-DisplayResult DisplayWorkspace::AddPresentation(
-    const std::string &name, const std::vector<VnaMeasurement::Measurement> &catalog, unsigned diagram, bool newDiagram)
+DisplayResult DisplayWorkspace::AddPresentation(const std::string &name,
+    const std::vector<VnaMeasurement::Measurement> &catalog, unsigned diagram, bool newDiagram,
+    TraceDropPosition position)
 {
     DisplayState candidate = state_;
     if (FindPresentation(candidate, name) == nullptr || FindMeasurement(catalog, name) == nullptr) {
         return Failure("New measurement is missing from display catalog");
     }
-    if (newDiagram) {
-        const auto added = DiagramCollection::Add(candidate);
-        if (!added.ok) {
-            return added;
-        }
-        diagram = candidate.selectedDiagram;
-    }
-    const auto fed = DiagramCollection::Feed(candidate, name, diagram);
+    const auto fed = DiagramCollection::Place(candidate, name, diagram, position, newDiagram);
     return fed.ok ? Commit(std::move(candidate)) : fed;
 }
 
@@ -557,6 +575,10 @@ DisplayResult DisplayWorkspace::ApplyCandidate(DisplayState &candidate, const Di
                     return selected;
                 }
             }
+            if (change.layout != LayoutMode::MAXIMIZED &&
+                !(candidate.layout == LayoutMode::MAXIMIZED && change.layout == LayoutMode::GRID)) {
+                candidate.diagramLayout.Clear();
+            }
             candidate.layout = change.layout;
             return Success();
         default:
@@ -579,6 +601,13 @@ DisplayResult DisplayWorkspace::ApplyCandidate(DisplayState &candidate, const Di
     auto presentation = FindPresentation(candidate, name);
     if (measurement == nullptr || presentation == nullptr) {
         return Failure("Measurement does not exist in the display workspace");
+    }
+    if (change.kind == DisplayChangeKind::TRACE_MOVE) {
+        const auto existing = std::find(candidate.displayedNames.begin(), candidate.displayedNames.end(), name);
+        if (existing == candidate.displayedNames.end()) {
+            return Failure("Trace is not assigned to a display diagram");
+        }
+        return DiagramCollection::Place(candidate, name, change.diagram, change.dropPosition);
     }
     if (change.kind == DisplayChangeKind::MEASUREMENT_SELECT) {
         // SCPI 测量选择与显示 FEED 独立；隐藏定义不能因数据查询被重新显示。

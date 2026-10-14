@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "display_test_support.h"
@@ -92,28 +93,90 @@ void PlacementSurvivesCloneCatalogAndMarkerChanges()
     std::vector<VnaMeasurement::Measurement> catalog{Measurement(), Measurement("Trc2")};
     Require(workspace.Reconcile(catalog).ok, "初始化复制目录失败");
     auto move = Change(DisplayChangeKind::MARKER_INFO_LOCATION);
+    move.hasMarkerInfoArea = true;
+    move.markerInfoArea = MarkerInfoArea::BOTTOM_LEFT;
+    Require(workspace.Apply(move, catalog, {}).ok, "设置信息字段锚点失败");
+    move.hasMarkerInfoArea = false;
     move.markerInfoLocation = MarkerInfoLocation::TABLE;
     Require(workspace.Apply(move, catalog, {}).ok && workspace.ClonePresentation("Trc1", "Trc2", catalog).ok,
         "复制字段归属失败");
-    Require(workspace.State().traces.back().markerInfoLocation == MarkerInfoLocation::TABLE,
-        "Trace Config 复制必须复制字段归属");
+    Require(workspace.State().traces.back().markerInfoLocation == MarkerInfoLocation::TABLE &&
+                workspace.State().traces.back().markerInfoArea == MarkerInfoArea::BOTTOM_LEFT,
+        "Trace Config 复制必须复制字段归属与原图窗锚点");
     move.name = "Trc2";
     move.markerInfoLocation = MarkerInfoLocation::DIAGRAM;
+    move.hasMarkerInfoArea = true;
+    move.markerInfoArea = MarkerInfoArea::BOTTOM_RIGHT;
     Require(workspace.Apply(move, catalog, {}).ok &&
-                workspace.State().traces.front().markerInfoLocation == MarkerInfoLocation::TABLE,
-        "复制后字段归属必须独立");
+                workspace.State().traces.front().markerInfoLocation == MarkerInfoLocation::TABLE &&
+                workspace.State().traces.front().markerInfoArea == MarkerInfoArea::BOTTOM_LEFT &&
+                workspace.State().traces.back().markerInfoArea == MarkerInfoArea::BOTTOM_RIGHT,
+        "复制后字段归属与定位必须独立");
     auto marker = Change(DisplayChangeKind::MARKER);
     marker.marker.action = MarkerAction::ADD;
     Require(workspace.Apply(marker, catalog, DisplayTest::Frame()).ok, "新增标记失败");
     marker.marker.action = MarkerAction::ALL_OFF;
     Require(workspace.Apply(marker, catalog, {}).ok &&
-                workspace.State().traces.front().markerInfoLocation == MarkerInfoLocation::TABLE,
-        "标记全部关闭后必须保留信息字段归属");
+                workspace.State().traces.front().markerInfoLocation == MarkerInfoLocation::TABLE &&
+                workspace.State().traces.front().markerInfoArea == MarkerInfoArea::BOTTOM_LEFT,
+        "标记全部关闭后必须保留信息字段归属与锚点");
     catalog.push_back(Measurement("Trc3"));
     Require(workspace.Reconcile(catalog).ok &&
                 workspace.State().traces.front().markerInfoLocation == MarkerInfoLocation::TABLE &&
-                workspace.State().traces.back().markerInfoLocation == MarkerInfoLocation::DIAGRAM,
-        "协调目录必须保留旧字段归属并为新迹线提供独立默认值");
+                workspace.State().traces.front().markerInfoArea == MarkerInfoArea::BOTTOM_LEFT &&
+                workspace.State().traces.back().markerInfoLocation == MarkerInfoLocation::DIAGRAM &&
+                workspace.State().traces.back().markerInfoArea == MarkerInfoArea::TOP_RIGHT,
+        "协调目录必须保留旧字段归属与锚点，并为新迹线提供独立默认值");
+}
+
+void MarkerInfoAreaContractAndAtomicity()
+{
+    DisplayWorkspace workspace;
+    const std::vector<VnaMeasurement::Measurement> catalog{Measurement(), Measurement("Trc2")};
+    Require(workspace.Reconcile(catalog).ok, "初始化信息字段定位目录失败");
+    const auto selection = workspace.State().selectedMeasurement;
+    const char *names[] = {"topLeft", "topCenter", "topRight", "centerLeft", "center", "centerRight", "bottomLeft",
+        "bottomCenter", "bottomRight"};
+    const MarkerInfoArea areas[] = {MarkerInfoArea::TOP_LEFT, MarkerInfoArea::TOP_CENTER, MarkerInfoArea::TOP_RIGHT,
+        MarkerInfoArea::CENTER_LEFT, MarkerInfoArea::CENTER, MarkerInfoArea::CENTER_RIGHT, MarkerInfoArea::BOTTOM_LEFT,
+        MarkerInfoArea::BOTTOM_CENTER, MarkerInfoArea::BOTTOM_RIGHT};
+    auto move = Change(DisplayChangeKind::MARKER_INFO_LOCATION);
+    move.hasMarkerInfoArea = true;
+    for (unsigned index = 0U; index < 9U; ++index) {
+        const auto area = areas[index];
+        auto decoded = MarkerInfoArea::TOP_RIGHT;
+        Require(std::string(MarkerInfoAreaName(area)) == names[index] && ParseMarkerInfoArea(names[index], decoded) &&
+                    decoded == area,
+            "九宫格位置必须按协议名称往返");
+        move.markerInfoArea = area;
+        Require(workspace.Apply(move, catalog, {}).ok && workspace.State().traces.front().markerInfoArea == area &&
+                    workspace.State().traces.back().markerInfoArea == MarkerInfoArea::TOP_RIGHT &&
+                    workspace.State().selectedMeasurement == selection,
+            "字段定位只能修改所属迹线，不能选择迹线或迁移其他字段");
+    }
+    const auto revision = workspace.State().revision;
+    const auto repeated = workspace.Apply(move, catalog, {});
+    Require(repeated.ok && !repeated.changed && workspace.State().revision == revision,
+        "重复相同九宫格位置不能增加显示版本");
+    move.markerInfoArea = static_cast<MarkerInfoArea>(99);
+    Require(MarkerInfoAreaName(move.markerInfoArea) == nullptr && !workspace.Apply(move, catalog, {}).ok &&
+                workspace.State().revision == revision &&
+                workspace.State().traces.front().markerInfoArea == MarkerInfoArea::BOTTOM_RIGHT,
+        "非法九宫格枚举必须原子拒绝");
+    auto decoded = MarkerInfoArea::BOTTOM_LEFT;
+    Require(!ParseMarkerInfoArea("TopLeft", decoded) && decoded == MarkerInfoArea::BOTTOM_LEFT,
+        "解析非法位置不能覆盖调用方枚举");
+    move.markerInfoArea = MarkerInfoArea::TOP_LEFT;
+    move.markerInfoLocation = MarkerInfoLocation::TABLE;
+    Require(!workspace.Apply(move, catalog, {}).ok && workspace.State().revision == revision &&
+                workspace.State().traces.front().markerInfoLocation == MarkerInfoLocation::DIAGRAM,
+        "表格位置与图内锚点不能部分提交");
+    move.hasMarkerInfoArea = false;
+    Require(workspace.Apply(move, catalog, {}).ok, "迁入表格失败");
+    move.markerInfoLocation = MarkerInfoLocation::DIAGRAM;
+    Require(workspace.Apply(move, catalog, {}).ok &&
+                workspace.State().traces.front().markerInfoArea == MarkerInfoArea::BOTTOM_RIGHT,
+        "迁入表格再回图不能丢失原锚点");
 }
 
 void AnnotationPatchAndAtomicRejection()
@@ -206,9 +269,10 @@ int main()
         IndependentContainerAndFieldAssignment();
         WindowScopeAndRearrangement();
         PlacementSurvivesCloneCatalogAndMarkerChanges();
+        MarkerInfoAreaContractAndAtomicity();
         AnnotationPatchAndAtomicRejection();
         MarkerSelectionActivatesOwnerAtomically();
-        std::cout << "5 个信息表格与注释领域验收用例通过\n";
+        std::cout << "6 个信息表格与注释领域验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

@@ -589,6 +589,66 @@ void InvalidRequestedCreationLeavesNoTrace()
         unchanged();
     }
 }
+
+void RelativeCreationCommitsDirectoryAndSplitTogether()
+{
+    for (const auto &position : {"above", "below", "left", "right"}) {
+        Fixture fixture;
+        HttpApi writer(fixture.service);
+        HttpApi observer(fixture.service);
+        const auto token = Claim(writer);
+        const auto before = Status(writer);
+        auto body = TraceAction(writer, std::string("create-relative-") + position);
+        body["diagram"] = Json(1U);
+        body["position"] = Json(position);
+        body["parameter"] = Json("S22");
+        Finish(writer, Request(writer, "POST", "/api/v1/measurement-actions/add", body, token), token);
+        const auto after = Status(observer);
+        Require(std::stoull(Field(after, "revision").string) == std::stoull(Field(before, "revision").string) + 1U &&
+                    Field(after, "measurements").array.size() == Field(before, "measurements").array.size() + 1U &&
+                    Field(Field(after, "display"), "diagrams").array.size() == 2U &&
+                    Field(Field(after, "display"), "selectedDiagram").number == 2.0,
+            "指定参数、相对分割、新图窗与选择必须在一个目录事务内完成");
+        const auto regions = fixture.service.Display().diagramLayout.Regions();
+        const bool vertical = std::string(position) == "left" || std::string(position) == "right";
+        for (const auto &region : regions) {
+            Require(region.width == (vertical ? 0.5 : 1.0) && region.height == (vertical ? 1.0 : 0.5),
+                "相对创建没有精确二分目标图窗");
+        }
+        VerifyShared(writer, observer);
+    }
+}
+
+void InvalidRelativeCreationDoesNotLeaveDefinitions()
+{
+    Fixture fixture;
+    HttpApi writer(fixture.service);
+    const auto token = Claim(writer);
+    const auto before = Status(writer);
+    for (unsigned mode = 0U; mode < 5U; ++mode) {
+        auto body = TraceAction(writer, "invalid-relative-" + std::to_string(mode));
+        body["parameter"] = Json("S22");
+        body["position"] = mode == 0U ? Json(2U) : Json(mode == 1U ? "north" : "above");
+        if (mode != 2U) {
+            body["diagram"] = Json(mode == 4U ? 127U : 1U);
+        }
+        if (mode == 3U) {
+            body["newDiagram"] = Json(true);
+        }
+        const auto response = Request(writer, "POST", "/api/v1/measurement-actions/add", body, token);
+        if (mode == 4U) {
+            Finish(writer, response, token, false);
+        } else {
+            Require(response.status == 400U, "无效相对位置必须在协议边界拒绝");
+        }
+        const auto after = Status(writer);
+        Require(Field(after, "revision").string == Field(before, "revision").string &&
+                    VnaWeb::StringifyJson(Field(after, "measurements")) ==
+                        VnaWeb::StringifyJson(Field(before, "measurements")) &&
+                    VnaWeb::StringifyJson(Field(after, "display")) == VnaWeb::StringifyJson(Field(before, "display")),
+            "失败不能残留新测量、空图窗或自定义布局");
+    }
+}
 }  // 匿名命名空间
 
 int main()
@@ -604,7 +664,9 @@ int main()
         DeleteActiveTraceKeepsDiagramContextAndSavedSettings();
         SpecifiedParameterCreationIsOneTransaction();
         InvalidRequestedCreationLeavesNoTrace();
-        std::cout << "10 个 HTTP 图窗、目录、标记与 CAS 事务验收用例通过\n";
+        RelativeCreationCommitsDirectoryAndSplitTogether();
+        InvalidRelativeCreationDoesNotLeaveDefinitions();
+        std::cout << "12 个 HTTP 图窗、目录、标记与 CAS 事务验收用例通过\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

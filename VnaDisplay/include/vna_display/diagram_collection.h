@@ -25,6 +25,9 @@ public:
     static DisplayResult Remove(DisplayState &state, unsigned number, bool renumber);
     static DisplayResult Select(DisplayState &state, unsigned number);
     static DisplayResult Feed(DisplayState &state, const std::string &name, unsigned number, unsigned slot = 0U);
+    // 相对分割、归属移动和空源图窗合并均在调用者的同一候选中完成。
+    static DisplayResult Place(DisplayState &state, const std::string &name, unsigned target,
+        TraceDropPosition position = TraceDropPosition::CENTER, bool newDiagram = false);
     static void Unfeed(DisplayState &state, const std::string &name, unsigned number = 0U);
     static void Overlay(DisplayState &state);
     static void Split(DisplayState &state);
