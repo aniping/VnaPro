@@ -19,7 +19,7 @@ const armed = computed(
 )
 
 async function run(action: RunAction) {
-  if (disabled.value) return
+  if (disabled.value || (action === 'trigger' && !armed.value)) return
   working.value = true
   try {
     await props.action(action)
@@ -35,19 +35,13 @@ async function run(action: RunAction) {
     :aria-label="mode === 'trigger' ? 'Trigger controls' : 'Sweep controls'"
   >
     <template v-if="mode === 'sweep-control'">
-      <h3 class="softtool-section-title">Sweep control</h3>
-      <div class="softtool-grid">
-        <button
-          class="softtool-button softtool-primary"
-          type="button"
-          :disabled="disabled"
-          @click="run('single')"
-        >
-          Single sweep
-        </button>
+      <h3 class="softtool-section-title">Sweep Control · Ch1</h3>
+      <span class="softtool-label">Sweep mode</span>
+      <div class="sweep-modes" role="group" aria-label="Sweep mode">
         <button
           class="softtool-button"
           :class="{ 'is-active': continuous }"
+          data-testid="sweep-continuous"
           type="button"
           :disabled="disabled"
           :aria-pressed="continuous"
@@ -58,6 +52,7 @@ async function run(action: RunAction) {
         <button
           class="softtool-button"
           :class="{ 'is-active': held }"
+          data-testid="sweep-hold"
           type="button"
           :disabled="disabled"
           :aria-pressed="held"
@@ -66,6 +61,18 @@ async function run(action: RunAction) {
           Hold
         </button>
       </div>
+      <div class="softtool-divider" />
+      <span class="softtool-label">Sweep action</span>
+      <button
+        class="softtool-button"
+        data-testid="sweep-single"
+        type="button"
+        :disabled="disabled"
+        @click="run('single')"
+      >
+        Single sweep
+      </button>
+      <p class="softtool-note">Acquire one sweep, then return to Hold.</p>
     </template>
     <template v-else>
       <h3 class="softtool-section-title">Trigger</h3>
@@ -81,6 +88,7 @@ async function run(action: RunAction) {
       </div>
       <button
         class="softtool-button"
+        data-testid="sweep-trigger"
         type="button"
         :disabled="disabled || !armed"
         @click="run('trigger')"
@@ -111,3 +119,7 @@ async function run(action: RunAction) {
     </p>
   </section>
 </template>
+
+<style scoped>
+.sweep-modes { display: grid; gap: 5px; }
+</style>

@@ -27,6 +27,14 @@
 
 2026-10-12 已在 `Sweep` 软工具增加 `Sweep Params` 页签，放置 `Number of Points`；`Power / Bw / Avg` 硬键改为路由到独立的 `Pwr Bw Avg` 软工具，带宽放在其 `Bandwidth` 页签。`App.vue` 分别维护频率、点数、带宽三个固定菜单实例，共用 `ChannelSettingsSofttool.vue` 的输入和提交组件；每个菜单仅发送本页字段，保留独立草稿及后端版本校验。`Sweep Control` 与 `Trigger` 分页。未实现的功率、滤波器类型与平均能力不呈现为可操作控件。前端仍只提交用户意图并显示后端状态，菜单调整不产生浏览器独立的采集配置。
 
+## Sweep Control 显示与当前控制语义
+
+2026-10-14 对照 [v74 第 556–557 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=556)再次核对：ZNB 的 `Continuous / Single` 是互斥模式，`Start Sweep`（正文称 `Restart Sweep`）是独立动作；`All Channels on Hold` 把所有通道设为 Single 模式，并不立即启动。原图控件纵向排列，右侧 `Sweep Control` 页签分两行显示。
+
+VnaPro 当前仅有 Ch1，保留现有控制契约：`Continuous` 开始连续扫描，`Hold` 停止扫描；`Single sweep` 会立即采集一帧，完成后回到 Hold。前两项按服务端回读状态显示选中，单次扫描作为独立动作显示，不再固定使用与选中状态相同的蓝色。软工具页签允许换行，避免窄面板裁切完整名称。这是现有能力的映射，不是原机 Single 模式与 Restart Sweep 的完整复刻；尚不提供 Sweeps 计数、Restart Manager 和多通道控制。
+
+界面的 `Continuous` 和 `Single sweep` 动作均使用 Immediate 触发源；SCPI 单独设置 Sweep Mode 为 CONT 时会保留现有触发源，MAN/CONT/Running 表示等待 Manual trigger。模式选中只表示已配置的 Sweep Mode，不能据此判断是否正在取数；Trigger 页显示实际触发源，手动触发仅在已布防的 MAN 状态可用。
+
 ## 来源与复核
 
 本项目既有[参考资料索引](../reference/znb8/README.md)以 Getting Started v70 / User Manual v74 为基线。[官方手册入口](https://www.rohde-schwarz.com/nl/manual/rs-znb-user-manual_78701-29151.html?change_c=BE)在核对时标注 **v74、FW V4.25、2026-07-21**。不同固件的图形细节可能不同，本结论不混用 ZNB3000、ZNH 或 ZNL 的菜单。
