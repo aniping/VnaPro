@@ -1,0 +1,328 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
+#include <chrono>
+#include <cmath>
+#include <iostream>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "fixture.h"
+#include "scpi/scpi_engine.h"
+#include "web/calibration_json.h"
+#include "web/http_api.h"
+#include "web/json_encoder.h"
+
+namespace {
+using VnaWeb::HttpApi;
+using VnaWeb::HttpResponse;
+using VnaWeb::Json;
+constexpr double RAW_REAL = 0.2776235288454596;
+constexpr double RAW_IMAG = -0.3626684156056705;
+
+void Require(bool value, const std::string &message)
+{
+    if (!value) {
+        throw std::runtime_error(message);
+    }
+}
+
+const Json &Field(const Json &value, const std::string &key)
+{
+    const auto field = value.Find(key);
+    Require(field != nullptr, "Missing calibration field: " + key);
+    return *field;
+}
+
+void Near(double value, double expected)
+{
+    Require(std::isfinite(value) && std::abs(value - expected) < 1e-12, "Calibration numeric path differs");
+}
+
+HttpResponse Request(HttpApi &api, const std::string &path, const Json &body = Json(), const std::string &token = "")
+{
+    VnaWeb::HttpRequest request;
+    const auto separator = path.find('?');
+    request.path = path.substr(0U, separator);
+    request.query = separator == std::string::npos ? "" : path.substr(separator + 1U);
+    request.method = body.type == Json::Type::NULL_VALUE ? "GET" : "POST";
+    if (request.method == "POST") {
+        request.body = VnaWeb::StringifyJson(body, VnaWeb::CALIBRATION_JSON_BYTE_LIMIT);
+    }
+    if (!token.empty()) {
+        request.headers["x-vna-session"] = token;
+    }
+    return api.Handle(request);
+}
+
+void Complete(HttpApi &api, const HttpResponse &accepted, const std::string &token)
+{
+    Require(accepted.status == 202U, "Calibration rejected: " + VnaWeb::StringifyJson(accepted.json));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    for (;;) {
+        const auto result =
+            Request(api, "/api/v1/operations/" + Field(accepted.json, "operationId").string, Json(), token);
+        const auto state = Field(result.json, "state").string;
+        if (state != "pending") {
+            Require(state == "completed", "Calibration operation failed: " + VnaWeb::StringifyJson(result.json));
+            return;
+        }
+        Require(std::chrono::steady_clock::now() < deadline, "Calibration protocol timeout");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+
+std::string Query(VnaScpi::ScpiEngine &engine, const std::string &line)
+{
+    Require(engine.SubmitLine(line), "SCPI calibration command rejected");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    do {
+        engine.Poll();
+        Require(std::chrono::steady_clock::now() < deadline, "SCPI calibration timeout");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (engine.HasPending());
+    return engine.TakeOutput();
+}
+
+Json Action(HttpApi &api, const std::string &action, const std::string &id)
+{
+    auto body = Json::MakeObject();
+    body["requestId"] = Json(id);
+    body["expectedRevision"] = Field(Request(api, "/api/v1/calibration").json, "revision");
+    body["action"] = Json(action);
+    return body;
+}
+
+VnaService::InstrumentProfile Profile()
+{
+    VnaService::InstrumentProfile profile;
+    profile.defaultPoints = 3U;
+    return profile;
+}
+
+void SetReflection(VnaServiceTest::Fixture &fixture, double real, double imag)
+{
+    std::vector<double> iq(16U, 0.0);
+    for (unsigned receiver = 0U; receiver < 4U; ++receiver) {
+        iq[receiver * 4U] = 1.0;
+        iq[receiver * 4U + 2U] = real;
+        iq[receiver * 4U + 3U] = imag;
+    }
+    fixture.device->SetSamples(std::move(iq));
+}
+
+Json SetDocument(VnaServiceTest::Fixture &fixture)
+{
+    const auto frame = fixture.service.Snapshot().core.frame;
+    Require(static_cast<bool>(frame), "Calibration fixture has a raw frame");
+    auto data = std::make_shared<VnaCalibration::CalibrationData>();
+    data->port1 = 1U;
+    data->frequencyHz = frame->plan.frequencyHz;
+    const VnaCalibration::OnePortTerms terms{{0.02, 0.01}, {-0.1, 0.03}, {0.92, -0.08}};
+    data->onePortTerms.assign(data->frequencyHz.size(), terms);
+    VnaService::CalibrationSet set;
+    set.name = "Fixed external vector";
+    set.deviceIdentity = fixture.service.Identity();
+    set.ifBandwidthHz = frame->plan.ifBandwidthRaw;
+    set.powerRaw = frame->plan.powerRaw;
+    set.data = data;
+    return VnaWeb::CalibrationJson::Export(set);
+}
+
+void WebAndScpiReadSameCorrection()
+{
+    VnaServiceTest::Fixture fixture(Profile());
+    SetReflection(fixture, RAW_REAL, RAW_IMAG);
+    HttpApi api(fixture.service);
+    const auto token = Field(Request(api, "/api/v1/control/claim", Json::MakeObject()).json, "sessionId").string;
+    auto define = Json::MakeObject();
+    define["requestId"] = Json("reflect");
+    define["expectedRevision"] = Field(Request(api, "/api/v1/status").json, "revision");
+    define["name"] = Json("Reflect");
+    define["parameter"] = Json("S11");
+    Complete(api, Request(api, "/api/v1/measurements", define, token), token);
+    auto select = Json::MakeObject();
+    select["requestId"] = Json("select-reflect");
+    select["expectedDisplayRevision"] = Field(Field(Request(api, "/api/v1/status").json, "display"), "revision");
+    select["action"] = Json("select");
+    select["traceName"] = Json("Reflect");
+    Complete(api, Request(api, "/api/v1/display", select, token), token);
+    auto single = Json::MakeObject();
+    single["requestId"] = Json("single");
+    single["action"] = Json("single");
+    Complete(api, Request(api, "/api/v1/operations", single, token), token);
+    const auto rawFrame = Request(api, "/api/v1/frame?trace=Reflect").json;
+    const auto measurementRevision = Field(Request(api, "/api/v1/status").json, "revision").string;
+    auto imported = Action(api, "import", "import");
+    imported["data"] = SetDocument(fixture);
+    Require(Request(api, "/api/v1/calibration", imported).status == 403U, "Observers cannot import calibration");
+    const auto accepted = Request(api, "/api/v1/calibration", imported, token);
+    Complete(api, accepted, token);
+    Require(Field(Request(api, "/api/v1/calibration").json, "selectedSetId").string == "0", "Import is not activation");
+    Require(Field(Request(api, "/api/v1/calibration", imported, token).json, "operationId").string ==
+                Field(accepted.json, "operationId").string,
+        "Retry precedes revision conflict");
+    imported["requestId"] = Json("stale-import");
+    Require(Request(api, "/api/v1/calibration", imported, token).status == 409U, "Stale calibration CAS rejected");
+    const auto setId = Field(Field(Request(api, "/api/v1/calibration").json, "sets").array.front(), "id").string;
+    auto choose = Action(api, "select", "choose");
+    choose["setId"] = Json(setId);
+    Complete(api, Request(api, "/api/v1/calibration", choose, token), token);
+    auto enable = Action(api, "enable", "enable");
+    enable["enabled"] = Json(true);
+    Complete(api, Request(api, "/api/v1/calibration", enable, token), token);
+    const auto corrected = Request(api, "/api/v1/frame?trace=Reflect").json;
+    const auto &trace = Field(corrected, "traces").array.front();
+    Require(Field(trace, "calibration").string == "calibrated", "Frame labels actual correction");
+    Near(Field(trace, "real").array.front().number, 0.3);
+    Near(Field(trace, "imag").array.front().number, -0.4);
+    Require(Field(corrected, "frameSeq").string == Field(rawFrame, "frameSeq").string &&
+                Field(corrected, "calibrationRevision").string != Field(rawFrame, "calibrationRevision").string &&
+                Field(Request(api, "/api/v1/status").json, "revision").string == measurementRevision,
+        "Correction changes only calibration version and reuses raw frame");
+    VnaScpi::ScpiEngine observer(fixture.service);
+    Require(
+        !observer.HasControl() && Query(observer, "SENSE1:CORRECTION:STATE?") == "1\n", "SCPI reads Web calibration");
+    for (const auto kind : {"RDATA", "SDATA"}) {
+        auto values = Query(observer, std::string("CALC1:DATA? ") + kind);
+        for (char &character : values) {
+            if (character == ',') {
+                character = ' ';
+            }
+        }
+        std::istringstream input(values);
+        double real = 0.0;
+        double imag = 0.0;
+        input >> real >> imag;
+        Near(real, std::string(kind) == "RDATA" ? RAW_REAL : 0.3);
+        Near(imag, std::string(kind) == "RDATA" ? RAW_IMAG : -0.4);
+    }
+    const auto document = Request(api, "/api/v1/calibration/sets/" + setId).json;
+    Require(Field(document, "powerRaw").array.front().type == Json::Type::STRING, "Raw uint64 remains exact");
+    enable = Action(api, "enable", "disable");
+    enable["enabled"] = Json(false);
+    Complete(api, Request(api, "/api/v1/calibration", enable, token), token);
+    const auto disabled = Request(api, "/api/v1/frame?trace=Reflect").json;
+    Require(Field(Field(disabled, "traces").array.front(), "calibration").string == "uncalibrated", "Disable label");
+    Near(Field(Field(disabled, "traces").array.front(), "real").array.front().number, RAW_REAL);
+}
+
+void ScpiMechanicalWorkflow()
+{
+    VnaServiceTest::Fixture fixture(Profile());
+    VnaScpi::ScpiEngine engine(fixture.service);
+    Query(engine, "SENS1:CORR:COLL:METH");
+    Require(Query(engine, "SYST:ERR?").find("-109,") == 0U, "Missing calibration parameter uses standard error");
+    Query(engine, "SENS1:CORR:STAT? ON");
+    Require(Query(engine, "SYST:ERR?").find("-108,") == 0U, "Excess calibration parameter uses standard error");
+    const auto begin = Query(engine, "SENS1:CORR:COLL:METH:DEF OSM,1;*OPC?");
+    Require(begin == "+1\n", "SCPI starts OSM: " + begin);
+    Require(Query(engine, "SENS1:CORR:COLL:STAT?") == "READY\n", "SCPI calibration ready");
+    const std::vector<std::pair<std::string, double>> standards{{"OPEN", 1.0}, {"SHORT", -1.0}, {"MATCH", 0.0}};
+    for (const auto &standard : standards) {
+        SetReflection(fixture, standard.second, 0.0);
+        Require(Query(engine, "SENSE1:CORRECTION:COLLECT:ACQUIRE " + standard.first + ",1;*OPC?") == "+1\n",
+            "SCPI captures required raw standard");
+        Require(Query(engine, "SYST:ERR?").find("0,") == 0U, "SCPI capture succeeded");
+    }
+    Require(Query(engine, "SENS1:CORR:COLL:SAVE 'OSM kit';*OPC?") == "+1\n", "SCPI finishes OSM");
+    Require(Query(engine, "SENS1:CORR?") == "1\n" && Query(engine, "SENS1:CORR:COLL:STAT?") == "IDLE\n",
+        "Successful save enables correction and closes session");
+    Require(Query(engine, "SENS1:CORR:CSET:CAT?").find("OSM kit") != std::string::npos, "SCPI catalog saved set");
+    Require(Query(engine, "SENS1:CORR OFF;*OPC?") == "+1\n" && Query(engine, "SENS1:CORR?") == "0\n", "SCPI disables");
+    Require(Query(engine, "SENS1:CORR:COLL:METH TOSM,2,4,ON;*OPC?") == "+1\n", "SCPI arbitrary physical pair");
+    Require(fixture.service.Calibration().includeIsolation, "SCPI enables isolation acquisition");
+    Require(Query(engine, "SENS1:CORR:COLL:ABORT;*OPC?") == "+1\n", "SCPI cancels collection");
+    Require(!fixture.service.Calibration().collecting, "SCPI cancel clears workspace");
+}
+
+void LargeImportHistoryHasByteBudget()
+{
+    VnaServiceTest::Fixture fixture(Profile());
+    auto clock = HttpApi::Clock::now();
+    HttpApi api(fixture.service, [&clock] {
+        return clock;
+    });
+    auto token = Field(Request(api, "/api/v1/control/claim", Json::MakeObject()).json, "sessionId").string;
+    auto data = std::make_shared<VnaCalibration::CalibrationData>();
+    data->method = VnaCalibration::CalibrationMethod::TWO_PORT;
+    data->port1 = 2U;
+    data->port2 = 4U;
+    for (unsigned index = 0U; index < VnaService::MAX_SWEEP_POINTS; ++index) {
+        data->frequencyHz.push_back(10000000.0 + index * 1000.0);
+    }
+    const VnaCalibration::Complex value{0.12345678901234567, 0.12345678901234567};
+    VnaCalibration::TwoPortTerms terms;
+    terms.forwardReflection = {value, value, value};
+    terms.reverseReflection = terms.forwardReflection;
+    terms.forwardTransmission = {value, value, value};
+    terms.reverseTransmission = terms.forwardTransmission;
+    data->twoPortTerms.assign(data->frequencyHz.size(), terms);
+    VnaService::CalibrationSet set;
+    set.name = "Retained byte budget vector";
+    set.deviceIdentity = fixture.service.Identity();
+    set.includeIsolation = true;
+    set.ifBandwidthHz = 1000.0;
+    set.powerRaw.assign(data->frequencyHz.size(), 0U);
+    set.data = data;
+    const auto document = VnaWeb::CalibrationJson::Export(set);
+    Require(VnaWeb::StringifyJson(document, VnaWeb::CALIBRATION_JSON_BYTE_LIMIT).size() > 4U * 1024U * 1024U,
+        "Budget regression uses a real large coefficient document");
+    bool rejected = false;
+    Json firstRequest;
+    std::string firstOperation;
+    for (unsigned index = 0U; index < VnaService::MAX_CALIBRATION_SETS; ++index) {
+        auto body = Action(api, "import", "budget-" + std::to_string(index));
+        body["data"] = document;
+        const auto response = Request(api, "/api/v1/calibration", body, token);
+        if (response.status == 429U) {
+            Require(Field(Field(response.json, "error"), "code").string == "retry_history_full",
+                "Budget rejected explicitly");
+            rejected = true;
+            break;
+        }
+        Complete(api, response, token);
+        if (index == 0U) {
+            firstRequest = body;
+            firstOperation = Field(response.json, "operationId").string;
+        }
+        auto remove = Action(api, "delete", "budget-delete-" + std::to_string(index));
+        remove["setId"] = Field(Field(Request(api, "/api/v1/calibration").json, "sets").array.front(), "id");
+        Complete(api, Request(api, "/api/v1/calibration", remove, token), token);
+    }
+    Require(rejected, "Large canonical request history must not grow by sessions times file limit");
+    Require(
+        Field(Request(api, "/api/v1/calibration", firstRequest, token).json, "operationId").string == firstOperation,
+        "Full byte budget still returns retained idempotent operation");
+    auto renew = Json::MakeObject();
+    renew["sessionId"] = Json(token);
+    for (unsigned count = 0U; count < 3U; ++count) {
+        clock += std::chrono::seconds(21);
+        Require(Request(api, "/api/v1/control/claim", renew).status == 200U, "Controller retains lease across expiry");
+    }
+    Require(Request(api, "/api/v1/calibration", firstRequest, token).status == 410U,
+        "Expired retry keeps a tombstone without retaining coefficient bytes");
+    auto recovered = Action(api, "import", "budget-after-expiry");
+    recovered["data"] = document;
+    Complete(api, Request(api, "/api/v1/calibration", recovered, token), token);
+}
+}  // 匿名命名空间
+
+int main()
+{
+    try {
+        WebAndScpiReadSameCorrection();
+        ScpiMechanicalWorkflow();
+        LargeImportHistoryHasByteBudget();
+        std::cout << "PASS calibration HTTP/SCPI ownership, CAS, correction and mechanical workflow\n";
+        return 0;
+    } catch (const std::exception &error) {
+        std::cerr << error.what() << '\n';
+        return 1;
+    }
+}

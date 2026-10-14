@@ -33,6 +33,10 @@ add_dependencies(vna_server tdc1vn08_drv_sim tdc1vn10_drv_sim)
 include("${CMAKE_SOURCE_DIR}/cmake/release_bundle.cmake")
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME calibration_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/CalibrationIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn10_drv_sim>)
+    set_tests_properties(calibration_integration PROPERTIES TIMEOUT 90)
     add_library(vna_hardware_environment_probe SHARED tests/hardware_environment_probe.cpp)
     target_compile_definitions(vna_hardware_environment_probe PRIVATE VNA_NATIVE_BUILD_SHARED)
     target_include_directories(vna_hardware_environment_probe PRIVATE
