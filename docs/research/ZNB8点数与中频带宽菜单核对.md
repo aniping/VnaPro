@@ -35,6 +35,8 @@ VnaPro 当前仅有 Ch1，保留现有控制契约：`Continuous` 开始连续�
 
 界面的 `Continuous` 和 `Single sweep` 动作均使用 Immediate 触发源；SCPI 单独设置 Sweep Mode 为 CONT 时会保留现有触发源，MAN/CONT/Running 表示等待 Manual trigger。模式选中只表示已配置的 Sweep Mode，不能据此判断是否正在取数；Trigger 页显示实际触发源，手动触发仅在已布防的 MAN 状态可用。
 
+已选中的可用软键在鼠标悬停时继续保持蓝色；正在执行或只读时统一显示禁用样式，选中状态仍来自服务读回。
+
 ## 来源与复核
 
 本项目既有[参考资料索引](../reference/znb8/README.md)以 Getting Started v70 / User Manual v74 为基线。[官方手册入口](https://www.rohde-schwarz.com/nl/manual/rs-znb-user-manual_78701-29151.html?change_c=BE)在核对时标注 **v74、FW V4.25、2026-07-21**。不同固件的图形细节可能不同，本结论不混用 ZNB3000、ZNH 或 ZNL 的菜单。

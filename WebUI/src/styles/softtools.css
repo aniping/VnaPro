@@ -25,8 +25,8 @@
 .softtool-apply { margin-top: 7px; }
 div.softtool-apply { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
 .softtool-button small { display: block; margin-top: 3px; color: #c3d4de; font-size: 10px; }
-.softtool-button.is-active { border-color: #49bded; background: #007faf; }
-.softtool-choice.is-active { border-color: #49bded; background: #007faf; color: white; }
+.softtool-button.is-active:not(:disabled) { border-color: #49bded; background: #007faf; }
+.softtool-choice.is-active:not(:disabled) { border-color: #49bded; background: #007faf; color: white; }
 .softtool-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
 .softtool-note { margin: 1px 0; color: #a7b9c3; font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
 .softtool-note.warning { color: #ffd580; }
