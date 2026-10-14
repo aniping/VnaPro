@@ -4,6 +4,7 @@ import { beginNewTraceDrag } from './newTraceDrag'
 import type { LayoutMode } from '../../domain/presentation'
 
 const props = defineProps<{
+  backend?: string
   layout: LayoutMode
   hasTrace: boolean
   canAutoscale: boolean
@@ -190,7 +191,7 @@ function addTrace() {
     <span class="toolbar-flex-spacer" />
     <span
       class="toolbar-identity"
-      title="VnaPro · NativeSimulator · RAW 接收波与未校准 S 参数"
+      :title="`VnaPro · ${backend ?? '—'} · RAW 接收波与未校准 S 参数`"
       >Vna<span>Pro</span><small>未校准</small></span
     >
     <button

@@ -2,6 +2,8 @@
 
 独立的 Vue 3 + TypeScript + Vite 工程，用于验证模拟器的真实采数、配置更新和控制竞争。界面参考 ZNB8 的仪器布局，显示 RAW A/B 接收波和按配置端口数支持的完整未校准 S 矩阵：四端口为 S11～S44 共 16 项，二端口为四项；所有测量均可选择 Smith、Polar 和 Inv Smith。界面风格不代表具备罗德硬件或完整 ZNB 功能，SCPI 仍使用已实现的 Keysight 命令子集。
 
+后端依据 `driver.type` 回报 `NativeSimulator` 或 `HardwareDriver`，硬键栏和工具栏提示读取该状态，不固定标注模拟器。前端不控制噪声；模式、种子和相对幅度只在 C++ 启动配置中用于模拟驱动，真实类型完全忽略模拟配置。
+
 ## 安装、构建与运行
 
 需要 Node.js ≥ 22.13 和 npm。首次在本目录安装依赖并运行测试；Windows PowerShell 使用 `npm.cmd`，其他环境可使用 `npm`：

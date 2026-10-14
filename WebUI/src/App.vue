@@ -281,6 +281,7 @@ onBeforeUnmount(() => {
         >
           <section class="measurement-stage" aria-label="Measurement display">
             <InstrumentToolbar
+              :backend="status?.backend"
               :layout="layout"
               :has-trace="Boolean(activeMeasurement)"
               :can-autoscale="canEditDisplay && canAutoscale"
@@ -491,6 +492,7 @@ onBeforeUnmount(() => {
             />
           </SofttoolHost>
           <HardkeyPanel
+            :backend="status?.backend"
             :active-key="
               softtoolVisible
                 ? activeTool === 'sweep-control'
