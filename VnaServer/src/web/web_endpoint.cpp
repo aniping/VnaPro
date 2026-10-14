@@ -33,7 +33,7 @@ using Clock = std::chrono::steady_clock;
 constexpr std::size_t HEADERS_LIMIT = 8192U;
 constexpr std::size_t BODY_LIMIT = 16384U;
 // 完整扫频帧单独扩大输出预算，控制响应与校准导出沿用各自上限。
-constexpr std::size_t FRAME_JSON_BYTE_LIMIT = 16U * 1024U * 1024U;
+constexpr std::size_t FRAME_JSON_BYTE_LIMIT = 256U * 1024U * 1024U;
 constexpr std::size_t CONNECTION_LIMIT = 8U;
 constexpr std::size_t RECEIVE_BUDGET = 4096U;
 constexpr std::size_t SEND_BUDGET = 32768U;

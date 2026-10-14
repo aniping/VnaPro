@@ -137,7 +137,7 @@ void HttpWritesPersistAndScpiReadsSameState()
         "HTTP observers read SCPI writes from the same display workspace");
 }
 
-void FullFrameMarkerSurvivesDecimation()
+void FullFrameMarkerMatchesTheOriginalSample()
 {
     VnaServiceTest::Fixture fixture;
     HttpApi api(fixture.service);
@@ -148,7 +148,7 @@ void FullFrameMarkerSurvivesDecimation()
     config["expectedRevision"] = Json(std::to_string(fixture.service.Settings().revision));
     config["points"] = Json(10001U);
     Complete(api, Request(api, "POST", "/api/v1/config", config, token), token);
-    // 超过四条完整迹线预算后才抽点，仍须从完整帧读取标记。
+    // 多条迹线也保留全部采样，标记读数必须与原始下标一致。
     for (unsigned number = 2U; number <= 5U; ++number) {
         Json clone = Json::MakeObject();
         clone["requestId"] = Json("clone-" + std::to_string(number));
@@ -169,16 +169,16 @@ void FullFrameMarkerSurvivesDecimation()
     Complete(api, Request(api, "POST", "/api/v1/display", marker, token), token);
     const auto frame = Request(api, "GET", "/api/v1/frame");
     const auto &indexes = Field(frame.json, "sampleIndexes").array;
-    Require(indexes.size() == 8000U && indexes.front().number == 0.0 && indexes.back().number == 10000.0,
+    Require(indexes.size() == 10001U && indexes.front().number == 0.0 && indexes.back().number == 10000.0,
         "HTTP sends original sample indexes alongside the physical frequency axis");
-    for (const auto &index : indexes) {
-        Require(index.number != 1004.0, "Chosen marker is intentionally omitted by transmission decimation");
+    for (std::size_t index = 0U; index < indexes.size(); ++index) {
+        Require(indexes[index].number == static_cast<double>(index), "所有原始下标必须连续保留");
     }
     const auto &trace = Field(frame.json, "traces").array.front();
     const auto &readout = Field(Field(trace, "projection"), "marker");
     Require(Field(readout, "available").boolean && Field(readout, "sampleIndex").number == 1004.0 &&
                 Field(readout, "frequencyHz").number == fixture.service.Snapshot().core.frame->plan.frequencyHz[1004U],
-        "Marker readout remains exact outside the displayed sample array");
+        "Marker readout remains exact at the original sample in every trace");
     Require(Field(frame.json, "displayRevision").string == std::to_string(fixture.service.Display().revision),
         "Projection carries the exact display settings revision");
     Request(api, "POST", "/api/v1/control/release", Json::MakeObject(), token);
@@ -192,7 +192,7 @@ int main()
 {
     try {
         HttpWritesPersistAndScpiReadsSameState();
-        FullFrameMarkerSurvivesDecimation();
+        FullFrameMarkerMatchesTheOriginalSample();
         std::cout << "PASS HTTP/SCPI 共享状态、刷新、权限、CAS 和原始 Marker\n";
         return 0;
     } catch (const std::exception &error) {

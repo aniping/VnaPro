@@ -6,12 +6,16 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "fixture.h"
+#include "vna_core/frame_layout.h"
 #include "web/http_api.h"
 #include "web/json_encoder.h"
 
@@ -53,6 +57,25 @@ void SelectionContract()
             rejected = true;
         }
         Require(rejected, "拒绝非法查询: " + query);
+    }
+}
+
+void EncodingSelectionContract()
+{
+    const auto packed = VnaWeb::ParseFrameQuery("encoding=packed&trace=S11&trace=S12");
+    Require(packed.packed && packed.selection == "trace=S11&trace=S12", "编码参数不能改变迹线选择顺序");
+    Require(VnaWeb::ParseFrameQuery("encoding=packed").selection.empty(), "只指定编码时仍使用仪器显示集合");
+    const auto plain = VnaWeb::ParseFrameQuery("display=none&encoding=json");
+    Require(!plain.packed && plain.selection == "display=none", "普通 JSON 与空集合选择可组合");
+    for (const auto &query : {"encoding=unknown", "encoding=", "encoding=packed&encoding=json", "encoding=packed&",
+             "&encoding=packed", "trace=S11&&encoding=packed"}) {
+        bool rejected = false;
+        try {
+            VnaWeb::ParseFrameQuery(query);
+        } catch (const std::invalid_argument &) {
+            rejected = true;
+        }
+        Require(rejected, std::string("拒绝非法编码查询：") + query);
     }
 }
 
@@ -111,6 +134,42 @@ const VnaWeb::Json &Field(const VnaWeb::Json &value, const std::string &name)
     return *field;
 }
 
+std::size_t ArrayCount(const VnaWeb::Json &value)
+{
+    return value.type == VnaWeb::Json::Type::ARRAY ? value.array.size()
+                                                   : static_cast<std::size_t>(Field(value, "count").number);
+}
+
+double PackedDoubleAt(const VnaWeb::Json &value, std::size_t index)
+{
+    Require(Field(value, "codec").string == "f64le" && index < ArrayCount(value), "取值使用完整双精度数组");
+    const std::string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::vector<unsigned char> bytes;
+    unsigned accumulator = 0U;
+    unsigned available = 0U;
+    for (const auto character : Field(value, "data").string) {
+        if (character == '=') {
+            break;
+        }
+        const auto digit = alphabet.find(character);
+        Require(digit != std::string::npos, "帧数组 Base64 必须合法");
+        accumulator = (accumulator << 6U) | static_cast<unsigned>(digit);
+        available += 6U;
+        if (available >= 8U) {
+            available -= 8U;
+            bytes.push_back(static_cast<unsigned char>(accumulator >> available));
+        }
+    }
+    Require(bytes.size() == ArrayCount(value) * sizeof(double), "编码数组字节数必须匹配完整元素数");
+    std::uint64_t bits = 0U;
+    for (std::size_t offset = 0U; offset < sizeof(double); ++offset) {
+        bits |= static_cast<std::uint64_t>(bytes[index * sizeof(double) + offset]) << (offset * 8U);
+    }
+    double result = 0.0;
+    std::memcpy(&result, &bits, sizeof(result));
+    return result;
+}
+
 VnaService::OperationResult Finish(VnaServiceTest::Fixture &fixture, const VnaService::Operation &operation)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -121,11 +180,48 @@ VnaService::OperationResult Finish(VnaServiceTest::Fixture &fixture, const VnaSe
     return operation.get();
 }
 
-void ManySmithTracesRespectAggregateTransportBudget()
+void FullFramePreservesNarrowPeakWithSeveralTraces()
 {
     VnaServiceTest::Fixture fixture;
     auto &service = fixture.service;
-    Require(service.TryAcquireControl(), "取得多迹线传输验收控制权");
+    Require(service.TryAcquireControl(), "取得窄峰保留验收控制权");
+    Require(Finish(fixture, service.SetPoints(4000U)).ok, "准备四千点窄峰测量");
+    std::vector<double> samples(4000U * VnaCore::IQ_VALUES_PER_POINT, 0.0);
+    for (std::size_t point = 0U; point < 4000U; ++point) {
+        samples[point * VnaCore::IQ_VALUES_PER_POINT] = 1.0;
+        samples[point * VnaCore::IQ_VALUES_PER_POINT + 6U] = 0.01;
+    }
+    // 旧十六迹线均匀抽点会跳过原始下标 2；窄峰必须保留。
+    samples[2U * VnaCore::IQ_VALUES_PER_POINT + 6U] = 0.5;
+    fixture.device->SetSamples(std::move(samples));
+    Require(Finish(fixture, service.RunSingle("SCPI")).ok, "发布完整窄峰采集帧");
+    for (unsigned number = 2U; number <= 16U; ++number) {
+        Require(Finish(fixture,
+                    service.CloneMeasurement("Trc1", service.Settings().revision, service.Display().revision, "SCPI"))
+                    .ok,
+            "增加窄峰验收迹线");
+    }
+    VnaWeb::HttpApi api(service);
+    VnaWeb::HttpRequest request;
+    request.method = "GET";
+    request.path = "/api/v1/frame";
+    request.query = "encoding=packed";
+    const auto response = api.Handle(request);
+    Require(response.status == 200U && !Field(response.json, "decimated").boolean &&
+                Field(response.json, "displayPointCount").number == 4000.0,
+        "十六迹线必须保留四千个原始点，不能均匀丢掉窄峰");
+    for (const auto &trace : Field(response.json, "traces").array) {
+        Require(PackedDoubleAt(Field(trace, "real"), 2U) == 0.5 &&
+                    PackedDoubleAt(Field(Field(trace, "projection"), "values"), 2U) > -7.0,
+            "原始下标 2 的窄峰 IQ 与 dB 投影均保留");
+    }
+}
+
+void ManySmithTracesPreserveTheCompleteSweep()
+{
+    VnaServiceTest::Fixture fixture;
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得多迹线完整传输验收控制权");
     auto measurement = service.Settings().measurements.front();
     measurement.receiverPort = 1U;
     Require(Finish(fixture, service.UpdateMeasurement(measurement)).ok && Finish(fixture, service.SetPoints(10001U)).ok,
@@ -139,6 +235,7 @@ void ManySmithTracesRespectAggregateTransportBudget()
     VnaWeb::HttpRequest request;
     request.method = "GET";
     request.path = "/api/v1/frame";
+    request.query = "encoding=packed";
     for (std::size_t number = 1U; number <= VnaDisplay::MAX_DISPLAY_TRACES; ++number) {
         if (number > 1U) {
             Require(Finish(fixture, service.CloneMeasurement(
@@ -150,27 +247,28 @@ void ManySmithTracesRespectAggregateTransportBudget()
         format.kind = VnaDisplay::DisplayChangeKind::FORMAT;
         format.format = VnaDisplay::DisplayFormat::SMITH;
         Require(Finish(fixture, service.ApplyDisplay(format)).ok, "配置当前副本的 Smith 投影");
-        if (number != 1U && number != 4U && number != 6U && number != 32U && number != VnaDisplay::MAX_DISPLAY_TRACES) {
+        if (number != 1U && number != 4U && number != 16U && number != VnaDisplay::MAX_DISPLAY_TRACES) {
             continue;
         }
         const auto response = api.Handle(request);
         Require(response.status == 200U && Field(response.json, "current").boolean, "预算内全部迹线使用当前完整帧");
         const auto count = static_cast<std::size_t>(Field(response.json, "displayPointCount").number);
-        const auto expected = std::min<std::size_t>(10001U, 40004U / number);
-        Require(count == expected && Field(response.json, "originalPointCount").number == 10001.0 &&
+        Require(count == 10001U && !Field(response.json, "decimated").boolean &&
+                    Field(response.json, "originalPointCount").number == 10001.0 &&
                     Field(response.json, "traces").array.size() == number,
-            "扩大迹线容量不能扩大总采样传输预算或截断迹线");
-        const auto &indexes = Field(response.json, "sampleIndexes").array;
-        Require(indexes.size() == count && indexes.front().number == 0.0 && indexes.back().number == 10000.0,
-            "所有迹线共用等长原始采样下标，并保留真实频轴首尾");
+            "十六和一百二十八条迹线均保留每条一万零一个点");
+        const auto &indexes = Field(response.json, "sampleIndexes");
+        Require(ArrayCount(indexes) == count && PackedDoubleAt(indexes, 0U) == 0.0 &&
+                    PackedDoubleAt(indexes, count - 1U) == 10000.0,
+            "所有迹线共享完整原始下标和真实频轴");
         for (const auto &trace : Field(response.json, "traces").array) {
             const auto &projection = Field(trace, "projection");
-            Require(Field(trace, "real").array.size() == count && Field(trace, "imag").array.size() == count &&
-                        Field(projection, "impedanceRealValues").array.size() == count &&
-                        Field(projection, "impedanceImagValues").array.size() == count,
-                "IQ 与 Smith 阻抗投影必须共同按总预算抽点");
+            Require(ArrayCount(Field(trace, "real")) == count && ArrayCount(Field(trace, "imag")) == count &&
+                        ArrayCount(Field(projection, "impedanceRealValues")) == count &&
+                        ArrayCount(Field(projection, "impedanceImagValues")) == count,
+                "IQ 与 Smith 阻抗投影都不能截断原始点数");
         }
-        Require(VnaWeb::StringifyJson(response.json, 16U * 1024U * 1024U).size() < 16U * 1024U * 1024U,
+        Require(VnaWeb::StringifyJson(response.json, 256U * 1024U * 1024U).size() < 256U * 1024U * 1024U,
             "最大点数与全部 Smith 迹线的响应必须在现有 JSON 上限内可编码");
     }
 }
@@ -180,9 +278,11 @@ int main()
 {
     try {
         SelectionContract();
+        EncodingSelectionContract();
         SelectionIncludesAllBudgetedTraces();
         ValidateBeforeFirstFrame();
-        ManySmithTracesRespectAggregateTransportBudget();
+        FullFramePreservesNarrowPeakWithSeveralTraces();
+        ManySmithTracesPreserveTheCompleteSweep();
         std::cout << "PASS 显示集合查询与能力合同\n";
         return 0;
     } catch (const std::exception &error) {

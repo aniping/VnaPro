@@ -19,6 +19,7 @@ constexpr unsigned HEX_ALPHA_OFFSET = 10U;
 constexpr unsigned ASCII_CONTROL_LIMIT = 32U;
 constexpr unsigned ASCII_DELETE = 127U;
 constexpr char TRACE_QUERY_PREFIX[] = "trace=";
+constexpr char ENCODING_QUERY_PREFIX[] = "encoding=";
 
 unsigned HexDigit(char value)
 {
@@ -60,6 +61,43 @@ std::string DecodeValue(const std::string &raw)
     return value;
 }
 }  // 匿名命名空间
+
+FrameQuery ParseFrameQuery(const std::string &query)
+{
+    FrameQuery result;
+    bool hasEncoding = false;
+    for (std::size_t begin = 0U; begin < query.size();) {
+        const std::size_t end = query.find('&', begin);
+        const std::string field = query.substr(begin, end == std::string::npos ? end : end - begin);
+        if (field.empty()) {
+            throw std::invalid_argument("Empty frame query field");
+        }
+        if (field.find(ENCODING_QUERY_PREFIX) == 0U) {
+            if (hasEncoding) {
+                throw std::invalid_argument("Duplicate frame encoding");
+            }
+            const auto encoding = DecodeValue(field.substr(sizeof(ENCODING_QUERY_PREFIX) - 1U));
+            if (encoding != "packed" && encoding != "json") {
+                throw std::invalid_argument("Frame encoding must be packed or json");
+            }
+            hasEncoding = true;
+            result.packed = encoding == "packed";
+        } else {
+            if (!result.selection.empty()) {
+                result.selection += '&';
+            }
+            result.selection += field;
+        }
+        if (end == std::string::npos) {
+            break;
+        }
+        begin = end + 1U;
+        if (begin == query.size()) {
+            throw std::invalid_argument("Empty frame query field");
+        }
+    }
+    return result;
+}
 
 std::vector<VnaService::Measurement> SelectFrameMeasurements(
     const std::string &query, const std::vector<VnaService::Measurement> &catalog)
