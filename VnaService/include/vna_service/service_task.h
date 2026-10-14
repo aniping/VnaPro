@@ -72,6 +72,8 @@ struct ServiceTask final {
     CalibrationChange calibrationChange;
     CalibrationWorkspace calibrationCandidate;
     bool calibrationContextValidated = false;
+    // 校准工作区已提交后，复用普通模式迁移等待真实启动完成。
+    bool calibrationResuming = false;
     std::uint64_t captureRunId = 0U;
     std::uint64_t captureConfigRevision = 0U;
     std::uint64_t captureFrameSeq = 0U;

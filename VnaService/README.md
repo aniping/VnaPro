@@ -85,7 +85,7 @@ SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC �
 
 首版支持能力范围内任意单端口的 OSL、任意不同端口对的 SOLT。校准件明确采用理想 50 Ω模型：OPEN Γ=+1、SHORT Γ=−1、LOAD Γ=0、零损耗零延时匹配 THRU。双端口可附加 ISOLATION 两方向实测，不选时显式假设隔离为零；系数集保存 `includeIsolation`，选择另一个集时状态按该集回报此假设。尚不支持真实校准件参数模型、CW/重复整数 Hz 频点、TRL、ECal 硬件控制、频轴插值或厂商校准文件直接兼容。
 
-BEGIN、每次 CAPTURE、FINISH、CANCEL 完成后都进入 HOLD，用户换件或恢复正常扫描需要显式操作。session 存在期间，刺激、测量目录、RUN、INIT 的队首执行检查均拒绝，显示格式、Marker 等独立显示事务仍可使用。拒绝不仅在网络入口检查，已排在 BEGIN 后的旧配置请求也不能绕过冻结的校准刺激。
+BEGIN 保存一次原 TriggerSource/SweepMode 后切到 MANUAL/HOLD；CAPTURE 的单次标准采集仍结束于 HOLD。正常 FINISH/CANCEL 复用已有模式状态机恢复原 CONT、MAN/SING 或 HOLD，future/OPC 等核心实际恢复后终结，不只修改设置字段。数学失败继续保留会话与旧集；恢复启动失败报告失败并保留已生成的有效新集，故障取消只清理会话/HOLD而不重启。session 存在期间，刺激、测量目录、RUN、INIT 的队首执行检查均拒绝，显示格式、Marker 等独立显示事务仍可使用。拒绝不仅在网络入口检查，已排在 BEGIN 后的旧配置请求也不能绕过冻结的校准刺激。
 
 CAPTURE 先完成旧运行的 Stop，再以新 run ID 启动 MANUAL、触发完整多源帧、经过最后 Stop 屏障，核对成功触发票据的 run/configRevision/frameSeq 后才保存标准。标准始终经过原始 `b_i/a_j` 计算，即使已有校正集启用也不校正标准。失败不修改先前成功的标准，不将保留的旧 DUT 帧标为本次标准。FINITE 操作进行期间，当前数据读取仍遵循已有屏障限制。
 

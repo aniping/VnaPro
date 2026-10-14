@@ -390,6 +390,10 @@ void InstrumentService::Finish(OperationResult value)
     const auto view = core_.ReadView();
     if (view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED) {
         settings_.sweepMode = SweepMode::HOLD;
+        if (value.ok && tasks_.front().calibrationResuming) {
+            value = Result(false, Detail::DEVICE_SPECIFIC_ERROR,
+                view.error.empty() ? "Acquisition restoration failed before operation completion" : view.error);
+        }
     }
     if (!value.ok) {
         if (tasks_.front().owner == "SCPI" || view.state == VnaCore::CoreState::FAULTED) {

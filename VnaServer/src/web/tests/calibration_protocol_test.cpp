@@ -220,6 +220,7 @@ void ScpiMechanicalWorkflow()
     Require(Query(engine, "SYST:ERR?").find("-109,") == 0U, "Missing calibration parameter uses standard error");
     Query(engine, "SENS1:CORR:STAT? ON");
     Require(Query(engine, "SYST:ERR?").find("-108,") == 0U, "Excess calibration parameter uses standard error");
+    Require(Query(engine, "TRIG:SOUR MAN;:SENS1:SWE:MODE CONT;*OPC?") == "+1\n", "arm entry manual CONT");
     const auto begin = Query(engine, "SENS1:CORR:COLL:METH:DEF OSM,1;*OPC?");
     Require(begin == "+1\n", "SCPI starts OSM: " + begin);
     Require(Query(engine, "SENS1:CORR:COLL:STAT?") == "READY\n", "SCPI calibration ready");
@@ -230,7 +231,12 @@ void ScpiMechanicalWorkflow()
             "SCPI captures required raw standard");
         Require(Query(engine, "SYST:ERR?").find("0,") == 0U, "SCPI capture succeeded");
     }
+    const auto standardRun = fixture.core.ReadView().runId;
     Require(Query(engine, "SENS1:CORR:COLL:SAVE 'OSM kit';*OPC?") == "+1\n", "SCPI finishes OSM");
+    Require(Query(engine, "TRIG:SOUR?;:SENS1:SWE:MODE?") == "MAN;CONT\n" &&
+                fixture.core.ReadView().state == VnaCore::CoreState::RUNNING &&
+                fixture.core.ReadView().runId > standardRun && !fixture.service.MeasurementData().ok,
+        "SAVE OPC waits for manual rearming and cannot expose its old standard frame as current DUT data");
     Require(Query(engine, "SENS1:CORR?") == "1\n" && Query(engine, "SENS1:CORR:COLL:STAT?") == "IDLE\n",
         "Successful save enables correction and closes session");
     Require(Query(engine, "SENS1:CORR:CSET:CAT?").find("OSM kit") != std::string::npos, "SCPI catalog saved set");
@@ -238,7 +244,64 @@ void ScpiMechanicalWorkflow()
     Require(Query(engine, "SENS1:CORR:COLL:METH TOSM,2,4,ON;*OPC?") == "+1\n", "SCPI arbitrary physical pair");
     Require(fixture.service.Calibration().includeIsolation, "SCPI enables isolation acquisition");
     Require(Query(engine, "SENS1:CORR:COLL:ABORT;*OPC?") == "+1\n", "SCPI cancels collection");
-    Require(!fixture.service.Calibration().collecting, "SCPI cancel clears workspace");
+    Require(!fixture.service.Calibration().collecting && Query(engine, "TRIG:SOUR?;:SENS1:SWE:MODE?") == "MAN;CONT\n" &&
+                fixture.core.ReadView().state == VnaCore::CoreState::RUNNING,
+        "SCPI cancellation closes the workspace and restores manual entry arming");
+}
+
+void WebFinishAndCancelRestoreContinuousAcquisition()
+{
+    VnaServiceTest::Fixture fixture(Profile());
+    HttpApi api(fixture.service);
+    const auto token = Field(Request(api, "/api/v1/control/claim", Json::MakeObject()).json, "sessionId").string;
+    auto run = Json::MakeObject();
+    run["requestId"] = Json("entry-continuous");
+    run["action"] = Json("continuous");
+    Complete(api, Request(api, "/api/v1/operations", run, token), token);
+    auto begin = Action(api, "begin", "restore-begin");
+    begin["method"] = Json("onePort");
+    begin["port1"] = Json(1U);
+    Complete(api, Request(api, "/api/v1/calibration", begin, token), token);
+    const auto state = Request(api, "/api/v1/calibration").json;
+    const auto sessionId = Field(state, "sessionId");
+    const std::vector<double> standards{1.0, -1.0, 0.0};
+    for (std::size_t index = 0U; index < standards.size(); ++index) {
+        SetReflection(fixture, standards[index], 0.0);
+        auto capture = Action(api, "capture", "restore-standard-" + std::to_string(index));
+        capture["sessionId"] = sessionId;
+        capture["stepId"] = Field(Field(state, "steps").array[index], "id");
+        Complete(api, Request(api, "/api/v1/calibration", capture, token), token);
+    }
+    const auto standardRun = fixture.core.ReadView().runId;
+    SetReflection(fixture, 0.3, -0.4);
+    auto finish = Action(api, "finish", "restore-finish");
+    finish["sessionId"] = sessionId;
+    finish["name"] = Json("Web restore kit");
+    Complete(api, Request(api, "/api/v1/calibration", finish, token), token);
+    const auto status = Request(api, "/api/v1/status").json;
+    const auto &config = Field(status, "config");
+    Require(Field(config, "triggerSource").string == "IMM" && Field(config, "sweepMode").string == "CONT" &&
+                fixture.core.ReadView().state == VnaCore::CoreState::RUNNING &&
+                fixture.core.ReadView().runId > standardRun,
+        "HTTP completion observes actual continuous core restoration");
+    const auto dutRun = fixture.core.ReadView().runId;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (!fixture.core.ReadView().frame || fixture.core.ReadView().frame->runId != dutRun) {
+        Request(api, "/api/v1/status");
+        Require(std::chrono::steady_clock::now() < deadline, "restored HTTP CONT publishes a new DUT frame");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    begin = Action(api, "begin", "cancel-restore-begin");
+    begin["method"] = Json("onePort");
+    begin["port1"] = Json(1U);
+    Complete(api, Request(api, "/api/v1/calibration", begin, token), token);
+    auto cancel = Action(api, "cancel", "cancel-restore");
+    cancel["sessionId"] = Field(Request(api, "/api/v1/calibration").json, "sessionId");
+    Complete(api, Request(api, "/api/v1/calibration", cancel, token), token);
+    Require(!fixture.service.Calibration().collecting && fixture.core.ReadView().state == VnaCore::CoreState::RUNNING &&
+                fixture.core.ReadView().runId > dutRun &&
+                fixture.service.Settings().sweepMode == VnaService::SweepMode::CONTINUOUS,
+        "HTTP normal cancellation restores continuous acquisition before reporting completion");
 }
 
 void LargeImportHistoryHasByteBudget()
@@ -318,6 +381,7 @@ int main()
     try {
         WebAndScpiReadSameCorrection();
         ScpiMechanicalWorkflow();
+        WebFinishAndCancelRestoreContinuousAcquisition();
         LargeImportHistoryHasByteBudget();
         std::cout << "PASS calibration HTTP/SCPI ownership, CAS, correction and mechanical workflow\n";
         return 0;

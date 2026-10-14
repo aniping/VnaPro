@@ -99,6 +99,7 @@ bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
             return false;
         }
         calibration_ = std::move(candidate);
+        calibrationRun_ = {};
         settings_.sweepMode = SweepMode::HOLD;
         Finish(CalibrationResult(true));
         return false;
@@ -109,6 +110,15 @@ bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
         return false;
     }
     std::string error;
+    if (change.kind == CalibrationChangeKind::FINISH || change.kind == CalibrationChangeKind::CANCEL) {
+        if (calibrationRun_.sessionId != change.sessionId || !calibration_.SessionMatches(change.sessionId)) {
+            FailCalibration(
+                "Calibration session has no matching entry acquisition state", Detail::SETTINGS_CONFLICT_ERROR);
+            return false;
+        }
+        task.source = calibrationRun_.source;
+        task.mode = calibrationRun_.mode;
+    }
     // 采集只在成功后提交该标准，避免每步深复制全部既有标准数组。
     if (change.kind != CalibrationChangeKind::CAPTURE) {
         task.calibrationCandidate = calibration_;
@@ -126,6 +136,8 @@ bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
             FailCalibration(error, Detail::SETTINGS_CONFLICT_ERROR);
             return false;
         }
+        task.source = settings_.triggerSource;
+        task.mode = settings_.sweepMode;
     } else if (change.kind == CalibrationChangeKind::FINISH) {
         if (!calibration_.SessionMatches(change.sessionId) ||
             !calibration_.SessionCompatible(Identity(), activePlan_)) {
@@ -181,11 +193,30 @@ void InstrumentService::ContinueCalibration(Detail::ServiceTask &task)
         settings_.sweepMode = SweepMode::HOLD;
     }
     calibration_ = std::move(task.calibrationCandidate);
+    const auto kind = task.calibrationChange.kind;
+    if (kind == CalibrationChangeKind::BEGIN) {
+        calibrationRun_ = {calibration_.Snapshot(Identity(), activePlan_).sessionId, task.source, task.mode};
+        settings_.triggerSource = TriggerSource::MANUAL;
+    } else if (kind == CalibrationChangeKind::FINISH || kind == CalibrationChangeKind::CANCEL) {
+        // 有效系数先发布；恢复失败仍保留校准集，但整个操作不能报告成功。
+        calibrationRun_ = {};
+        task.candidate = settings_;
+        task.candidate.triggerSource = task.source;
+        task.candidate.sweepMode = task.mode;
+        task.calibrationResuming = true;
+        task.stage = Detail::ServiceTaskStage::READY_TO_START;
+        PollMode(task);
+        return;
+    }
     Finish(CalibrationResult(true));
 }
 
 void InstrumentService::PollCalibration(Detail::ServiceTask &task)
 {
+    if (task.calibrationResuming) {
+        PollMode(task);
+        return;
+    }
     if (task.stage == Detail::ServiceTaskStage::PENDING) {
         PrepareCalibration(task);
         return;

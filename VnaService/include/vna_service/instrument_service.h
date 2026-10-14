@@ -170,6 +170,12 @@ public:
     unsigned StatusByte(bool outputAvailable) const noexcept;
 
 private:
+    struct CalibrationRunState final {
+        std::uint64_t sessionId = 0U;
+        TriggerSource source = TriggerSource::IMMEDIATE;
+        SweepMode mode = SweepMode::HOLD;
+    };
+
     // IEEE 488.2 规定仪器上电时设置此 ESR 位。
     static constexpr unsigned POWER_ON_EVENT = 128U;
 
@@ -210,6 +216,8 @@ private:
     InstrumentSettings settings_;
     VnaDisplay::DisplayWorkspace display_;
     CalibrationWorkspace calibration_;
+    // 仅成功 BEGIN 冻结一次，标准采集不得覆盖进入前的扫描状态。
+    CalibrationRunState calibrationRun_;
     // 缓存核心最后成功下发的真实计划，其源和接收需求可以覆盖当前目录的子集。
     VnaCore::SweepPlan activePlan_;
     std::deque<Detail::ServiceTask> tasks_;

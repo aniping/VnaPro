@@ -54,6 +54,15 @@ public:
 
     void EnableRf() override
     {
+        std::unique_lock<std::mutex> lock(mutex_);
+        ++enableCount_;
+        enableEntered_ = true;
+        wake_.wait(lock, [this] {
+            return !enableBlocked_;
+        });
+        if (failEnable_) {
+            throw std::runtime_error("calibration acquisition restart failed");
+        }
     }
 
     void Shutdown() override
@@ -84,6 +93,33 @@ public:
     {
         std::lock_guard<std::mutex> lock(mutex_);
         blocked_ = false;
+        wake_.notify_all();
+    }
+
+    void ArmEnableFailure()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        enableBlocked_ = true;
+        enableEntered_ = false;
+        failEnable_ = true;
+    }
+
+    bool EnableEntered() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return enableEntered_;
+    }
+
+    unsigned EnableCount() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return enableCount_;
+    }
+
+    void ReleaseEnable()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        enableBlocked_ = false;
         wake_.notify_all();
     }
 
@@ -138,6 +174,10 @@ private:
     bool blocked_ = false;
     bool entered_ = false;
     bool fail_ = false;
+    bool enableBlocked_ = false;
+    bool enableEntered_ = false;
+    bool failEnable_ = false;
+    unsigned enableCount_ = 0U;
 };
 
 VnaService::InstrumentProfile Profile()
@@ -168,6 +208,7 @@ struct Fixture final {
     ~Fixture()
     {
         device->Release();
+        device->ReleaseEnable();
         core.Close();
     }
 };
@@ -625,6 +666,217 @@ void StandardPreviewIsRawReadOnlyAndSessionScoped()
         "preview leaves calibration state, versions, measurement catalog, frame and old coefficients unchanged");
 }
 
+void VerifyRestoredEntry(Fixture &fixture, VnaService::TriggerSource source, VnaService::SweepMode mode,
+    const VnaCore::FramePtr &standardFrame)
+{
+    const auto settings = fixture.service.Settings();
+    Require(settings.triggerSource == source && settings.sweepMode == mode,
+        "calibration did not restore entry trigger/sweep mode: source=" +
+            std::to_string(static_cast<int>(settings.triggerSource)) +
+            ", sweep=" + std::to_string(static_cast<int>(settings.sweepMode)));
+    const auto view = fixture.core.ReadView();
+    if (mode == VnaService::SweepMode::HOLD) {
+        Require(view.state == VnaCore::CoreState::READY && view.frame == standardFrame,
+            "entry HOLD must not start a new acquisition run");
+        return;
+    }
+    Require(view.state == VnaCore::CoreState::RUNNING && view.runId > standardFrame->runId,
+        "restored non-HOLD mode must start a new core run before the operation reports success");
+    if (source == VnaService::TriggerSource::MANUAL) {
+        Require(view.frame == standardFrame && !fixture.service.MeasurementData().ok,
+            "restored MANUAL must be armed without relabelling the standard as current DUT data");
+        Require(Finish(fixture, fixture.service.Trigger("TEST")).ok, "restored manual run accepts INIT");
+    } else {
+        const auto deadline = std::chrono::steady_clock::now() + TIMEOUT;
+        while (!fixture.core.ReadView().frame || fixture.core.ReadView().frame->runId != view.runId) {
+            fixture.service.Poll();
+            Require(std::chrono::steady_clock::now() < deadline, "restored CONT did not publish a fresh DUT frame");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+}
+
+void FinishRestoresEntryModes(VnaService::TriggerSource source, VnaService::SweepMode mode)
+{
+    Fixture fixture;
+    Require(Finish(fixture, fixture.service.SetTriggerSource(source, "TEST")).ok, "prepare entry trigger source");
+    Require(Finish(fixture, fixture.service.SetSweepMode(mode, "TEST")).ok, "prepare entry sweep mode");
+    Begin(fixture);
+    Require(fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD &&
+                fixture.service.Settings().triggerSource == VnaService::TriggerSource::MANUAL &&
+                fixture.core.ReadView().state == VnaCore::CoreState::READY,
+        "calibration holds ordinary acquisition and uses manual standard triggers");
+    CaptureOsl(fixture, FIRST_PORT);
+    const auto standardFrame = fixture.core.ReadView().frame;
+    TwoPortNetwork dut;
+    dut.s11 = Reflection({0.3, -0.4});
+    fixture.device->SetNetwork(dut);
+    Complete(fixture);
+    VerifyRestoredEntry(fixture, source, mode, standardFrame);
+}
+
+void FinishRestoresContinuous()
+{
+    FinishRestoresEntryModes(VnaService::TriggerSource::IMMEDIATE, VnaService::SweepMode::CONTINUOUS);
+}
+
+void FinishRestoresManualContinuous()
+{
+    FinishRestoresEntryModes(VnaService::TriggerSource::MANUAL, VnaService::SweepMode::CONTINUOUS);
+}
+
+void FinishRestoresManualSingle()
+{
+    FinishRestoresEntryModes(VnaService::TriggerSource::MANUAL, VnaService::SweepMode::SINGLE);
+}
+
+void FinishPreservesManualHold()
+{
+    FinishRestoresEntryModes(VnaService::TriggerSource::MANUAL, VnaService::SweepMode::HOLD);
+}
+
+void CancelRestoresEntryModes()
+{
+    using Source = VnaService::TriggerSource;
+    using Mode = VnaService::SweepMode;
+    const std::array<std::pair<Source, Mode>, 4U> modes{{{Source::IMMEDIATE, Mode::CONTINUOUS},
+        {Source::MANUAL, Mode::CONTINUOUS}, {Source::MANUAL, Mode::SINGLE}, {Source::MANUAL, Mode::HOLD}}};
+    for (const auto &entry : modes) {
+        Fixture fixture;
+        Require(Finish(fixture, fixture.service.SetTriggerSource(entry.first, "TEST")).ok, "prepare cancel source");
+        Require(Finish(fixture, fixture.service.SetSweepMode(entry.second, "TEST")).ok, "prepare cancel mode");
+        Begin(fixture);
+        CalibrationChange duplicate;
+        duplicate.kind = CalibrationChangeKind::BEGIN;
+        duplicate.port1 = FIRST_PORT;
+        Require(!Finish(fixture, Submit(fixture, duplicate)).ok, "rejected BEGIN cannot replace entry mode snapshot");
+        TwoPortNetwork open;
+        open.s11 = Reflection({1.0, 0.0});
+        Capture(fixture, CalibrationStandard::OPEN, FIRST_PORT, open);
+        const auto standardFrame = fixture.core.ReadView().frame;
+        CalibrationChange cancel;
+        cancel.kind = CalibrationChangeKind::CANCEL;
+        cancel.sessionId = fixture.service.Calibration().sessionId;
+        Require(Finish(fixture, Submit(fixture, cancel)).ok, "normal cancellation restores entry state");
+        Require(!fixture.service.Calibration().collecting, "cancellation closes its own session");
+        VerifyRestoredEntry(fixture, entry.first, entry.second, standardFrame);
+    }
+}
+
+void FailedSolveKeepsEntryModeForRetry()
+{
+    Fixture fixture;
+    Begin(fixture);
+    CaptureOsl(fixture, FIRST_PORT);
+    Complete(fixture);
+    const auto previous = fixture.service.FindCalibrationSet(fixture.service.Calibration().selectedSetId);
+    Require(Finish(fixture, fixture.service.RunContinuous("TEST")).ok, "enter CONT before failed solve");
+    Begin(fixture);
+    for (auto kind : {CalibrationStandard::OPEN, CalibrationStandard::SHORT, CalibrationStandard::LOAD}) {
+        Capture(fixture, kind, FIRST_PORT, {});
+    }
+    CalibrationChange finish;
+    finish.kind = CalibrationChangeKind::FINISH;
+    finish.sessionId = fixture.service.Calibration().sessionId;
+    Require(!Finish(fixture, Submit(fixture, finish)).ok, "singular solve fails before recovery");
+    Require(fixture.service.Calibration().collecting &&
+                fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD &&
+                fixture.service.FindCalibrationSet(previous->id) == previous &&
+                fixture.service.Calibration().selectedSetId == previous->id,
+        "failed math retains the session and previous set without restarting acquisition");
+    CaptureOsl(fixture, FIRST_PORT);
+    const auto standardFrame = fixture.core.ReadView().frame;
+    Complete(fixture);
+    VerifyRestoredEntry(
+        fixture, VnaService::TriggerSource::IMMEDIATE, VnaService::SweepMode::CONTINUOUS, standardFrame);
+}
+
+void RestoreFailureKeepsGeneratedSetAndFailsOperation()
+{
+    Fixture fixture;
+    Require(Finish(fixture, fixture.service.RunContinuous("TEST")).ok, "prepare failing CONT restart");
+    Begin(fixture);
+    CaptureOsl(fixture, FIRST_PORT);
+    fixture.device->ArmEnableFailure();
+    CalibrationChange finish;
+    finish.kind = CalibrationChangeKind::FINISH;
+    finish.sessionId = fixture.service.Calibration().sessionId;
+    const auto operation = Submit(fixture, finish);
+    const auto deadline = std::chrono::steady_clock::now() + TIMEOUT;
+    while (!fixture.device->EnableEntered()) {
+        fixture.service.Poll();
+        Require(std::chrono::steady_clock::now() < deadline, "restore reaches the actual RF start barrier");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    Require(operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready && fixture.service.HasPending() &&
+                fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD,
+        "FINISH and OPC remain pending until core Start completes");
+    const auto saved = fixture.service.FindCalibrationSet(fixture.service.Calibration().selectedSetId);
+    Require(saved && !fixture.service.Calibration().collecting, "solved coefficients are retained before mode restart");
+    fixture.device->ReleaseEnable();
+    const auto result = Finish(fixture, operation);
+    Require(!result.ok && result.message.find("restart failed") != std::string::npos &&
+                fixture.core.ReadView().state == VnaCore::CoreState::FAULTED &&
+                fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD &&
+                fixture.service.FindCalibrationSet(saved->id) == saved && !fixture.service.Snapshot().correction,
+        "resume hardware failure reports failure and HOLD without discarding the generated calibration set");
+    const auto enables = fixture.device->EnableCount();
+    fixture.service.Poll();
+    fixture.service.Poll();
+    Require(fixture.device->EnableCount() == enables, "faulted resume does not retry or automatically restart");
+}
+
+void FaultCancelDoesNotRestoreAcquisition()
+{
+    Fixture fixture;
+    Require(Finish(fixture, fixture.service.RunContinuous("TEST")).ok, "prepare CONT before standard fault");
+    Begin(fixture);
+    fixture.device->Arm(true);
+    const auto capture = Submit(fixture, CaptureChange(fixture, CalibrationStandard::OPEN, FIRST_PORT));
+    fixture.device->Release();
+    Require(!Finish(fixture, capture).ok, "standard acquisition faults");
+    const auto enables = fixture.device->EnableCount();
+    CalibrationChange cancel;
+    cancel.kind = CalibrationChangeKind::CANCEL;
+    cancel.sessionId = fixture.service.Calibration().sessionId;
+    Require(Finish(fixture, Submit(fixture, cancel)).ok, "fault cancellation still clears the session");
+    Require(!fixture.service.Calibration().collecting &&
+                fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD &&
+                fixture.core.ReadView().state == VnaCore::CoreState::FAULTED &&
+                fixture.device->EnableCount() == enables,
+        "fault cancellation never resumes the saved CONT acquisition");
+}
+
+void FirstResumedFrameFaultCannotCompleteSuccessfully()
+{
+    Fixture fixture;
+    Require(Finish(fixture, fixture.service.RunContinuous("TEST")).ok, "prepare CONT before resumed frame fault");
+    Begin(fixture);
+    CaptureOsl(fixture, FIRST_PORT);
+    fixture.device->Arm(true);
+    CalibrationChange finish;
+    finish.kind = CalibrationChangeKind::FINISH;
+    finish.sessionId = fixture.service.Calibration().sessionId;
+    const auto operation = Submit(fixture, finish);
+    fixture.service.Poll();
+    const auto deadline = std::chrono::steady_clock::now() + TIMEOUT;
+    while (!fixture.device->Entered()) {
+        Require(std::chrono::steady_clock::now() < deadline, "resumed CONT reaches its first acquisition");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    fixture.device->Release();
+    while (fixture.core.ReadView().state != VnaCore::CoreState::FAULTED) {
+        Require(std::chrono::steady_clock::now() < deadline, "first resumed acquisition publishes its fault");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    // Start 的成功 ticket 已就绪，但核心在服务消费它之前已经故障。
+    const auto result = Finish(fixture, operation);
+    Require(!result.ok && result.message.find("standard acquisition failed") != std::string::npos &&
+                fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD &&
+                fixture.service.FindCalibrationSet(fixture.service.Calibration().selectedSetId),
+        "a successful Start ticket cannot report FINISH success after its actual core run already faulted");
+}
+
 void Run(const char *name, void (*test)(), unsigned &failed)
 {
     try {
@@ -637,9 +889,22 @@ void Run(const char *name, void (*test)(), unsigned &failed)
 }
 }  // 匿名命名空间
 
-int main()
+int main(int argc, char **argv)
 {
     unsigned failed = 0U;
+    if (argc == 2 && std::string(argv[1]) == "restore") {
+        Run("FINISH restores immediate CONT and actual acquisition", FinishRestoresContinuous, failed);
+        Run("FINISH restores MANUAL CONT arming", FinishRestoresManualContinuous, failed);
+        Run("FINISH restores MANUAL SINGLE arming", FinishRestoresManualSingle, failed);
+        Run("FINISH preserves MANUAL HOLD", FinishPreservesManualHold, failed);
+        Run("CANCEL restores entry modes", CancelRestoresEntryModes, failed);
+        Run("failed solve preserves entry mode for retry", FailedSolveKeepsEntryModeForRetry, failed);
+        Run("resume failure retains set and reports failure", RestoreFailureKeepsGeneratedSetAndFailsOperation, failed);
+        Run("fault cancellation never restarts", FaultCancelDoesNotRestoreAcquisition, failed);
+        Run("first resumed frame fault cannot report success", FirstResumedFrameFaultCannotCompleteSuccessfully,
+            failed);
+        return failed == 0U ? 0 : 1;
+    }
     Run("single port fresh standard and raw read", OnePortWorkflowAndRawRead, failed);
     Run("arbitrary pair twelve-term source union", TwoPortArbitraryPairAndSourceUnion, failed);
     Run("queued guards and cancellation barrier", SessionLocksAndCancelBarrier, failed);
@@ -649,5 +914,14 @@ int main()
     Run("old session rejection preserves current session", OldSessionFailureCannotAlterCurrentSession, failed);
     Run("accepted import freezes input aliases", AcceptedImportFreezesCallerAliases, failed);
     Run("confirmed standard preview is raw and read-only", StandardPreviewIsRawReadOnlyAndSessionScoped, failed);
+    Run("FINISH restores immediate CONT and actual acquisition", FinishRestoresContinuous, failed);
+    Run("FINISH restores MANUAL CONT arming", FinishRestoresManualContinuous, failed);
+    Run("FINISH restores MANUAL SINGLE arming", FinishRestoresManualSingle, failed);
+    Run("FINISH preserves MANUAL HOLD", FinishPreservesManualHold, failed);
+    Run("CANCEL restores entry modes", CancelRestoresEntryModes, failed);
+    Run("failed solve preserves entry mode for retry", FailedSolveKeepsEntryModeForRetry, failed);
+    Run("resume failure retains set and reports failure", RestoreFailureKeepsGeneratedSetAndFailsOperation, failed);
+    Run("fault cancellation never restarts", FaultCancelDoesNotRestoreAcquisition, failed);
+    Run("first resumed frame fault cannot report success", FirstResumedFrameFaultCannotCompleteSuccessfully, failed);
     return failed == 0U ? 0 : 1;
 }
