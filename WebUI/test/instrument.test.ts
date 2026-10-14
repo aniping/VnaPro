@@ -23,6 +23,7 @@ import {
   receiverTrace,
 } from './displayFixtures'
 import type { DisplayCommand } from '../src/api/types'
+import type { CalibrationSnapshot } from '../src/api/calibrationTypes'
 
 function snapshot(revision = '1'): InstrumentStatus {
   return {
@@ -177,6 +178,39 @@ async function microtasks() {
   await Promise.resolve()
   await Promise.resolve()
 }
+
+test('calibration workspace polls status without repeatedly fetching the hidden full DUT matrix', async (context) => {
+  const api = new FakeGateway()
+  const calibration: CalibrationSnapshot = {
+    revision: '5', collecting: true, capturePending: false, sessionId: '6',
+    method: 'onePort', port1: 1, port2: 0, selectedSetId: '', enabled: false,
+    compatible: false, reason: '', sets: [], steps: [
+      { id: 'open-1', kind: 'open', port1: 1, port2: 0, captured: true, runId: '2', frameSeq: '1' },
+    ],
+  }
+  api.current.calibration = calibration
+  let frameReads = 0
+  const retained = acquiredFrame()
+  api.frame = async () => { frameReads++; return structuredClone(retained) }
+  const gateway = Object.assign(api, { calibration: async () => ({ operationId: 'op-1', state: 'pending' as const }) })
+  const model = await ready(gateway)
+  context.after(() => model.stop())
+  const before = frameReads
+  const firstFrame = model.frame.value
+  for (let poll = 0; poll < 3; poll++) await model.refresh()
+  assert.equal(frameReads, before, 'collecting repeatedly fetched all hidden DUT traces')
+  assert.equal(model.frame.value, firstFrame, 'collecting must retain the previous DUT snapshot')
+  const capture = model.calibrate({ action: 'capture', sessionId: '6', stepId: 'open-1' })
+  await microtasks()
+  api.operationLoader = async () => ({ operationId: 'op-1', state: 'completed', result: { ok: true, errorCode: 0, message: '' } })
+  await model.refresh()
+  assert.equal((await capture)?.calibration?.collecting, true)
+  assert.equal(frameReads, before, 'standard operation readback must not fetch the hidden DUT matrix')
+  api.current.calibration = { ...calibration, collecting: false, sessionId: '', steps: [] }
+  await model.refresh()
+  await model.refresh()
+  assert.ok(frameReads > before, 'normal frame polling must resume after calibration ends')
+})
 
 test('continuous sweep accepts measurement and sweep settings through the same backend write gate', async (context) => {
   const api = new FakeGateway()

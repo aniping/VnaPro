@@ -556,8 +556,8 @@ onBeforeUnmount(() => {
           :has-control="hasControl"
           :claim-busy="controlBusy"
           :frame-seq="frame?.frameSeq ?? null"
-          :run-id="status?.runId ?? null"
-          :revision="status?.revision ?? null"
+          :run-id="frame?.runId ?? status?.runId ?? null"
+          :revision="frame?.revision ?? status?.acquisitionRevision ?? null"
           :calibration-label="calibrationLabel"
           :notice="
             pendingOperation

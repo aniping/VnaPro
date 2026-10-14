@@ -294,7 +294,8 @@ export function useInstrument(options: InstrumentOptions = {}) {
       if (epoch !== generation || pendingOperation.value?.id !== pending.id)
         return
       if (
-        (pending.kind === 'display' || pending.kind === 'calibration') &&
+        (pending.kind === 'display' ||
+          (pending.kind === 'calibration' && !readback.calibration?.collecting)) &&
         readback.display.displayedNames.length
       ) {
         // 周期轮询可能已收到旧投影；显示操作须读回同一显示版本后才撤销手势预览。
@@ -343,9 +344,11 @@ export function useInstrument(options: InstrumentOptions = {}) {
     const wasConnected = connected.value
     const epochAtRead = writeEpoch
     try {
+      // 标准工作区使用独立的已确认预览；收集期间保留 DUT 帧，避免反复传输隐藏矩阵。
+      const readFrame = !status.value?.calibration?.collecting
       const [statusResult, frameResult] = await Promise.allSettled([
         api.status(),
-        api.frame(),
+        readFrame ? api.frame() : Promise.resolve(null),
       ])
       if (epoch !== generation || !active) return
       if (statusResult.status === 'fulfilled') {
@@ -362,7 +365,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
         if (wasConnected || !initialized.value)
           notify(message(statusResult.reason), 'error')
       }
-      if (frameResult.status === 'fulfilled') {
+      if (frameResult.status === 'fulfilled' && frameResult.value) {
         if (frameResult.value.available) {
           frame.value = frameResult.value
           frameCurrent.value = frameResult.value.current
@@ -371,7 +374,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
           frameCurrent.value = false
           frameError.value = frameResult.value.reason
         }
-      } else {
+      } else if (frameResult.status === 'rejected') {
         frameCurrent.value = false
         frameError.value = message(frameResult.reason)
         if (

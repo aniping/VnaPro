@@ -668,9 +668,10 @@ watch(
     ]),
   () => void nextTick(measureTitles),
 )
+// 完整帧不可变；只监听引用，不能让每个图窗递归遍历其他图窗的全部样本。
+watch(() => props.frame, schedulePaint)
 watch(
   [
-    () => props.frame,
     traces,
     () => props.activeTraceName,
     () => props.primaryTraceName,
