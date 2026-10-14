@@ -3,6 +3,7 @@ add_library(vna_web STATIC
     static_file.cpp
     http_api.cpp
     display_json.cpp
+    calibration_json.cpp
     trace_action_adapter.cpp
     frame_selection.cpp
     json.cpp
