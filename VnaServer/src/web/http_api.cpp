@@ -20,6 +20,8 @@
 #include "vna_measurement/measurement_processor.h"
 #include "vna_service/instrument_service.h"
 #include "vna_service/service_error_code.h"
+#include "web/calibration_json.h"
+#include "web/calibration_preview_json.h"
 #include "web/display_json.h"
 #include "web/frame_selection.h"
 #include "web/json_encoder.h"
@@ -44,9 +46,13 @@ constexpr unsigned LEASE_SECONDS = 30U;
 constexpr unsigned RETENTION_SECONDS = 60U;
 constexpr std::size_t SESSION_LIMIT = 32U;
 constexpr std::size_t RETRY_LIMIT = 32U;
+// 大校准文件也保存精确幂等指纹；总字节上限避免会话数乘上传大小放大常驻内存。
+constexpr std::size_t RETRY_BYTE_LIMIT = 64U * 1024U * 1024U;
 constexpr std::size_t OPERATION_LIMIT = 128U;
 constexpr std::size_t NAME_LENGTH_LIMIT = 128U;
 constexpr unsigned DISPLAY_POINT_LIMIT = 2001U;
+// 即使请求128条迹线，也不同时保留全部完整频轴的复数结果。
+constexpr std::size_t CALCULATION_BATCH_SIZE = 4U;
 // 保持原四条满分辨率迹线的总传输预算；更多迹线共享抽点额度。
 constexpr std::size_t DISPLAY_SAMPLE_BUDGET = 8004U;
 constexpr unsigned SWEEP_POINT_LIMIT = 10001U;
@@ -137,7 +143,7 @@ std::string CoreStateName(VnaCore::CoreState value)
     }
 }
 
-Json MeasurementJson(const VnaService::Measurement &measurement)
+Json MeasurementJson(const VnaService::Measurement &measurement, const VnaCalibration::CalibrationPtr &calibration = {})
 {
     Json value = Json::MakeObject();
     value["name"] = Json(measurement.name);
@@ -148,7 +154,9 @@ Json MeasurementJson(const VnaService::Measurement &measurement)
     const bool ratio = measurement.kind == VnaService::MeasurementKind::S_PARAMETER;
     value["kind"] = Json(ratio ? "sParameter" : "receiver");
     value["unit"] = Json(ratio ? "1" : "a.u.");
-    value["calibration"] = Json(ratio ? "uncalibrated" : "raw");
+    const bool corrected =
+        ratio && calibration && calibration->Covers(measurement.receiverPort, measurement.sourcePort);
+    value["calibration"] = Json(!ratio ? "raw" : corrected ? "calibrated" : "uncalibrated");
     return value;
 }
 
@@ -236,6 +244,15 @@ void HttpApi::Poll()
     }
     for (auto record = records_.begin(); record != records_.end();) {
         if (record->second.done && time - record->second.completed >= std::chrono::seconds(RETENTION_SECONDS)) {
+            // 活动控制者可持续续租；操作过期时释放大正文，保留请求ID用于返回410。
+            const auto session = sessions_.find(record->second.owner);
+            if (session != sessions_.end()) {
+                for (auto &retry : session->second.retries) {
+                    if (retry.operationId == record->first) {
+                        std::string().swap(retry.fingerprint);
+                    }
+                }
+            }
             record = records_.erase(record);
         } else {
             ++record;
@@ -287,9 +304,10 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
         Json(snapshot.core.state != VnaCore::CoreState::FAULTED && snapshot.core.state != VnaCore::CoreState::CLOSED &&
              snapshot.core.configRevision != 0U && snapshot.core.configRevision == settings.acquisitionRevision);
     value["config"] = ConfigurationJson(settings);
+    value["calibration"] = CalibrationJson::Snapshot(snapshot.calibration);
     Json measurements = Json::MakeArray();
     for (const auto &measurement : settings.measurements) {
-        measurements.array.push_back(MeasurementJson(measurement));
+        measurements.array.push_back(MeasurementJson(measurement, snapshot.correction));
     }
     value["measurements"] = std::move(measurements);
     value["display"] = DisplayJson::State(snapshot.display, settings.measurements);
@@ -304,6 +322,7 @@ HttpResponse HttpApi::Frame(const std::string &query) const
     HttpResponse response;
     Json &value = response.json = Json::MakeObject();
     value["displayRevision"] = Json(std::to_string(snapshot.display.revision));
+    value["calibrationRevision"] = Json(std::to_string(snapshot.calibration.revision));
     if (!snapshot.core.frame) {
         value["available"] = Json(false);
         value["current"] = Json(false);
@@ -337,13 +356,20 @@ HttpResponse HttpApi::Frame(const std::string &query) const
     value["decimated"] = Json(count > display);
     AppendFrameAxis(value, frame, indexes);
     Json traces = Json::MakeArray();
-    for (const auto &measurement : selected) {
-        const auto presentation = std::find_if(snapshot.display.traces.begin(), snapshot.display.traces.end(),
-            [&measurement](const VnaDisplay::TracePresentation &item) {
-                return item.name == measurement.name;
-            });
-        if (presentation != snapshot.display.traces.end()) {
-            traces.array.push_back(TraceJson(frame, measurement, *presentation, indexes));
+    for (std::size_t begin = 0U; begin < selected.size(); begin += CALCULATION_BATCH_SIZE) {
+        const auto end = (std::min)(selected.size(), begin + CALCULATION_BATCH_SIZE);
+        const std::vector<VnaService::Measurement> batch(selected.begin() + begin, selected.begin() + end);
+        const auto results =
+            VnaMeasurement::MeasurementProcessor::CalculateMany(frame, batch, snapshot.correction.get());
+        for (std::size_t offset = 0U; offset < batch.size(); ++offset) {
+            const auto &measurement = batch[offset];
+            const auto presentation = std::find_if(snapshot.display.traces.begin(), snapshot.display.traces.end(),
+                [&measurement](const VnaDisplay::TracePresentation &item) {
+                    return item.name == measurement.name;
+                });
+            if (presentation != snapshot.display.traces.end()) {
+                traces.array.push_back(TraceJson(frame, measurement, *presentation, indexes, results[offset]));
+            }
         }
     }
     value["traces"] = std::move(traces);
@@ -458,7 +484,9 @@ HttpResponse HttpApi::Write(const HttpRequest &request, const Json &body)
     if (!SafeName(requestId)) {
         throw std::runtime_error("requestId must contain 1..128 safe characters");
     }
-    const std::string fingerprint = request.method + '\n' + request.path + '\n' + StringifyJson(body);
+    const auto outputLimit =
+        request.path == "/api/v1/calibration" ? CALIBRATION_JSON_BYTE_LIMIT : JsonEncoder::DEFAULT_OUTPUT_LIMIT;
+    const std::string fingerprint = request.method + '\n' + request.path + '\n' + StringifyJson(body, outputLimit);
     HttpResponse previous;
     if (RetryResponse(session, {requestId, fingerprint, id}, previous)) {
         return previous;
@@ -483,6 +511,29 @@ HttpResponse HttpApi::Route(const HttpRequest &request)
         if (request.path == "/api/v1/frame") {
             return Frame(request.query);
         }
+        if (request.path == "/api/v1/calibration") {
+            HttpResponse response;
+            response.json = CalibrationJson::Snapshot(service_.Calibration());
+            return response;
+        }
+        if (request.path == "/api/v1/calibration/preview") {
+            const auto query = CalibrationPreviewJson::ParseQuery(request.query);
+            HttpResponse response;
+            response.json = CalibrationPreviewJson::Encode(service_.CalibrationPreview(query.sessionId, query.stepId));
+            return response;
+        }
+        const std::string calibrationPrefix = "/api/v1/calibration/sets/";
+        if (request.path.find(calibrationPrefix) == 0U) {
+            Json id = Json::MakeObject();
+            id["id"] = Json(request.path.substr(calibrationPrefix.size()));
+            const auto set = service_.FindCalibrationSet(DisplayJson::Revision(id, "id"));
+            if (!set) {
+                return HttpError(404, "calibration_not_found", "Calibration set does not exist");
+            }
+            HttpResponse response;
+            response.json = CalibrationJson::Export(*set);
+            return response;
+        }
         const std::string prefix = "/api/v1/operations/";
         if (request.path.find(prefix) == 0U) {
             return OperationStatus(request.path.substr(prefix.size()), HeaderToken(request));
@@ -501,13 +552,14 @@ HttpResponse HttpApi::Route(const HttpRequest &request)
     if (request.method != "POST" &&
         (request.path == "/api/v1/config" || request.path == "/api/v1/operations" ||
             request.path == "/api/v1/measurements" || request.path == "/api/v1/control/claim" ||
-            request.path == "/api/v1/control/release")) {
+            request.path == "/api/v1/control/release" || request.path == "/api/v1/calibration")) {
         return HttpError(405, "method_not_allowed", "This API route requires POST");
     }
     if (request.method != "DELETE" && request.method != "PUT" && request.path.find("/api/v1/measurements/") == 0U) {
         return HttpError(405, "method_not_allowed", "Measurement update or deletion requires PUT or DELETE");
     }
-    Json body = request.body.empty() ? Json::MakeObject() : ParseJson(request.body);
+    const unsigned nodeLimit = request.path == "/api/v1/calibration" ? CALIBRATION_JSON_NODE_LIMIT : 4096U;
+    Json body = request.body.empty() ? Json::MakeObject() : ParseJson(request.body, nodeLimit);
     if (body.type != Json::Type::OBJECT) {
         throw std::runtime_error("JSON body must be an object");
     }
@@ -595,13 +647,16 @@ Json HttpApi::ControlJson(const VnaService::InstrumentSnapshot &snapshot, const 
 }
 
 Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
-    const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes)
+    const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes,
+    const VnaMeasurement::TraceResult &result)
 {
     Json trace = MeasurementJson(measurement);
     Json real = Json::MakeArray();
     Json imaginary = Json::MakeArray();
     Json validity = Json::MakeArray();
-    const auto result = VnaMeasurement::MeasurementProcessor::Calculate(frame, measurement);
+    if (measurement.kind == VnaService::MeasurementKind::S_PARAMETER) {
+        trace["calibration"] = Json(result.calibrated ? "calibrated" : "uncalibrated");
+    }
     for (auto index : indexes) {
         const bool valid = result.available && index < result.points.size() && result.points[index].valid;
         real.array.push_back(valid ? Json(result.points[index].real) : Json());
@@ -624,6 +679,18 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
     auto &operationValue = result.operation;
     if (request.path == "/api/v1/config" && request.method == "POST") {
         return StartConfigurationWrite(body, id);
+    } else if (request.path == "/api/v1/calibration" && request.method == "POST") {
+        const auto expected = Revision(body);
+        const auto change = CalibrationJson::Change(body);
+        const auto snapshot = service_.Calibration();
+        const bool cancelCurrent = change.kind == VnaService::CalibrationChangeKind::CANCEL &&
+                                   change.sessionId == snapshot.sessionId && snapshot.collecting &&
+                                   expected <= snapshot.revision;
+        if (expected != snapshot.revision && !cancelCurrent) {
+            result.response = HttpError(409, "revision_conflict", "Calibration revision changed");
+            return result;
+        }
+        result.operation = service_.ApplyCalibration(change, expected, id);
     } else if (request.path == "/api/v1/display" && request.method == "POST") {
         return StartDisplayWrite(body, id);
     } else if ((request.path == "/api/v1/measurement-actions/clone" ||
@@ -805,12 +872,12 @@ bool HttpApi::RetryResponse(const HttpSession &session, const HttpWriteIdentity 
         if (retry.requestId != request.requestId) {
             continue;
         }
-        if (retry.fingerprint != request.fingerprint) {
-            response = HttpError(409, "request_id_conflict", "requestId was used with different content");
-            return true;
-        }
         if (records_.count(retry.operationId) == 0U) {
             response = HttpError(410, "operation_expired", "Original operation record has expired");
+            return true;
+        }
+        if (retry.fingerprint != request.fingerprint) {
+            response = HttpError(409, "request_id_conflict", "requestId was used with different content");
             return true;
         }
         response = Accepted(retry.operationId, request.owner);
@@ -822,6 +889,10 @@ bool HttpApi::RetryResponse(const HttpSession &session, const HttpWriteIdentity 
 HttpResponse HttpApi::RecordWrite(
     const HttpRequest &request, const Json &body, HttpSession &session, const HttpWriteIdentity &identity)
 {
+    if (!RetryBudgetAllows(session, identity.fingerprint.size())) {
+        return HttpError(
+            429, "retry_history_full", "Retained request bytes exceed budget; retry after history expires");
+    }
     const auto time = now_();
     const std::string operationId = "op-" + std::to_string(++sequence_);
     HttpOperationRecord record;
@@ -857,6 +928,20 @@ HttpResponse HttpApi::RecordWrite(
     }
     session.touched = time;
     return Accepted(operationId, identity.owner);
+}
+
+bool HttpApi::RetryBudgetAllows(const HttpSession &session, std::size_t addedBytes) const noexcept
+{
+    std::size_t retainedBytes = 0U;
+    for (const auto &entry : sessions_) {
+        for (const auto &retry : entry.second.retries) {
+            retainedBytes += retry.fingerprint.size();
+        }
+    }
+    if (session.retries.size() >= RETRY_LIMIT) {
+        retainedBytes -= session.retries.front().fingerprint.size();
+    }
+    return retainedBytes <= RETRY_BYTE_LIMIT && addedBytes <= RETRY_BYTE_LIMIT - retainedBytes;
 }
 
 void HttpApi::RollbackWrite(HttpSession &session, const std::string &operationId) noexcept

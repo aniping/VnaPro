@@ -4,6 +4,7 @@ add_library(vna_web STATIC
     http_api.cpp
     display_json.cpp
     calibration_json.cpp
+    calibration_preview_json.cpp
     trace_action_adapter.cpp
     frame_selection.cpp
     json.cpp
@@ -20,6 +21,11 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(vna_calibration_preview_tests tests/calibration_preview_test.cpp)
+    target_link_libraries(vna_calibration_preview_tests PRIVATE vna_web vna_service_test_support)
+    target_compile_options(vna_calibration_preview_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME calibration_preview COMMAND vna_calibration_preview_tests)
+    set_tests_properties(calibration_preview PROPERTIES TIMEOUT 20)
     add_executable(vna_web_all_sparameters_tests tests/all_sparameters_test.cpp)
     target_link_libraries(vna_web_all_sparameters_tests PRIVATE vna_web vna_service_test_support)
     add_test(NAME web_all_sparameters COMMAND vna_web_all_sparameters_tests)

@@ -81,7 +81,8 @@ private:
     HttpResponse Status(const HttpRequest &request) const;
     HttpResponse Frame(const std::string &query) const;
     static Json TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
-        const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes);
+        const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes,
+        const VnaMeasurement::TraceResult &result);
     HttpWriteResult StartDisplayWrite(const Json &body, const std::string &id);
     HttpWriteResult StartConfigurationWrite(const Json &body, const std::string &id);
     HttpWriteResult StartDefinitionWrite(const Json &body, const std::string &id);
@@ -95,6 +96,7 @@ private:
     static VnaService::Measurement MeasurementDefinition(const Json &body);
     VnaService::Operation StartAction(const Json &body, const std::string &id);
     bool RetryResponse(const HttpSession &session, const HttpWriteIdentity &request, HttpResponse &response) const;
+    bool RetryBudgetAllows(const HttpSession &session, std::size_t addedBytes) const noexcept;
     HttpResponse RecordWrite(
         const HttpRequest &request, const Json &body, HttpSession &session, const HttpWriteIdentity &identity);
     void RollbackWrite(HttpSession &session, const std::string &operationId) noexcept;
