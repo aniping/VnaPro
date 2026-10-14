@@ -207,15 +207,16 @@ Meas 的测量按钮修改活动迹线，不创建新名称；这对应 [ZNB Use
 
 Add Trace 在 Trace Config 中复制活动定义并生成未使用的 `Trc<n>`，复制和删除仅更新目录及逻辑版本，保留原始采集身份。可见性、图窗、格式、刻度和标记属于后端共享显示域，不要求 HOLD，写入须持有统一控制权。Meas 按原机保留四个快捷按钮，上方参数编号按钮打开矩阵弹框，按能力提供完整 n² 项；选择更新已有迹线，不自动新建迹线或图窗。工具栏和 Trace Config 的 Add Trace 拖放到现有图窗后打开 New Trace，以参数、目标和双 CAS 调用一次 AddMeasurement，后端完成命名、目录与显示归属；工具栏单击仍复制活动迹线。Ratios 尚未实现。All S-Params 按用户实机反馈先提示删除旧定义和图窗，确认后一次 C++ 双 CAS 事务重建完整 n² 目录及 n×n 单迹线图窗；取消不修改。频率、点数、IFBW、触发、扫描模式和运行身份保持，新定义清除旧格式、刻度及 Marker，对角反射采用 Smith、非对角传输采用 dB Mag，在同一次后端候选中确定。矩阵行列由 C++ 保存并发布，前端只渲染。原机依据见[四端口菜单核对](research/ZNB8四端口S参数菜单核对.md)。
 
-测量目录和显示集合最多 128 项，这是项目资源预算；单个 HTTP frame 最多返回 128 条曲线，单条最多 10001 点，总迹线采样预算 40004（2026-10-14 更新）。常用一至四条迹线保留全部扫频点；请求 N 条时共同绘图点数不超过 `min(10001, floor(40004 / N))`，仅超预算时抽点并保留端点。该限制属于本项目资源策略，不是 ZNB 的原机限制；后端数学与标记仍使用完整原始帧。显示集合与采集目录分别管理：
+测量目录和显示集合最多 128 项，这是项目资源预算；单个 HTTP frame 最多返回 128 条曲线，每条最多 10001 点，均保留完整原始扫频（2026-10-14 更新）。没有按迹线数量分摊的抽点预算；`displayPointCount=originalPointCount`、`decimated=false`，原始下标连续完整。普通 JSON 与 `encoding=packed` 只改变数据表示，复数、有效位、格式投影和标记使用同一不可变帧。显示集合与采集目录分别管理：
 
 ```text
 GET /api/v1/frame
 GET /api/v1/frame?trace=ReverseReflect&trace=ReverseTransmit
 GET /api/v1/frame?display=none
+GET /api/v1/frame?encoding=packed&trace=ReverseReflect&trace=ReverseTransmit
 ```
 
-不带查询参数时读取 C++ 显示域中已保存的显示集合；定义测量不等于把它加入显示集合。显式 `trace` 可重复最多 128 次，响应按请求顺序返回；轨迹名称按 UTF-8 百分号编码传递，未知名称、重复名称、超过 128 条或非法查询返回 400。`display=none` 在已有完整帧时返回 `traces=[]`，保留频轴、抽取点信息及 revision/runId/frameSeq；没有完整帧时仍返回明确的无帧状态。选择显示集合只读一个服务快照，不触发采集、不修改测量定义和配置版本。
+不带选择参数时读取 C++ 显示域中已保存的显示集合；定义测量不等于把它加入显示集合。显式 `trace` 可重复最多 128 次，响应按请求顺序返回；轨迹名称按 UTF-8 百分号编码传递，未知名称、重复名称、超过 128 条或非法查询返回 400。`encoding` 允许单次 `packed` 或 `json`，缺省为普通 JSON；仅给出编码选项仍使用已保存显示集合。`display=none` 在已有完整帧时返回 `traces=[]`，保留完整频轴、点信息及 revision/runId/frameSeq；没有完整帧时仍返回明确的无帧状态。选择显示集合只读一个服务快照，不触发采集、不修改测量定义和配置版本。
 
 ## Smith、Inv Smith 与 Polar 显示
 

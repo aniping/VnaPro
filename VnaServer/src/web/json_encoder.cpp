@@ -14,7 +14,7 @@
 
 namespace VnaWeb {
 namespace {
-constexpr std::size_t OUTPUT_LIMIT = 16U * 1024U * 1024U;
+constexpr std::size_t OUTPUT_LIMIT = 256U * 1024U * 1024U;
 constexpr unsigned CONTROL_CHARACTER_LIMIT = 32U;
 constexpr unsigned HEX_NIBBLE_BITS = 4U;
 constexpr unsigned HEX_NIBBLE_MASK = 15U;
@@ -24,7 +24,7 @@ constexpr std::size_t CONTROL_ESCAPE_LENGTH = 6U;
 void AppendBounded(std::string &output, const char *text, std::size_t length)
 {
     if (output.size() > OUTPUT_LIMIT || length > OUTPUT_LIMIT - output.size()) {
-        throw std::runtime_error("JSON output exceeds 16 MiB");
+        throw std::runtime_error("JSON output exceeds 256 MiB");
     }
     output.append(text, length);
 }

@@ -11,6 +11,14 @@
 #include "vna_service/measurement.h"
 
 namespace VnaWeb {
+struct FrameQuery final {
+    std::string selection;
+    bool packed = false;
+};
+
+// 分离显示集合选择与数组编码；重复编码字段、未知编码或空字段均拒绝。
+FrameQuery ParseFrameQuery(const std::string &query);
+
 // 从测量目录选择预算内全部显示迹线；非法选择抛出 invalid_argument。
 std::vector<VnaService::Measurement> SelectFrameMeasurements(
     const std::string &query, const std::vector<VnaService::Measurement> &catalog);

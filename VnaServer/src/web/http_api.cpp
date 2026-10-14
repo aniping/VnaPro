@@ -22,6 +22,7 @@
 #include "vna_service/instrument_service.h"
 #include "vna_service/service_error_code.h"
 #include "web/display_json.h"
+#include "web/frame_array_json.h"
 #include "web/frame_selection.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
@@ -47,9 +48,6 @@ constexpr std::size_t SESSION_LIMIT = 32U;
 constexpr std::size_t RETRY_LIMIT = 32U;
 constexpr std::size_t OPERATION_LIMIT = 128U;
 constexpr std::size_t NAME_LENGTH_LIMIT = 128U;
-constexpr unsigned DISPLAY_POINT_LIMIT = VnaService::MAX_SWEEP_POINTS;
-// 常用一至四条迹线保留完整扫频；更多迹线共享有界的传输额度。
-constexpr std::size_t DISPLAY_SAMPLE_BUDGET = static_cast<std::size_t>(DISPLAY_POINT_LIMIT) * 4U;
 constexpr unsigned SWEEP_POINT_LIMIT = 10001U;
 constexpr unsigned TOKEN_WORD_COUNT = 4U;
 constexpr int TOKEN_WORD_HEX_WIDTH = 8;
@@ -185,7 +183,8 @@ std::vector<VnaService::Measurement> FrameMeasurements(
     return result;
 }
 
-void AppendFrameAxis(Json &value, const VnaCore::MeasurementFrame &frame, const std::vector<std::size_t> &indexes)
+void AppendFrameAxis(
+    Json &value, const VnaCore::MeasurementFrame &frame, const std::vector<std::size_t> &indexes, bool packed)
 {
     Json axis = Json::MakeArray();
     Json sampleIndexes = Json::MakeArray();
@@ -193,8 +192,8 @@ void AppendFrameAxis(Json &value, const VnaCore::MeasurementFrame &frame, const 
         axis.array.emplace_back(frame.plan.frequencyHz[index]);
         sampleIndexes.array.emplace_back(static_cast<unsigned>(index));
     }
-    value["frequencyHz"] = std::move(axis);
-    value["sampleIndexes"] = std::move(sampleIndexes);
+    value["frequencyHz"] = packed ? FrameArrayJson::Pack(std::move(axis)) : std::move(axis);
+    value["sampleIndexes"] = packed ? FrameArrayJson::Pack(std::move(sampleIndexes)) : std::move(sampleIndexes);
 }
 }  // 匿名命名空间
 
@@ -301,7 +300,8 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
 HttpResponse HttpApi::Frame(const std::string &query) const
 {
     const auto snapshot = service_.Snapshot();
-    const auto selected = FrameMeasurements(snapshot, query);
+    const auto options = ParseFrameQuery(query);
+    const auto selected = FrameMeasurements(snapshot, options.selection);
     HttpResponse response;
     Json &value = response.json = Json::MakeObject();
     value["displayRevision"] = Json(std::to_string(snapshot.display.revision));
@@ -316,12 +316,13 @@ HttpResponse HttpApi::Frame(const std::string &query) const
     if (count == 0U) {
         return HttpError(409, "no_physical_axis", "Frame does not have a verified physical frequency axis");
     }
-    const std::size_t pointLimit = (std::min)(static_cast<std::size_t>(DISPLAY_POINT_LIMIT),
-        DISPLAY_SAMPLE_BUDGET / (std::max)(selected.size(), std::size_t{1U}));
-    const unsigned display = static_cast<unsigned>((std::min)(count, pointLimit));
+    if (count > VnaService::MAX_SWEEP_POINTS || selected.size() > VnaDisplay::MAX_DISPLAY_TRACES) {
+        return HttpError(409, "frame_capacity_exceeded", "Frame exceeds the supported full-sweep display capacity");
+    }
     std::vector<std::size_t> indexes;
-    for (unsigned index = 0; index < display; ++index) {
-        indexes.push_back(display == 1U ? 0U : index * (count - 1U) / (display - 1U));
+    indexes.reserve(count);
+    for (std::size_t index = 0U; index < count; ++index) {
+        indexes.push_back(index);
     }
     value["available"] = Json(true);
     value["current"] = Json(!snapshot.finitePending && snapshot.core.state != VnaCore::CoreState::FAULTED &&
@@ -334,9 +335,9 @@ HttpResponse HttpApi::Frame(const std::string &query) const
     value["measurementRevision"] = Json(std::to_string(snapshot.settings.revision));
     value["frameSeq"] = Json(std::to_string(frame.frameSeq));
     value["originalPointCount"] = Json(static_cast<unsigned>(count));
-    value["displayPointCount"] = Json(display);
-    value["decimated"] = Json(count > display);
-    AppendFrameAxis(value, frame, indexes);
+    value["displayPointCount"] = Json(static_cast<unsigned>(count));
+    value["decimated"] = Json(false);
+    AppendFrameAxis(value, frame, indexes, options.packed);
     Json traces = Json::MakeArray();
     for (const auto &measurement : selected) {
         const auto presentation = std::find_if(snapshot.display.traces.begin(), snapshot.display.traces.end(),
@@ -344,7 +345,9 @@ HttpResponse HttpApi::Frame(const std::string &query) const
                 return item.name == measurement.name;
             });
         if (presentation != snapshot.display.traces.end()) {
-            traces.array.push_back(TraceJson(frame, measurement, *presentation, indexes));
+            auto trace = TraceJson(frame, measurement, *presentation, indexes);
+            // 紧凑响应逐条释放临时数值树，不能先积累所有普通数组再压缩。
+            traces.array.push_back(options.packed ? FrameArrayJson::Pack(std::move(trace)) : std::move(trace));
         }
     }
     value["traces"] = std::move(traces);
