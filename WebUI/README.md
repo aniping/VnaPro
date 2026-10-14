@@ -1,6 +1,6 @@
 # VnaPro Web 前端
 
-独立的 Vue 3 + TypeScript + Vite 工程，用于验证模拟器的真实采数、配置更新和控制竞争。界面参考 ZNB8 的仪器布局，显示 RAW A/B 接收波和按配置端口数支持的完整未校准 S 矩阵：四端口为 S11～S44 共 16 项，二端口为四项；所有测量均可选择 Smith、Polar 和 Inv Smith。界面风格不代表具备罗德硬件或完整 ZNB 功能，SCPI 仍使用已实现的 Keysight 命令子集。
+独立的 Vue 3 + TypeScript + Vite 工程，用于仪器采数、配置、校准及控制竞争。界面参考 ZNB8 的仪器布局，显示 RAW A/B 接收波和按配置端口数支持的完整 S 矩阵：四端口为 S11～S44 共 16 项，二端口为四项；所有测量均可选择 Smith、Polar 和 Inv Smith。Cal 提供任意一个物理端口的 OSM 和任意两个物理端口的 TOSM，使用理想 50 Ω 标准模型；每条迹线按后端实际校正结果显示 Cal / Cal Off，原始接收波保持 RAW。界面风格不代表具备罗德硬件或完整 ZNB 功能，SCPI 使用项目已实现的命令子集。完整数学、协议和使用边界见[校准接入与使用](../docs/校准接入与使用.md)。
 
 后端依据 `driver.type` 回报 `NativeSimulator` 或 `HardwareDriver`，硬键栏和工具栏提示读取该状态，不固定标注模拟器。前端不控制噪声；模式、种子和相对幅度只在 C++ 启动配置中用于模拟驱动，真实类型完全忽略模拟配置。
 
@@ -41,6 +41,8 @@ WebUI/
 │  │  ├─ types.ts                   设备快照、帧、操作的类型合同
 │  │  ├─ decoders.ts                设备状态、真实频轴和数组校验
 │  │  ├─ displayDecoders.ts         显示状态、格式投影和标记合同校验
+│  │  ├─ calibrationTypes.ts        校准会话、集合、命令和标准预览合同
+│  │  ├─ calibrationDecoders.ts     校准身份、集合及标准预览边界校验
 │  │  ├─ decodeValues.ts            共享 JSON 基础校验
 │  │  └─ instrumentApi.ts           HTTP、请求超时、session、requestId
 │  ├─ composables/
@@ -49,10 +51,11 @@ WebUI/
 │  ├─ domain/
 │  │  ├─ presentation.ts           格式、刻度、标记、布局及迹线颜色
 │  │  ├─ measurements.ts           测量菜单标识及状态文本
+│  │  ├─ calibration.ts            校准类型、端口、标准接线及状态文本
 │  │  └─ sweep.ts                  服务端能力范围内的扫描草稿校验
 │  ├─ components/
 │  │  ├─ instrument/               工具栏、硬键、菜单状态栏、图标
-│  │  ├─ softtools/                配置、测量、扫描、迹线、系统面板
+│  │  ├─ softtools/                配置、测量、扫描、迹线、校准向导、系统面板
 │  │  ├─ diagrams/                 图布局、迹线条、Canvas 容器、标记读数
 │  │  └─ shared/FrequencyField.vue  数值与 Hz/kHz/MHz/GHz 单位输入
 │  ├─ plot/
@@ -90,13 +93,13 @@ flowchart TB
 
 ## 状态与竞争处理
 
-`api` 只负责传输和解码。run/revision/frame/operation 的 uint64 身份保留为十进制字符串，避免 JavaScript 精度丢失；频轴、有效位及实虚部长度不符合合同时拒绝该响应。每条测量和帧迹线必须明确携带 `kind`、`unit`、`calibration`，并与 `parameter` 及端口一致：RAW 为 `receiver / a.u. / raw`，S 参数为 `sParameter / 1 / uncalibrated`。缺失或矛盾的元数据直接拒绝，不在前端猜测单位或校准状态。状态必须携带 `capabilities`：端口数、最小/最大频率与扫描点数；配置、S 参数和 RAW 端口选择由能力约束。默认仪器为四端口、10 MHz–8 GHz、201 点；二端口配置只显示端口 1、2。token 由服务签发，保存在当前页面的 `sessionStorage`；不会在前端自行生成控制权。
+`api` 只负责传输和解码。run/revision/frame/operation 的 uint64 身份保留为十进制字符串，避免 JavaScript 精度丢失；频轴、有效位及实虚部长度不符合合同时拒绝该响应。每条测量和帧迹线必须明确携带 `kind`、`unit`、`calibration`，并与 `parameter` 及端口一致：RAW 为 `receiver / a.u. / raw`，S 参数为 `sParameter / 1 / uncalibrated` 或 `calibrated`。缺失或矛盾的元数据直接拒绝，不在前端猜测单位或校准状态。状态必须携带 `capabilities`：端口数、最小/最大频率与扫描点数；配置、S 参数和 RAW 端口选择由能力约束。默认仪器为四端口、10 MHz–8 GHz、201 点；二端口配置只显示端口 1、2。token 由服务签发，保存在当前页面的 `sessionStorage`；不会在前端自行生成控制权。
 
 `useInstrument` 维护一个不重叠的轮询周期。在线约每 200 ms 读取状态及帧，断线后约每 1 s 重试；一个周期完成后再调度下一次。控制权空闲时初次连接尝试取得租约，持权页面每 10 s 续租服务的 30 s 租约。释放意图立即停止续租，旧的持权响应不能让页面重新自动抢占。
 
 配置与测量定义携带逻辑 `expectedRevision`。`canConfigure` 和 `canChangeMeasurements` 均允许在 Ready/Running 下提交配置或测量目录修改；CONT 中可编辑频率、点数与 IFBW，前端不自行 Hold/Resume，后端在完整帧边界切换采集计划。两类写操作仍要求控制权，且已有受理操作、只读或故障状态不允许重复写入。写入返回 HTTP 202 仅表示受理：保留 operationId 和受理时的原始 token，观察到完成后再次读取权威状态，再更新生效配置。释放或换 token 后也按原 token 观察已受理操作；遇到不确定的网络失败不会自动重发写入。停止界面轮询只终止 HTTP 观察，不宣称取消设备已接受的任务。
 
-状态的 `revision` 是逻辑配置 CAS 版本，`acquisitionRevision` 是已提交的采集计划版本，`display.revision` 是共享仪器显示版本。帧携带实际采集 `revision`、计算时的 `measurementRevision` 与 `displayRevision`；三组身份及 runId、服务 current 状态全部匹配后才显示 CURRENT。迟到响应保留旧版本并标记旧帧，不把旧投影冒充新格式。
+状态的 `revision` 是逻辑配置 CAS 版本，`acquisitionRevision` 是已提交的采集计划版本，`display.revision` 是共享仪器显示版本，`calibration.revision` 是独立校准版本。帧携带实际采集 `revision`、计算时的 `measurementRevision`、`displayRevision` 和 `calibrationRevision`；这些身份及 runId、服务 current 状态全部匹配后才显示 CURRENT。校准变更的受理操作要等对应版本的帧投影读回后完成反馈；HOLD 下也遵循该校准版本门禁。迟到响应保留旧版本并标记 PREVIOUS CAL，不把旧投影冒充新校准；Autoscale 同样拒绝旧校准投影。旧服务完整缺少校准字段时保持只读兼容，并禁用 Cal 能力入口。
 
 `status.display` 返回活动测量、显示集合、布局和每条迹线的 Format/Scale/标记集合/可见性及 `allowedFormats`。每条迹线的 `markers` 保存 M1～M10，`activeMarkerId` 标识活动成员；旧 `marker` 字段由后端从活动成员派生，前端不另存一份仪器状态。`display.diagrams` 返回全部显式图窗、各窗迹线顺序与主坐标迹线，`selectedDiagram` 表示当前图窗；删除后图号可重排，前端不缓存固定图号，也不按格式创建或拆分图窗。`useWorkspace` 仅适配这些读回值，没有本地默认迹线、目录 watch 修复或乐观修改。动作写入 `POST /api/v1/display`，携带 `requestId` 和 `expectedDisplayRevision`，经同一控制租约与操作完成机制执行；`canEditDisplay` 允许 CONT 中操作，旁观窗口禁写但同步显示。刷新重建页面继续读取已有仪器显示状态；不宣称进程重启后的磁盘持久化。
 
@@ -124,6 +127,20 @@ Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设
 
 工具栏和 Scale 面板的 Autoscale 发送一次后端操作，并附 `acquisitionRevision`；后端使用完整原始帧计算并提交刻度。随后噪声帧不会改变已保存范围。格式值、无穷/未定义状态和 Smith 半径适配由后端提供，前端不执行复数幅度、相位、阻抗换算或频点吸附。极小范围的 `Δ` 仅是坐标标签显示方式。
 
+## 校准操作与状态
+
+Cal → Start Cal → Start (Manual)… 打开两步设置弹框：Ports and Type、Connectors and Cal Kits。蓝色端口块选择实际物理端口，类型矩阵只允许单端口 Refl OSM 和双端口 TOSM；其余类型禁用。第二步按端口列展示只读的 Ideal 50 Ω 标准模型，机械 Connector/Gender、导入 Cal Kit、Sliding Match 尚未实现，不能据这些界面位置推断能力。双端口可选 Isolation，未测隔离时明确假定串扰为零。
+
+Start 后进入正常仪器工作区的 Calibration 采集阶段：上方同时显示当前标准的 dB Mag 与 Phase，下方按端口排列 Open、Short、Match 和 Through 标准按钮。尚未采集时只显示网格与连接提示；采集成功后通过只读 `GET /api/v1/calibration/preview?sessionId=…&stepId=…` 显示服务保存的未经校正标准及后端 dB/Phase 投影，不生成典型标准曲线。两图共用真实频轴、有效位与采样身份，最多显示 2001 个真实点并保留原采样索引；浏览器只做像素映射。迟到、步骤或会话不符、校准版本不符的预览直接丢弃。DUT 的测量目录、图窗、刻度和标记仍由原工作区保存，校准图不改写它们，采集工作区期间也不能从隐藏的 DUT 图导出 CSV 或修改显示。
+
+每次标准按钮操作由服务端取得完整新扫描，前端不拼接 Single/Hold，不上传显示抽取后的迹线当标准。HTTP 202 期间不显示成功；读回步骤的 captured/runId/frameSeq 后才显示完成勾选，可逐项重测。状态栏区分创建会话、采集具体标准和应用校准；单项采集完成不表示整个校准已应用。Restart Sweep on Std. Meas. 固定 On，Continuous Cal Sweeps 固定 Off；Abort 禁用，因为本版不能中止已受理的扫描。全部必需标准采集完成后输入集合名称并 Apply，只有服务端求解成功才生成并启用集合。
+
+校准收集期间禁用普通扫描和配置/目录变更；草稿向导冻结打开时的采集版本，会话阶段防止对已替换的 sessionId 提交。已保存标准的预览读取失败可用“重新读取预览”只读重试，不重新采集。全零 dB、未定义相位及没有有效样本的标准保留空曲线并显示对应说明。Cancel 丢弃工作会话并保持 HOLD；故障后仍可在持有控制租约且无待处理操作时发 Cancel，其他校准动作继续受健康状态门禁约束。无控制权时 Close 仅关闭向导并明确保留服务端会话，不能伪装为已取消。服务端结束会话后整段向导关闭，不重新打开第一步。
+
+Use Cal 显示 User Cal Active、实际端口覆盖、不适用原因及 Cal Manager。User Cal Active 的有效 On 状态同时要求 enabled 和 compatible；请求 On 但配置不兼容时显示 Off 和未生效原因，可清除启用请求。Cal Manager 的 Use Set 只选择集合并保留启停意图，Import 只加入服务端内存池，不暗中启用。选择兼容集合后通过 User Cal Active 启用；删除当前集会停用。集合摘要展示自身校准频率范围、点数、IFBW 与 Isolation 假设，不拿当前扫描设置替代旧集合属性。Export/Import 使用 VnaPro schema 1 JSON，重启后可导入恢复；不兼容 SNA/ZNB 专有 `.cal` 文件。
+
+按实际帧迹线判断 Cal / Cal Off：全局 User Cal On 不表示所有端口都校正，例如 P2/P4 集不覆盖 S21。RAW 不应用误差校准。浏览器只显示后端的复数结果、格式投影和标记；SCPI SDATA 使用同一校正路径，RDATA 可读取未经校正结果。模拟器没有物理换接标准的模型，noise 变化导致的可解集合也只验证流程，不能作为实机精度依据。
+
 ## 操作与显示
 
 全部图窗排列尺寸来自 C++ 的 `display.gridColumns/gridRows`，前端不自行计算列数；整组矩阵在同屏显示，最大化后返回恢复保存的矩阵。窄窗整项隐藏通道底部中间的点数 / IFBW，保留起止频率。
@@ -147,7 +164,7 @@ Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设
 
 图窗右上角 `▼ 图号` 菜单提供 All Diagrams、Maximized、Overlay All、Split All、Add Trace、Add Trace + Diagram、Delete Diagram 和 Add Marker。All Diagrams 显示所有后端图窗，Maximized 只放大当前图窗且保留完整迹线归属。Split All 为每条迹线创建独立图窗，不限为四个；所有图窗在同一工作区内按后端行列数排列，不出现图窗滚动条。小图窗按像素间距减少刻度文字，保留参考刻度及原有十格网格；最大化后恢复完整刻度文字。Overlay All 允许矩形与圆图共窗，可见格式所需背景同时显示，轴刻度仍由图窗主迹线决定，每条迹线按自己的格式投影。矩形背景只画一次，圆图按格式与最终半径去重；先画全部背景，再画迹线，避免背景覆盖曲线。此去重规则是项目像素合同，手册第 796 页原图确认矩形与 Smith 背景并存。无帧时仍从后端呈现快照显示背景；隐藏某格式的最后一条迹线时移除该格式背景，无可见迹线时保留主坐标背景。切换 Format 不创建、删除或移动图窗。工具栏最大化按钮切换 All Diagrams/Maximized；菜单支持方向键、Home/End、Enter、Esc 和外部点击。活动曲线最终绘制、活动标记在更高像素层显示，标题和目录顺序不改变。配色按每个图窗重新开始并循环使用颜色，颜色数量不限制迹线数量；这是本项目选定配色，ZNB 手册允许用户配置颜色和字体。
 
-初始对数刻度按手册示例采用 −90…10 dB、10 dB/div、Ref 0 dB 在第 9 格。Autoscale 才放大实际数据的细小变化；极小变化采用 `Δ` 刻度，迹线条和刻度提示保留真实 Ref。Scale 的参考位置从底部 0 到顶部 10；释放 Marker 拖动和方向键请求后端使用完整原始帧选择离散频点，并携带目标 markerId；普通图窗单击不发送位置命令。在 Marker 中输入频率则遵循该成员的后端 Discrete 模式。聚焦图区后，←/→ 移动一点，Shift 移动十点，Home/End 到两端。Format 菜单包含十三种原机格式：dB Mag、Phase、Smith、Polar、SWR、Unwr Phase、Lin Mag、Log Mag、Real、Imag、Inv Smith、Delay、Delay Derivation；旧 Real/Imag 仅保留协议兼容。Log Mag 刻度使用正幅值 min/max，每格跨度为 decade，Ref 与刻度标签仍为正幅值；非正幅值保留读数，但不绘制不存在的对数坐标。Delay 的单位为 s，Delay Derivation 为 s²；RAW dB 参考 1 a.u.，S 参数为 `20 log₁₀ |S|`，线性幅度和实虚部使用无量纲单位 `1`，相位使用度数。RAW 迹线条保留 RAW 标签；S 参数的“未校准”状态在全局状态、测量提示及可访问文本中可见，避免重复占满迹线标题。尚未应用误差校准，不标成 dBm。
+初始对数刻度按手册示例采用 −90…10 dB、10 dB/div、Ref 0 dB 在第 9 格。Autoscale 才放大实际数据的细小变化；极小变化采用 `Δ` 刻度，迹线条和刻度提示保留真实 Ref。Scale 的参考位置从底部 0 到顶部 10；释放 Marker 拖动和方向键请求后端使用完整原始帧选择离散频点，并携带目标 markerId；普通图窗单击不发送位置命令。在 Marker 中输入频率则遵循该成员的后端 Discrete 模式。聚焦图区后，←/→ 移动一点，Shift 移动十点，Home/End 到两端。Format 菜单包含十三种原机格式：dB Mag、Phase、Smith、Polar、SWR、Unwr Phase、Lin Mag、Log Mag、Real、Imag、Inv Smith、Delay、Delay Derivation；旧 Real/Imag 仅保留协议兼容。Log Mag 刻度使用正幅值 min/max，每格跨度为 decade，Ref 与刻度标签仍为正幅值；非正幅值保留读数，但不绘制不存在的对数坐标。Delay 的单位为 s，Delay Derivation 为 s²；RAW dB 参考 1 a.u.，S 参数为 `20 log₁₀ |S|`，线性幅度和实虚部使用无量纲单位 `1`，相位使用度数。RAW 迹线条保留 RAW 标签；S 参数按后端结果显示 Cal / Cal Off，完整状态在测量提示及可访问文本中保留。无量纲 S 参数校准不改变其单位，不标成 dBm。
 
 复数点的 `valid` 表示后端采样或比值计算有效，与当前格式能否给出有限显示值不同。有效的 `0+0i` 在线性幅度下为 0，dB 为 −∞，相位未定义；相位曲线留空，标记显示 `—`，CSV 保留实虚部 0 和 `valid=true`、显示值留空。这些格式结果及状态由 C++ 后端投影返回，浏览器不重复计算。
 
@@ -159,7 +176,7 @@ Polar 的默认标记读数为幅值 `|z|` 与相位（度），曲线位置仍�
 
 曲线点击只做屏幕几何拾取，读取与绘图共用的后端投影，不计算测量值或保存选中状态。项目采用 6 CSS px 容差，先选择最近线段，同距时活动曲线及后绘制曲线优先；隐藏曲线、无效断点和裁剪外区域不参与。该点击曲线交互有 Keysight 官方依据，像素算法属于项目规则，不能称为 ZNB 原机命中算法，详见[点击交互核对](../docs/research/ZNB8图窗点击交互核对.md)。
 
-Smith 图的普通曲线点击选择迹线，背景点击不改 Marker。已有 Marker 专用拖动按屏幕距离命中渲染点，再通过 `sampleIndexes` 发送其原始索引和 markerId；实际标记计算由后端执行。方向键发送原始点 step，Home/End 发送完整帧两端索引，抽取不改变移动单位。各标记的独立读数可落在展示数组以外或两个原始频点之间。Γ 与归一化阻抗均读取后端值，不假定物理参考阻抗，也不声称校准。
+Smith 图的普通曲线点击选择迹线，背景点击不改 Marker。已有 Marker 专用拖动按屏幕距离命中渲染点，再通过 `sampleIndexes` 发送其原始索引和 markerId；实际标记计算由后端执行。方向键发送原始点 step，Home/End 发送完整帧两端索引，抽取不改变移动单位。各标记的独立读数可落在展示数组以外或两个原始频点之间。Γ 与归一化阻抗均读取后端值，不假定物理参考阻抗；校准状态取自对应迹线，选择 Smith 格式本身不启用校准。
 
 标记拖动期间按浏览器绘制帧同步更新三角形和对应的右上角 X/Y 读数行，多次指针事件合并为一帧一次更新，不逐事件写仪器或重画曲线；其他编号保留自己的读数。预览读取同一个已下发采样点的后端格式投影，不在前端重算 S 参数、dB、相位或阻抗。CONT 中固定本次手势的几何、读数和原始采样索引，正常采集轮询继续。松手仅提交目标编号一次后端命令，预览保留到完成读回，失败恢复后端位置；Esc、指针取消或捕获丢失、失去写权限及格式/坐标几何改变会撤销未提交的拖动。临时预览仅属于本页，正式位置仍由 C++ 保存，另一窗口、刷新及 SCPI 读取同一已提交状态。显示数组抽点时，预览取已下发点，松手后 C++ 仍在完整帧吸附到更精确的位置。
 
@@ -167,11 +184,13 @@ Smith 的 Γ 和归一化阻抗均由后端随正常帧下发，拖动期间直�
 
 所有图来自一个完整帧。无帧仍显示网格；断线、配置已变或新 run 尚未发布数据时保留旧帧并明确标记。旧帧的频轴和点数来自该帧，IFBW 显示 `—`，因为该 API 帧不携带采集带宽，不能用新配置冒充旧数据的带宽。
 
-Web 单条最多返回 2001 个均匀选取的真实点，总迹线采样预算为 8004；请求 N 条时共同绘图点数不超过 `min(2001, floor(8004 / N))`，保留端点并显示原始/展示点数。曲线和 CSV 使用这些真实展示点及其原始索引；所有标记使用后端完整帧结果，不受显示抽取限制。参考波过小或无效时，后端将对应 S 参数点标为无效；图线断开、标记显示 Invalid point，前端不补造比值。SCPI 读取完整扫描数组。误差校准、Reference/Delta/Coupled 标记、RF 开关和预设尚未实现，相关入口禁用。普通多标记的交互依据见[ZNB8 官方行为核对](../docs/research/ZNB8迹线与标记行为核对.md)，不宣称完整标记能力 1:1。
+Web 单条最多返回 2001 个均匀选取的真实点，总迹线采样预算为 8004；请求 N 条时共同绘图点数不超过 `min(2001, floor(8004 / N))`，保留端点并显示原始/展示点数。曲线和 CSV 使用这些真实展示点及其原始索引；所有标记使用后端完整帧结果，不受显示抽取限制。CSV 保存 calibrationRevision，逐行区分 raw、uncalibrated、calibrated。参考波过小或无效时，后端将对应 S 参数点标为无效；图线断开、标记显示 Invalid point，前端不补造比值。SCPI 读取完整扫描数组。Reference/Delta/Coupled 标记、RF 开关和预设尚未实现，相关入口禁用。普通多标记的交互依据见[ZNB8 官方行为核对](../docs/research/ZNB8迹线与标记行为核对.md)，不宣称完整标记能力 1:1。
 
 CSV 使用 schema 4，记录采集、目录、显示版本、抽取信息及后端 Re/Im、格式投影。追加 `source_index,display_state,secondary_state`；移除前端计算的逐点归一化阻抗列。`display_value` 与 `display_imaginary` 直接使用后端 primary/secondary 投影，Smith 对应 Γ 实虚部；负无穷写为 `-Infinity`，未定义留空并保留状态。原始有效位与格式状态分离。读取旧格式的程序必须检查 schema/表头。
 
 ## 验证与界面依据
+
+2026-10-14 校准第二轮验收通过前端 **284 项**及 Vue/TypeScript 检查。设置弹框和采集工作区逐页对照 [ZNB User Manual v74，第 580、582、585 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=580) 的原始嵌入图，核对类型矩阵、端口列、双图与标准 dock 的区域组织。真实模拟服务验收未测空图、Open/Through 保存身份与正确 S 参数、取消后的 DUT 工作区恢复及控制权释放。窄屏采集工作区沿用整体仪器画布缩放，保留所有区域，但不据此声称适合移动触控；前两步弹框按屏宽适配。校准件物理模型、其他方法、可配置标准迹线菜单及独立 Cal Manager 原机表格仍有能力或布局差异，不宣称整套 ZNB 1:1。
 
 `npm test` 覆盖严格解码、uint64 身份、202 等待与权威读回、控制租约、旧响应及不确定写入竞争；共享工作区的两个观察器与刷新、所有动作不乐观改状态、后端 displayRevision 竞争、格式投影及完整帧标记读数、原始 sampleIndexes 与 CSV schema 4 均有回归。渲染测试覆盖网格/标记几何、非方形 CSS 缩放与 DPR、屏幕命中及无效断线。格式数学、Autoscale 和标记插值移至 C++ VnaDisplay 的测试职责；前端用与原始复数刻意不同的投影验证没有本地重算。`npm run build` 负责 Vue/TypeScript 类型检查和生产构建。HTTP/SCPI 共享状态与真实浏览器另由集成测试验收。
 
