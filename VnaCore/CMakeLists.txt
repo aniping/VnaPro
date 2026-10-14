@@ -43,6 +43,16 @@ if(BUILD_TESTING)
         target_link_options(vna_board_hardware_probe PRIVATE
             "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/hardware_board/probe_exports.map")
     endif()
+    add_executable(vna_core_hardware_board_tests
+        tests/hardware_board/hardware_board_test.cpp tests/hardware_board/test_environment.cpp
+        tests/hardware_board/test_support.cpp tests/hardware_board/profile_test.cpp
+        tests/hardware_board/blocked_read_test.cpp tests/hardware_board/fault_test.cpp
+        tests/hardware_board/recovery_test.cpp)
+    target_link_libraries(vna_core_hardware_board_tests PRIVATE vna_core Threads::Threads)
+    add_dependencies(vna_core_hardware_board_tests vna_board_hardware_probe)
+    add_test(NAME core_hardware_board_lifecycle COMMAND vna_core_hardware_board_tests
+        $<TARGET_FILE:vna_board_hardware_probe> "${CMAKE_CURRENT_BINARY_DIR}/hardware-board-trace")
+    set_tests_properties(core_hardware_board_lifecycle PROPERTIES TIMEOUT 60)
     add_library(vna_core_test_support STATIC
         tests/support/controlled_device.cpp
         tests/support/fixture.cpp
