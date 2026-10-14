@@ -83,6 +83,82 @@ function calibration(): CalibrationSnapshot {
   }
 }
 
+/** 保存标准的服务合同：完整频轴、独立复数与投影，以及明确的无效/零值状态。 */
+function fullPreview(points: number, peakIndex: number): CalibrationPreview {
+  const value = preview()
+  value.calibrationRevision = '9007199254740993'
+  value.runId = '9223372036854775808'
+  value.frameSeq = '18446744073709551614'
+  value.originalPointCount = points
+  value.displayPointCount = points
+  value.sampleIndexes = Array.from({ length: points }, (_, index) => index)
+  value.frequencyHz = value.sampleIndexes.map((index) => 10e6 + index * 200e3)
+  value.valid = value.sampleIndexes.map(() => true)
+  value.real = value.sampleIndexes.map(() => 0.01)
+  value.imag = value.sampleIndexes.map(() => 0)
+  value.dbValues = value.sampleIndexes.map(() => -40)
+  value.dbStates = value.sampleIndexes.map(() => 'finite')
+  value.phaseValues = value.sampleIndexes.map(() => 0)
+  value.phaseStates = value.sampleIndexes.map(() => 'finite')
+  value.real[peakIndex] = 0.9
+  value.dbValues[peakIndex] = -0.9151498112135024
+  value.valid[17] = false
+  value.real[17] = null
+  value.imag[17] = null
+  value.dbValues[17] = null
+  value.dbStates[17] = 'undefined'
+  value.phaseValues[17] = null
+  value.phaseStates[17] = 'undefined'
+  value.real[29] = 0
+  value.dbValues[29] = null
+  value.dbStates[29] = 'negativeInfinity'
+  value.phaseValues[29] = null
+  value.phaseStates[29] = 'undefined'
+  return value
+}
+
+for (const [points, peakIndex] of [
+  [4000, 2002],
+  [10001, 5003],
+] as const) {
+  test(`保存校准标准的 ${points} 点预览保留窄峰、全部原始索引与 uint64 身份`, () => {
+    const input = fullPreview(points, peakIndex)
+    const result = decodeCalibrationPreview(input)
+    assert.equal(result.available, true)
+    if (!result.available) return
+    assert.deepEqual(result, input)
+    assert.equal(result.displayPointCount, points)
+    assert.equal(result.decimated, false)
+    assert.equal(result.sampleIndexes[peakIndex], peakIndex)
+    assert.equal(result.real[peakIndex], 0.9)
+    assert.equal(result.dbValues[peakIndex], -0.9151498112135024)
+    assert.equal(result.real[peakIndex - 1], 0.01)
+    assert.equal(result.real[peakIndex + 1], 0.01)
+    assert.equal(result.sampleIndexes[points - 1], points - 1)
+    assert.equal(result.valid[17], false)
+    assert.equal(result.dbStates[29], 'negativeInfinity')
+    assert.equal(result.phaseStates[29], 'undefined')
+  })
+}
+
+test('完整校准预览仍拒绝超限容量、身份溢出和无效投影状态', () => {
+  assert.throws(
+    () => decodeCalibrationPreview(fullPreview(10002, 5003)),
+    /preview.displayPointCount/,
+  )
+  assert.throws(
+    () =>
+      decodeCalibrationPreview({ ...preview(), runId: '18446744073709551616' }),
+    /preview.runId/,
+  )
+  const corrupt = fullPreview(4000, 2002)
+  corrupt.dbValues[29] = 0
+  assert.throws(
+    () => decodeCalibrationPreview(corrupt),
+    /preview.projection states/,
+  )
+})
+
 test('standard preview decodes real backend projection provenance and rejects malformed or mismatched arrays', () => {
   assert.equal(decodeCalibrationPreview(preview()).available, true)
   assert.deepEqual(

@@ -15,6 +15,7 @@ import {
   object,
   text,
 } from './decodeValues'
+import { FRAME_POINT_LIMIT } from './frameLimits'
 
 function identifier(value: unknown, field: string, empty = false): string {
   const result = text(value, field)
@@ -204,13 +205,13 @@ export function decodeCalibrationPreview(
     item.displayPointCount,
     'preview.displayPointCount',
     2,
-    2001,
+    FRAME_POINT_LIMIT,
   )
   const original = integer(
     item.originalPointCount,
     'preview.originalPointCount',
     count,
-    10001,
+    FRAME_POINT_LIMIT,
   )
   const values = (field: string) =>
     array(item[field], `preview.${field}`, count).map((entry) =>

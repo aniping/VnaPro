@@ -10,11 +10,11 @@
 #include <vector>
 
 #include "vna_display/trace_projection.h"
+#include "vna_service/instrument_profile.h"
 #include "web/display_json.h"
 
 namespace VnaWeb {
 namespace {
-constexpr std::size_t MAX_PREVIEW_POINTS = 2001U;
 constexpr std::size_t MAX_STEP_ID_BYTES = 128U;
 
 Json Project(const VnaService::CalibrationPreviewResult &preview, VnaDisplay::DisplayFormat format,
@@ -78,23 +78,22 @@ Json CalibrationPreviewJson::Encode(const VnaService::CalibrationPreviewResult &
         return result;
     }
     const auto count = preview.frequencyHz.size();
-    if (!preview.trace.available || count == 0U || count != preview.trace.points.size()) {
+    if (!preview.trace.available || count == 0U || count > VnaService::MAX_SWEEP_POINTS ||
+        count != preview.trace.points.size()) {
         throw std::logic_error("Saved calibration standard has inconsistent samples");
     }
-    const auto displayed = (std::min)(count, MAX_PREVIEW_POINTS);
     Json axis = Json::MakeArray();
     Json samples = Json::MakeArray();
     Json real = Json::MakeArray();
     Json imag = Json::MakeArray();
     Json valid = Json::MakeArray();
     std::vector<std::size_t> indexes;
-    indexes.reserve(displayed);
-    for (std::size_t point = 0U; point < displayed; ++point) {
-        const auto index = displayed == 1U ? 0U : point * (count - 1U) / (displayed - 1U);
-        indexes.push_back(index);
-        axis.array.emplace_back(preview.frequencyHz[index]);
-        samples.array.emplace_back(static_cast<unsigned>(index));
-        const auto &value = preview.trace.points[index];
+    indexes.reserve(count);
+    for (std::size_t point = 0U; point < count; ++point) {
+        indexes.push_back(point);
+        axis.array.emplace_back(preview.frequencyHz[point]);
+        samples.array.emplace_back(static_cast<unsigned>(point));
+        const auto &value = preview.trace.points[point];
         real.array.push_back(value.valid ? Json(value.real) : Json());
         imag.array.push_back(value.valid ? Json(value.imag) : Json());
         valid.array.emplace_back(value.valid);
@@ -104,8 +103,8 @@ Json CalibrationPreviewJson::Encode(const VnaService::CalibrationPreviewResult &
     result["frameSeq"] = Json(std::to_string(preview.step.frameSeq));
     result["ifBandwidthHz"] = Json(preview.ifBandwidthHz);
     result["originalPointCount"] = Json(static_cast<unsigned>(count));
-    result["displayPointCount"] = Json(static_cast<unsigned>(displayed));
-    result["decimated"] = Json(count != displayed);
+    result["displayPointCount"] = Json(static_cast<unsigned>(count));
+    result["decimated"] = Json(false);
     result["frequencyHz"] = std::move(axis);
     result["sampleIndexes"] = std::move(samples);
     result["real"] = std::move(real);

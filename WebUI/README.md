@@ -131,7 +131,7 @@ Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设
 
 Cal → Start Cal → Start (Manual)… 打开两步设置弹框：Ports and Type、Connectors and Cal Kits。蓝色端口块选择实际物理端口，类型矩阵只允许单端口 Refl OSM 和双端口 TOSM；其余类型禁用。第二步按端口列展示只读的 Ideal 50 Ω 标准模型，机械 Connector/Gender、导入 Cal Kit、Sliding Match 尚未实现，不能据这些界面位置推断能力。双端口可选 Isolation，未测隔离时明确假定串扰为零。
 
-Start 后进入正常仪器工作区的 Calibration 采集阶段：上方同时显示当前标准的 dB Mag 与 Phase，下方按端口排列 Open、Short、Match 和 Through 标准按钮。尚未采集时只显示网格与连接提示；采集成功后通过只读 `GET /api/v1/calibration/preview?sessionId=…&stepId=…` 显示服务保存的未经校正标准及后端 dB/Phase 投影，不生成典型标准曲线。两图共用真实频轴、有效位与采样身份，最多显示 2001 个真实点并保留原采样索引；浏览器只做像素映射。迟到、步骤或会话不符、校准版本不符的预览直接丢弃。DUT 的测量目录、图窗、刻度和标记仍由原工作区保存，校准图不改写它们，采集工作区期间也不能从隐藏的 DUT 图导出 CSV 或修改显示。
+Start 后进入正常仪器工作区的 Calibration 采集阶段：上方同时显示当前标准的 dB Mag 与 Phase，下方按端口排列 Open、Short、Match 和 Through 标准按钮。尚未采集时只显示网格与连接提示；采集成功后通过只读 `GET /api/v1/calibration/preview?sessionId=…&stepId=…` 显示服务保存的未经校正标准及后端 dB/Phase 投影，不生成典型标准曲线。两图共用真实频轴、有效位与采样身份，保留完整扫频的全部真实点（最多 10001 点）及连续原采样索引，不均匀抽点；浏览器只做像素映射。迟到、步骤或会话不符、校准版本不符的预览直接丢弃。DUT 的测量目录、图窗、刻度和标记仍由原工作区保存，校准图不改写它们，采集工作区期间也不能从隐藏的 DUT 图导出 CSV 或修改显示。
 
 每次标准按钮操作由服务端取得完整新扫描，前端不拼接 Single/Hold，不上传显示抽取后的迹线当标准。HTTP 202 期间不显示成功；读回步骤的 captured/runId/frameSeq 后才显示完成勾选，可逐项重测。状态栏区分创建会话、采集具体标准和应用校准；单项采集完成不表示整个校准已应用。Restart Sweep on Std. Meas. 固定 On，Continuous Cal Sweeps 固定 Off；Abort 禁用，因为本版不能中止已受理的扫描。全部必需标准采集完成后输入集合名称并 Apply，只有服务端求解成功才生成并启用集合。
 
