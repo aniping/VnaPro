@@ -14,7 +14,7 @@ namespace VnaWeb {
 class JsonParser final {
 public:
     // 借用输入文档，其生命周期必须覆盖本解析器及每次 Parse 调用。
-    explicit JsonParser(const std::string &input) noexcept;
+    explicit JsonParser(const std::string &input, unsigned maxNodes = 4096U) noexcept;
     JsonParser(std::string &&) = delete;
     JsonParser(const std::string &&) = delete;
     ~JsonParser() = default;
@@ -42,10 +42,11 @@ private:
     const std::string &text_;
     std::size_t position_ = 0U;
     unsigned nodes_ = 0U;
+    unsigned maxNodes_;
 };
 
 // 解析一个完整的 JSON 文档，并限制嵌套深度和节点数量。
-Json ParseJson(const std::string &input);
+Json ParseJson(const std::string &input, unsigned maxNodes = 4096U);
 }  // 命名空间 VnaWeb
 
 #endif

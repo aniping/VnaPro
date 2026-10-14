@@ -14,63 +14,63 @@
 
 namespace VnaWeb {
 namespace {
-constexpr std::size_t OUTPUT_LIMIT = 4U * 1024U * 1024U;
 constexpr unsigned CONTROL_CHARACTER_LIMIT = 32U;
 constexpr unsigned HEX_NIBBLE_BITS = 4U;
 constexpr unsigned HEX_NIBBLE_MASK = 15U;
 constexpr unsigned JSON_NUMBER_PRECISION = 17U;
 constexpr std::size_t CONTROL_ESCAPE_LENGTH = 6U;
 
-void AppendBounded(std::string &output, const char *text, std::size_t length)
+void AppendBounded(std::string &output, const char *text, std::size_t length, std::size_t limit)
 {
-    if (output.size() > OUTPUT_LIMIT || length > OUTPUT_LIMIT - output.size()) {
-        throw std::runtime_error("JSON output exceeds 4 MiB");
+    if (output.size() > limit || length > limit - output.size()) {
+        throw std::runtime_error("JSON output exceeds byte limit");
     }
     output.append(text, length);
 }
 
-void AppendLiteral(std::string &output, const char *text)
+void AppendLiteral(std::string &output, const char *text, std::size_t limit)
 {
-    AppendBounded(output, text, std::strlen(text));
+    AppendBounded(output, text, std::strlen(text), limit);
 }
 
-void AppendCharacter(std::string &output, char character)
+void AppendCharacter(std::string &output, char character, std::size_t limit)
 {
-    AppendBounded(output, &character, 1U);
+    AppendBounded(output, &character, 1U, limit);
 }
 
-void AppendEscapedJsonString(std::string &output, const std::string &text)
+void AppendEscapedJsonString(std::string &output, const std::string &text, std::size_t limit)
 {
     ValidateJsonString(text);
-    AppendCharacter(output, '"');
+    AppendCharacter(output, '"', limit);
     const char hex[] = "0123456789abcdef";
     for (unsigned char character : text) {
         if (character == '"' || character == '\\') {
-            AppendCharacter(output, '\\');
-            AppendCharacter(output, static_cast<char>(character));
+            AppendCharacter(output, '\\', limit);
+            AppendCharacter(output, static_cast<char>(character), limit);
         } else if (character < CONTROL_CHARACTER_LIMIT) {
             const char escaped[CONTROL_ESCAPE_LENGTH] = {
                 '\\', 'u', '0', '0', hex[character >> HEX_NIBBLE_BITS], hex[character & HEX_NIBBLE_MASK]};
-            AppendBounded(output, escaped, sizeof(escaped));
+            AppendBounded(output, escaped, sizeof(escaped), limit);
         } else {
-            AppendCharacter(output, static_cast<char>(character));
+            AppendCharacter(output, static_cast<char>(character), limit);
         }
     }
-    AppendCharacter(output, '"');
+    AppendCharacter(output, '"', limit);
 }
 }  // 匿名命名空间
 
-JsonEncoder::JsonEncoder(Json value)
+JsonEncoder::JsonEncoder(Json value, std::size_t outputLimit)
 {
-    Reset(std::move(value));
+    Reset(std::move(value), outputLimit);
 }
 
-void JsonEncoder::Reset(Json value)
+void JsonEncoder::Reset(Json value, std::size_t outputLimit)
 {
     state_ = State::FAILED;
     stack_.clear();
     output_.clear();
     value_ = std::move(value);
+    outputLimit_ = outputLimit;
     stack_.emplace_back(value_);
     state_ = State::ACTIVE;
 }
@@ -116,10 +116,10 @@ void JsonEncoder::ProcessContainer(JsonEncodingFrame &frame)
     const Json &value = frame.value.get();
     const bool array = value.type == Json::Type::ARRAY;
     if (!frame.opened) {
-        AppendCharacter(output_, array ? '[' : '{');
+        AppendCharacter(output_, array ? '[' : '{', outputLimit_);
         frame.opened = true;
     } else if ((array && frame.index == value.array.size()) || (!array && frame.member == value.object.end())) {
-        AppendCharacter(output_, array ? ']' : '}');
+        AppendCharacter(output_, array ? ']' : '}', outputLimit_);
         stack_.pop_back();
     } else {
         AppendChild(frame);
@@ -130,14 +130,14 @@ void JsonEncoder::AppendChild(JsonEncodingFrame &frame)
 {
     const Json &value = frame.value.get();
     if (frame.index != 0U) {
-        AppendCharacter(output_, ',');
+        AppendCharacter(output_, ',', outputLimit_);
     }
     const Json *child = nullptr;
     if (value.type == Json::Type::ARRAY) {
         child = &value.array[frame.index];
     } else {
-        AppendEscapedJsonString(output_, frame.member->first);
-        AppendCharacter(output_, ':');
+        AppendEscapedJsonString(output_, frame.member->first, outputLimit_);
+        AppendCharacter(output_, ':', outputLimit_);
         child = &frame.member->second;
         ++frame.member;
     }
@@ -148,22 +148,22 @@ void JsonEncoder::AppendChild(JsonEncodingFrame &frame)
 void JsonEncoder::AppendScalar(const Json &value)
 {
     if (value.type == Json::Type::NULL_VALUE) {
-        AppendLiteral(output_, "null");
+        AppendLiteral(output_, "null", outputLimit_);
     } else if (value.type == Json::Type::BOOLEAN) {
-        AppendLiteral(output_, value.boolean ? "true" : "false");
+        AppendLiteral(output_, value.boolean ? "true" : "false", outputLimit_);
     } else if (value.type == Json::Type::STRING) {
-        AppendEscapedJsonString(output_, value.string);
+        AppendEscapedJsonString(output_, value.string, outputLimit_);
     } else if (value.type != Json::Type::NUMBER) {
         throw std::runtime_error("Invalid JSON value type");
     } else if (!std::isfinite(value.number)) {
-        AppendLiteral(output_, "null");
+        AppendLiteral(output_, "null", outputLimit_);
     } else {
         std::ostringstream number;
         number.exceptions(std::ios::badbit | std::ios::failbit);
         number.imbue(std::locale::classic());
         number << std::setprecision(JSON_NUMBER_PRECISION) << value.number;
         const std::string text = number.str();
-        AppendBounded(output_, text.data(), text.size());
+        AppendBounded(output_, text.data(), text.size(), outputLimit_);
     }
 }
 
@@ -176,9 +176,9 @@ std::string JsonEncoder::Take()
     return std::move(output_);
 }
 
-std::string StringifyJson(const Json &value)
+std::string StringifyJson(const Json &value, std::size_t outputLimit)
 {
-    JsonEncoder encoder(value);
+    JsonEncoder encoder(value, outputLimit);
     while (!encoder.Advance()) {
     }
     return encoder.Take();

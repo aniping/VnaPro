@@ -15,6 +15,7 @@
 #include "network/socket_owner.h"
 #include "network/socket_poll_set.h"
 #include "vna_log/logger.h"
+#include "web/calibration_json.h"
 #include "web/http_api.h"
 #include "web/json_encoder.h"
 #include "web/static_file.h"
@@ -285,7 +286,11 @@ void WebEndpoint::Respond(HttpConnection &client, HttpResponse response)
     client.input.clear();
     client.status = response.status;
     client.contentType = "application/json; charset=utf-8";
-    client.encoder.Reset(std::move(response.json));
+    const auto outputLimit =
+        client.request.method == "GET" && client.request.path.compare(0U, 25U, "/api/v1/calibration/sets/") == 0
+            ? CALIBRATION_JSON_BYTE_LIMIT
+            : JsonEncoder::DEFAULT_OUTPUT_LIMIT;
+    client.encoder.Reset(std::move(response.json), outputLimit);
     client.encoderActive = true;
     client.file.Close();
     client.fileActive = false;
@@ -328,6 +333,9 @@ bool WebEndpoint::ParseHeaders(HttpConnection &client)
 
 bool WebEndpoint::ParseContentLength(HttpConnection &client)
 {
+    const std::size_t limit = client.request.method == "POST" && client.request.path == "/api/v1/calibration"
+                                  ? CALIBRATION_JSON_BYTE_LIMIT
+                                  : BODY_LIMIT;
     const auto length = client.request.headers.find("content-length");
     if (length != client.request.headers.end()) {
         if (length->second.empty()) {
@@ -337,13 +345,13 @@ bool WebEndpoint::ParseContentLength(HttpConnection &client)
             if (digit < '0' || digit > '9') {
                 throw std::runtime_error("Invalid Content-Length");
             }
-            if (client.bodyLength > (BODY_LIMIT / DECIMAL_RADIX)) {
-                Error(client, 413, "Request body exceeds 16 KiB");
+            if (client.bodyLength > (limit / DECIMAL_RADIX)) {
+                Error(client, 413, "Request body exceeds this route's size limit");
                 return false;
             }
             client.bodyLength = (client.bodyLength * DECIMAL_RADIX) + static_cast<unsigned>(digit - '0');
-            if (client.bodyLength > BODY_LIMIT) {
-                Error(client, 413, "Request body exceeds 16 KiB");
+            if (client.bodyLength > limit) {
+                Error(client, 413, "Request body exceeds this route's size limit");
                 return false;
             }
         }

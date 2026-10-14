@@ -47,7 +47,7 @@ void AppendUtf8(std::string &output, unsigned scalar)
 }
 }  // 匿名命名空间
 
-JsonParser::JsonParser(const std::string &input) noexcept : text_(input)
+JsonParser::JsonParser(const std::string &input, unsigned maxNodes) noexcept : text_(input), maxNodes_(maxNodes)
 {
 }
 
@@ -197,10 +197,9 @@ void JsonParser::Escape(std::string &output)
 Json JsonParser::Value(unsigned depth)
 {
     constexpr unsigned maxDepth = 16U;
-    constexpr unsigned maxNodes = 4096U;
     Space();
     ++nodes_;
-    if (depth > maxDepth || nodes_ > maxNodes || position_ == text_.size()) {
+    if (depth > maxDepth || nodes_ > maxNodes_ || position_ == text_.size()) {
         throw std::runtime_error("JSON structure limit or missing value");
     }
     switch (text_[position_]) {
@@ -309,9 +308,9 @@ Json JsonParser::Number()
     return Json(parsed);
 }
 
-Json ParseJson(const std::string &input)
+Json ParseJson(const std::string &input, unsigned maxNodes)
 {
-    JsonParser parser(input);
+    JsonParser parser(input, maxNodes);
     return parser.Parse();
 }
 }  // 命名空间 VnaWeb
