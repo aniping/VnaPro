@@ -617,7 +617,10 @@ onMounted(() => {
   titleObserver = new ResizeObserver(measureTitles)
   if (traceList.value) titleObserver.observe(traceList.value)
   void nextTick(measureTitles)
-  void document.fonts?.ready.then(measureTitles)
+  void document.fonts?.ready.then(() => {
+    measureTitles()
+    schedulePaint()
+  })
   observer = new ResizeObserver((entries) => {
     const entry = entries[0]
     if (!entry) return

@@ -78,6 +78,20 @@ test('正常大图保持十一项 Y 标签及后端刻度范围', async () => {
   }
 })
 
+test('小图窗的数字刻度跳项显示，保持十格范围、每格设置及参考值', async () => {
+  const view = await pane(150, 230)
+  try {
+    const before = JSON.stringify(view.props)
+    const labels = view.labels()
+    assert.ok(labels.length <= 7, '150px 小窗不能挤入接近十一项数字刻度')
+    assert.ok(labels.some((node) => hasClass(node, 'reference-tick')))
+    assert.equal(JSON.stringify(view.props), before)
+    assert.deepEqual(view.emitted, [])
+  } finally {
+    view.dispose()
+  }
+})
+
 test('短图窗仅减少标签密度，保留参考值而且不把它误认为顶部标签', async () => {
   const height = 110
   const view = await pane(height)
