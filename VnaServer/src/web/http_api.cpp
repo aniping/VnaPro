@@ -194,14 +194,18 @@ std::vector<VnaService::Measurement> FrameMeasurements(
 void AppendFrameAxis(
     Json &value, const VnaCore::MeasurementFrame &frame, const std::vector<std::size_t> &indexes, bool packed)
 {
-    Json axis = Json::MakeArray();
-    Json sampleIndexes = Json::MakeArray();
-    for (const auto index : indexes) {
-        axis.array.emplace_back(frame.plan.frequencyHz[index]);
-        sampleIndexes.array.emplace_back(static_cast<unsigned>(index));
-    }
-    value["frequencyHz"] = packed ? FrameArrayJson::Pack(std::move(axis)) : std::move(axis);
-    value["sampleIndexes"] = packed ? FrameArrayJson::Pack(std::move(sampleIndexes)) : std::move(sampleIndexes);
+    value["frequencyHz"] = FrameArrayJson::Numbers(
+        indexes.size(),
+        [&frame, &indexes](std::size_t position) {
+            return FrameArrayNumber{frame.plan.frequencyHz[indexes[position]], true};
+        },
+        packed);
+    value["sampleIndexes"] = FrameArrayJson::Numbers(
+        indexes.size(),
+        [&indexes](std::size_t position) {
+            return FrameArrayNumber{static_cast<double>(indexes[position]), true};
+        },
+        packed);
 }
 }  // 匿名命名空间
 
@@ -370,9 +374,8 @@ HttpResponse HttpApi::Frame(const std::string &query) const
                     return item.name == measurement.name;
                 });
             if (presentation != snapshot.display.traces.end()) {
-                auto trace = TraceJson(frame, measurement, *presentation, indexes, results[offset]);
-                // 紧凑响应逐条释放临时数值树，不能先积累所有普通数组再压缩。
-                traces.array.push_back(options.packed ? FrameArrayJson::Pack(std::move(trace)) : std::move(trace));
+                traces.array.push_back(
+                    TraceJson(frame, measurement, *presentation, indexes, results[offset], options.packed));
             }
         }
     }
@@ -652,28 +655,35 @@ Json HttpApi::ControlJson(const VnaService::InstrumentSnapshot &snapshot, const 
 
 Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
     const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes,
-    const VnaMeasurement::TraceResult &result)
+    const VnaMeasurement::TraceResult &result, bool packed)
 {
     Json trace = MeasurementJson(measurement);
-    Json real = Json::MakeArray();
-    Json imaginary = Json::MakeArray();
-    Json validity = Json::MakeArray();
     if (measurement.kind == VnaService::MeasurementKind::S_PARAMETER) {
         trace["calibration"] = Json(result.calibrated ? "calibrated" : "uncalibrated");
     }
-    for (auto index : indexes) {
-        const bool valid = result.available && index < result.points.size() && result.points[index].valid;
-        real.array.push_back(valid ? Json(result.points[index].real) : Json());
-        imaginary.array.push_back(valid ? Json(result.points[index].imag) : Json());
-        validity.array.emplace_back(valid);
-    }
+    const auto validAt = [&result, &indexes](std::size_t position) {
+        const auto index = indexes[position];
+        return result.available && index < result.points.size() && result.points[index].valid;
+    };
     trace["available"] = Json(result.available);
-    trace["real"] = std::move(real);
-    trace["imag"] = std::move(imaginary);
-    trace["valid"] = std::move(validity);
+    trace["real"] = FrameArrayJson::Numbers(
+        indexes.size(),
+        [&result, &indexes, &validAt](std::size_t position) {
+            const bool valid = validAt(position);
+            return FrameArrayNumber{valid ? result.points[indexes[position]].real : 0.0, valid};
+        },
+        packed);
+    trace["imag"] = FrameArrayJson::Numbers(
+        indexes.size(),
+        [&result, &indexes, &validAt](std::size_t position) {
+            const bool valid = validAt(position);
+            return FrameArrayNumber{valid ? result.points[indexes[position]].imag : 0.0, valid};
+        },
+        packed);
+    trace["valid"] = FrameArrayJson::Booleans(indexes.size(), validAt, packed);
     const auto projection = VnaDisplay::TraceProjection::Calculate(
         presentation, result, frame.plan.frequencyHz, measurement, frame.configRevision);
-    trace["projection"] = DisplayJson::Projection(projection, presentation.format, indexes);
+    trace["projection"] = DisplayJson::Projection(projection, presentation.format, indexes, packed);
     return trace;
 }
 

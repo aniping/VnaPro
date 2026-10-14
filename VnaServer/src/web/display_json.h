@@ -23,7 +23,7 @@ public:
     static Json State(const VnaDisplay::DisplayState &state, const std::vector<VnaMeasurement::Measurement> &catalog);
     // 裁剪完整投影，保留独立 Marker 读数；特殊数值输出 null 和显式状态。
     static Json Projection(const VnaDisplay::ProjectedTrace &trace, VnaDisplay::DisplayFormat format,
-        const std::vector<std::size_t> &indexes);
+        const std::vector<std::size_t> &indexes, bool packed = false);
     // 严格校验 action 对应字段；领域范围、联动及计算由显示域执行。
     static VnaDisplay::DisplayChange Change(const Json &body);
     // 完整解析十进制 uint64，拒绝空值、非法字符和溢出。
@@ -38,9 +38,9 @@ private:
     static Json Marker(const VnaDisplay::MarkerReadout &marker);
     static Json MarkerConfiguration(const VnaDisplay::MarkerSettings &marker);
     static void PointImpedance(Json &projection, const VnaDisplay::ProjectedTrace &trace,
-        VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes);
+        VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes, bool packed);
     static void PointMarkerValues(Json &projection, const VnaDisplay::ProjectedTrace &trace,
-        VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes);
+        VnaDisplay::DisplayFormat format, const std::vector<std::size_t> &indexes, bool packed);
 };
 
 }  // 命名空间 VnaWeb

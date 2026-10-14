@@ -82,7 +82,7 @@ private:
     HttpResponse Frame(const std::string &query) const;
     static Json TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
         const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes,
-        const VnaMeasurement::TraceResult &result);
+        const VnaMeasurement::TraceResult &result, bool packed);
     HttpWriteResult StartDisplayWrite(const Json &body, const std::string &id);
     HttpWriteResult StartConfigurationWrite(const Json &body, const std::string &id);
     HttpWriteResult StartDefinitionWrite(const Json &body, const std::string &id);

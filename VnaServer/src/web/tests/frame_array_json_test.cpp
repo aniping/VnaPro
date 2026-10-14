@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "web/display_json.h"
 #include "web/json_encoder.h"
 
 namespace {
@@ -275,6 +276,36 @@ void DirectReaders()
     }
     Require(rejected, "字节长度乘法必须在分配或 reader 调用前校验溢出");
 }
+
+void DirectProjection()
+{
+    VnaDisplay::ProjectedTrace trace;
+    trace.available = true;
+    trace.points = {{-0.0, 0.5, true, VnaDisplay::DisplayValueState::FINITE},
+        {-std::numeric_limits<double>::infinity(), 0.0, false, VnaDisplay::DisplayValueState::NEGATIVE_INFINITY},
+        {std::numeric_limits<double>::quiet_NaN(), 1.0, true, VnaDisplay::DisplayValueState::FINITE},
+        {1.0, 0.0, false, static_cast<VnaDisplay::DisplayValueState>(999)}};
+    trace.markerPoints = trace.points;
+    trace.impedancePoints = {{-0.0, 0.5, VnaDisplay::ImpedanceState::FINITE},
+        {0.0, 0.0, VnaDisplay::ImpedanceState::OPEN}, {0.0, 0.0, static_cast<VnaDisplay::ImpedanceState>(999)}};
+    trace.admittancePoints = {{-0.0, 0.5, VnaDisplay::AdmittanceState::FINITE},
+        {0.0, 0.0, VnaDisplay::AdmittanceState::SHORT}, {0.0, 0.0, static_cast<VnaDisplay::AdmittanceState>(999)}};
+    trace.marker.available = true;
+    trace.marker.valid = true;
+    trace.marker.real = -0.0;
+    trace.markers.push_back(trace.marker);
+    const std::vector<std::size_t> indexes = {0U, 1U, 2U, 3U, 4U};
+    for (const auto format : {VnaDisplay::DisplayFormat::DB, VnaDisplay::DisplayFormat::POLAR,
+             VnaDisplay::DisplayFormat::SMITH, VnaDisplay::DisplayFormat::INV_SMITH}) {
+        for (const bool available : {true, false}) {
+            trace.available = available;
+            const auto ordinary = VnaWeb::DisplayJson::Projection(trace, format, indexes);
+            const auto packed = VnaWeb::DisplayJson::Projection(trace, format, indexes, true);
+            Require(VnaWeb::StringifyJson(packed) == VnaWeb::StringifyJson(VnaWeb::FrameArrayJson::Pack(ordinary)),
+                "直接投影编码需保持特殊数值、未知状态、缺失索引及 Marker 的完整传输等价");
+        }
+    }
+}
 }  // 匿名命名空间
 
 int main()
@@ -284,6 +315,7 @@ int main()
         BooleanAndDictionary();
         TreeAndMarkerCollections();
         DirectReaders();
+        DirectProjection();
         std::cout << "无损帧数组编码测试通过\n";
         return 0;
     } catch (const std::exception &error) {
