@@ -44,6 +44,7 @@ interface ApiOptions {
   fetch?: typeof fetch
   storage?: SessionStorage | null
   timeoutMs?: number
+  diagnostics?: boolean
 }
 
 const SESSION_KEY = 'vnapro.web.session'
@@ -53,6 +54,17 @@ function browserStorage(): SessionStorage | null {
     return typeof sessionStorage === 'undefined' ? null : sessionStorage
   } catch {
     return null
+  }
+}
+
+function browserFrameDiagnostics(): boolean {
+  try {
+    return (
+      typeof location !== 'undefined' &&
+      new URLSearchParams(location.search).get('debug') === 'frames'
+    )
+  } catch {
+    return false
   }
 }
 
@@ -143,6 +155,7 @@ export class InstrumentApi implements InstrumentGateway {
   private readonly fetcher: typeof fetch
   private readonly storage: SessionStorage | null
   private readonly timeoutMs: number
+  private readonly diagnostics: boolean
   private readonly controllers = new Set<AbortController>()
   private token = ''
 
@@ -152,6 +165,7 @@ export class InstrumentApi implements InstrumentGateway {
     this.storage =
       options.storage === undefined ? browserStorage() : options.storage
     this.timeoutMs = options.timeoutMs ?? 5000
+    this.diagnostics = options.diagnostics ?? browserFrameDiagnostics()
     try {
       this.token = this.storage?.getItem(SESSION_KEY) || ''
     } catch {
@@ -186,6 +200,12 @@ export class InstrumentApi implements InstrumentGateway {
     ownerSessionId = this.token,
     expectedStatus?: number,
   ): Promise<T> {
+    const diagnostic = this.diagnostics && path.split('?')[0] === '/frame'
+    const started = diagnostic ? performance.now() : 0
+    let receiveMs = 0
+    let jsonMs = 0
+    let payloadBytes = 0
+    let stage = 'receive'
     const controller = new AbortController()
     this.controllers.add(controller)
     let timedOut = false
@@ -206,8 +226,21 @@ export class InstrumentApi implements InstrumentGateway {
       })
       let value: unknown
       try {
-        value = await response.json()
-      } catch {
+        if (diagnostic) {
+          const payload = await response.text()
+          receiveMs = performance.now() - started
+          payloadBytes = new TextEncoder().encode(payload).byteLength
+          stage = 'json'
+          const parsingStarted = performance.now()
+          value = JSON.parse(payload)
+          jsonMs = performance.now() - parsingStarted
+        } else {
+          value = await response.json()
+        }
+      } catch (error) {
+        // 正文流读取失败交给传输层；只有 JSON 语法错误属于损坏协议。
+        if (controller.signal.aborted || !(error instanceof SyntaxError))
+          throw error
         throw new ApiError(
           `服务返回无效 JSON (${response.status})`,
           response.ok ? 0 : response.status,
@@ -215,6 +248,7 @@ export class InstrumentApi implements InstrumentGateway {
           'protocol',
         )
       }
+      stage = 'http'
       if (!response.ok) {
         const item =
           value !== null && typeof value === 'object'
@@ -242,7 +276,31 @@ export class InstrumentApi implements InstrumentGateway {
         )
       }
       try {
-        return decode(value)
+        stage = 'decode'
+        const decodingStarted = diagnostic ? performance.now() : 0
+        const result = decode(value)
+        if (diagnostic) {
+          const frame = result as FrameResponse
+          // 仅打印版本与传输指标，禁止把 IQ、标记读数或控制令牌写入控制台。
+          console.debug('[VnaPro][frame]', {
+            available: frame.available,
+            ...(frame.available
+              ? {
+                  frameSeq: frame.frameSeq,
+                  runId: frame.runId,
+                  displayRevision: frame.displayRevision,
+                  traceCount: frame.traces.length,
+                  originalPointCount: frame.originalPointCount,
+                  displayPointCount: frame.displayPointCount,
+                }
+              : {}),
+            payloadBytes,
+            receiveMs,
+            jsonMs,
+            decodeMs: performance.now() - decodingStarted,
+          })
+        }
+        return result
       } catch (error) {
         throw new ApiError(
           error instanceof Error ? error.message : '服务数据格式无效',
@@ -252,6 +310,19 @@ export class InstrumentApi implements InstrumentGateway {
         )
       }
     } catch (error) {
+      if (diagnostic) {
+        console.debug('[VnaPro][frame][failed]', {
+          stage,
+          payloadBytes,
+          elapsedMs: performance.now() - started,
+          kind:
+            error instanceof ApiError
+              ? error.kind
+              : controller.signal.aborted && !timedOut
+                ? 'cancelled'
+                : 'transport',
+        })
+      }
       if (error instanceof ApiError) throw error
       if (controller.signal.aborted && !timedOut)
         throw new ApiError('界面请求已停止', 0, '', 'cancelled')
@@ -290,7 +361,8 @@ export class InstrumentApi implements InstrumentGateway {
         : names.length === 0
           ? '?display=none'
           : `?${names.map((name) => `trace=${encodeURIComponent(name)}`).join('&')}`
-    return this.request(`/frame${query}`, decodeFrame)
+    const encoding = query ? '&encoding=packed' : '?encoding=packed'
+    return this.request(`/frame${query}${encoding}`, decodeFrame)
   }
 
   async claim(): Promise<ClaimResponse> {

@@ -1,3 +1,5 @@
+import { decodePackedArray } from './packedArrays'
+
 type ObjectValue = Record<string, unknown>
 
 export function invalid(field: string): never {
@@ -70,6 +72,7 @@ export function array(
   field: string,
   maximum: number,
 ): unknown[] {
-  if (!Array.isArray(value) || value.length > maximum) invalid(field)
+  if (!Array.isArray(value)) return decodePackedArray(value, field, maximum)
+  if (value.length > maximum) invalid(field)
   return value
 }

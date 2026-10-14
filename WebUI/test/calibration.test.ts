@@ -140,7 +140,7 @@ test('instrument treats an old calibration projection as stale even with matchin
   const frame = acquiredFrame()
   frame.calibrationRevision = '4'
   const api = new InstrumentApi({ storage: null, fetch: async (input) => {
-    const path = String(input)
+    const path = String(input).split('?')[0]!
     if (path.endsWith('/control/claim')) return new Response(JSON.stringify({ sessionId: 'token', hasControl: true, leaseSeconds: 30 }))
     return new Response(JSON.stringify(legacyProtocolFields(path.endsWith('/frame') ? frame : status)))
   } })
@@ -168,7 +168,7 @@ test('faulted instruments can cancel an owned calibration session without admitt
   const commands: CalibrationCommand[] = []
   let completed = false
   const api = new InstrumentApi({ storage: null, fetch: async (input, init) => {
-    const path = String(input)
+    const path = String(input).split('?')[0]!
     if (path.endsWith('/control/claim')) return new Response(JSON.stringify({ sessionId: 'token', hasControl: true, leaseSeconds: 30 }))
     if (path.endsWith('/frame')) return new Response(JSON.stringify({ available: false, current: false, reason: 'Faulted' }))
     if (path.endsWith('/calibration')) {
@@ -253,7 +253,7 @@ test('begin and a partial standard capture report their action rather than compl
   status.calibration = calibration(false)
   let operationId = 0
   const api = new InstrumentApi({ storage: null, fetch: async (input, init) => {
-    const path = String(input)
+    const path = String(input).split('?')[0]!
     if (path.endsWith('/control/claim')) return new Response(JSON.stringify({ sessionId: 'token', hasControl: true, leaseSeconds: 30 }))
     if (path.endsWith('/calibration')) {
       const command = JSON.parse(String(init?.body)) as CalibrationCommand

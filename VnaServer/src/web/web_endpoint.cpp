@@ -506,6 +506,8 @@ void WebEndpoint::EncodeOutput(HttpConnection &client)
         client.fileActive = false;
         client.fileOutput.clear();
         const std::string body = "{\"error\":{\"code\":\"output_failed\",\"message\":\"Response encoding failed\"}}";
+        // 接下来发送的是错误响应，不能把它记作原帧发送成功。
+        client.frameDiagnostics = false;
         client.output = ResponseHeader(500, "application/json", body.size()) + body;
         client.responseBytes = body.size();
         client.encodedAt = Clock::now();
