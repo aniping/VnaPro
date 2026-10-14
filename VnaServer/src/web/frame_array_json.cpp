@@ -38,20 +38,23 @@ std::string Base64(const std::vector<unsigned char> &bytes)
     if (groups > result.max_size() / BASE64_BLOCK_CHARACTERS) {
         throw std::length_error("Frame array Base64 exceeds string capacity");
     }
-    result.reserve(groups * BASE64_BLOCK_CHARACTERS);
-    for (std::size_t first = 0U; first < bytes.size(); first += BASE64_BLOCK_BYTES) {
-        const std::size_t count = std::min<std::size_t>(BASE64_BLOCK_BYTES, bytes.size() - first);
-        unsigned bits = static_cast<unsigned>(bytes[first]) << (BYTE_BITS * 2U);
-        if (count > 1U) {
-            bits |= static_cast<unsigned>(bytes[first + 1U]) << BYTE_BITS;
+    result.resize(groups * BASE64_BLOCK_CHARACTERS);
+    char *output = result.empty() ? nullptr : &result[0U];
+    const auto byteCount = bytes.size();
+    const auto *input = bytes.data();
+    for (std::size_t first = 0U; first < byteCount; first += BASE64_BLOCK_BYTES) {
+        const std::size_t remaining = byteCount - first;
+        unsigned bits = static_cast<unsigned>(*input++) << (BYTE_BITS * 2U);
+        if (remaining > 1U) {
+            bits |= static_cast<unsigned>(*input++) << BYTE_BITS;
         }
-        if (count > 2U) {
-            bits |= bytes[first + 2U];
+        if (remaining > 2U) {
+            bits |= *input++;
         }
-        result.push_back(alphabet[(bits >> (BASE64_BITS * 3U)) & BASE64_MASK]);
-        result.push_back(alphabet[(bits >> (BASE64_BITS * 2U)) & BASE64_MASK]);
-        result.push_back(count > 1U ? alphabet[(bits >> BASE64_BITS) & BASE64_MASK] : '=');
-        result.push_back(count > 2U ? alphabet[bits & BASE64_MASK] : '=');
+        *output++ = alphabet[(bits >> (BASE64_BITS * 3U)) & BASE64_MASK];
+        *output++ = alphabet[(bits >> (BASE64_BITS * 2U)) & BASE64_MASK];
+        *output++ = remaining > 1U ? alphabet[(bits >> BASE64_BITS) & BASE64_MASK] : '=';
+        *output++ = remaining > 2U ? alphabet[bits & BASE64_MASK] : '=';
     }
     return result;
 }
@@ -70,63 +73,123 @@ Json Envelope(const char *codec, std::size_t count, const std::vector<unsigned c
 
 Json PackNumbers(const std::vector<Json> &values)
 {
-    std::vector<unsigned char> bytes;
-    if (values.size() > bytes.max_size() / DOUBLE_BYTES) {
-        throw std::length_error("Frame numeric array exceeds byte capacity");
-    }
-    bytes.reserve(values.size() * DOUBLE_BYTES);
-    for (const auto &value : values) {
-        std::uint64_t bits = NULL_BITS;
-        if (value.type == Json::Type::NUMBER) {
-            if (!std::isfinite(value.number)) {
-                throw std::invalid_argument("Frame numeric array contains a non-finite value");
-            }
-            std::memcpy(&bits, &value.number, sizeof(bits));
-        }
-        // 显式按低位字节写出，保持负零和完整精度，不依赖主机字节序。
-        for (unsigned byte = 0U; byte < DOUBLE_BYTES; ++byte) {
-            bytes.push_back(static_cast<unsigned char>((bits >> (byte * BYTE_BITS)) & BYTE_MASK));
-        }
-    }
-    return Envelope("f64le", values.size(), bytes);
+    return FrameArrayJson::Numbers(
+        values.size(),
+        [&values](std::size_t index) {
+            const auto &value = values[index];
+            return FrameArrayNumber{value.number, value.type == Json::Type::NUMBER};
+        },
+        true);
 }
 
 Json PackBooleans(const std::vector<Json> &values)
 {
-    std::vector<unsigned char> bytes;
-    bytes.reserve(values.size());
-    for (const auto &value : values) {
-        bytes.push_back(value.boolean ? 1U : 0U);
-    }
-    return Envelope("u8", values.size(), bytes);
+    return FrameArrayJson::Booleans(
+        values.size(),
+        [&values](std::size_t index) {
+            return values[index].boolean;
+        },
+        true);
 }
 
-Json PackStrings(Json value)
+Json PackStrings(const Json &value)
 {
+    return FrameArrayJson::Strings(
+        value.array.size(),
+        [&value](std::size_t index) {
+            return value.array[index].string;
+        },
+        true);
+}
+}  // 匿名命名空间
+
+Json FrameArrayJson::Numbers(std::size_t count, const std::function<FrameArrayNumber(std::size_t)> &reader, bool packed)
+{
+    if (!packed || count == 0U) {
+        Json values = Json::MakeArray();
+        values.array.reserve(count);
+        for (std::size_t index = 0U; index < count; ++index) {
+            const auto value = reader(index);
+            values.array.push_back(value.present ? Json(value.value) : Json());
+        }
+        return values;
+    }
+    std::vector<unsigned char> bytes;
+    if (count > bytes.max_size() / DOUBLE_BYTES) {
+        throw std::length_error("Frame numeric array exceeds byte capacity");
+    }
+    bytes.resize(count * DOUBLE_BYTES);
+    auto *output = bytes.data();
+    for (std::size_t index = 0U; index < count; ++index) {
+        const auto value = reader(index);
+        std::uint64_t bits = NULL_BITS;
+        if (value.present) {
+            if (!std::isfinite(value.value)) {
+                throw std::invalid_argument("Frame numeric array contains a non-finite value");
+            }
+            std::memcpy(&bits, &value.value, sizeof(bits));
+        }
+        // 显式按低位字节写出，保持负零和完整精度，不依赖主机字节序。
+        for (unsigned byte = 0U; byte < DOUBLE_BYTES; ++byte) {
+            *output++ = static_cast<unsigned char>((bits >> (byte * BYTE_BITS)) & BYTE_MASK);
+        }
+    }
+    return Envelope("f64le", count, bytes);
+}
+
+Json FrameArrayJson::Booleans(std::size_t count, const std::function<bool(std::size_t)> &reader, bool packed)
+{
+    if (!packed || count == 0U) {
+        Json values = Json::MakeArray();
+        values.array.reserve(count);
+        for (std::size_t index = 0U; index < count; ++index) {
+            values.array.emplace_back(reader(index));
+        }
+        return values;
+    }
+    std::vector<unsigned char> bytes;
+    bytes.resize(count);
+    auto *output = bytes.data();
+    for (std::size_t index = 0U; index < count; ++index) {
+        *output++ = reader(index) ? 1U : 0U;
+    }
+    return Envelope("u8", count, bytes);
+}
+
+Json FrameArrayJson::Strings(std::size_t count, const std::function<std::string(std::size_t)> &reader, bool packed)
+{
+    if (!packed || count == 0U) {
+        Json values = Json::MakeArray();
+        values.array.reserve(count);
+        for (std::size_t index = 0U; index < count; ++index) {
+            values.array.emplace_back(reader(index));
+        }
+        return values;
+    }
     std::map<std::string, unsigned char> indexes;
     Json dictionary = Json::MakeArray();
     std::vector<unsigned char> bytes;
-    bytes.reserve(value.array.size());
-    for (const auto &item : value.array) {
-        const auto found = indexes.find(item.string);
+    bytes.reserve(count);
+    for (std::size_t position = 0U; position < count; ++position) {
+        const auto text = reader(position);
+        const auto found = indexes.find(text);
         if (found != indexes.end()) {
             bytes.push_back(found->second);
             continue;
         }
         if (dictionary.array.size() == ENUM_LIMIT) {
-            return value;
+            return Strings(count, reader, false);
         }
         const auto index = static_cast<unsigned char>(dictionary.array.size());
-        indexes.emplace(item.string, index);
-        dictionary.array.push_back(Json(item.string));
+        indexes.emplace(text, index);
+        dictionary.array.emplace_back(text);
         bytes.push_back(index);
     }
-    Json packed = Envelope("enum8", value.array.size(), bytes);
+    Json result = Envelope("enum8", count, bytes);
     // 字典保持普通字符串数组，不能再次转换成 enum8。
-    packed["dictionary"] = std::move(dictionary);
-    return packed;
+    result["dictionary"] = std::move(dictionary);
+    return result;
 }
-}  // 匿名命名空间
 
 Json FrameArrayJson::Pack(Json value)
 {

@@ -199,6 +199,82 @@ void TreeAndMarkerCollections()
     Require(VnaWeb::StringifyJson(Member(packed, "markers")) == VnaWeb::StringifyJson(markers),
         "嵌套 Marker 集合保持 JSON 兼容");
 }
+
+void DirectReaders()
+{
+    using VnaWeb::FrameArrayJson;
+    const std::vector<VnaWeb::FrameArrayNumber> numbers = {{0.0, true}, {-0.0, true}, {1.0, true}, {-1.0, true},
+        {0.5, true}, {std::numeric_limits<double>::quiet_NaN(), false}};
+    const auto readNumber = [&numbers](std::size_t index) {
+        return numbers[index];
+    };
+    const auto direct = FrameArrayJson::Numbers(numbers.size(), readNumber, true);
+    Require(Member(direct, "data").string == "AAAAAAAAAAAAAAAAAAAAgAAAAAAAAPA/AAAAAAAA8L8AAAAAAADgPwAAAAAAAPh/",
+        "直接读取必须保留独立跨语言样本的完整位模式");
+    const auto plain = FrameArrayJson::Numbers(numbers.size(), readNumber);
+    Require(plain.type == Json::Type::ARRAY && std::signbit(plain.array[1U].number) &&
+                plain.array.back().type == Json::Type::NULL_VALUE,
+        "默认普通数值数组保持负零/null");
+    Require(
+        VnaWeb::StringifyJson(FrameArrayJson::Pack(plain)) == VnaWeb::StringifyJson(direct), "直接编码与原压缩等价");
+    const auto flags = FrameArrayJson::Booleans(
+        4U,
+        [](std::size_t index) {
+            return index != 1U;
+        },
+        true);
+    Require(Member(flags, "data").string == "AQABAQ==", "直接布尔读取保留 u8 与 Base64 补齐");
+    const std::vector<std::string> states = {"finite", std::string("a\0b", 3U), "finite", "无效"};
+    const auto readState = [&states](std::size_t index) {
+        return states[index];
+    };
+    const auto strings = FrameArrayJson::Strings(states.size(), readState, true);
+    Require(
+        Member(strings, "data").string == "AAEAAg==" && Member(strings, "dictionary").array[1U].string == states[1U],
+        "状态字典不能截断内嵌 NUL，UTF-8 与首次出现顺序不变");
+    Require(VnaWeb::StringifyJson(strings) ==
+                VnaWeb::StringifyJson(FrameArrayJson::Pack(FrameArrayJson::Strings(states.size(), readState))),
+        "直接状态与普通状态的压缩等价");
+    const auto many = [](std::size_t index) {
+        return std::to_string(index);
+    };
+    CheckEnvelope(FrameArrayJson::Strings(256U, many, true), "enum8", 256U);
+    Require(VnaWeb::StringifyJson(FrameArrayJson::Strings(257U, many, true)) ==
+                VnaWeb::StringifyJson(FrameArrayJson::Strings(257U, many)),
+        "超过字典容量不能截断或溢出");
+    unsigned calls = 0U;
+    Require(FrameArrayJson::Numbers(
+                0U,
+                [&calls](std::size_t) {
+                    ++calls;
+                    return VnaWeb::FrameArrayNumber{};
+                },
+                true)
+                .array.empty(),
+        "空直接序列保持空数组");
+    Require(calls == 0U, "空数组不能调用 reader");
+    for (const double invalid : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+        bool rejected = false;
+        try {
+            FrameArrayJson::Numbers(
+                1U,
+                [invalid](std::size_t) {
+                    return VnaWeb::FrameArrayNumber{invalid, true};
+                },
+                true);
+        } catch (const std::invalid_argument &) {
+            rejected = true;
+        }
+        Require(rejected, "直接编码不能将非有限有效数伪造为合法数值");
+    }
+    bool rejected = false;
+    try {
+        FrameArrayJson::Numbers(std::numeric_limits<std::size_t>::max(), readNumber, true);
+    } catch (const std::length_error &) {
+        rejected = true;
+    }
+    Require(rejected, "字节长度乘法必须在分配或 reader 调用前校验溢出");
+}
 }  // 匿名命名空间
 
 int main()
@@ -207,6 +283,7 @@ int main()
         FloatingPointBits();
         BooleanAndDictionary();
         TreeAndMarkerCollections();
+        DirectReaders();
         std::cout << "无损帧数组编码测试通过\n";
         return 0;
     } catch (const std::exception &error) {
