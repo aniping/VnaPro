@@ -98,3 +98,22 @@ test('explicit diagram actions remain requests and never repartition local membe
   ])
   assert.deepEqual(status.value.display, before)
 })
+
+test('边缘 New Trace 用一个指定参数请求携带目标和方向，不先创建空图窗', async () => {
+  const requests: Record<string, unknown>[] = []
+  const api = new InstrumentApi({
+    storage: null,
+    fetch: async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)))
+      return new Response(JSON.stringify({ operationId: 'op-split', state: 'pending' }), { status: 202 })
+    },
+  })
+  await api.createTrace('11', '27', { diagram: 3, position: 'left', parameter: 'S44' })
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0]!.position, 'left')
+  assert.equal(requests[0]!.diagram, 3)
+  assert.equal(requests[0]!.parameter, 'S44')
+  assert.equal(requests[0]!.newDiagram, false)
+  assert.equal(requests[0]!.expectedRevision, '11')
+  assert.equal(requests[0]!.expectedDisplayRevision, '27')
+})

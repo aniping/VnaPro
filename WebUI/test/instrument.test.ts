@@ -179,6 +179,41 @@ async function microtasks() {
   await Promise.resolve()
 }
 
+test('trace moves submit the drag-start display revision even after a status refresh', async (context) => {
+  const api = new FakeGateway()
+  const calls: { command: DisplayCommand; revision: string }[] = []
+  api.display = (command, revision) => {
+    calls.push({ command, revision })
+    return api.submitter()
+  }
+  api.operationLoader = async () => ({
+    operationId: 'op-1',
+    state: 'failed',
+    result: {
+      ok: false,
+      errorCode: -221,
+      message: 'Display revision conflict',
+    },
+  })
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const original = structuredClone(model.status.value!.display)
+  api.current.display.revision = '22'
+  await model.refresh()
+  const command: DisplayCommand = {
+    action: 'traceMove',
+    traceName: 'DefaultA',
+    diagram: 1,
+    position: 'right',
+  }
+  const result = await model.display(command, original.revision)
+  assert.equal(result, null)
+  assert.match(model.notice.value?.text ?? '', /Display revision conflict/)
+  assert.deepEqual(calls, [{ command, revision: original.revision }])
+  assert.deepEqual(model.status.value!.display.diagrams, original.diagrams)
+  assert.equal(model.status.value!.display.revision, '22')
+})
+
 test('calibration workspace polls status without repeatedly fetching the hidden full DUT matrix', async (context) => {
   const api = new FakeGateway()
   const calibration: CalibrationSnapshot = {

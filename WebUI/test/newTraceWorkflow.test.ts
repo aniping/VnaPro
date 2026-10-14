@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { reactive, type VNode } from 'vue'
-import type { InstrumentStatus, TraceCreationOptions } from '../src/api/types'
+import type {
+  InstrumentStatus,
+  TraceCreationOptions,
+  TraceDestination,
+} from '../src/api/types'
 import {
   NEW_TRACE_DRAG_TYPE,
   isNewTraceDrag,
@@ -23,7 +27,10 @@ interface CreationRequest {
   displayRevision: string
 }
 
-function workflowProps(portCount = 4) {
+function workflowProps(
+  portCount = 4,
+  destination: TraceDestination = { diagram: 2 },
+) {
   const status = instrumentStatus()
   status.revision = '31'
   status.display.revision = '71'
@@ -36,7 +43,7 @@ function workflowProps(portCount = 4) {
   status.display.gridColumns = 2
   return reactive({
     status,
-    destination: { diagram: 2 },
+    destination,
     disabled: false,
     create: async (
       _options: TraceCreationOptions,
@@ -128,6 +135,53 @@ test('后端拒绝 New Trace 保留弹框和保存状态，用户关闭不产生
     assert.equal(calls, 1)
   } finally {
     view.dispose()
+  }
+})
+
+test('五区 New Trace 弹框冻结目标与方向，提交保留中心归入和四边分割合同', async () => {
+  for (const position of [
+    'center',
+    'above',
+    'below',
+    'left',
+    'right',
+  ] as const) {
+    const destination: TraceDestination = {
+      diagram: 2,
+      ...(position === 'center' ? {} : { position }),
+    }
+    const props = workflowProps(4, destination)
+    const requests: CreationRequest[] = []
+    props.create = async (options, revision, displayRevision) => {
+      requests.push({ options: { ...options }, revision, displayRevision })
+      return instrumentStatus()
+    }
+    const view = await sfcHarness(
+      'src/components/softtools/NewTraceWorkflow.vue',
+      props,
+      {},
+    )
+    try {
+      const before = JSON.stringify(props.status)
+      props.destination.diagram = 1
+      props.destination.position = 'below'
+      await dialog(view).onSelect('S43')
+      assert.deepEqual(requests, [
+        {
+          options: {
+            diagram: 2,
+            ...(position === 'center' ? {} : { position }),
+            parameter: 'S43',
+          },
+          revision: '31',
+          displayRevision: '71',
+        },
+      ])
+      assert.deepEqual(view.emitted, [['close']])
+      assert.equal(JSON.stringify(props.status), before)
+    } finally {
+      view.dispose()
+    }
   }
 })
 
@@ -329,14 +383,16 @@ test('新迹线拖放只打开明确目标图窗的参数框，Marker Info 拖�
     view.pane().onDragover(newTrace)
     assert.equal(newTrace.dataTransfer.dropEffect, 'copy')
     view.pane().onDrop(newTrace)
-    assert.deepEqual(view.emitted, [['newTrace', 2]])
+    assert.deepEqual(JSON.parse(JSON.stringify(view.emitted)), [
+      ['newTrace', { diagram: 2 }],
+    ])
     assert.equal(JSON.stringify(view.props), before)
     const markerInfo = dragEvent(MARKER_INFO_DRAG_TYPE, 'Reflect')
     view.pane().onDragover(markerInfo)
     assert.equal(markerInfo.dataTransfer.dropEffect, 'move')
     view.pane().onDrop(markerInfo)
     assert.deepEqual(JSON.parse(JSON.stringify(view.emitted)), [
-      ['newTrace', 2],
+      ['newTrace', { diagram: 2 }],
       ['relocateMarkerInfo', { name: 'Reflect', location: 'diagram' }],
     ])
     assert.equal(
