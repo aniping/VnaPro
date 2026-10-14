@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "scpi/scpi_calibration_adapter.h"
 #include "scpi/scpi_constants.h"
 #include "scpi/scpi_display_adapter.h"
 #include "scpi/scpi_parser.h"
@@ -191,6 +192,17 @@ void ScpiEngine::Dispatch(const ParsedCommand &command)
         return;
     }
     if (DispatchCommon(command) || DispatchSweep(command)) {
+        return;
+    }
+    const auto calibration = ScpiCalibrationAdapter(service_).Execute(command);
+    if (calibration.matched) {
+        if (calibration.errorCode != 0) {
+            RecordCommandError(command, calibration.errorCode, calibration.error);
+        } else if (calibration.operation.valid()) {
+            SetOperation(calibration.operation);
+        } else if (!calibration.response.empty()) {
+            AppendResponse(calibration.response);
+        }
         return;
     }
     const auto display = ScpiDisplayAdapter(service_).Execute(command);
@@ -677,11 +689,12 @@ void ScpiEngine::DispatchMeasurementData(const ParsedCommand &command)
     if (!CheckArguments(command, 1)) {
         return;
     }
-    if (Upper(command.arguments.front()) != "RDATA") {
-        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only RDATA is implemented");
+    const auto kind = Upper(command.arguments.front());
+    if (kind != "RDATA" && kind != "SDATA") {
+        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only RDATA and SDATA are implemented");
         return;
     }
-    BeginEncoding(service_.MeasurementData(), command);
+    BeginEncoding(service_.MeasurementData(kind == "SDATA"), command);
 }
 
 void ScpiEngine::Poll()

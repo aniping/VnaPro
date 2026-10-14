@@ -83,9 +83,10 @@ def unsupported_and_stale(http, client):
         client.query(f'CALC1:PAR:DEF:EXT "Unsupported","{parameter}";*OPC?')
         assert client.query("SYST:ERR?").startswith("-224,"), parameter
         assert http.status()["revision"] == previous
-    # 失败查询不产生数据响应；用下一条独立程序消息读取标准错误队列。
-    client.socket.sendall(b"CALC1:DATA? SDATA\n")
-    assert client.query("SYST:ERR?").startswith("-224,"), "SDATA must not imply correction"
+    # 没有活动校准时 SDATA 与 RDATA 一致，读取成功不伪造校准状态。
+    assert client.query("CALC1:DATA? SDATA") == client.query("CALC1:DATA? RDATA")
+    assert client.query("SYST:ERR?").startswith("0,")
+    assert not http.status()["calibration"]["enabled"]
     client.query("SENS1:SWE:POIN 3;*OPC?")
     assert not http.frame()["current"], "Old frame cannot represent the new configuration"
     client.socket.sendall(b'CALC1:PAR:SEL "Reflect";:CALC1:DATA? RDATA\n')

@@ -164,8 +164,13 @@ void TwoPortSParameterDefinitions(const std::string &driver)
     }
     Expect(fixture.service.Settings().revision == revision, "拒绝的 S 参数定义改变了配置");
     Command(engine, "CALC1:PAR:SEL 'ReverseTransmission'");
-    Expect(Command(engine, "CALC1:DATA? SDATA").empty(), "未校准测量不应返回校准数据");
-    Expect(Command(engine, "SYST:ERR?").find("-224,") == 0U, "SDATA 未记录标准错误");
+    Expect(Command(engine, "CALC1:DATA? SDATA").empty(), "首帧前 SDATA 不得生成数据");
+    Expect(Command(engine, "SYST:ERR?").find("-230,") == 0U, "SDATA 缺失数据应记录数据错误");
+    Command(engine, "TRIG:SOUR IMM;:SENS1:SWE:MODE SING;*OPC?");
+    Expect(Command(engine, "CALC1:DATA? SDATA") == Command(engine, "CALC1:DATA? RDATA"),
+        "没有活动校准时 SDATA 应保留未校准复数测量");
+    Expect(Command(engine, "SYST:ERR?").find("0,") == 0U && !fixture.service.Calibration().enabled,
+        "成功 SDATA 读取不能隐式启用校准");
 }
 
 void FourPortDefinitionsAndTwoPortLimits(const std::string &)

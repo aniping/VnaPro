@@ -1,4 +1,4 @@
-add_library(vna_scpi STATIC scpi_engine.cpp scpi_parser.cpp scpi_display_adapter.cpp scpi_query_policy.cpp)
+add_library(vna_scpi STATIC scpi_engine.cpp scpi_parser.cpp scpi_display_adapter.cpp scpi_calibration_adapter.cpp scpi_query_policy.cpp)
 target_include_directories(vna_scpi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(vna_scpi PUBLIC vna_service)
 target_compile_features(vna_scpi PUBLIC cxx_std_14)

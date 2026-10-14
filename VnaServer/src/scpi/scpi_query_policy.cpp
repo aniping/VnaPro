@@ -104,7 +104,8 @@ bool IsObserverQuery(const ParsedCommand &command) noexcept
         "SENS1:FREQ:STOP", "SENS1:SWE:POIN", "SENS1:BAND", "SENS1:BAND:RES", "SENS1:BWID", "SENS1:BWID:RES",
         "SENS1:SWE:TYPE", "TRIG:SOUR", "TRIG:SEQ:SOUR", "TRIG:SCOP", "TRIG:SEQ:SCOP", "INIT:CONT", "INIT1:CONT",
         "SENS1:SWE:MODE", "CALC1:PAR:SEL", "CALC1:PAR:CAT:EXT", "FORM", "FORM:DATA", "SENS1:X", "SENS1:X:VAL",
-        "CALC1:DATA", "CALC1:FORM"};
+        "CALC1:DATA", "CALC1:FORM", "SENS1:CORR", "SENS1:CORR:STAT", "SENS1:CORR:COLL:STAT", "SENS1:CORR:CSET:CAT",
+        "SENS1:CORR:CSET:ACT"};
     for (const auto *path : paths) {
         if (command.path == path) {
             return true;

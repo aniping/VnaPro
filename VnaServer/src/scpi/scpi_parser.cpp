@@ -111,7 +111,9 @@ std::string Keyword(std::string token)
         {"DEFINE", "DEF"}, {"EXTENDED", "EXT"}, {"SELECT", "SEL"}, {"CATALOG", "CAT"}, {"DELETE", "DEL"},
         {"FORMAT", "FORM"}, {"VALUES", "VAL"}, {"SYSTEM", "SYST"}, {"ERROR", "ERR"}, {"COUNT", "COUN"},
         {"DISPLAY", "DISP"}, {"WINDOW", "WIND"}, {"TRACE", "TRAC"}, {"SCALE", "SCAL"}, {"PDIVISION", "PDIV"},
-        {"RLEVEL", "RLEV"}, {"RPOSITION", "RPOS"}, {"MARKER", "MARK"}, {"STATE", "STAT"}, {"DISCRETE", "DISC"}};
+        {"RLEVEL", "RLEV"}, {"RPOSITION", "RPOS"}, {"MARKER", "MARK"}, {"STATE", "STAT"}, {"DISCRETE", "DISC"},
+        {"CORRECTION", "CORR"}, {"COLLECTION", "COLL"}, {"COLLECT", "COLL"}, {"METHOD", "METH"}, {"ACQUIRE", "ACQ"},
+        {"ABORT", "ABOR"}, {"ACTIVE", "ACT"}};
     const auto found = names.find(token);
     if (found != names.end()) {
         token = found->second;
