@@ -1,0 +1,14 @@
+{
+    global:
+        DrvHwInit;
+        DrvSetFreqList;
+        DrvSetPowerList;
+        DrvSetIfbwList;
+        DrvSetWorkPorts;
+        DrvDataFrameDownload;
+        DrvSetRfPowerOn;
+        DrvStartSweep;
+        DrvGetSweepData;
+    local:
+        *;
+};

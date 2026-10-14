@@ -32,6 +32,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+    add_library(vna_board_hardware_probe SHARED
+        tests/hardware_board/probe_exports.cpp tests/hardware_board/probe_state.cpp)
+    target_include_directories(vna_board_hardware_probe PRIVATE tests/hardware_board)
+    target_compile_features(vna_board_hardware_probe PRIVATE cxx_std_14)
+    target_link_libraries(vna_board_hardware_probe PRIVATE Threads::Threads)
+    set_target_properties(vna_board_hardware_probe PROPERTIES
+        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+    if(UNIX AND NOT APPLE)
+        target_link_options(vna_board_hardware_probe PRIVATE
+            "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/hardware_board/probe_exports.map")
+    endif()
     add_library(vna_core_test_support STATIC
         tests/support/controlled_device.cpp
         tests/support/fixture.cpp
