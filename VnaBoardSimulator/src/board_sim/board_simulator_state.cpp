@@ -158,7 +158,7 @@ std::uint32_t BoardSimulatorState::Initialize()
     return DRV_SIM_OK;
 }
 
-void BoardSimulatorState::SetList(ListKind kind, const std::uint64_t *values, std::uint32_t length) noexcept
+void BoardSimulatorState::SetFrequencies(const std::uint64_t *values, std::uint32_t length) noexcept
 {
     std::vector<std::uint64_t> copy;
     bool valid = values != nullptr && length > 0U && length <= MAX_POINT_COUNT;
@@ -170,24 +170,8 @@ void BoardSimulatorState::SetList(ListKind kind, const std::uint64_t *values, st
         valid = false;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    valid = valid && initialized_;
-    switch (kind) {
-        case ListKind::FREQUENCIES:
-            staged_.plan.frequencies = std::move(copy);
-            staged_.frequenciesValid = valid;
-            break;
-        case ListKind::BANDWIDTHS:
-            staged_.plan.bandwidths = std::move(copy);
-            staged_.bandwidthsValid = valid;
-            break;
-        default:
-            break;
-    }
-}
-
-void BoardSimulatorState::SetFrequencies(const std::uint64_t *values, std::uint32_t length) noexcept
-{
-    SetList(ListKind::FREQUENCIES, values, length);
+    staged_.plan.frequencies = std::move(copy);
+    staged_.frequenciesValid = valid && initialized_;
 }
 
 void BoardSimulatorState::SetPowers(const double *values, std::uint32_t length) noexcept
@@ -206,9 +190,20 @@ void BoardSimulatorState::SetPowers(const double *values, std::uint32_t length) 
     staged_.powersValid = valid && initialized_;
 }
 
-void BoardSimulatorState::SetBandwidths(const std::uint64_t *values, std::uint32_t length) noexcept
+void BoardSimulatorState::SetBandwidths(const std::uint32_t *values, std::uint32_t length) noexcept
 {
-    SetList(ListKind::BANDWIDTHS, values, length);
+    std::vector<std::uint32_t> copy;
+    bool valid = values != nullptr && length > 0U && length <= MAX_POINT_COUNT;
+    try {
+        if (valid) {
+            copy.assign(values, values + length);
+        }
+    } catch (...) {
+        valid = false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    staged_.plan.bandwidths = std::move(copy);
+    staged_.bandwidthsValid = valid && initialized_;
 }
 
 void BoardSimulatorState::SetWorkPorts(const std::uint32_t *values, std::uint32_t length) noexcept

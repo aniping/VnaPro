@@ -25,8 +25,8 @@ static_assert(std::is_same<decltype(&ProviderBoard::DrvSetPowerList), VnaBoard::
 static_assert(std::is_same<decltype(&ProviderBoard::DrvHwInit), VnaBoard::DrvHwInitFn>::value, "供应头初始化 ABI 不符");
 static_assert(
     std::is_same<decltype(&ProviderBoard::DrvSetFreqList), VnaBoard::DrvSetFreqListFn>::value, "供应头频点 ABI 不符");
-static_assert(
-    std::is_same<decltype(&ProviderBoard::DrvSetIfBwList), VnaBoard::DrvSetIfBwListFn>::value, "供应头中频 ABI 不符");
+static_assert(std::is_same<decltype(&ProviderBoard::DrvSetIfBwList), VnaBoard::DrvSetIfBwListFn>::value,
+    "供应头中频 ABI 不符：DrvSetIfBwList 必须接收 uint32_t*，不得按 uint64_t* 解释");
 static_assert(std::is_same<decltype(&ProviderBoard::DrvSetWorkPorts), VnaBoard::DrvSetWorkPortsFn>::value,
     "供应头工作端口 ABI 不符");
 static_assert(std::is_same<decltype(&ProviderBoard::DrvDataFrameDownload), VnaBoard::DrvDataFrameDownloadFn>::value,

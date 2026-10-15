@@ -49,7 +49,7 @@ void TestValidationAndBudget()
     const std::size_t tooMany = VnaBoard::MAX_SWEEP_BYTES / (4U * 16U * sizeof(double)) + 1U;
     const std::vector<std::uint64_t> frequencies(tooMany, 1000000000ULL);
     const std::vector<double> powers(tooMany, 17.0);
-    const std::vector<std::uint64_t> bandwidths(tooMany, 1U);
+    const std::vector<std::uint32_t> bandwidths(tooMany, 1U);
     const std::uint32_t ports[] = {0U, 1U, 2U, 3U};
     state.SetFrequencies(frequencies.data(), static_cast<std::uint32_t>(tooMany));
     state.SetPowers(powers.data(), static_cast<std::uint32_t>(tooMany));
@@ -126,6 +126,39 @@ void TestDoublePowerValidation()
     Require(Read(state, 3U) == committed, "功率ABI调整不能改变既有golden信号模型");
 }
 
+void RejectBandwidths(VnaBoard::BoardSimulatorState &state, const std::uint32_t *values, std::uint32_t length,
+    const std::vector<double> &committed)
+{
+    state.SetBandwidths(values, length);
+    Require(state.Download() == VnaBoard::DRV_SIM_INVALID_ARGUMENT, "非法中频列表必须拒绝提交");
+    Require(state.Start() == VnaBoard::DRV_SIM_OK, "中频校验失败不能破坏旧计划");
+    Require(Read(state, 3U) == committed, "非法中频列表改变了已提交计划");
+}
+
+void TestUint32BandwidthValidation()
+{
+    VnaBoard::BoardSimulatorState state;
+    Require(state.Initialize() == VnaBoard::DRV_SIM_OK, "中频测试初始化失败");
+    Prepare(state, 3U);
+    std::uint32_t bandwidths[] = {1U, std::numeric_limits<std::uint32_t>::max(), 1000U};
+    state.SetBandwidths(bandwidths, 3U);
+    std::fill_n(bandwidths, 3U, 0U);
+    Require(state.Download() == VnaBoard::DRV_SIM_OK, "中频 uint32 非零边界应接受，setter 必须复制数组");
+    Require(state.Start() == VnaBoard::DRV_SIM_OK, "中频计划启动失败");
+    const auto committed = Read(state, 3U);
+    const std::uint32_t valid[] = {1000U, 10U, 100U};
+    const std::uint32_t zero[] = {1000U, 0U, 100U};
+    RejectBandwidths(state, nullptr, 3U, committed);
+    RejectBandwidths(state, valid, 0U, committed);
+    RejectBandwidths(state, valid, 2U, committed);
+    RejectBandwidths(state, zero, 3U, committed);
+    RejectBandwidths(state, valid, static_cast<std::uint32_t>(VnaBoard::MAX_POINT_COUNT + 1U), committed);
+    state.SetBandwidths(valid, 3U);
+    Require(state.Download() == VnaBoard::DRV_SIM_OK, "合法中频列表应修正暂存错误");
+    Require(state.Start() == VnaBoard::DRV_SIM_OK, "修正后的中频计划启动失败");
+    Require(Read(state, 3U) == committed, "中频 ABI 调整不能改变既有 golden 信号模型");
+}
+
 }  // 匿名命名空间
 
 void TestState()
@@ -133,6 +166,7 @@ void TestState()
     TestStagingAndGolden();
     TestValidationAndBudget();
     TestDoublePowerValidation();
+    TestUint32BandwidthValidation();
     TestNoiseAndEnvironment();
 }
 

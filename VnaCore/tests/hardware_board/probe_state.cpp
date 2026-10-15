@@ -4,9 +4,7 @@
 
 #include "probe_state.h"
 
-#include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -50,23 +48,6 @@ std::string ThreadIdentity()
     std::ostringstream value;
     value << std::this_thread::get_id();
     return value.str();
-}
-
-double ExpectedPower(const std::string &pattern, std::size_t point)
-{
-    if (pattern == "ramp") {
-        return 17.0 + static_cast<double>(point % 7U);
-    }
-    if (pattern == "fixed-negative") {
-        return -17.5;
-    }
-    if (pattern == "fractional") {
-        return point % 2U == 0U ? -17.5 : 0.25;
-    }
-    if (pattern == "boundaries") {
-        return point % 2U == 0U ? -120.0 : 100.0;
-    }
-    return 0.0;
 }
 
 }  // 匿名命名空间
@@ -141,57 +122,6 @@ std::uint32_t ProbeState::Initialize()
     return failure;
 }
 
-void ProbeState::SetList(const char *name, std::uint64_t *values, std::uint32_t count)
-{
-    if (!Enter(name, std::to_string(count)) || !initialized_ || values == nullptr || count == 0U || scanning_) {
-        valid_ = false;
-        return;
-    }
-    auto &target = std::string(name) == "FREQ" ? frequencies_ : bandwidths_;
-    target.assign(values, values + count);
-    auto &pointer = std::string(name) == "FREQ" ? frequencyPointer_ : bandwidthPointer_;
-    pointer = values;
-}
-
-void ProbeState::SetPowers(double *values, std::uint32_t count)
-{
-    if (!Enter("POWER", std::to_string(count)) || !initialized_ || values == nullptr || count == 0U || scanning_) {
-        valid_ = false;
-        return;
-    }
-    powers_.assign(values, values + count);
-    powerPointer_ = values;
-    valid_ = valid_ && std::all_of(powers_.begin(), powers_.end(), [](double value) {
-        return std::isfinite(value) && value >= -120.0 && value <= 100.0;
-    });
-}
-
-void ProbeState::SetPorts(std::uint32_t *ports, std::uint32_t count)
-{
-    if (!Enter("PORTS", std::to_string(count)) || !initialized_ || ports == nullptr || count == 0U || count > 4U ||
-        scanning_) {
-        valid_ = false;
-        return;
-    }
-    ports_.assign(ports, ports + count);
-    portPointer_ = ports;
-    auto sorted = ports_;
-    std::sort(sorted.begin(), sorted.end());
-    valid_ = valid_ && sorted.back() < 4U && std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end();
-}
-
-bool ProbeState::ValidateLists() const
-{
-    // 期望模式由调用方独立设置，不能从实际功率推断模式而放过错误的全零列表。
-    for (std::size_t point = 0U; point < frequencies_.size(); ++point) {
-        if (frequencies_[point] != 10000000U + 1000000U * point || bandwidths_[point] != 1000U ||
-            powers_[point] != ExpectedPower(powerPattern_, point)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 std::uint32_t ProbeState::Download()
 {
     if (!Enter("DOWNLOAD") || !initialized_ || frequencies_.empty() || powers_.size() != frequencies_.size() ||
@@ -227,16 +157,6 @@ std::uint32_t ProbeState::Start()
         scanning_ = true;
     }
     return failure;
-}
-
-bool ProbeState::ListsRetained() const
-{
-    // 供应接口没有承诺复制列表，测试采用借用当前列表指针的合法实现。
-    return frequencyPointer_ != nullptr && powerPointer_ != nullptr && bandwidthPointer_ != nullptr &&
-           portPointer_ != nullptr && std::equal(frequencies_.begin(), frequencies_.end(), frequencyPointer_) &&
-           std::equal(powers_.begin(), powers_.end(), powerPointer_) &&
-           std::equal(bandwidths_.begin(), bandwidths_.end(), bandwidthPointer_) &&
-           std::equal(ports_.begin(), ports_.end(), portPointer_);
 }
 
 bool ProbeState::WaitForGate(std::uint32_t occurrence) const

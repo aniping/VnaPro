@@ -36,7 +36,7 @@ private:
     struct DownloadLists {
         std::vector<std::uint64_t> frequencies;
         std::vector<double> powers;
-        std::vector<std::uint64_t> bandwidths;
+        std::vector<std::uint32_t> bandwidths;
         std::vector<std::uint32_t> ports;
     };
 

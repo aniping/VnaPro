@@ -17,7 +17,8 @@ public:
     ProbeState() = default;
     ~ProbeState();
     std::uint32_t Initialize();
-    void SetList(const char *name, std::uint64_t *values, std::uint32_t count);
+    void SetFrequencies(std::uint64_t *values, std::uint32_t count);
+    void SetBandwidths(std::uint32_t *values, std::uint32_t count);
     void SetPowers(double *values, std::uint32_t count);
     void SetPorts(std::uint32_t *ports, std::uint32_t count);
     std::uint32_t Download();
@@ -42,11 +43,11 @@ private:
     std::string thread_;
     std::vector<std::uint64_t> frequencies_;
     std::vector<double> powers_;
-    std::vector<std::uint64_t> bandwidths_;
+    std::vector<std::uint32_t> bandwidths_;
     std::vector<std::uint32_t> ports_;
     const std::uint64_t *frequencyPointer_ = nullptr;
     const double *powerPointer_ = nullptr;
-    const std::uint64_t *bandwidthPointer_ = nullptr;
+    const std::uint32_t *bandwidthPointer_ = nullptr;
     const std::uint32_t *portPointer_ = nullptr;
     bool initialized_ = false;
     bool valid_ = true;

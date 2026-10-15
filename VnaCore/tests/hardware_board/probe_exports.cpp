@@ -18,7 +18,7 @@ extern "C" BOARD_PROBE_EXPORT std::uint32_t DrvHwInit()
 
 extern "C" BOARD_PROBE_EXPORT void DrvSetFreqList(std::uint64_t *values, std::uint32_t count)
 {
-    HardwareBoardProbe::State().SetList("FREQ", values, count);
+    HardwareBoardProbe::State().SetFrequencies(values, count);
 }
 
 extern "C" BOARD_PROBE_EXPORT void DrvSetPowerList(double *values, std::uint32_t count)
@@ -26,9 +26,9 @@ extern "C" BOARD_PROBE_EXPORT void DrvSetPowerList(double *values, std::uint32_t
     HardwareBoardProbe::State().SetPowers(values, count);
 }
 
-extern "C" BOARD_PROBE_EXPORT void DrvSetIfBwList(std::uint64_t *values, std::uint32_t count)
+extern "C" BOARD_PROBE_EXPORT void DrvSetIfBwList(std::uint32_t *values, std::uint32_t count)
 {
-    HardwareBoardProbe::State().SetList("IFBW", values, count);
+    HardwareBoardProbe::State().SetBandwidths(values, count);
 }
 
 extern "C" BOARD_PROBE_EXPORT void DrvSetWorkPorts(std::uint32_t *values, std::uint32_t count)

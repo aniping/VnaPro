@@ -22,7 +22,7 @@ SweepPlan 自有频点、可选不透明 9N 旧接口表和可选逐点 `powerDb
 
 原生动态库必须提供绝对路径，不接受 `C:relative` 等路径。Windows 使用 UTF-8 路径转换后的 LoadLibraryExW 与 LOAD_WITH_ALTERED_SEARCH_PATH，从明确的库目录解析依赖；初始化失败返回终结的错误 ticket。共用操作系统句柄管理，VN08/VN10 分别绑定自己的强类型函数表，全部必需符号绑定成功前不调用驱动。VN10 初始化成功后显式关闭 RF；它的 RF OFF 只关端口，不停止扫描，且 ABI 没有设备释放入口。Close 在核心工作线程中等当前整帧读回后关端口并 join 主机 worker，运行期不卸载 VN10 DLL；对象析构后保留加载引用与驱动借用缓冲至进程退出。RF OFF 失败或无法确认扫描结束时，Close 返回失败并保留原始错误，不能宣称设备已停止。
 
-VN10 的四个 SET 数组由设备会话持有，组帧失败时同时保留上次成功配置和本次候选；只有新配置组帧成功后才替换旧列表。取数缓冲在读取失败后仍保持有效。已确认的契约为返回值 0 成功、频率与 IFBW 使用 Hz、功率为 double dBm 且范围 `[-120,100]`、端口编号 0～3。服务显式填写 `instrument.sweep.defaultPowerDbm`；功率数组直接复制为 double，不按位转换整数。高位返回码同时显示 uint32 原值和有符号 32 位解释，不据此猜测厂商错误含义。
+VN10 的四个 SET 数组由设备会话持有，组帧失败时同时保留上次成功配置和本次候选；只有新配置组帧成功后才替换旧列表。取数缓冲在读取失败后仍保持有效。已确认的契约为返回值 0 成功、频率 uint64 Hz、IFBW uint32 Hz、功率为 double dBm 且范围 `[-120,100]`、端口编号 0～3。服务显式填写 `instrument.sweep.defaultPowerDbm`；功率和 IFBW 使用各自正确的元素类型，不重解释数组位型。高位返回码同时显示 uint32 原值和有符号 32 位解释，不据此猜测厂商错误含义。
 
 顶层 CMake 先加入 VnaNativeSimulator 和 VnaBoardSimulator，再加入 VnaCore，可注册两种动态模拟集成测试。核心库只复用 ABI 头，不链接模拟实现。
 

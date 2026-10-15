@@ -49,7 +49,7 @@ void VNA_BOARD_CALL DrvSetPowerList(double powerList[], std::uint32_t length)
     });
 }
 
-void VNA_BOARD_CALL DrvSetIfBwList(std::uint64_t ifbwList[], std::uint32_t length)
+void VNA_BOARD_CALL DrvSetIfBwList(std::uint32_t ifbwList[], std::uint32_t length)
 {
     Protect([ifbwList, length] {
         State().SetBandwidths(ifbwList, length);

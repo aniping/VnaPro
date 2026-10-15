@@ -12,7 +12,7 @@ EXPORT_API void DrvSetFreqList(uint64_t freqList[], uint32_t length);
 // 下发扫描功率数组，单位 dBm，有效范围 [-120,100]，仅下发不生效
 EXPORT_API void DrvSetPowerList(double powerList[], uint32_t length);
 // 下发扫描中频数组 仅下发不生效
-EXPORT_API void DrvSetIfBwList(uint64_t ifbwList[], uint32_t length);
+EXPORT_API void DrvSetIfBwList(uint32_t ifbwList[], uint32_t length);
 // 下发扫描工作的端口数组 仅下发不生效
 EXPORT_API void DrvSetWorkPorts(uint32_t ports[], uint32_t number);
 // 组帧生效

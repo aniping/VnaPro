@@ -18,7 +18,7 @@ struct SweepPlan {
     std::vector<std::uint64_t> frequencies;
     // 逐频点功率，单位 dBm；功率暂不参与模拟 IQ 的物理响应。
     std::vector<double> powers;
-    std::vector<std::uint64_t> bandwidths;
+    std::vector<std::uint32_t> bandwidths;
     std::vector<std::uint32_t> workPorts;
     std::size_t valuesPerPoint = 0U;
     std::size_t totalValues = 0U;

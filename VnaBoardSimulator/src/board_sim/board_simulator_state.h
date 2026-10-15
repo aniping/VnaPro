@@ -31,7 +31,7 @@ public:
     // 各列表分别复制到暂存计划；合法列表可以修正该列表的暂存错误。
     void SetFrequencies(const std::uint64_t *values, std::uint32_t length) noexcept;
     void SetPowers(const double *values, std::uint32_t length) noexcept;
-    void SetBandwidths(const std::uint64_t *values, std::uint32_t length) noexcept;
+    void SetBandwidths(const std::uint32_t *values, std::uint32_t length) noexcept;
     void SetWorkPorts(const std::uint32_t *values, std::uint32_t length) noexcept;
     // 校验全部暂存项并原子替换已提交计划；失败保留旧计划。
     std::uint32_t Download();
@@ -43,12 +43,6 @@ public:
     std::uint32_t Get(std::uint32_t start, std::uint32_t count, double *output, int capacity);
 
 private:
-    enum class ListKind {
-        FREQUENCIES,
-        BANDWIDTHS
-    };
-
-    void SetList(ListKind kind, const std::uint64_t *values, std::uint32_t length) noexcept;
     void StopWorker();
     std::uint32_t LaunchSweep();
     void Produce(std::shared_ptr<SweepResult> result, SignalSettings settings, std::uint64_t sweepNumber) noexcept;

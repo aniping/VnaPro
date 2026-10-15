@@ -34,7 +34,7 @@ endif()
 
 if(BUILD_TESTING)
     add_library(vna_board_hardware_probe SHARED
-        tests/hardware_board/probe_exports.cpp tests/hardware_board/probe_state.cpp)
+        tests/hardware_board/probe_exports.cpp tests/hardware_board/probe_state.cpp tests/hardware_board/probe_lists.cpp)
     target_include_directories(vna_board_hardware_probe PRIVATE tests/hardware_board)
     target_compile_features(vna_board_hardware_probe PRIVATE cxx_std_14)
     target_link_libraries(vna_board_hardware_probe PRIVATE Threads::Threads)

@@ -17,7 +17,7 @@ void Stage(const BoardFunctions &api, std::uint32_t pointCount, const std::vecto
 {
     std::vector<std::uint64_t> frequencies(pointCount, 1000000000ULL);
     std::vector<double> powers(pointCount, 17.0);
-    std::vector<std::uint64_t> bandwidths(pointCount, 1000U);
+    std::vector<std::uint32_t> bandwidths(pointCount, 1000U);
     auto ports = workPorts;
     api.frequencies(frequencies.data(), pointCount);
     api.powers(powers.data(), pointCount);
@@ -75,11 +75,12 @@ void TestLayoutLiteral(const std::string &path)
     Require(api.initialize() == VnaBoard::DRV_SIM_OK, "布局测试初始化失败");
     std::uint64_t frequencies[] = {1000000000ULL, 2000000000ULL};
     double powers[] = {-17.5, 0.25};
-    std::uint64_t bandwidths[] = {1000U, 1000U};
+    std::uint32_t bandwidths[] = {1U, std::numeric_limits<std::uint32_t>::max()};
     std::uint32_t ports[] = {1U, 0U};
     api.frequencies(frequencies, 2U);
     api.powers(powers, 2U);
     api.bandwidths(bandwidths, 2U);
+    std::fill_n(bandwidths, 2U, 0U);
     api.ports(ports, 2U);
     Require(api.download() == VnaBoard::DRV_SIM_OK && api.rfPower(1U) == VnaBoard::DRV_SIM_OK &&
                 api.start() == VnaBoard::DRV_SIM_OK,
