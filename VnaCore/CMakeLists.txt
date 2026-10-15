@@ -34,6 +34,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING)
+    add_executable(vna_core_board_diagnostics_tests
+        tests/board_diagnostics_test.cpp tests/board_diagnostics_support.cpp tests/board_diagnostics_values_test.cpp
+        tests/hardware_board/test_environment.cpp tests/hardware_board/test_support.cpp)
+    target_include_directories(vna_core_board_diagnostics_tests PRIVATE tests src)
+    target_link_libraries(vna_core_board_diagnostics_tests PRIVATE vna_core vna_log Threads::Threads)
+    add_dependencies(vna_core_board_diagnostics_tests vna_board_hardware_probe)
+    add_test(NAME core_board_diagnostics COMMAND vna_core_board_diagnostics_tests
+        $<TARGET_FILE:vna_board_hardware_probe> "${CMAKE_CURRENT_BINARY_DIR}/board-diagnostics")
+    set_tests_properties(core_board_diagnostics PROPERTIES TIMEOUT 30)
     add_library(vna_board_hardware_probe SHARED
         tests/hardware_board/probe_exports.cpp tests/hardware_board/probe_state.cpp tests/hardware_board/probe_lists.cpp)
     target_include_directories(vna_board_hardware_probe PRIVATE tests/hardware_board)

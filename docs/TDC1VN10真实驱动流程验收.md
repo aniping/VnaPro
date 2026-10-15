@@ -86,3 +86,5 @@ ctest --test-dir cmake-build-debug -j 4 --output-on-failure
 ```
 
 此前基线已完成 75 项 CTest 和前端 439 项测试。接口修正增加供应头独立合同、double 功率及配置/校准回归；本轮补充 IFBW 数组宽度、初始化和配置诊断回归。实际通用失败码只能确认调用失败，不能据此认定具体参数或硬件故障。验收证明软件调用、数据与资源合同，不代替厂商 DLL 和真实板卡的采集验收。
+
+本轮完整 CMake 构建及 76 项 CTest 通过（2026-10-15）；日志轮转读取测试修复短暂文件占用竞态后，确定性独占锁/更名实验及 5 次重复集成测试也通过。根 `release` 的程序、模拟驱动及前端入口与构建产物哈希一致，原 `vnapro.yml` 未改动。验证日志和审查记录位于 `reference/analysis/driver-board-diagnostics-20261015`。
