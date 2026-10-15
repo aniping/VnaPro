@@ -55,6 +55,17 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(tdc1vn10_drv_provider_contract_tests tests/provider_contract_test.cpp)
+    target_compile_features(tdc1vn10_drv_provider_contract_tests PRIVATE cxx_std_14)
+    target_include_directories(tdc1vn10_drv_provider_contract_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    if(MSVC)
+        target_compile_options(tdc1vn10_drv_provider_contract_tests PRIVATE /W4)
+    else()
+        target_compile_options(tdc1vn10_drv_provider_contract_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME board_provider_contract COMMAND tdc1vn10_drv_provider_contract_tests)
+    set_tests_properties(board_provider_contract PROPERTIES TIMEOUT 10)
+
     add_executable(tdc1vn10_drv_sim_unit_tests
         $<TARGET_OBJECTS:tdc1vn10_drv_sim_core>
         tests/batch_gate.cpp

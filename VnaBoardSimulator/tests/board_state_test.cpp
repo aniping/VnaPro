@@ -95,12 +95,44 @@ void TestNoiseAndEnvironment()
     SetEnvironment("VNAPRO_SIM_SEED", "42");
 }
 
+void TestDoublePowerValidation()
+{
+    VnaBoard::BoardSimulatorState state;
+    Require(state.Initialize() == VnaBoard::DRV_SIM_OK, "功率测试初始化失败");
+    Prepare(state, 3U);
+    double powers[] = {-17.5, 0.25, 17.0};
+    state.SetPowers(powers, 3U);
+    std::fill_n(powers, 3U, std::numeric_limits<double>::quiet_NaN());
+    Require(state.Download() == VnaBoard::DRV_SIM_OK, "有限负数和分数功率应接受，setter 必须复制输入");
+    Require(state.Start() == VnaBoard::DRV_SIM_OK, "双精度功率计划启动失败");
+    const auto committed = Read(state, 3U);
+    for (const double invalid : {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(),
+             -std::numeric_limits<double>::infinity(), -120.5, 100.5}) {
+        const double invalidPowers[] = {17.0, invalid, 0.25};
+        state.SetPowers(invalidPowers, 3U);
+        Require(state.Download() == VnaBoard::DRV_SIM_INVALID_ARGUMENT, "非有限或超出 [-120,100] dBm 的功率不能提交");
+        Require(state.Start() == VnaBoard::DRV_SIM_OK, "功率校验失败不能破坏旧计划");
+        Require(Read(state, 3U) == committed, "非法功率提交失败改变了原计划");
+    }
+    state.SetPowers(nullptr, 3U);
+    Require(state.Download() == VnaBoard::DRV_SIM_INVALID_ARGUMENT, "空功率指针不能沿用旧暂存列表");
+    const double shortPowers[] = {-0.5, 17.0};
+    state.SetPowers(shortPowers, 2U);
+    Require(state.Download() == VnaBoard::DRV_SIM_INVALID_ARGUMENT, "功率数组长度须与频率一致");
+    const double recovered[] = {-120.0, 17.0, 100.0};
+    state.SetPowers(recovered, 3U);
+    Require(state.Download() == VnaBoard::DRV_SIM_OK, "合法功率列表应修正暂存错误并接受 -120 和 100 dBm 两端点");
+    Require(state.Start() == VnaBoard::DRV_SIM_OK, "修正后的功率计划启动失败");
+    Require(Read(state, 3U) == committed, "功率ABI调整不能改变既有golden信号模型");
+}
+
 }  // 匿名命名空间
 
 void TestState()
 {
     TestStagingAndGolden();
     TestValidationAndBudget();
+    TestDoublePowerValidation();
     TestNoiseAndEnvironment();
 }
 

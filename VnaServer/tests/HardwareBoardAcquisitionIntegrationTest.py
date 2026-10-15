@@ -89,77 +89,105 @@ def assert_scan_order(path, port_count):
     return starts
 
 
+def configure_hardware(bundle, driver, port_count):
+    power_dbm = -17.5 if port_count == 2 else 0.0
+    sections = {
+        "driver": {"type": "hardware", "board": "tdc1vn10", "library": Path(driver).name,
+                   "simulator": {"mode": "invalid", "seed": "invalid", "noiseAmplitude": -1}},
+        "instrument": {"portCount": port_count, "frequency": {"minHz": 10000000, "maxHz": 8000000000},
+                       "sweep": {"defaultStartHz": 10000000, "defaultStopHz": 139000000,
+                                 "defaultPoints": POINTS, "defaultIfBandwidthHz": 1000,
+                                 "defaultPowerDbm": power_dbm, "defaultSweepMode": "HOLD"}},
+        "log": {"level": "INFO", "console": {"enabled": True}, "file": {"enabled": False}},
+    }
+    configuration = bundle.config.read_text(encoding="utf-8")
+    for name, values in sections.items():
+        configuration = replace_section(configuration, name, name + ": " + json.dumps(values) + "\n")
+    bundle.config.write_text(configuration, encoding="utf-8")
+    trace = bundle.config.parent / "driver-trace.log"
+    pattern = "fixed-negative" if port_count == 2 else "zero"
+    bundle.environment.update(SENTINELS, VNAPRO_TEST_BOARD_TRACE=str(trace),
+                              VNAPRO_TEST_BOARD_POWER_PATTERN=pattern)
+    return trace, bundle.config.parent / "server.log"
+
+
+def wait_listening(process, output):
+    deadline = time.monotonic() + 10
+    while True:
+        text = output.read_text(encoding="utf-8")
+        ports = listening_ports(text)
+        assert process.poll() is None, text
+        if set(ports) == {"http", "scpi"}:
+            return ports
+        assert time.monotonic() < deadline, text
+        time.sleep(0.01)
+
+
+def create_sparameter_catalog(http):
+    token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
+    try:
+        status = http.status(token)
+        result = http.request("POST", "/api/v1/measurement-actions/all-sparameters", {
+            "confirmed": True, "requestId": "hardware-all-sparameters",
+            "expectedRevision": status["revision"],
+            "expectedDisplayRevision": status["display"]["revision"],
+        }, token, expected=202)
+        wait_operation(http, result["operationId"], token)
+    finally:
+        http.request("POST", "/api/v1/control/release", {}, token)
+    wait_no_owner(http)
+
+
+def define_raw_measurements(http, client, port_count):
+    revision = http.status()["acquisitionRevision"]
+    for source in range(1, port_count + 1):
+        command(client, f'CALC1:PAR:DEF:EXT "RawA{source}","a{source},{source}"')
+        for receiver in range(1, port_count + 1):
+            command(client, f'CALC1:PAR:DEF:EXT "RawB{receiver}{source}","b{receiver},{source}"')
+    assert http.status()["acquisitionRevision"] == revision, "新增验证定义错误地重复下发硬件计划"
+
+
+def wait_continuous_frames(http):
+    deadline, sequences = time.monotonic() + 8, set()
+    while len(sequences) < 3:
+        frame = http.frame(["Trc1"])
+        if frame["available"] and frame["current"]:
+            sequences.add(frame["frameSeq"])
+        assert time.monotonic() < deadline, "硬件连续扫描没有持续发布完整帧"
+        time.sleep(0.005)
+
+
+def verify_session(http, client, port_count, trace):
+    assert client.query("*IDN?").startswith("VnaPro,TDC1VN10,"), "硬件路径仍返回模拟器身份"
+    define_raw_measurements(http, client, port_count)
+    command(client, "FORM:DATA ASC,0;:SENS1:SWE:MODE SING")
+    held_data(http, client, port_count, 1)
+    command(client, "SENS1:SWE:MODE CONT")
+    wait_continuous_frames(http)
+    command(client, "SENS1:SWE:MODE HOLD")
+    sweep = assert_scan_order(trace, port_count)
+    held_data(http, client, port_count, sweep)
+
+
 def exercise(server, driver, port_count):
     environment = dict(os.environ)
-    for name in (*SENTINELS, "VNAPRO_TEST_BOARD_FAIL", "VNAPRO_TEST_BOARD_FAIL_AT", "VNAPRO_TEST_BOARD_GATE_AT"):
+    for name in (*SENTINELS, "VNAPRO_TEST_BOARD_FAIL", "VNAPRO_TEST_BOARD_FAIL_AT", "VNAPRO_TEST_BOARD_GATE_AT",
+                 "VNAPRO_TEST_BOARD_POWER_PATTERN", "VNAPRO_TEST_BOARD_FAIL_CODE"):
         environment.pop(name, None)
     with isolated_server(server, driver, environment, board="tdc1vn10") as bundle:
-        configuration = bundle.config.read_text(encoding="utf-8")
-        sections = {
-            "driver": {"type": "hardware", "board": "tdc1vn10", "library": Path(driver).name,
-                       "simulator": {"mode": "invalid", "seed": "invalid", "noiseAmplitude": -1}},
-            "instrument": {"portCount": port_count, "frequency": {"minHz": 10000000, "maxHz": 8000000000},
-                           "sweep": {"defaultStartHz": 10000000, "defaultStopHz": 139000000,
-                                     "defaultPoints": POINTS, "defaultIfBandwidthHz": 1000,
-                                     "defaultPowerRaw": 0, "defaultSweepMode": "HOLD"}},
-            "log": {"level": "INFO", "console": {"enabled": True}, "file": {"enabled": False}},
-        }
-        for name, values in sections.items():
-            configuration = replace_section(configuration, name, name + ": " + json.dumps(values) + "\n")
-        bundle.config.write_text(configuration, encoding="utf-8")
-        trace = bundle.config.parent / "driver-trace.log"
-        bundle.environment.update(SENTINELS, VNAPRO_TEST_BOARD_TRACE=str(trace))
-        output = bundle.config.parent / "server.log"
+        trace, output = configure_hardware(bundle, driver, port_count)
         with output.open("wb") as stream:
             process = subprocess.Popen([bundle.executable], env=bundle.environment, cwd=bundle.config.parent,
                                        stdout=stream, stderr=subprocess.STDOUT)
             client = None
             try:
-                deadline = time.monotonic() + 10
-                while True:
-                    text = output.read_text(encoding="utf-8")
-                    ports = listening_ports(text)
-                    assert process.poll() is None, text
-                    if set(ports) == {"http", "scpi"}:
-                        break
-                    assert time.monotonic() < deadline, text
-                    time.sleep(0.01)
+                ports = wait_listening(process, output)
                 http = HttpClient(ports["http"])
                 status = http.status()
                 assert status["backend"] == "HardwareDriver" and status["config"]["sweepMode"] == "HOLD"
-                token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
-                try:
-                    status = http.status(token)
-                    result = http.request("POST", "/api/v1/measurement-actions/all-sparameters", {
-                        "confirmed": True, "requestId": "hardware-all-sparameters",
-                        "expectedRevision": status["revision"],
-                        "expectedDisplayRevision": status["display"]["revision"],
-                    }, token, expected=202)
-                    wait_operation(http, result["operationId"], token)
-                finally:
-                    http.request("POST", "/api/v1/control/release", {}, token)
-                wait_no_owner(http)
+                create_sparameter_catalog(http)
                 client = connect_scpi(ports["scpi"])
-                assert client.query("*IDN?").startswith("VnaPro,TDC1VN10,"), "硬件路径仍返回模拟器身份"
-                revision = http.status()["acquisitionRevision"]
-                for source in range(1, port_count + 1):
-                    command(client, f'CALC1:PAR:DEF:EXT "RawA{source}","a{source},{source}"')
-                    for receiver in range(1, port_count + 1):
-                        command(client, f'CALC1:PAR:DEF:EXT "RawB{receiver}{source}","b{receiver},{source}"')
-                assert http.status()["acquisitionRevision"] == revision, "新增验证定义错误地重复下发硬件计划"
-                command(client, "FORM:DATA ASC,0;:SENS1:SWE:MODE SING")
-                held_data(http, client, port_count, 1)
-                command(client, "SENS1:SWE:MODE CONT")
-                deadline, sequences = time.monotonic() + 8, set()
-                while len(sequences) < 3:
-                    frame = http.frame(["Trc1"])
-                    if frame["available"] and frame["current"]:
-                        sequences.add(frame["frameSeq"])
-                    assert time.monotonic() < deadline, "硬件连续扫描没有持续发布完整帧"
-                    time.sleep(0.005)
-                command(client, "SENS1:SWE:MODE HOLD")
-                sweep = assert_scan_order(trace, port_count)
-                held_data(http, client, port_count, sweep)
+                verify_session(http, client, port_count, trace)
                 assert "模拟驱动启动配置" not in output.read_text(encoding="utf-8")
             finally:
                 if client is not None:

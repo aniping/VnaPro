@@ -131,6 +131,11 @@ if(BUILD_TESTING)
     target_link_libraries(vna_server_config_tests PRIVATE vna_service vna_log yaml-cpp::yaml-cpp)
     add_test(NAME server_config
         COMMAND vna_server_config_tests "${CMAKE_CURRENT_BINARY_DIR}/server-config-test")
+    add_executable(vna_instrument_power_config_tests tests/instrument_power_config_test.cpp ${SERVER_CONFIG_SOURCES})
+    target_include_directories(vna_instrument_power_config_tests PRIVATE src)
+    target_link_libraries(vna_instrument_power_config_tests PRIVATE vna_service vna_log yaml-cpp::yaml-cpp)
+    add_test(NAME instrument_power_config
+        COMMAND vna_instrument_power_config_tests "${CMAKE_CURRENT_BINARY_DIR}/instrument-power-test.yml")
     add_test(NAME logging_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/LoggingIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim>)
