@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "device/board/board_diagnostics.h"
 #include "device/board/board_library.h"
 #include "vna_core/device_session.h"
 
@@ -33,17 +34,14 @@ public:
     void Shutdown() override;
 
 private:
-    struct DownloadLists {
-        std::vector<std::uint64_t> frequencies;
-        std::vector<double> powers;
-        std::vector<std::uint32_t> bandwidths;
-        std::vector<std::uint32_t> ports;
-    };
-
+    using DownloadLists = BoardDownloadLists;
     static std::unique_ptr<DownloadLists> PrepareDownload(const SweepPlan &plan);
+    void OpenLibrary();
 
     const std::string path_;
     BoardLibrary library_;
+    // 仅用于关联本会话的配置诊断，不参与核心版本或设备事务。
+    std::uint64_t configurationAttempt_ = 0U;
     // 显式拥有传入驱动的数组；失败下发同时保留上次成功配置和本次候选。
     std::unique_ptr<DownloadLists> activeLists_;
     std::unique_ptr<DownloadLists> stagedLists_;

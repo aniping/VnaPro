@@ -25,6 +25,35 @@
 
 RF OFF 不能中止正在阻塞的 Get。供应接口没有取消、完成查询、超时或释放入口，因此原生调用永久不返回时，不能承诺软件 Close 限时完成。软件不会强杀工作线程或卸载其执行中的代码。
 
+## 公司现场初始化与下发诊断
+
+将整个 `release` 复制到公司环境，编辑程序旁的 `vnapro.yml`，使用真实库对应的 `driver.type: hardware`、`driver.board: tdc1vn10` 与实际 DLL 文件名。日志记录的是适配器实际传给驱动的数组，IFBW 元素应显示 `uint32_t bytes=4`；旧 uint64 缓冲被新驱动按 4 字节读取时可能出现 `1000,0,1000,0` 交错，不能仅检查首项。
+
+默认 INFO 已包含 DLL 路径、初始化调用、配置尝试号、四组数组摘要以及完整原生端口列表。SET 返回 void 只记为调用返回，其有效性由随后 Download 判断；日志不会将其称为配置成功。每个调用均先记 `event=begin`，再调用 DLL，返回后记录 `event=returned`。Download 的状态行保留 `status_u32`、`status_i32` 和 `status_hex`；`result` 只将 0 标为 SUCCESS、4294967295 标为 FAILURE，其他非零码标为 UNRECOGNIZED_NONZERO，并继续按失败处理。未返回的调用会留下 begin，没有虚构的完成记录。
+
+现场已确认实际返回 `UINT32_MAX`，即 `4294967295`（`0xFFFFFFFF`、有符号解释为 −1），表示通用失败。此前转述的数值是笔误，不作为厂商错误码或故障原因的依据；具体失败原因仍需结合下发参数与驱动现场定位。
+
+如需完整参数，可将现有 log 配置改为以下级别与文件设置后重启，其他原有日志设置可保留：
+
+```yaml
+log:
+  level: DEBUG
+  console:
+    enabled: true
+  file:
+    enabled: true
+    path: logs/vnapro.log
+    maxSizeBytes: 10485760
+    maxFiles: 5
+    maxRecordBytes: 65536
+  flush:
+    level: DEBUG
+```
+
+DEBUG 在 `DrvDataFrameDownload event=begin` 之前输出频率、功率、IFBW 和端口的完整值，每条至多 16 项；用同一 `config` 和 `name` 的 `offset/count` 还原数组，最后一块可能不足 16 项。double 用 17 位有效数字保留，uint64 频率保持十进制精度。即使维持 INFO，Download 失败时 ERROR 也会补完整参数。不要将 `maxRecordBytes` 调得过小，否则统一日志截断规则仍会生效。
+
+日志默认在程序旁的 `logs/vnapro.log`，包含轮转的 `.1.log` 等文件。可先从日志筛选 `[VN10]`，但排查时应带走同一时间段的完整日志及实际 `vnapro.yml`，保留调用前后顺序。诊断只发生在初始化、配置及射频生命周期边界；不在成功的 Start/Get 或逐帧扫描路径记录数组。`config` 是当前会话的尝试号，不等同于采集配置版本。
+
 ## 检查发现与修复
 
 1. 原四个 SET 数组是局部变量，组帧返回后即释放，隐含驱动会复制数组。现在由设备会话持有；独立保留指针型测试 DLL 已复现旧路径 `DrvStartSweep returned 7901`，修复后通过。
@@ -43,6 +72,7 @@ RF OFF 不能中止正在阻塞的 Get。供应接口没有取消、完成查询
 | 用例 | 实际覆盖 |
 | --- | --- |
 | `core_hardware_board_lifecycle` | 两/四源和反向源序，130 点的 64＋64＋2 拼接，全部四接收器 A/B 分量；连续不越过在途 Get；Close 已进入准入屏障后仍等待 Get；失败保留完整帧、拒绝错误恢复、空闲恢复、RF OFF 原码及运行期不卸载 |
+| `core_board_diagnostics` | INFO 调用顺序与实际参数摘要、DEBUG 完整值重建、UINT32_MAX 及合成未知码失败上下文、失败保帧、初始化失败、两帧采集不增加 VN10 日志；4000 点完整分块与 uint64 精度 |
 | `hardware_board_acquisition` | 正式 hardware 服务，2/4 端口全 S 矩阵、原始 A/B 逐值核对、HTTP/SCPI 同帧比值、CONT/HOLD、非法模拟配置与环境隔离 |
 | `instrument_profile` / `server_config` / `instrument_power_config` | 负数、小数及 `[-120,100]` 两端功率，拒绝非有限值和越界值；改点数后仍按冻结配置下发；配置下发阻塞/失败期间的频轴一致性；旧功率键仅兼容整数 0 |
 
@@ -55,4 +85,4 @@ cmake --build cmake-build-debug -j 6
 ctest --test-dir cmake-build-debug -j 4 --output-on-failure
 ```
 
-2026-10-15 完整 CMake 构建、75 项 CTest 和前端 439 项测试通过；根 release 的六个历史前端资源归档后，发布包复验通过，程序与构建产物哈希一致，原 vnapro.yml 未改动。接口修正增加供应头独立合同、double 功率及配置/校准回归。现场已确认实际返回 `UINT32_MAX`，表示通用失败；此前转述的数值是笔误，不能据此认定具体失败原因。验收证明软件调用、数据与资源合同，不代替厂商 DLL 和真实板卡的采集验收。
+此前基线已完成 75 项 CTest 和前端 439 项测试。接口修正增加供应头独立合同、double 功率及配置/校准回归；本轮补充 IFBW 数组宽度、初始化和配置诊断回归。实际通用失败码只能确认调用失败，不能据此认定具体参数或硬件故障。验收证明软件调用、数据与资源合同，不代替厂商 DLL 和真实板卡的采集验收。

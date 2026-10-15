@@ -115,6 +115,18 @@ BoardDeviceSession::~BoardDeviceSession()
     }
 }
 
+void BoardDeviceSession::OpenLibrary()
+{
+    LogBoardBinding(path_, "begin");
+    try {
+        library_.Open(path_);
+    } catch (const std::exception &error) {
+        LogBoardBinding(path_, "failed", error.what());
+        throw;
+    }
+    LogBoardBinding(path_, "ready");
+}
+
 std::string BoardDeviceSession::Initialize()
 {
     if (sweepInProgress_) {
@@ -123,12 +135,15 @@ std::string BoardDeviceSession::Initialize()
     if (initializationAttempted_) {
         Shutdown();
     }
-    library_.Open(path_);
+    OpenLibrary();
     initializationAttempted_ = true;
     keepLibraryResident_ = true;
     try {
-        Check(library_.Functions().hwInit(), "DrvHwInit");
-        Check(library_.Functions().setRfPowerOn(RF_OFF), "DrvSetRfPowerOn(0)");
+        LogBoardCallBegin("initialize", 0U, "DrvHwInit");
+        Check(LogBoardCallReturned("initialize", 0U, "DrvHwInit", library_.Functions().hwInit()), "DrvHwInit");
+        LogBoardCallBegin("initialize", 0U, "DrvSetRfPowerOn(0)");
+        Check(LogBoardCallReturned("initialize", 0U, "DrvSetRfPowerOn(0)", library_.Functions().setRfPowerOn(RF_OFF)),
+            "DrvSetRfPowerOn(0)");
     } catch (...) {
         // 初始化也可能留下库内资源，必须先尝试射频关闭，不能直接卸载。
         try {
@@ -146,19 +161,38 @@ void BoardDeviceSession::ApplyPlan(const SweepPlan &plan)
 {
     auto download = PrepareDownload(plan);
     stagedLists_ = std::move(download);
+    const auto config = ++configurationAttempt_;
     const auto &functions = library_.Functions();
     const auto count = static_cast<std::uint32_t>(stagedLists_->frequencies.size());
+    LogBoardCallBegin("configure", config, "DrvSetFreqList");
     functions.setFreqList(stagedLists_->frequencies.data(), count);
+    LogBoardSetterReturned(config, "DrvSetFreqList");
+    LogBoardCallBegin("configure", config, "DrvSetPowerList");
     functions.setPowerList(stagedLists_->powers.data(), count);
+    LogBoardSetterReturned(config, "DrvSetPowerList");
+    LogBoardCallBegin("configure", config, "DrvSetIfBwList");
     functions.setIfBwList(stagedLists_->bandwidths.data(), count);
+    LogBoardSetterReturned(config, "DrvSetIfBwList");
+    LogBoardCallBegin("configure", config, "DrvSetWorkPorts");
     functions.setWorkPorts(stagedLists_->ports.data(), static_cast<std::uint32_t>(stagedLists_->ports.size()));
-    Check(functions.dataFrameDownload(), "DrvDataFrameDownload");
+    LogBoardSetterReturned(config, "DrvSetWorkPorts");
+    LogBoardConfiguration(config, *stagedLists_);
+    LogBoardCallBegin("configure", config, "DrvDataFrameDownload");
+    const auto status =
+        LogBoardCallReturned("configure", config, "DrvDataFrameDownload", functions.dataFrameDownload());
+    if (status != NATIVE_SUCCESS) {
+        LogBoardConfigurationFailure(config, *stagedLists_);
+    }
+    Check(status, "DrvDataFrameDownload");
     activeLists_ = std::move(stagedLists_);
 }
 
 void BoardDeviceSession::EnableRf()
 {
-    Check(library_.Functions().setRfPowerOn(RF_ON), "DrvSetRfPowerOn(1)");
+    LogBoardCallBegin("enable_rf", configurationAttempt_, "DrvSetRfPowerOn(1)");
+    Check(LogBoardCallReturned(
+              "enable_rf", configurationAttempt_, "DrvSetRfPowerOn(1)", library_.Functions().setRfPowerOn(RF_ON)),
+        "DrvSetRfPowerOn(1)");
 }
 
 std::vector<PortFrame> BoardDeviceSession::AcquireSweep(const SweepPlan &plan)
@@ -191,7 +225,9 @@ void BoardDeviceSession::Shutdown()
 {
     std::uint32_t status = NATIVE_SUCCESS;
     if (initializationAttempted_) {
-        status = library_.Functions().setRfPowerOn(RF_OFF);
+        LogBoardCallBegin("shutdown", configurationAttempt_, "DrvSetRfPowerOn(0)");
+        status = LogBoardCallReturned(
+            "shutdown", configurationAttempt_, "DrvSetRfPowerOn(0)", library_.Functions().setRfPowerOn(RF_OFF));
     }
     // 未关闭成功时不能证明驱动已经停止使用代码和数组，保留全部状态供恢复或析构兜底。
     Check(status, "DrvSetRfPowerOn(0)");

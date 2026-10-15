@@ -15,6 +15,7 @@ add_library(vna_core STATIC
     src/device/plan_preparation_error.cpp
     src/device/dynamic_library.cpp
     src/device/board/board_library.cpp
+    src/device/board/board_diagnostics.cpp
     src/device/board/board_device_session.cpp
     src/device/native/native_library.cpp
     src/device/native/native_device_session.cpp
