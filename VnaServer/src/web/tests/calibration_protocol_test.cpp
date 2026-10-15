@@ -12,6 +12,7 @@
 #include <thread>
 #include <vector>
 
+#include "calibration_history_test.h"
 #include "fixture.h"
 #include "scpi/scpi_engine.h"
 #include "web/calibration_json.h"
@@ -134,6 +135,50 @@ Json SetDocument(VnaServiceTest::Fixture &fixture)
     return VnaWeb::CalibrationJson::Export(set);
 }
 
+std::string ImportAndEnableSet(HttpApi &api, const std::string &token, const Json &document)
+{
+    auto imported = Action(api, "import", "import");
+    imported["data"] = document;
+    Require(Request(api, "/api/v1/calibration", imported).status == 403U, "Observers cannot import calibration");
+    const auto accepted = Request(api, "/api/v1/calibration", imported, token);
+    Complete(api, accepted, token);
+    Require(Field(Request(api, "/api/v1/calibration").json, "selectedSetId").string == "0", "Import is not activation");
+    Require(Field(Request(api, "/api/v1/calibration", imported, token).json, "operationId").string ==
+                Field(accepted.json, "operationId").string,
+        "Retry precedes revision conflict");
+    imported["requestId"] = Json("stale-import");
+    Require(Request(api, "/api/v1/calibration", imported, token).status == 409U, "Stale calibration CAS rejected");
+    const auto setId = Field(Field(Request(api, "/api/v1/calibration").json, "sets").array.front(), "id").string;
+    auto choose = Action(api, "select", "choose");
+    choose["setId"] = Json(setId);
+    Complete(api, Request(api, "/api/v1/calibration", choose, token), token);
+    auto enable = Action(api, "enable", "enable");
+    enable["enabled"] = Json(true);
+    Complete(api, Request(api, "/api/v1/calibration", enable, token), token);
+    return setId;
+}
+
+void VerifyScpiCorrection(VnaService::InstrumentService &service)
+{
+    VnaScpi::ScpiEngine observer(service);
+    Require(
+        !observer.HasControl() && Query(observer, "SENSE1:CORRECTION:STATE?") == "1\n", "SCPI reads Web calibration");
+    for (const auto kind : {"RDATA", "SDATA"}) {
+        auto values = Query(observer, std::string("CALC1:DATA? ") + kind);
+        for (char &character : values) {
+            if (character == ',') {
+                character = ' ';
+            }
+        }
+        std::istringstream input(values);
+        double real = 0.0;
+        double imag = 0.0;
+        input >> real >> imag;
+        Near(real, std::string(kind) == "RDATA" ? RAW_REAL : 0.3);
+        Near(imag, std::string(kind) == "RDATA" ? RAW_IMAG : -0.4);
+    }
+}
+
 void WebAndScpiReadSameCorrection()
 {
     VnaServiceTest::Fixture fixture(Profile());
@@ -158,24 +203,7 @@ void WebAndScpiReadSameCorrection()
     Complete(api, Request(api, "/api/v1/operations", single, token), token);
     const auto rawFrame = Request(api, "/api/v1/frame?trace=Reflect").json;
     const auto measurementRevision = Field(Request(api, "/api/v1/status").json, "revision").string;
-    auto imported = Action(api, "import", "import");
-    imported["data"] = SetDocument(fixture);
-    Require(Request(api, "/api/v1/calibration", imported).status == 403U, "Observers cannot import calibration");
-    const auto accepted = Request(api, "/api/v1/calibration", imported, token);
-    Complete(api, accepted, token);
-    Require(Field(Request(api, "/api/v1/calibration").json, "selectedSetId").string == "0", "Import is not activation");
-    Require(Field(Request(api, "/api/v1/calibration", imported, token).json, "operationId").string ==
-                Field(accepted.json, "operationId").string,
-        "Retry precedes revision conflict");
-    imported["requestId"] = Json("stale-import");
-    Require(Request(api, "/api/v1/calibration", imported, token).status == 409U, "Stale calibration CAS rejected");
-    const auto setId = Field(Field(Request(api, "/api/v1/calibration").json, "sets").array.front(), "id").string;
-    auto choose = Action(api, "select", "choose");
-    choose["setId"] = Json(setId);
-    Complete(api, Request(api, "/api/v1/calibration", choose, token), token);
-    auto enable = Action(api, "enable", "enable");
-    enable["enabled"] = Json(true);
-    Complete(api, Request(api, "/api/v1/calibration", enable, token), token);
+    const auto setId = ImportAndEnableSet(api, token, SetDocument(fixture));
     const auto corrected = Request(api, "/api/v1/frame?trace=Reflect").json;
     const auto &trace = Field(corrected, "traces").array.front();
     Require(Field(trace, "calibration").string == "calibrated", "Frame labels actual correction");
@@ -185,26 +213,10 @@ void WebAndScpiReadSameCorrection()
                 Field(corrected, "calibrationRevision").string != Field(rawFrame, "calibrationRevision").string &&
                 Field(Request(api, "/api/v1/status").json, "revision").string == measurementRevision,
         "Correction changes only calibration version and reuses raw frame");
-    VnaScpi::ScpiEngine observer(fixture.service);
-    Require(
-        !observer.HasControl() && Query(observer, "SENSE1:CORRECTION:STATE?") == "1\n", "SCPI reads Web calibration");
-    for (const auto kind : {"RDATA", "SDATA"}) {
-        auto values = Query(observer, std::string("CALC1:DATA? ") + kind);
-        for (char &character : values) {
-            if (character == ',') {
-                character = ' ';
-            }
-        }
-        std::istringstream input(values);
-        double real = 0.0;
-        double imag = 0.0;
-        input >> real >> imag;
-        Near(real, std::string(kind) == "RDATA" ? RAW_REAL : 0.3);
-        Near(imag, std::string(kind) == "RDATA" ? RAW_IMAG : -0.4);
-    }
+    VerifyScpiCorrection(fixture.service);
     const auto document = Request(api, "/api/v1/calibration/sets/" + setId).json;
     Require(Field(document, "powerRaw").array.front().type == Json::Type::STRING, "Raw uint64 remains exact");
-    enable = Action(api, "enable", "disable");
+    auto enable = Action(api, "enable", "disable");
     enable["enabled"] = Json(false);
     Complete(api, Request(api, "/api/v1/calibration", enable, token), token);
     const auto disabled = Request(api, "/api/v1/frame?trace=Reflect").json;
@@ -304,76 +316,6 @@ void WebFinishAndCancelRestoreContinuousAcquisition()
         "HTTP normal cancellation restores continuous acquisition before reporting completion");
 }
 
-void LargeImportHistoryHasByteBudget()
-{
-    VnaServiceTest::Fixture fixture(Profile());
-    auto clock = HttpApi::Clock::now();
-    HttpApi api(fixture.service, [&clock] {
-        return clock;
-    });
-    auto token = Field(Request(api, "/api/v1/control/claim", Json::MakeObject()).json, "sessionId").string;
-    auto data = std::make_shared<VnaCalibration::CalibrationData>();
-    data->method = VnaCalibration::CalibrationMethod::TWO_PORT;
-    data->port1 = 2U;
-    data->port2 = 4U;
-    for (unsigned index = 0U; index < VnaService::MAX_SWEEP_POINTS; ++index) {
-        data->frequencyHz.push_back(10000000.0 + index * 1000.0);
-    }
-    const VnaCalibration::Complex value{0.12345678901234567, 0.12345678901234567};
-    VnaCalibration::TwoPortTerms terms;
-    terms.forwardReflection = {value, value, value};
-    terms.reverseReflection = terms.forwardReflection;
-    terms.forwardTransmission = {value, value, value};
-    terms.reverseTransmission = terms.forwardTransmission;
-    data->twoPortTerms.assign(data->frequencyHz.size(), terms);
-    VnaService::CalibrationSet set;
-    set.name = "Retained byte budget vector";
-    set.deviceIdentity = fixture.service.Identity();
-    set.includeIsolation = true;
-    set.ifBandwidthHz = 1000.0;
-    set.powerRaw.assign(data->frequencyHz.size(), 0U);
-    set.data = data;
-    const auto document = VnaWeb::CalibrationJson::Export(set);
-    Require(VnaWeb::StringifyJson(document, VnaWeb::CALIBRATION_JSON_BYTE_LIMIT).size() > 4U * 1024U * 1024U,
-        "Budget regression uses a real large coefficient document");
-    bool rejected = false;
-    Json firstRequest;
-    std::string firstOperation;
-    for (unsigned index = 0U; index < VnaService::MAX_CALIBRATION_SETS; ++index) {
-        auto body = Action(api, "import", "budget-" + std::to_string(index));
-        body["data"] = document;
-        const auto response = Request(api, "/api/v1/calibration", body, token);
-        if (response.status == 429U) {
-            Require(Field(Field(response.json, "error"), "code").string == "retry_history_full",
-                "Budget rejected explicitly");
-            rejected = true;
-            break;
-        }
-        Complete(api, response, token);
-        if (index == 0U) {
-            firstRequest = body;
-            firstOperation = Field(response.json, "operationId").string;
-        }
-        auto remove = Action(api, "delete", "budget-delete-" + std::to_string(index));
-        remove["setId"] = Field(Field(Request(api, "/api/v1/calibration").json, "sets").array.front(), "id");
-        Complete(api, Request(api, "/api/v1/calibration", remove, token), token);
-    }
-    Require(rejected, "Large canonical request history must not grow by sessions times file limit");
-    Require(
-        Field(Request(api, "/api/v1/calibration", firstRequest, token).json, "operationId").string == firstOperation,
-        "Full byte budget still returns retained idempotent operation");
-    auto renew = Json::MakeObject();
-    renew["sessionId"] = Json(token);
-    for (unsigned count = 0U; count < 3U; ++count) {
-        clock += std::chrono::seconds(21);
-        Require(Request(api, "/api/v1/control/claim", renew).status == 200U, "Controller retains lease across expiry");
-    }
-    Require(Request(api, "/api/v1/calibration", firstRequest, token).status == 410U,
-        "Expired retry keeps a tombstone without retaining coefficient bytes");
-    auto recovered = Action(api, "import", "budget-after-expiry");
-    recovered["data"] = document;
-    Complete(api, Request(api, "/api/v1/calibration", recovered, token), token);
-}
 }  // 匿名命名空间
 
 int main()
@@ -382,7 +324,7 @@ int main()
         WebAndScpiReadSameCorrection();
         ScpiMechanicalWorkflow();
         WebFinishAndCancelRestoreContinuousAcquisition();
-        LargeImportHistoryHasByteBudget();
+        VnaCalibrationProtocolTest::CheckHistoryBudget();
         std::cout << "PASS calibration HTTP/SCPI ownership, CAS, correction and mechanical workflow\n";
         return 0;
     } catch (const std::exception &error) {

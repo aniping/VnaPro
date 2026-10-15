@@ -125,7 +125,8 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/SimulatorNoiseIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn10_drv_sim> tdc1vn10)
     set_tests_properties(noise_iq_vn10_integration PROPERTIES TIMEOUT 60)
-    add_executable(vna_server_config_tests tests/server_config_loader_test.cpp ${SERVER_CONFIG_SOURCES})
+    add_executable(vna_server_config_tests tests/server_config_loader_test.cpp tests/server_config_expectations.cpp
+        ${SERVER_CONFIG_SOURCES})
     target_include_directories(vna_server_config_tests PRIVATE src)
     target_link_libraries(vna_server_config_tests PRIVATE vna_service vna_log yaml-cpp::yaml-cpp)
     add_test(NAME server_config

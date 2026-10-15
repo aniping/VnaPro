@@ -1,0 +1,197 @@
+/*
+ * Copyright (c) 2026 Huawei Device Co., Ltd.
+ */
+
+#include <cmath>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+
+#include "web/calibration_json.h"
+#include "web/calibration_json_fields.h"
+#include "web/display_json.h"
+
+namespace VnaWeb {
+namespace {
+using namespace CalibrationJsonDetail;
+
+void AppendComplex(Json &row, const VnaCalibration::Complex &value)
+{
+    if (!std::isfinite(value.real()) || !std::isfinite(value.imag())) {
+        throw std::invalid_argument("Cannot export nonfinite calibration coefficients");
+    }
+    row.array.emplace_back(value.real());
+    row.array.emplace_back(value.imag());
+}
+
+void AppendReflection(Json &row, const VnaCalibration::OnePortTerms &terms)
+{
+    AppendComplex(row, terms.directivity);
+    AppendComplex(row, terms.sourceMatch);
+    AppendComplex(row, terms.reflectionTracking);
+}
+
+void AppendTransmission(Json &row, const VnaCalibration::TransmissionTerms &terms)
+{
+    AppendComplex(row, terms.isolation);
+    AppendComplex(row, terms.loadMatch);
+    AppendComplex(row, terms.transmissionTracking);
+}
+
+VnaCalibration::Complex ComplexAt(const Json &row, std::size_t offset)
+{
+    for (const auto index : {offset, offset + 1U}) {
+        if (row.array[index].type != Json::Type::NUMBER || !std::isfinite(row.array[index].number)) {
+            throw std::invalid_argument("Calibration coefficients must be finite numbers");
+        }
+    }
+    return {row.array[offset].number, row.array[offset + 1U].number};
+}
+
+VnaCalibration::OnePortTerms ReflectionAt(const Json &row, std::size_t offset)
+{
+    return {ComplexAt(row, offset), ComplexAt(row, offset + 2U), ComplexAt(row, offset + 4U)};
+}
+
+VnaCalibration::TransmissionTerms TransmissionAt(const Json &row, std::size_t offset)
+{
+    return {ComplexAt(row, offset), ComplexAt(row, offset + 2U), ComplexAt(row, offset + 4U)};
+}
+
+Json ExportTerms(const VnaCalibration::CalibrationData &data, bool reflection)
+{
+    Json values = Json::MakeArray();
+    if (reflection) {
+        for (const auto &terms : data.onePortTerms) {
+            Json row = Json::MakeArray();
+            AppendReflection(row, terms);
+            values.array.push_back(std::move(row));
+        }
+    } else {
+        for (const auto &terms : data.twoPortTerms) {
+            Json row = Json::MakeArray();
+            // 与原程序 n×n 接收端/激励端矩阵完全相同的系数顺序。
+            AppendReflection(row, terms.forwardReflection);
+            AppendTransmission(row, terms.reverseTransmission);
+            AppendTransmission(row, terms.forwardTransmission);
+            AppendReflection(row, terms.reverseReflection);
+            values.array.push_back(std::move(row));
+        }
+    }
+    return values;
+}
+
+void ImportAxis(const Json &document, VnaCalibration::CalibrationData &data)
+{
+    const auto &axis = Field(document, "frequencyHz", Json::Type::ARRAY).array;
+    if (axis.size() < VnaService::MIN_SWEEP_POINTS || axis.size() > VnaService::MAX_SWEEP_POINTS) {
+        throw std::invalid_argument("Calibration frequency axis exceeds supported point count");
+    }
+    for (const auto &point : axis) {
+        if (point.type != Json::Type::NUMBER || !std::isfinite(point.number)) {
+            throw std::invalid_argument("Calibration frequency axis must be finite numbers");
+        }
+        data.frequencyHz.push_back(point.number);
+    }
+}
+
+void ImportPower(const Json &document, VnaService::CalibrationSet &set, std::size_t count)
+{
+    const auto &power = Field(document, "powerRaw", Json::Type::ARRAY).array;
+    if (power.size() != count) {
+        throw std::invalid_argument("Calibration power and frequency lengths differ");
+    }
+    for (const auto &point : power) {
+        Json raw = Json::MakeObject();
+        raw["value"] = point;
+        set.powerRaw.push_back(DisplayJson::Revision(raw, "value"));
+    }
+}
+
+void ImportTermRow(const Json &row, VnaCalibration::CalibrationData &data, bool reflection)
+{
+    if (row.type != Json::Type::ARRAY || row.array.size() != (reflection ? 6U : 24U)) {
+        throw std::invalid_argument("Invalid calibration coefficient row length");
+    }
+    if (reflection) {
+        data.onePortTerms.push_back(ReflectionAt(row, 0U));
+    } else {
+        VnaCalibration::TwoPortTerms terms;
+        terms.forwardReflection = ReflectionAt(row, 0U);
+        terms.reverseTransmission = TransmissionAt(row, 6U);
+        terms.forwardTransmission = TransmissionAt(row, 12U);
+        terms.reverseReflection = ReflectionAt(row, 18U);
+        data.twoPortTerms.push_back(std::move(terms));
+    }
+}
+
+void ImportTerms(const Json &document, VnaCalibration::CalibrationData &data)
+{
+    const auto &one = Field(document, "onePortTerms", Json::Type::ARRAY).array;
+    const auto &two = Field(document, "twoPortTerms", Json::Type::ARRAY).array;
+    const bool reflection = data.method == VnaCalibration::CalibrationMethod::ONE_PORT;
+    const auto count = data.frequencyHz.size();
+    if ((reflection && (one.size() != count || !two.empty())) ||
+        (!reflection && (two.size() != count || !one.empty()))) {
+        throw std::invalid_argument("Calibration model and coefficient shapes differ");
+    }
+    for (const auto &row : reflection ? one : two) {
+        ImportTermRow(row, data, reflection);
+    }
+}
+}  // 匿名命名空间
+
+Json CalibrationJson::Export(const VnaService::CalibrationSet &set)
+{
+    if (!set.data) {
+        throw std::invalid_argument("Calibration set has no coefficients");
+    }
+    const auto &data = *set.data;
+    Json value = Json::MakeObject();
+    value["schema"] = Json(1U);
+    value["id"] = Json(std::to_string(set.id));
+    value["name"] = Json(set.name);
+    value["deviceIdentity"] = Json(set.deviceIdentity);
+    value["ifBandwidthHz"] = Json(set.ifBandwidthHz);
+    value["includeIsolation"] = Json(set.includeIsolation);
+    value["method"] = Json(MethodName(data.method));
+    value["port1"] = Json(data.port1);
+    value["port2"] = Json(data.port2);
+    Json power = Json::MakeArray();
+    for (const auto raw : set.powerRaw) {
+        power.array.emplace_back(std::to_string(raw));
+    }
+    value["powerRaw"] = std::move(power);
+    Json frequencies = Json::MakeArray();
+    for (const double hz : data.frequencyHz) {
+        frequencies.array.emplace_back(hz);
+    }
+    value["frequencyHz"] = std::move(frequencies);
+    value["onePortTerms"] = ExportTerms(data, true);
+    value["twoPortTerms"] = ExportTerms(data, false);
+    return value;
+}
+
+VnaService::CalibrationSetPtr CalibrationJson::Import(const Json &document)
+{
+    Fields(document, {"schema", "id", "name", "deviceIdentity", "ifBandwidthHz", "includeIsolation", "powerRaw",
+                         "method", "port1", "port2", "frequencyHz", "onePortTerms", "twoPortTerms"});
+    if (Number(document, "schema") != 1.0) {
+        throw std::invalid_argument("Unsupported calibration schema");
+    }
+    auto set = std::make_shared<VnaService::CalibrationSet>();
+    set->name = Text(document, "name");
+    set->deviceIdentity = Text(document, "deviceIdentity");
+    set->ifBandwidthHz = Number(document, "ifBandwidthHz");
+    set->includeIsolation = Field(document, "includeIsolation", Json::Type::BOOLEAN).boolean;
+    auto data = std::make_shared<VnaCalibration::CalibrationData>();
+    data->method = Method(Text(document, "method"));
+    data->port1 = Port(document, "port1");
+    data->port2 = Port(document, "port2", true);
+    ImportAxis(document, *data);
+    ImportPower(document, *set, data->frequencyHz.size());
+    ImportTerms(document, *data);
+    set->data = std::move(data);
+    return set;
+}
+}  // 命名空间 VnaWeb

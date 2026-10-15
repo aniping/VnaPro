@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #endif
 
+#include "server_config_expectations.h"
 #include "server_config_loader.h"
 
 namespace {
@@ -100,47 +101,14 @@ void TestMapping(const std::string &path, const std::string &directory)
         "  sweep: {defaultStartHz: 20000000, defaultStopHz: 6000000000, defaultPoints: 401, defaultIfBandwidthHz: "
         "100, defaultPowerRaw: 18446744073709551615, defaultSweepMode: HOLD}\n");
     const auto config = VnaServer::LoadServerConfig(path);
-    Expect(config.log.level == VnaLog::Level::DEBUG && config.log.flushLevel == VnaLog::Level::ERROR_LEVEL,
-        "级别映射错误");
-    Expect(!config.log.consoleEnabled && config.log.fileEnabled && config.log.rotateOnOpen, "布尔值映射错误");
-    Expect(config.log.maxFileBytes == 8192U && config.log.maxFiles == 3U && config.log.maxRecordBytes == 1024U,
-        "滚动日志数值映射错误");
-    Expect(config.log.filePath == directory + "/output/service.log", "相对路径未使用配置文件目录");
-    Expect(config.log.pattern == "%Y [%K] %n - value=%v", "格式中的等号未被保留");
-    const auto &profile = config.instrument;
-    Expect(profile.portCount == 2U && profile.minFrequencyHz == 1e7 && profile.maxFrequencyHz == 8e9,
-        "二端口能力映射错误");
-    Expect(profile.defaultStartHz == 2e7 && profile.defaultStopHz == 6e9 && profile.defaultPoints == 401U &&
-               profile.defaultIfBandwidthHz == 100.0 &&
-               profile.defaultPowerRaw == std::numeric_limits<std::uint64_t>::max() &&
-               config.defaultSweepMode == VnaService::SweepMode::HOLD,
-        "扫描默认配置映射错误");
+    ServerConfigTest::CheckMapped(config, directory);
 }
 
 void TestDefaults(const std::string &path, const std::string &directory)
 {
     WriteConfig(path, "# 仅使用默认配置\n\n");
     const auto config = VnaServer::LoadServerConfig(path);
-    Expect(config.log.level == VnaLog::Level::INFO && config.log.flushLevel == VnaLog::Level::INFO, "默认级别错误");
-    Expect(config.log.consoleEnabled && config.log.fileEnabled && !config.log.rotateOnOpen, "默认输出开关错误");
-    Expect(config.log.maxFileBytes == 10485760U && config.log.maxFiles == 5U && config.log.maxRecordBytes == 65536U,
-        "默认滚动上限错误");
-    Expect(config.log.filePath == directory + "/logs/vnapro.log", "默认文件路径未使用配置文件目录");
-    const auto &profile = config.instrument;
-    Expect(profile.portCount == 4U && profile.minFrequencyHz == 1e7 && profile.maxFrequencyHz == 8e9,
-        "默认四端口能力错误");
-    Expect(profile.defaultStartHz == profile.minFrequencyHz && profile.defaultStopHz == profile.maxFrequencyHz &&
-               profile.defaultPoints == 201U && profile.defaultIfBandwidthHz == 1000.0 &&
-               profile.defaultPowerRaw == 0U && config.defaultSweepMode == VnaService::SweepMode::CONTINUOUS,
-        "默认扫描未覆盖完整频段");
-    Expect(config.server.ip == "127.0.0.1" && config.server.scpiPort == 5025U && config.server.webPort == 8080U &&
-               config.server.webEnabled && config.server.scpiIp.empty() && config.server.webIp.empty() &&
-               config.server.webRoot == "WebUI",
-        "默认监听配置错误");
-    Expect(config.driver.type == VnaServer::DriverType::HARDWARE && config.driver.api == VnaCore::DriverApi::TDC1VN10 &&
-               config.driver.library.empty() && config.driver.simulator.mode == "golden" &&
-               config.driver.simulator.seed == 42U && config.driver.simulator.noiseAmplitude == 0.002,
-        "默认驱动配置错误");
+    ServerConfigTest::CheckDefaults(config, directory);
     WriteConfig(path, "instrument: {portCount: 2}\nlog: {}\n");
     Expect(VnaServer::LoadServerConfig(path).instrument.portCount == 2U, "部分配置未保留其他默认值");
 }
