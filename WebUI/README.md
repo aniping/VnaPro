@@ -115,7 +115,7 @@ flowchart TB
 
 相关设置由 `status.display.infoTable`、`annotations`、`diagrams[].markerInfoVisible` 及 `presentations[name].markerInfoLocation` 读回。Marker Info 控制所属图窗字段显隐，Active Trace Only 根据全局活动迹线过滤；Marker Stimulus Info 仅控制 Marker 频率，不改变 Channel footer。Font Size 为后端保存的 80%～170%（默认 100%），应用于标题、通道列表和信息字段。隐藏 Table 保留迁移归属，移动不自动开启容器；页面先开启 Table 再允许迁入，刷新和观察窗口读取同一状态。
 
-图内 Marker 信息可拖到左/中/右 × 上/中/下九个预设位置；`markerInfoLocation` 的可选 `area` 随归属一次提交，`markerInfoArea` 从后端快照读回，默认 `topRight`。同锚点字段堆叠，窄图长响应整体换行并保留完整文本；采用透明底、迹线色读数。底部锚点的右键菜单向上展开。
+图内 Marker 信息可拖到左/中/右 × 上/中/下九个预设位置；`markerInfoLocation` 的可选 `area` 随归属一次提交，`markerInfoArea` 从后端快照读回，默认 `topRight`。同锚点字段堆叠；编号、迹线名和频率保持成组，按实际内容宽度排版，放得下时与响应同行，仅在宽度不足时将响应整段换行并保留完整文本；采用透明底、迹线色读数。底部锚点的右键菜单向上展开。
 
 图内信息字段不设置内部滚动条；密集内容由用户迁入独立 Table。Table 底部最大高度为工作区 35%，左右布局基准 300 px、最大宽度 40%，溢出内容在 Table 滚动；这些 CSS 范围是项目像素布局，不是原机配置。相对分割后的极窄图窗按可用宽度与字号整项隐藏通道行 Start/Stop，避免文字重叠；悬停通道行仍可读完整频段。原机确切标题列数、自动密度算法及隐藏后自动恢复规则没有明确证据。容量、色数及标题密度见[迹线与标记核对](../docs/research/ZNB8迹线与标记行为核对.md)，本期合同见[Info Table 核对](../docs/research/ZNB8信息表与标题排版核对.md)和[操作验收](../docs/InfoTable操作验收.md)。独立 Info Window、Bandfilter 和 Reference/Delta 信息仍未实现。
 

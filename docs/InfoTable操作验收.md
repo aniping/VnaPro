@@ -17,7 +17,7 @@
 
 Table 使用全部已保存图窗，Maximized 只隐藏其他绘图区，不删除其字段。底部 Table 最大高度为工作区的 35%，左右布局基准为 300 px、最大宽度 40%；内容过多时只在独立 Table 中滚动。这些 CSS 边界是项目像素布局，不是原机配置。标题按实际完整字宽排列，完整信息优先；标题变长时先减少列数，不为保留四列而隐藏信息。只有整个标题区容纳不下一条完整标题时才整字段隐藏，不截成省略号，扩大后恢复；不固定所有尺寸为四列，不删除迹线。
 
-九锚点拖动见官方 ZNB User Manual v74 [第 57 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=57)和 [第 1050 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=1050)。图内读数采用第 94 页的黑底、迹线色文字样式；同一手册第 90 页也有灰底示例，不能宣称所有固件均无灰底。窄图完整保留编号、频率和响应，长响应整体另起行；这是项目可读性适配，手册未规定响应式换行算法。同锚点字段按迹线顺序堆叠；密集信息仍可迁入 Table。
+九锚点拖动见官方 ZNB User Manual v74 [第 57 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=57)和 [第 1050 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=1050)。图内读数采用第 94 页的黑底、迹线色文字样式；同一手册第 90 页也有灰底示例，不能宣称所有固件均无灰底。编号与频率保持成组，宽度足够时和响应保持同行，仅在宽度不足时将响应整段换行；完整保留所有读数；这是项目可读性适配，手册未规定响应式换行算法。同锚点字段按迹线顺序堆叠；密集信息仍可迁入 Table。
 
 ## HTTP 合同
 

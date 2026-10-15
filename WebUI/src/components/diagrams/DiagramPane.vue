@@ -331,8 +331,6 @@ function markerInfoGroupStyle(area: MarkerInfoArea) {
   const column = MARKER_INFO_AREAS.indexOf(area) % 3
   const row = Math.floor(MARKER_INFO_AREAS.indexOf(area) / 3)
   return {
-    // 单行短读数按列的实际最小宽度留空间，长响应再整体换行。
-    minWidth: `min(${((props.annotations?.stimulusInfoVisible === false ? 115 : 203) * annotationFontScale.value) / 100}px, calc(100% - 4px))`,
     left: column === 0 ? '2px' : column === 1 ? '50%' : undefined,
     right: column === 2 ? '2px' : undefined,
     top: row === 0 ? '2px' : row === 1 ? '50%' : undefined,

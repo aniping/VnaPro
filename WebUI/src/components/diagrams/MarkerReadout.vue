@@ -30,6 +30,14 @@ const showTraceNames = computed(
     props.showTraceNames ||
     new Set(props.markers.map((marker) => marker.name)).size > 1,
 )
+const stimulusColumns = computed(() =>
+  [
+    '5px',
+    'var(--marker-number-width)',
+    ...(showTraceNames.value ? ['minmax(0, var(--marker-trace-width))'] : []),
+    ...(props.stimulusInfoVisible !== false ? ['minmax(0, max-content)'] : []),
+  ].join(' '),
+)
 const emit = defineEmits<{
   select: [value: { name: string; markerId: number }]
   relocate: [value: { name: string; location: MarkerInfoLocation }]
@@ -91,8 +99,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
       '--marker-line-height': `${(14 * (fontScale ?? 100)) / 100}px`,
       '--marker-number-width': `${(25 * (fontScale ?? 100)) / 100}px`,
       '--marker-trace-width': `${(42 * (fontScale ?? 100)) / 100}px`,
-      '--marker-frequency-width': `${(85 * (fontScale ?? 100)) / 100}px`,
-      '--marker-value-width': `${(75 * (fontScale ?? 100)) / 100}px`,
+      '--marker-stimulus-columns': stimulusColumns,
     }"
     aria-label="Marker readout"
     :title="
@@ -121,14 +128,16 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
       "
       @contextmenu="openContext($event, marker.name)"
     >
-      <span class="active-dot" aria-hidden="true">{{
-        marker.active ? '•' : ''
-      }}</span>
-      <span class="marker-number">M{{ marker.markerId }}</span>
-      <span v-if="showTraceNames" class="marker-trace">{{ marker.name }}</span>
-      <span v-if="stimulusInfoVisible !== false" class="marker-frequency">{{
-        markerFrequencyText(marker.result.frequencyHz)
-      }}</span>
+      <span class="marker-stimulus">
+        <span class="active-dot" aria-hidden="true">{{
+          marker.active ? '•' : ''
+        }}</span>
+        <span class="marker-number">M{{ marker.markerId }}</span>
+        <span v-if="showTraceNames" class="marker-trace">{{ marker.name }}</span>
+        <span v-if="stimulusInfoVisible !== false" class="marker-frequency">{{
+          markerFrequencyText(marker.result.frequencyHz)
+        }}</span>
+      </span>
       <span v-if="marker.result.valid" class="marker-value">
         <template v-if="isCircularFormat(marker.format)">{{
           circularReadout(marker.format, marker.result, marker.measurement.unit)
@@ -196,11 +205,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
 }
 
 .marker-row {
-  display: flex;
-  /* 按完整坐标换行，宽度不足时不截断数值。 */
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 3px;
+  display: flow-root;
+  /* 仅在刺激信息与响应之间换行，避免 flex-wrap 缩窄自身的内在宽度。 */
+  text-align: right;
   min-height: var(--marker-line-height, 14px);
   padding: 0;
   border: 0;
@@ -214,6 +221,16 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
   cursor: pointer;
   min-width: 0;
   max-width: 100%;
+}
+.marker-stimulus {
+  float: left;
+  display: inline-grid;
+  grid-template-columns: var(--marker-stimulus-columns);
+  align-items: baseline;
+  column-gap: 3px;
+  max-width: 100%;
+  padding-right: 8px;
+  vertical-align: top;
 }
 .marker-info-menu {
   position: absolute;
@@ -240,7 +257,6 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
 }
 
 .active-dot {
-  flex: 0 0 5px;
   color: var(--marker-color);
   text-align: center;
   font-size: var(--marker-font-size, 12px);
@@ -248,30 +264,28 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
 }
 
 .marker-number {
-  flex: 0 0 var(--marker-number-width, 25px);
   font-weight: 400;
   text-align: left;
 }
 
 .marker-trace {
-  flex: 0 1 var(--marker-trace-width, 42px);
   min-width: 0;
   overflow-wrap: anywhere;
   text-align: left;
 }
 
 .marker-frequency {
-  flex: 0 1 max-content;
-  min-width: min(var(--marker-frequency-width, 85px), 100%);
+  min-width: 0;
   overflow-wrap: anywhere;
   text-align: right;
 }
 
 .marker-value {
-  flex: 1 1 max-content;
-  min-width: min(var(--marker-value-width, 75px), 100%);
+  display: inline-block;
+  max-width: 100%;
   overflow-wrap: anywhere;
   text-align: right;
+  vertical-align: top;
 }
 
 .invalid {

@@ -458,7 +458,6 @@ test('Marker info font and stimulus settings affect field rows while keeping loc
     )
     assert.ok(textContent(root).includes('M10Trc128'))
     assert.equal(root.props!.style['--marker-font-size'], '18.7px')
-    assert.equal(root.props!.style['--marker-frequency-width'], '144.5px')
     let dragged = ''
     root.props!.onDragstart({
       dataTransfer: {
@@ -479,6 +478,11 @@ test('Marker info font and stimulus settings affect field rows while keeping loc
       ).length,
       1,
     )
+    const frequency = findElements(readout.render(), (node) =>
+      String(node.props?.class).includes('marker-frequency'),
+    )[0]!
+    assert.equal(textContent(frequency), '4.005000 GHz')
+    assert.equal(field.result.frequencyHz, 4.005e9)
   } finally {
     readout.dispose()
   }
