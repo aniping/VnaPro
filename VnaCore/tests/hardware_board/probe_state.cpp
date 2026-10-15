@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -24,7 +25,6 @@ namespace HardwareBoardProbe {
 namespace {
 
 constexpr std::uint32_t INVALID_CONTRACT = 7901U;
-constexpr std::uint32_t INJECTED_FAILURE = 731U;
 constexpr std::size_t VALUES_PER_POINT = 16U;
 
 std::string Environment(const char *name)
@@ -50,6 +50,23 @@ std::string ThreadIdentity()
     std::ostringstream value;
     value << std::this_thread::get_id();
     return value.str();
+}
+
+double ExpectedPower(const std::string &pattern, std::size_t point)
+{
+    if (pattern == "ramp") {
+        return 17.0 + static_cast<double>(point % 7U);
+    }
+    if (pattern == "fixed-negative") {
+        return -17.5;
+    }
+    if (pattern == "fractional") {
+        return point % 2U == 0U ? -17.5 : 0.25;
+    }
+    if (pattern == "boundaries") {
+        return point % 2U == 0U ? -120.0 : 100.0;
+    }
+    return 0.0;
 }
 
 }  // 匿名命名空间
@@ -87,7 +104,7 @@ bool ProbeState::Enter(const char *name, const std::string &arguments)
 
 std::uint32_t ProbeState::Failure(const char *name, std::uint32_t occurrence) const
 {
-    return failure_ == name && occurrence == failAt_ ? INJECTED_FAILURE : 0U;
+    return failure_ == name && occurrence == failAt_ ? failureCode_ : 0U;
 }
 
 std::uint32_t ProbeState::Initialize()
@@ -95,6 +112,8 @@ std::uint32_t ProbeState::Initialize()
     // 正式 VN10 库不在关闭时卸载；独立用例借助 INIT 更新测试配置及仪器状态。
     trace_ = Environment("VNAPRO_TEST_BOARD_TRACE");
     failure_ = Environment("VNAPRO_TEST_BOARD_FAIL");
+    powerPattern_ = Environment("VNAPRO_TEST_BOARD_POWER_PATTERN");
+    failureCode_ = Number("VNAPRO_TEST_BOARD_FAIL_CODE", 731U);
     failAt_ = Number("VNAPRO_TEST_BOARD_FAIL_AT", 1U);
     gateAt_ = Number("VNAPRO_TEST_BOARD_GATE_AT", 0U);
     thread_.clear();
@@ -128,11 +147,23 @@ void ProbeState::SetList(const char *name, std::uint64_t *values, std::uint32_t 
         valid_ = false;
         return;
     }
-    auto &target = std::string(name) == "FREQ" ? frequencies_ : (std::string(name) == "POWER" ? powers_ : bandwidths_);
+    auto &target = std::string(name) == "FREQ" ? frequencies_ : bandwidths_;
     target.assign(values, values + count);
-    auto &pointer = std::string(name) == "FREQ" ? frequencyPointer_
-                                                : (std::string(name) == "POWER" ? powerPointer_ : bandwidthPointer_);
+    auto &pointer = std::string(name) == "FREQ" ? frequencyPointer_ : bandwidthPointer_;
     pointer = values;
+}
+
+void ProbeState::SetPowers(double *values, std::uint32_t count)
+{
+    if (!Enter("POWER", std::to_string(count)) || !initialized_ || values == nullptr || count == 0U || scanning_) {
+        valid_ = false;
+        return;
+    }
+    powers_.assign(values, values + count);
+    powerPointer_ = values;
+    valid_ = valid_ && std::all_of(powers_.begin(), powers_.end(), [](double value) {
+        return std::isfinite(value) && value >= -120.0 && value <= 100.0;
+    });
 }
 
 void ProbeState::SetPorts(std::uint32_t *ports, std::uint32_t count)
@@ -149,17 +180,25 @@ void ProbeState::SetPorts(std::uint32_t *ports, std::uint32_t count)
     valid_ = valid_ && sorted.back() < 4U && std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end();
 }
 
+bool ProbeState::ValidateLists() const
+{
+    // 期望模式由调用方独立设置，不能从实际功率推断模式而放过错误的全零列表。
+    for (std::size_t point = 0U; point < frequencies_.size(); ++point) {
+        if (frequencies_[point] != 10000000U + 1000000U * point || bandwidths_[point] != 1000U ||
+            powers_[point] != ExpectedPower(powerPattern_, point)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::uint32_t ProbeState::Download()
 {
     if (!Enter("DOWNLOAD") || !initialized_ || frequencies_.empty() || powers_.size() != frequencies_.size() ||
         bandwidths_.size() != frequencies_.size() || ports_.empty() || scanning_) {
         return INVALID_CONTRACT;
     }
-    // 此处只约束测试采用的原始值，不将这些单位假设推广为真实驱动合同。
-    for (std::size_t point = 0U; point < frequencies_.size(); ++point) {
-        valid_ = valid_ && frequencies_[point] == 10000000U + 1000000U * point && bandwidths_[point] == 1000U &&
-                 (powers_[point] == 0U || powers_[point] == 17U + point % 7U);
-    }
+    valid_ = valid_ && ValidateLists();
     return valid_ ? Failure("DOWNLOAD", ++downloadCalls_) : INVALID_CONTRACT;
 }
 

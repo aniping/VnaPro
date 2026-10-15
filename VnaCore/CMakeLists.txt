@@ -11,6 +11,7 @@ if(NOT TARGET vna_log)
 endif()
 add_library(vna_core STATIC
     src/acquisition_core.cpp
+    src/sweep_plan_validation.cpp
     src/device/plan_preparation_error.cpp
     src/device/dynamic_library.cpp
     src/device/board/board_library.cpp

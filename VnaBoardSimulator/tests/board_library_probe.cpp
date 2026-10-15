@@ -27,7 +27,7 @@ BoardLibraryProbe::BoardLibraryProbe(const std::string &path)
         functions_.initialize = Load<VnaBoard::DrvHwInitFn>(VnaBoard::g_drvHwInitSymbol);
         functions_.frequencies = Load<VnaBoard::DrvSetFreqListFn>(VnaBoard::g_drvSetFreqListSymbol);
         functions_.powers = Load<VnaBoard::DrvSetPowerListFn>(VnaBoard::g_drvSetPowerListSymbol);
-        functions_.bandwidths = Load<VnaBoard::DrvSetIfbwListFn>(VnaBoard::g_drvSetIfbwListSymbol);
+        functions_.bandwidths = Load<VnaBoard::DrvSetIfBwListFn>(VnaBoard::g_drvSetIfBwListSymbol);
         functions_.ports = Load<VnaBoard::DrvSetWorkPortsFn>(VnaBoard::g_drvSetWorkPortsSymbol);
         functions_.download = Load<VnaBoard::DrvDataFrameDownloadFn>(VnaBoard::g_drvDataFrameDownloadSymbol);
         functions_.rfPower = Load<VnaBoard::DrvSetRfPowerOnFn>(VnaBoard::g_drvSetRfPowerOnSymbol);

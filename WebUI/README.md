@@ -143,7 +143,7 @@ Start 后进入正常仪器工作区的 Calibration 采集阶段：上方同时�
 
 校准收集期间禁用普通扫描和配置/目录变更；草稿向导冻结打开时的采集版本，会话阶段防止对已替换的 sessionId 提交。已保存标准的预览读取失败可用“重新读取预览”只读重试，不重新采集。全零 dB、未定义相位及没有有效样本的标准保留空曲线并显示对应说明。Cancel 丢弃工作会话并保持 HOLD；故障后仍可在持有控制租约且无待处理操作时发 Cancel，其他校准动作继续受健康状态门禁约束。无控制权时 Close 仅关闭向导并明确保留服务端会话，不能伪装为已取消。服务端结束会话后整段向导关闭，不重新打开第一步。
 
-Use Cal 显示 User Cal Active、实际端口覆盖、不适用原因及 Cal Manager。User Cal Active 的有效 On 状态同时要求 enabled 和 compatible；请求 On 但配置不兼容时显示 Off 和未生效原因，可清除启用请求。Cal Manager 的 Use Set 只选择集合并保留启停意图，Import 只加入服务端内存池，不暗中启用。选择兼容集合后通过 User Cal Active 启用；删除当前集会停用。集合摘要展示自身校准频率范围、点数、IFBW 与 Isolation 假设，不拿当前扫描设置替代旧集合属性。Export/Import 使用 VnaPro schema 1 JSON，重启后可导入恢复；不兼容 SNA/ZNB 专有 `.cal` 文件。
+Use Cal 显示 User Cal Active、实际端口覆盖、不适用原因及 Cal Manager。User Cal Active 的有效 On 状态同时要求 enabled 和 compatible；请求 On 但配置不兼容时显示 Off 和未生效原因，可清除启用请求。Cal Manager 的 Use Set 只选择集合并保留启停意图，Import 只加入服务端内存池，不暗中启用。选择兼容集合后通过 User Cal Active 启用；删除当前集会停用。集合摘要展示自身校准频率范围、点数、IFBW 与 Isolation 假设，不拿当前扫描设置替代旧集合属性。Export 使用 VnaPro schema 2 JSON，功率 `powerDbm` 保存负数及小数；Import 同时接受 schema 2 和功率全为精确字符串 `"0"` 的旧 schema 1，非零旧编码需重新校准。重启后可导入恢复；不兼容 SNA/ZNB 专有 `.cal` 文件。
 
 按实际帧迹线判断 Cal / Cal Off：全局 User Cal On 不表示所有端口都校正，例如 P2/P4 集不覆盖 S21。RAW 不应用误差校准。浏览器只显示后端的复数结果、格式投影和标记；SCPI SDATA 使用同一校正路径，RDATA 可读取未经校正结果。模拟器没有物理换接标准的模型，noise 变化导致的可解集合也只验证流程，不能作为实机精度依据。
 

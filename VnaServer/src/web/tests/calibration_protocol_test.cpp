@@ -130,7 +130,7 @@ Json SetDocument(VnaServiceTest::Fixture &fixture)
     set.name = "Fixed external vector";
     set.deviceIdentity = fixture.service.Identity();
     set.ifBandwidthHz = frame->plan.ifBandwidthRaw;
-    set.powerRaw = frame->plan.powerRaw;
+    set.powerDbm = frame->plan.powerDbm;
     set.data = data;
     return VnaWeb::CalibrationJson::Export(set);
 }
@@ -215,7 +215,7 @@ void WebAndScpiReadSameCorrection()
         "Correction changes only calibration version and reuses raw frame");
     VerifyScpiCorrection(fixture.service);
     const auto document = Request(api, "/api/v1/calibration/sets/" + setId).json;
-    Require(Field(document, "powerRaw").array.front().type == Json::Type::STRING, "Raw uint64 remains exact");
+    Require(Field(document, "powerDbm").array.front().type == Json::Type::NUMBER, "Power is numeric dBm");
     auto enable = Action(api, "enable", "disable");
     enable["enabled"] = Json(false);
     Complete(api, Request(api, "/api/v1/calibration", enable, token), token);

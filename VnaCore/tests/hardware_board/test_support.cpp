@@ -37,7 +37,7 @@ VnaCore::SweepPlan Plan(std::vector<std::uint32_t> sources)
         const auto frequency = UINT64_C(10000000) + UINT64_C(1000000) * point;
         plan.frequencyRaw.push_back(frequency);
         plan.frequencyHz.push_back(static_cast<double>(frequency));
-        plan.powerRaw.push_back(17U + point % 7U);
+        plan.powerDbm.push_back(17.0 + static_cast<double>(point % 7U));
     }
     plan.ifBandwidthRaw = 1000U;
     plan.receiverMask = 0xFU;
@@ -48,7 +48,7 @@ VnaCore::SweepPlan Plan(std::vector<std::uint32_t> sources)
 void VerifyFrame(const VnaCore::FramePtr &frame, const VnaCore::SweepPlan &plan, std::uint32_t sweep)
 {
     Require(frame && frame->ports.size() == plan.sourcePorts.size(), "hardware frame lost a working source");
-    Require(frame->plan.frequencyRaw == plan.frequencyRaw && frame->plan.powerRaw == plan.powerRaw &&
+    Require(frame->plan.frequencyRaw == plan.frequencyRaw && frame->plan.powerDbm == plan.powerDbm &&
                 frame->plan.sourcePorts == plan.sourcePorts && frame->plan.ifBandwidthRaw == plan.ifBandwidthRaw,
         "published hardware plan differs from downloaded plan");
     for (std::size_t source = 0U; source < plan.sourcePorts.size(); ++source) {

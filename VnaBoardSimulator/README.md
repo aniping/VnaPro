@@ -8,7 +8,7 @@ VN08 和 VN10 有同名但不同签名的导出函数，必须明确选择接口
 
 ```mermaid
 flowchart TD
-    A[DrvHwInit 初始化，RF 关闭] --> B[SetFreqList / SetPowerList / SetIfbwList / SetWorkPorts]
+    A[DrvHwInit 初始化，RF 关闭] --> B[SetFreqList / SetPowerList / SetIfBwList / SetWorkPorts]
     B --> C[DrvDataFrameDownload 校验并原子提交]
     C --> D[DrvSetRfPowerOn 1]
     D --> E[DrvStartSweep 非阻塞启动一次多源扫描]
@@ -29,15 +29,15 @@ RF 关闭会取消扫描、通知等待者，并在返回前回收后台线程�
 
 ## 模拟器约定
 
-数据排列按本次提供的驱动说明：先 P1 的全部请求频点，再 P2 等工作源端口；每个频点的接收顺序为 A1/B1 到 A4/B4，每个 AXPN/BXPN 按实部、虚部排列。供应头仍未定义单位、错误码及 `EXPORT_API` 链接约定，下表中除已确认的数据排列外，其余模拟约定需要与真实驱动说明核对：
+数据排列按本次提供的驱动说明：先 P1 的全部请求频点，再 P2 等工作源端口；每个频点的接收顺序为 A1/B1 到 A4/B4，每个 AXPN/BXPN 按实部、虚部排列。修正后的供应头明确功率数组为 `double[]`，IFBW 函数名为 `DrvSetIfBwList`；已确认功率单位 dBm、有效范围为闭区间 `[-120,100]`。供应头仍未定义厂商错误码及 `EXPORT_API` 链接约定。
 
 | 项目 | 本项目约定 |
 | --- | --- |
 | 导出 | 九个未修饰的 C 链接名称，平台默认调用约定 |
 | 原生端口 | 0～3；核心物理端口 1～4 在适配器转换 |
 | frequency / IFBW | uint64 原始值；模拟器配置映射为整数 Hz |
-| power | uint64 原始编码，原样保存，不解释为 dBm |
-| 逐点数组 | 相同的 N 个元素；核心 powerRaw 为空时下发 N 个零值 |
+| power | double，有限 dBm，范围 `[-120,100]`，保留负数和小数 |
+| 逐点数组 | 相同的 N 个元素；核心 powerDbm 为空时下发 N 个 0 dBm |
 | IQ | `[工作源端口列表顺序][请求范围内频点][接收0～3][A实,A虚,B实,B虚]` |
 | Get 范围 | start_index 从 0 起；fNum 为频点数量，跨全部工作源端口 |
 | dataLen | double 元素容量，至少 `fNum × 源数 × 16` |
@@ -74,4 +74,4 @@ cmake -E chdir build-vn10 ctest --output-on-failure
 
 服务不接受命令行参数。部署时在程序旁的 `vnapro.yml` 设置 `driver.board` 和 `driver.library`，驱动库与程序放在同一目录。Windows MinGW 库名为 `libtdc1vn10_drv_sim.dll`；Linux 为 `.so`，macOS 为 `.dylib`。接口选错时在绑定必需符号阶段失败，不调用同名异签名函数。
 
-测试覆盖暂存配置、原子组帧、异步与部分取数、缓冲边界、取消、环境模式、动态导出、核心双/四端口完整帧及 HTTP/SCPI 一致性。真实接口没有取消、超时或扫描状态查询：硬件 Get 若一直不返回，软件不能保证 Stop/Close 立即完成。
+测试覆盖供应头独立类型/符号合同、负数/小数功率及范围边界、暂存配置、原子组帧、异步与部分取数、缓冲边界、取消、环境模式、动态导出、核心双/四端口完整帧及 HTTP/SCPI 一致性。真实接口没有取消、超时或扫描状态查询：硬件 Get 若一直不返回，软件不能保证 Stop/Close 立即完成。

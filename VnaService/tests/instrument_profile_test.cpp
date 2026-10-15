@@ -93,34 +93,34 @@ void HardwareProfileKeepsDeviceIdentity()
         "重复初始化仪器配置必须拒绝且保留原目录");
 }
 
-void RawPowerIsFrozenAcrossPlanUpdates()
+void PowerDbmIsFrozenAcrossPlanUpdates()
 {
     VnaService::InstrumentProfile profile;
     profile.defaultPoints = 3U;
-    profile.defaultPowerRaw = 0xFEDCBA9876543210ULL;
-    const auto expectedPower = profile.defaultPowerRaw;
+    profile.defaultPowerDbm = -17.5;
+    const auto expectedPower = profile.defaultPowerDbm;
     VnaServiceTest::Fixture fixture(profile);
-    profile.defaultPowerRaw = 7U;
+    profile.defaultPowerDbm = 0.25;
     auto &service = fixture.service;
     Require(
-        service.TryAcquireControl() && Finish(fixture, service.RunSingle("SCPI")).ok, "显式原始功率配置完成首次采集");
+        service.TryAcquireControl() && Finish(fixture, service.RunSingle("SCPI")).ok, "显式 dBm 功率配置完成首次采集");
     const auto first = service.Snapshot().core.frame;
-    Require(first && first->plan.powerRaw.size() == 3U &&
-                std::all_of(first->plan.powerRaw.begin(), first->plan.powerRaw.end(),
-                    [expectedPower](std::uint64_t value) {
+    Require(first && first->plan.powerDbm.size() == 3U &&
+                std::all_of(first->plan.powerDbm.begin(), first->plan.powerDbm.end(),
+                    [expectedPower](double value) {
                         return value == expectedPower;
                     }),
-        "逐点功率必须保留完整64位编码，不能截断或暗中解释为 dBm");
+        "逐点功率必须保留负数和小数 dBm，不能经无符号整数转换");
     Require(Finish(fixture, service.SetPoints(5U)).ok && Finish(fixture, service.RunSingle("SCPI")).ok,
-        "修改点数后使用冻结的原始功率重新采集");
+        "修改点数后使用冻结的 dBm 功率重新采集");
     const auto updated = service.Snapshot().core.frame;
-    Require(updated && updated->plan.powerRaw.size() == 5U &&
-                std::all_of(updated->plan.powerRaw.begin(), updated->plan.powerRaw.end(),
-                    [expectedPower](std::uint64_t value) {
+    Require(updated && updated->plan.powerDbm.size() == 5U &&
+                std::all_of(updated->plan.powerDbm.begin(), updated->plan.powerDbm.end(),
+                    [expectedPower](double value) {
                         return value == expectedPower;
                     }) &&
-                first->plan.powerRaw.size() == 3U,
-        "新增频点沿用启动功率编码，外部 profile 变更和新扫描不得修改旧完整帧");
+                first->plan.powerDbm.size() == 3U,
+        "新增频点沿用启动 dBm，外部 profile 变更和新扫描不得修改旧完整帧");
 }
 
 void StimulusAxisUsesCommittedConfiguration()
@@ -218,7 +218,7 @@ int main()
     try {
         DefaultMeasurementIsUncalibratedSParameter();
         HardwareProfileKeepsDeviceIdentity();
-        RawPowerIsFrozenAcrossPlanUpdates();
+        PowerDbmIsFrozenAcrossPlanUpdates();
         StimulusAxisUsesCommittedConfiguration();
         CoupledEndpointsAreAtomic();
         PortLimitsAndSinglePort();

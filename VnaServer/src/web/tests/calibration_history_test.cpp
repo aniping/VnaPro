@@ -104,7 +104,7 @@ Json BudgetDocument(const std::string &identity)
     set.deviceIdentity = identity;
     set.includeIsolation = true;
     set.ifBandwidthHz = 1000.0;
-    set.powerRaw.assign(data->frequencyHz.size(), 0U);
+    set.powerDbm.assign(data->frequencyHz.size(), 0.0);
     set.data = data;
     const auto document = VnaWeb::CalibrationJson::Export(set);
     Require(VnaWeb::StringifyJson(document, VnaWeb::CALIBRATION_JSON_BYTE_LIMIT).size() > 4U * 1024U * 1024U,

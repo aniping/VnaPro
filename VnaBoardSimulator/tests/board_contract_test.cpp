@@ -16,7 +16,7 @@ namespace {
 void Stage(const BoardFunctions &api, std::uint32_t pointCount, const std::vector<std::uint32_t> &workPorts)
 {
     std::vector<std::uint64_t> frequencies(pointCount, 1000000000ULL);
-    std::vector<std::uint64_t> powers(pointCount, std::numeric_limits<std::uint64_t>::max());
+    std::vector<double> powers(pointCount, 17.0);
     std::vector<std::uint64_t> bandwidths(pointCount, 1000U);
     auto ports = workPorts;
     api.frequencies(frequencies.data(), pointCount);
@@ -74,7 +74,7 @@ void TestLayoutLiteral(const std::string &path)
     const auto &api = library.Functions();
     Require(api.initialize() == VnaBoard::DRV_SIM_OK, "布局测试初始化失败");
     std::uint64_t frequencies[] = {1000000000ULL, 2000000000ULL};
-    std::uint64_t powers[] = {0U, 0U};
+    double powers[] = {-17.5, 0.25};
     std::uint64_t bandwidths[] = {1000U, 1000U};
     std::uint32_t ports[] = {1U, 0U};
     api.frequencies(frequencies, 2U);

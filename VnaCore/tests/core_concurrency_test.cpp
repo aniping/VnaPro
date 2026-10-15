@@ -198,15 +198,15 @@ void TestOwnedInputAndShutdownError()
     auto input = MakePlan();
     const auto configured = f.core.Configure(input);
     input.frequencyRaw[0] = 42U;
-    input.powerRaw.clear();
+    input.powerDbm.clear();
     input.tableData.clear();
     Require(Await(configured).ok, "owned input failed to apply");
     const auto started = Await(f.core.Start(RunMode::MANUAL));
     Require(Await(f.core.TriggerOnce(started.runId, started.configRevision)).ok, "owned input scan failed");
     Require(
         f.core.ReadView().frame->plan.frequencyRaw[0] == UINT64_C(1000000), "caller mutation changed the frozen plan");
-    Require(f.core.ReadView().frame->plan.powerRaw == MakePlan().powerRaw,
-        "caller mutation changed the frozen raw power list");
+    Require(f.core.ReadView().frame->plan.powerDbm == MakePlan().powerDbm,
+        "caller mutation changed the frozen dBm power list");
     {
         std::lock_guard<std::mutex> lock(f.device->mutex_);
         f.device->failShutdown_ = true;

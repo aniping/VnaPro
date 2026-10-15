@@ -14,7 +14,7 @@ struct BoardFunctions {
     VnaBoard::DrvHwInitFn initialize = nullptr;
     VnaBoard::DrvSetFreqListFn frequencies = nullptr;
     VnaBoard::DrvSetPowerListFn powers = nullptr;
-    VnaBoard::DrvSetIfbwListFn bandwidths = nullptr;
+    VnaBoard::DrvSetIfBwListFn bandwidths = nullptr;
     VnaBoard::DrvSetWorkPortsFn ports = nullptr;
     VnaBoard::DrvDataFrameDownloadFn download = nullptr;
     VnaBoard::DrvSetRfPowerOnFn rfPower = nullptr;

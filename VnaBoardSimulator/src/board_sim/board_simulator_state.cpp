@@ -13,6 +13,7 @@
 #include <string>
 
 #include "board_signal_model.h"
+#include "board_sweep_validation.h"
 #include "vna_board/board_api_contract.h"
 
 namespace VnaBoard {
@@ -82,34 +83,6 @@ bool ReadSettings(SignalSettings &settings)
         return true;
     }
     return ReadNoiseSeed(settings.seed) && ReadNoiseAmplitude(settings.noiseAmplitude);
-}
-
-std::uint32_t ValidatePlan(SweepPlan &plan)
-{
-    const std::size_t points = plan.frequencies.size();
-    if (points == 0U || plan.powers.size() != points || plan.bandwidths.size() != points || plan.workPorts.empty() ||
-        plan.workPorts.size() > BOARD_PORT_COUNT) {
-        return DRV_SIM_INVALID_ARGUMENT;
-    }
-    if (std::find(plan.frequencies.begin(), plan.frequencies.end(), 0U) != plan.frequencies.end() ||
-        std::find(plan.bandwidths.begin(), plan.bandwidths.end(), 0U) != plan.bandwidths.end()) {
-        return DRV_SIM_INVALID_ARGUMENT;
-    }
-    std::uint32_t seen = 0U;
-    for (const auto port : plan.workPorts) {
-        if (port >= BOARD_PORT_COUNT || (seen & (1U << port)) != 0U) {
-            return DRV_SIM_INVALID_ARGUMENT;
-        }
-        seen |= 1U << port;
-    }
-    plan.valuesPerPoint = plan.workPorts.size() * IQ_VALUES_PER_SOURCE_POINT;
-    const std::size_t maxValues =
-        std::min(MAX_SWEEP_BYTES / sizeof(double), static_cast<std::size_t>(std::numeric_limits<int>::max()));
-    if (points > maxValues / plan.valuesPerPoint) {
-        return DRV_SIM_SIZE_OVERFLOW;
-    }
-    plan.totalValues = points * plan.valuesPerPoint;
-    return DRV_SIM_OK;
 }
 
 void CopyRange(const SweepResult &result, std::size_t start, std::size_t count, double *output)
@@ -203,10 +176,6 @@ void BoardSimulatorState::SetList(ListKind kind, const std::uint64_t *values, st
             staged_.plan.frequencies = std::move(copy);
             staged_.frequenciesValid = valid;
             break;
-        case ListKind::POWERS:
-            staged_.plan.powers = std::move(copy);
-            staged_.powersValid = valid;
-            break;
         case ListKind::BANDWIDTHS:
             staged_.plan.bandwidths = std::move(copy);
             staged_.bandwidthsValid = valid;
@@ -221,9 +190,20 @@ void BoardSimulatorState::SetFrequencies(const std::uint64_t *values, std::uint3
     SetList(ListKind::FREQUENCIES, values, length);
 }
 
-void BoardSimulatorState::SetPowers(const std::uint64_t *values, std::uint32_t length) noexcept
+void BoardSimulatorState::SetPowers(const double *values, std::uint32_t length) noexcept
 {
-    SetList(ListKind::POWERS, values, length);
+    std::vector<double> copy;
+    bool valid = values != nullptr && length > 0U && length <= MAX_POINT_COUNT;
+    try {
+        if (valid) {
+            copy.assign(values, values + length);
+        }
+    } catch (...) {
+        valid = false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    staged_.plan.powers = std::move(copy);
+    staged_.powersValid = valid && initialized_;
 }
 
 void BoardSimulatorState::SetBandwidths(const std::uint64_t *values, std::uint32_t length) noexcept

@@ -16,7 +16,8 @@ constexpr std::size_t MAX_POINT_COUNT = MAX_SWEEP_BYTES / (16U * sizeof(double))
 
 struct SweepPlan {
     std::vector<std::uint64_t> frequencies;
-    std::vector<std::uint64_t> powers;
+    // 逐频点功率，单位 dBm；功率暂不参与模拟 IQ 的物理响应。
+    std::vector<double> powers;
     std::vector<std::uint64_t> bandwidths;
     std::vector<std::uint32_t> workPorts;
     std::size_t valuesPerPoint = 0U;

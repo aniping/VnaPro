@@ -11,7 +11,7 @@
 static_assert(std::is_same<decltype(&DrvHwInit), VnaBoard::DrvHwInitFn>::value, "初始化 ABI 不符");
 static_assert(std::is_same<decltype(&DrvSetFreqList), VnaBoard::DrvSetFreqListFn>::value, "频点 ABI 不符");
 static_assert(std::is_same<decltype(&DrvSetPowerList), VnaBoard::DrvSetPowerListFn>::value, "功率 ABI 不符");
-static_assert(std::is_same<decltype(&DrvSetIfbwList), VnaBoard::DrvSetIfbwListFn>::value, "中频 ABI 不符");
+static_assert(std::is_same<decltype(&DrvSetIfBwList), VnaBoard::DrvSetIfBwListFn>::value, "中频 ABI 不符");
 static_assert(std::is_same<decltype(&DrvSetWorkPorts), VnaBoard::DrvSetWorkPortsFn>::value, "端口 ABI 不符");
 static_assert(std::is_same<decltype(&DrvDataFrameDownload), VnaBoard::DrvDataFrameDownloadFn>::value, "组帧 ABI 不符");
 static_assert(std::is_same<decltype(&DrvSetRfPowerOn), VnaBoard::DrvSetRfPowerOnFn>::value, "射频 ABI 不符");

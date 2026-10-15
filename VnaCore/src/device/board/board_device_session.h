@@ -24,7 +24,7 @@ public:
 
     // 此接口没有 IDN 查询；回报通用适配器标识，并显式关闭初始射频。
     std::string Initialize() override;
-    // 先准备所有列表，再暂存并一次性组帧；原始功率值不解释为 dBm。
+    // 先准备所有列表，再暂存并一次性组帧；逐点 double 功率单位为 dBm。
     void ApplyPlan(const SweepPlan &plan) override;
     void EnableRf() override;
     // 一次启动全部工作源端口，分段等待读回后拆为核心的独立源缓冲区。
@@ -35,7 +35,7 @@ public:
 private:
     struct DownloadLists {
         std::vector<std::uint64_t> frequencies;
-        std::vector<std::uint64_t> powers;
+        std::vector<double> powers;
         std::vector<std::uint64_t> bandwidths;
         std::vector<std::uint32_t> ports;
     };

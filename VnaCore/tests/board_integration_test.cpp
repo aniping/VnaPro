@@ -58,7 +58,7 @@ VnaCore::SweepPlan MakePlan(std::vector<std::uint32_t> sources)
         plan.frequencyRaw.push_back(frequency);
         plan.frequencyHz.push_back(static_cast<double>(frequency));
     }
-    plan.powerRaw.assign(TEST_POINTS, 17U);
+    plan.powerDbm.assign(TEST_POINTS, 17.0);
     plan.ifBandwidthRaw = 1000U;
     plan.receiverMask = VnaCore::ALL_RECEIVERS_MASK;
     plan.sourcePorts = std::move(sources);
@@ -69,7 +69,7 @@ VnaCore::SweepPlan MakePlan(std::vector<std::uint32_t> sources)
 void DownloadReference(const VnaCore::Detail::BoardFunctions &functions, const VnaCore::SweepPlan &plan)
 {
     auto frequencies = plan.frequencyRaw;
-    auto powers = plan.powerRaw.empty() ? std::vector<std::uint64_t>(TEST_POINTS, 0U) : plan.powerRaw;
+    auto powers = plan.powerDbm.empty() ? std::vector<double>(TEST_POINTS, 0.0) : plan.powerDbm;
     std::vector<std::uint64_t> bandwidths(TEST_POINTS, plan.ifBandwidthRaw);
     std::vector<std::uint32_t> ports;
     for (const auto source : plan.sourcePorts) {
@@ -78,7 +78,7 @@ void DownloadReference(const VnaCore::Detail::BoardFunctions &functions, const V
     const auto count = static_cast<std::uint32_t>(TEST_POINTS);
     functions.setFreqList(frequencies.data(), count);
     functions.setPowerList(powers.data(), count);
-    functions.setIfbwList(bandwidths.data(), count);
+    functions.setIfBwList(bandwidths.data(), count);
     functions.setWorkPorts(ports.data(), static_cast<std::uint32_t>(ports.size()));
     Require(functions.dataFrameDownload() == 0U, "reference download failed");
 }
@@ -111,7 +111,7 @@ void VerifyFrame(
     const VnaCore::MeasurementFrame &frame, const VnaCore::SweepPlan &plan, const std::vector<double> &reference)
 {
     Require(frame.ports.size() == plan.sourcePorts.size() && frame.plan.sourcePorts == plan.sourcePorts &&
-                frame.plan.frequencyRaw == plan.frequencyRaw && frame.plan.powerRaw == plan.powerRaw,
+                frame.plan.frequencyRaw == plan.frequencyRaw && frame.plan.powerDbm == plan.powerDbm,
         "VN10 frame lost the complete frozen plan");
     for (std::size_t source = 0U; source < frame.ports.size(); ++source) {
         const auto &port = frame.ports[source];
@@ -174,7 +174,7 @@ void RunProfile(const std::string &path, std::vector<std::uint32_t> sources)
     auto plan = MakePlan(std::move(sources));
     if (plan.sourcePorts.size() == 2U) {
         plan.tableData.clear();  // 新 VN10 计划不必携带旧接口的 9N 表。
-        plan.powerRaw.clear();   // 覆盖未提供逐点原始功率时的模拟器默认值。
+        plan.powerDbm.clear();   // 覆盖未提供逐点功率时的默认 0 dBm。
     }
     const auto reference = ReadReference(path, plan);
     VnaCore::AcquisitionCore core(path, VnaCore::DriverApi::TDC1VN10);
@@ -182,8 +182,8 @@ void RunProfile(const std::string &path, std::vector<std::uint32_t> sources)
     Require(core.ReadView().deviceIdn == "VnaPro,TDC1VN10,4PORT,1.0", "VN10 adapter identity missing");
     const auto configured = Await(core.Configure(plan));
     auto shortPower = plan;
-    shortPower.powerRaw.assign(TEST_POINTS, 0U);
-    shortPower.powerRaw.pop_back();
+    shortPower.powerDbm.assign(TEST_POINTS, 0.0);
+    shortPower.powerDbm.pop_back();
     Require(!core.Configure(shortPower).get().ok && core.ReadView().configRevision == configured.configRevision,
         "VN10 mismatched power length was accepted");
     const auto started = Await(core.Start(VnaCore::RunMode::MANUAL));

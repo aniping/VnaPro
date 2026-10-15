@@ -16,7 +16,7 @@ struct BoardFunctions final {
     VnaBoard::DrvHwInitFn hwInit = nullptr;
     VnaBoard::DrvSetFreqListFn setFreqList = nullptr;
     VnaBoard::DrvSetPowerListFn setPowerList = nullptr;
-    VnaBoard::DrvSetIfbwListFn setIfbwList = nullptr;
+    VnaBoard::DrvSetIfBwListFn setIfBwList = nullptr;
     VnaBoard::DrvSetWorkPortsFn setWorkPorts = nullptr;
     VnaBoard::DrvDataFrameDownloadFn dataFrameDownload = nullptr;
     VnaBoard::DrvSetRfPowerOnFn setRfPowerOn = nullptr;
@@ -40,10 +40,7 @@ public:
     // VN10 没有释放入口；经过初始化的模块正常或异常关闭都保持驻留，不释放加载引用。
     void KeepLoadedUntilExit() noexcept;
 
-    const BoardFunctions &Functions() const noexcept
-    {
-        return functions_;
-    }
+    const BoardFunctions &Functions() const noexcept;
 
 private:
     DynamicLibrary library_;

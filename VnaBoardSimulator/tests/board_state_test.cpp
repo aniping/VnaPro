@@ -48,7 +48,7 @@ void TestValidationAndBudget()
     Require(state.Download() == VnaBoard::DRV_SIM_INVALID_ARGUMENT, "重复工作端口必须拒绝");
     const std::size_t tooMany = VnaBoard::MAX_SWEEP_BYTES / (4U * 16U * sizeof(double)) + 1U;
     const std::vector<std::uint64_t> frequencies(tooMany, 1000000000ULL);
-    const std::vector<std::uint64_t> powers(tooMany, std::numeric_limits<std::uint64_t>::max());
+    const std::vector<double> powers(tooMany, 17.0);
     const std::vector<std::uint64_t> bandwidths(tooMany, 1U);
     const std::uint32_t ports[] = {0U, 1U, 2U, 3U};
     state.SetFrequencies(frequencies.data(), static_cast<std::uint32_t>(tooMany));

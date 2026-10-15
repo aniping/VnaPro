@@ -20,7 +20,7 @@ using VnaCalibration::Complex;
 bool Compatible(const CalibrationSet &set, const std::string &identity, const VnaCore::SweepPlan &plan) noexcept
 {
     return set.data && set.deviceIdentity == identity && set.ifBandwidthHz == plan.ifBandwidthRaw &&
-           set.powerRaw == plan.powerRaw && set.data->frequencyHz == plan.frequencyHz;
+           set.powerDbm == plan.powerDbm && set.data->frequencyHz == plan.frequencyHz;
 }
 
 void AddPort(VnaCore::SweepPlan &plan, unsigned port)
@@ -272,7 +272,7 @@ void CalibrationWorkspace::InitializeSession(
     session_.deviceIdentity = identity;
     session_.includeIsolation = change.includeIsolation;
     session_.ifBandwidthHz = plan.ifBandwidthRaw;
-    session_.powerRaw = plan.powerRaw;
+    session_.powerDbm = plan.powerDbm;
     session_.data = std::make_shared<const VnaCalibration::CalibrationData>(std::move(axis));
     method_ = change.method;
     port1_ = change.port1;

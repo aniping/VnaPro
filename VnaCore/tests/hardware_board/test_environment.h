@@ -11,11 +11,19 @@
 
 namespace HardwareBoardTest {
 
+enum class ExpectedPower {
+    RAMP,
+    ZERO,
+    FRACTIONAL,
+    BOUNDARIES
+};
+
 // 每项测试在加载探针前设置独立外部记录，不使用辅助导出函数操纵驱动内部状态。
 class TestEnvironment final {
 public:
     TestEnvironment(std::string trace, const std::string &failure = std::string(), std::uint32_t failAt = 1U,
-        std::uint32_t gateAt = 0U);
+        std::uint32_t gateAt = 0U, std::uint32_t failureCode = 731U);
+    TestEnvironment(std::string trace, ExpectedPower power);
     ~TestEnvironment();
     TestEnvironment(const TestEnvironment &) = delete;
     TestEnvironment &operator=(const TestEnvironment &) = delete;

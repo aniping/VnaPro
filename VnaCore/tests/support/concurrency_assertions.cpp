@@ -30,7 +30,7 @@ SweepPlan MakePlan(std::uint32_t variant)
         plan.frequencyHz.push_back(static_cast<double>(frequency));
     }
     plan.ifBandwidthRaw = 1000U + variant;
-    plan.powerRaw.assign(plan.frequencyRaw.size(), variant);
+    plan.powerDbm.assign(plan.frequencyRaw.size(), -17.5 + static_cast<double>(variant % 7U));
     plan.receiverMask = variant % 2U == 0U ? 0xFU : 0x5U;
     plan.sourcePorts = variant % 2U == 0U ? std::vector<std::uint32_t>{1U, 4U} : std::vector<std::uint32_t>{4U, 2U, 1U};
     plan.tableData.assign(9U * plan.frequencyRaw.size(), 0.5 + static_cast<double>(variant) / 1024.0);
@@ -40,7 +40,7 @@ SweepPlan MakePlan(std::uint32_t variant)
 bool SamePlan(const SweepPlan &left, const SweepPlan &right)
 {
     return left.frequencyRaw == right.frequencyRaw && left.frequencyHz == right.frequencyHz &&
-           left.powerRaw == right.powerRaw && left.ifBandwidthRaw == right.ifBandwidthRaw &&
+           left.powerDbm == right.powerDbm && left.ifBandwidthRaw == right.ifBandwidthRaw &&
            left.receiverMask == right.receiverMask && left.sourcePorts == right.sourcePorts &&
            left.tableData == right.tableData;
 }

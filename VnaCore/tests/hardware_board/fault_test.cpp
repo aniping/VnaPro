@@ -70,6 +70,20 @@ void VerifyFaults(const std::string &library, const std::string &trace)
     FailureCase(library, trace + "-get", "GET", "DrvGetSweepData");
 }
 
+void VerifyUnknownStatus(const std::string &library, const std::string &trace)
+{
+    TestEnvironment environment(trace, "DOWNLOAD", 1U, 0U, UINT32_C(4292967295));
+    VnaCore::AcquisitionCore core(library, VnaCore::DriverApi::TDC1VN10);
+    Success(core.Initialize());
+    const auto failed = Await(core.Configure(Plan({2U, 4U})));
+    Require(!failed.ok && failed.message.find("DrvDataFrameDownload returned 4292967295") != std::string::npos &&
+                failed.message.find("signed 32-bit: -2000001") != std::string::npos &&
+                core.ReadView().state == VnaCore::CoreState::FAULTED && !core.ReadView().frame,
+        "高位未知厂商状态必须保留调用步骤、原始无符号值与有符号数值，不能生成完整帧");
+    Require(core.Close().ok, "未知组帧错误后关闭端口失败");
+    environment.VerifyThreadAndEnvironment();
+}
+
 void VerifyFailedRfOff(const std::string &library, const std::string &trace)
 {
     // 初始化第一次关闭射频成功，正常关闭时的第二次调用注入厂商数值错误。

@@ -11,7 +11,7 @@ void Prepare(VnaBoard::BoardSimulatorState &state, std::size_t points, const std
     std::uint64_t firstFrequency)
 {
     std::vector<std::uint64_t> frequencies(points);
-    std::vector<std::uint64_t> powers(points, 0U);
+    std::vector<double> powers(points, 0.0);
     std::vector<std::uint64_t> bandwidths(points, 1000U);
     for (std::size_t point = 0U; point < points; ++point) {
         frequencies[point] = firstFrequency + point * 1000000ULL;

@@ -4,8 +4,6 @@
 
 #include "server_config_expectations.h"
 
-#include <cstdint>
-#include <limits>
 #include <stdexcept>
 
 #include "server_config.h"
@@ -37,8 +35,7 @@ void MappedInstrument(const VnaServer::ServerConfig &config)
     Expect(profile.portCount == 2U && profile.minFrequencyHz == 1e7 && profile.maxFrequencyHz == 8e9,
         "二端口能力映射错误");
     Expect(profile.defaultStartHz == 2e7 && profile.defaultStopHz == 6e9 && profile.defaultPoints == 401U &&
-               profile.defaultIfBandwidthHz == 100.0 &&
-               profile.defaultPowerRaw == std::numeric_limits<std::uint64_t>::max() &&
+               profile.defaultIfBandwidthHz == 100.0 && profile.defaultPowerDbm == -17.5 &&
                config.defaultSweepMode == VnaService::SweepMode::HOLD,
         "扫描默认配置映射错误");
 }
@@ -59,7 +56,7 @@ void DefaultInstrument(const VnaServer::ServerConfig &config)
         "默认四端口能力错误");
     Expect(profile.defaultStartHz == profile.minFrequencyHz && profile.defaultStopHz == profile.maxFrequencyHz &&
                profile.defaultPoints == 201U && profile.defaultIfBandwidthHz == 1000.0 &&
-               profile.defaultPowerRaw == 0U && config.defaultSweepMode == VnaService::SweepMode::CONTINUOUS,
+               profile.defaultPowerDbm == 0.0 && config.defaultSweepMode == VnaService::SweepMode::CONTINUOUS,
         "默认扫描未覆盖完整频段");
 }
 

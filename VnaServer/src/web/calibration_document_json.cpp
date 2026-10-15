@@ -7,13 +7,18 @@
 #include <stdexcept>
 #include <utility>
 
+#include "vna_core/sweep_plan.h"
 #include "web/calibration_json.h"
 #include "web/calibration_json_fields.h"
-#include "web/display_json.h"
 
 namespace VnaWeb {
 namespace {
 using namespace CalibrationJsonDetail;
+
+bool PowerValid(double power) noexcept
+{
+    return std::isfinite(power) && power >= VnaCore::MIN_POWER_DBM && power <= VnaCore::MAX_POWER_DBM;
+}
 
 void AppendComplex(Json &row, const VnaCalibration::Complex &value)
 {
@@ -95,16 +100,26 @@ void ImportAxis(const Json &document, VnaCalibration::CalibrationData &data)
     }
 }
 
-void ImportPower(const Json &document, VnaService::CalibrationSet &set, std::size_t count)
+void ImportPower(const Json &document, double schema, VnaService::CalibrationSet &set, std::size_t count)
 {
-    const auto &power = Field(document, "powerRaw", Json::Type::ARRAY).array;
+    const auto &power = Field(document, schema == 1.0 ? "powerRaw" : "powerDbm", Json::Type::ARRAY).array;
     if (power.size() != count) {
         throw std::invalid_argument("Calibration power and frequency lengths differ");
     }
     for (const auto &point : power) {
-        Json raw = Json::MakeObject();
-        raw["value"] = point;
-        set.powerRaw.push_back(DisplayJson::Revision(raw, "value"));
+        if (schema == 1.0) {
+            // 旧 uint64 ABI 的全零位型与 double 的 0 dBm 相同，其余编码不能推断为物理功率。
+            if (point.type != Json::Type::STRING || point.string != "0") {
+                throw std::invalid_argument(
+                    "Legacy calibration power encoding is incompatible; recalibration required");
+            }
+            set.powerDbm.push_back(0.0);
+        } else {
+            if (point.type != Json::Type::NUMBER || !PowerValid(point.number)) {
+                throw std::invalid_argument("Calibration powerDbm must be finite numbers in [-120, 100]");
+            }
+            set.powerDbm.push_back(point.number);
+        }
     }
 }
 
@@ -148,7 +163,7 @@ Json CalibrationJson::Export(const VnaService::CalibrationSet &set)
     }
     const auto &data = *set.data;
     Json value = Json::MakeObject();
-    value["schema"] = Json(1U);
+    value["schema"] = Json(2U);
     value["id"] = Json(std::to_string(set.id));
     value["name"] = Json(set.name);
     value["deviceIdentity"] = Json(set.deviceIdentity);
@@ -158,10 +173,13 @@ Json CalibrationJson::Export(const VnaService::CalibrationSet &set)
     value["port1"] = Json(data.port1);
     value["port2"] = Json(data.port2);
     Json power = Json::MakeArray();
-    for (const auto raw : set.powerRaw) {
-        power.array.emplace_back(std::to_string(raw));
+    for (const double dbm : set.powerDbm) {
+        if (!PowerValid(dbm)) {
+            throw std::invalid_argument("Cannot export invalid calibration powerDbm");
+        }
+        power.array.emplace_back(dbm);
     }
-    value["powerRaw"] = std::move(power);
+    value["powerDbm"] = std::move(power);
     Json frequencies = Json::MakeArray();
     for (const double hz : data.frequencyHz) {
         frequencies.array.emplace_back(hz);
@@ -174,11 +192,13 @@ Json CalibrationJson::Export(const VnaService::CalibrationSet &set)
 
 VnaService::CalibrationSetPtr CalibrationJson::Import(const Json &document)
 {
-    Fields(document, {"schema", "id", "name", "deviceIdentity", "ifBandwidthHz", "includeIsolation", "powerRaw",
-                         "method", "port1", "port2", "frequencyHz", "onePortTerms", "twoPortTerms"});
-    if (Number(document, "schema") != 1.0) {
+    const double schema = Number(document, "schema");
+    if (schema != 1.0 && schema != 2.0) {
         throw std::invalid_argument("Unsupported calibration schema");
     }
+    Fields(document, {"schema", "id", "name", "deviceIdentity", "ifBandwidthHz", "includeIsolation",
+                         schema == 1.0 ? "powerRaw" : "powerDbm", "method", "port1", "port2", "frequencyHz",
+                         "onePortTerms", "twoPortTerms"});
     auto set = std::make_shared<VnaService::CalibrationSet>();
     set->name = Text(document, "name");
     set->deviceIdentity = Text(document, "deviceIdentity");
@@ -189,7 +209,7 @@ VnaService::CalibrationSetPtr CalibrationJson::Import(const Json &document)
     data->port1 = Port(document, "port1");
     data->port2 = Port(document, "port2", true);
     ImportAxis(document, *data);
-    ImportPower(document, *set, data->frequencyHz.size());
+    ImportPower(document, schema, *set, data->frequencyHz.size());
     ImportTerms(document, *data);
     set->data = std::move(data);
     return set;

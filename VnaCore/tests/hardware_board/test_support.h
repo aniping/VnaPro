@@ -20,11 +20,13 @@ VnaCore::CommandResult Success(const VnaCore::Ticket &ticket);
 VnaCore::SweepPlan Plan(std::vector<std::uint32_t> sources);
 void VerifyFrame(const VnaCore::FramePtr &frame, const VnaCore::SweepPlan &plan, std::uint32_t sweep);
 void VerifyProfile(const std::string &library, const std::string &trace, std::vector<std::uint32_t> sources);
+void VerifyPowerDbmContract(const std::string &library, const std::string &trace);
 void VerifyCloseWaits(const std::string &library, const std::string &trace);
 void VerifyContinuousFrames(const std::string &library, const std::string &trace);
 void VerifyIdleRecovery(const std::string &library, const std::string &trace);
 void VerifyFaults(const std::string &library, const std::string &trace);
 void VerifyFailedRfOff(const std::string &library, const std::string &trace);
+void VerifyUnknownStatus(const std::string &library, const std::string &trace);
 
 }  // 命名空间 HardwareBoardTest
 

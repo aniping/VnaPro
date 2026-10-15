@@ -114,7 +114,7 @@ VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings, const Instrument
 {
     VnaCore::SweepPlan plan;
     plan.ifBandwidthRaw = static_cast<std::uint32_t>(settings.ifBandwidthHz);
-    plan.powerRaw.assign(settings.points, profile.defaultPowerRaw);
+    plan.powerDbm.assign(settings.points, profile.defaultPowerDbm);
     std::set<unsigned> sources;
     for (const Measurement &measurement : settings.measurements) {
         sources.insert(measurement.sourcePort);
@@ -148,7 +148,7 @@ bool CoversPlan(const VnaCore::SweepPlan &active, const VnaCore::SweepPlan &requ
 {
     // 保留已下发的源和接收机；目录收缩不重启扫描，也不使已有完整 IQ 失效。
     return active.frequencyRaw == requested.frequencyRaw && active.frequencyHz == requested.frequencyHz &&
-           active.ifBandwidthRaw == requested.ifBandwidthRaw && active.powerRaw == requested.powerRaw &&
+           active.ifBandwidthRaw == requested.ifBandwidthRaw && active.powerDbm == requested.powerDbm &&
            active.tableData == requested.tableData &&
            (active.receiverMask & requested.receiverMask) == requested.receiverMask &&
            std::includes(active.sourcePorts.begin(), active.sourcePorts.end(), requested.sourcePorts.begin(),

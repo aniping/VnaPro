@@ -48,7 +48,7 @@ enum BoardFrameLayout : std::uint32_t {
 constexpr const char g_drvHwInitSymbol[] = "DrvHwInit";
 constexpr const char g_drvSetFreqListSymbol[] = "DrvSetFreqList";
 constexpr const char g_drvSetPowerListSymbol[] = "DrvSetPowerList";
-constexpr const char g_drvSetIfbwListSymbol[] = "DrvSetIfbwList";
+constexpr const char g_drvSetIfBwListSymbol[] = "DrvSetIfBwList";
 constexpr const char g_drvSetWorkPortsSymbol[] = "DrvSetWorkPorts";
 constexpr const char g_drvDataFrameDownloadSymbol[] = "DrvDataFrameDownload";
 constexpr const char g_drvSetRfPowerOnSymbol[] = "DrvSetRfPowerOn";
@@ -57,8 +57,8 @@ constexpr const char g_drvGetSweepDataSymbol[] = "DrvGetSweepData";
 
 using DrvHwInitFn = std::uint32_t(VNA_BOARD_CALL *)();
 using DrvSetFreqListFn = void(VNA_BOARD_CALL *)(std::uint64_t *, std::uint32_t);
-using DrvSetPowerListFn = void(VNA_BOARD_CALL *)(std::uint64_t *, std::uint32_t);
-using DrvSetIfbwListFn = void(VNA_BOARD_CALL *)(std::uint64_t *, std::uint32_t);
+using DrvSetPowerListFn = void(VNA_BOARD_CALL *)(double *, std::uint32_t);
+using DrvSetIfBwListFn = void(VNA_BOARD_CALL *)(std::uint64_t *, std::uint32_t);
 using DrvSetWorkPortsFn = void(VNA_BOARD_CALL *)(std::uint32_t *, std::uint32_t);
 using DrvDataFrameDownloadFn = std::uint32_t(VNA_BOARD_CALL *)();
 using DrvSetRfPowerOnFn = std::uint32_t(VNA_BOARD_CALL *)(std::uint32_t);

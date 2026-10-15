@@ -8,6 +8,8 @@
 #include <array>
 #include <cmath>
 
+#include "vna_core/sweep_plan.h"
+
 namespace VnaService {
 namespace {
 using VnaCalibration::Complex;
@@ -43,7 +45,7 @@ bool ValidShape(const CalibrationSet &set, const InstrumentProfile &profile)
     const auto &data = *set.data;
     const auto count = data.frequencyHz.size();
     return Detail::CalibrationPortsValid(data.method, data.port1, data.port2, profile.portCount) &&
-           count >= MIN_SWEEP_POINTS && count <= MAX_SWEEP_POINTS && count == set.powerRaw.size() &&
+           count >= MIN_SWEEP_POINTS && count <= MAX_SWEEP_POINTS && count == set.powerDbm.size() &&
            std::isfinite(set.ifBandwidthHz) &&
            !(data.method == VnaCalibration::CalibrationMethod::ONE_PORT && set.includeIsolation);
 }
@@ -70,6 +72,12 @@ bool ValidateStimulus(const CalibrationSet &set, const InstrumentProfile &profil
     }
     if (!ValidFrequencyAxis(set.data->frequencyHz, profile)) {
         error = "Calibration set frequency axis is invalid for this instrument";
+        return false;
+    }
+    if (!std::all_of(set.powerDbm.begin(), set.powerDbm.end(), [](double power) {
+            return std::isfinite(power) && power >= VnaCore::MIN_POWER_DBM && power <= VnaCore::MAX_POWER_DBM;
+        })) {
+        error = "Calibration powerDbm must be finite numbers in [-120, 100]";
         return false;
     }
     return true;

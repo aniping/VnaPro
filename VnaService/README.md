@@ -24,7 +24,7 @@ Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器随后�
 
 - InstrumentProfile 在启动时验证并冻结；默认 4 端口、频率 10 MHz–8 GHz，201 点，IFBW 1 kHz。全新服务只创建并选择 `Trc1/S21`；单端口配置回退为 `Trc1/S11`，均为未校准测量，初始 HOLD 且没有已完成帧。
 - 仅模拟合同规定一个 frequencyRaw 计数等于 1 Hz，IFBW raw 采用相同整数；9N 表全零且为 opaque 数据，不代表真实功率、增益或校准表。
-- InstrumentProfile 的 `defaultPowerRaw` 为启动时冻结的 64 位原始功率编码，每个扫描计划显式生成 N 个相同值；修改点数时重新填充。0 已确认是 VN10 的合法启动默认值，但不等同于 0 dBm；VN10 直接下发该编码，其他数值的物理功率映射仍由驱动合同决定。
+- InstrumentProfile 的 `defaultPowerDbm` 为启动时冻结的 double 功率，单位 dBm、范围 `[-120,100]`；每个扫描计划显式生成 N 个相同值，修改点数时重新填充，负数及小数不会被截断。
 - 默认支持频率范围 10 MHz–8 GHz，由 instrument.frequency 配置，端点按整数 Hz 回读；端点交叉保留旧 span，联动另一端点，联动后超范围则拒绝整个候选。
 - 点数 2–10001；IFBW 有效值为 10、100、1000、10000、100000 Hz，向上取适用值。频率、点数及 IFBW 等物理配置允许 Ready/Running，复用核心完整帧边界替换计划；不 Stop/Start，不改变 CONT/MAN、触发源或 runId。有限 SING/Trigger 前的请求先完成原测量，再按 FIFO 执行配置；执行时重新校验控制权、状态及逻辑 expectedRevision。
 - 协议测量选择走 DISPLAY FIFO，不覆盖正在提交的配置候选；有限采集期间可受理并在先前完整帧终结后执行。保留的原生同步选择入口仅在 SCPI 持权且 FIFO 为空时使用；触发范围修改仍须持权且无待处理配置。
@@ -93,9 +93,9 @@ CAPTURE 先完成旧运行的 Stop，再以新 run ID 启动 MANUAL、触发完�
 
 实际扫描源与接收机是测量目录、活跃 session、选中校准集所需端口的并集；关闭校正或缩减目录不强制缩小已下发计划。十二项校正从同帧四个 S 参数求完整端口对，只有一条 S21 类迹线时仍保留反向源。纯采集需求扩张更新 `acquisitionRevision`，不改变 `settings.revision` 或物理校准指纹，也不创建隐藏测量定义。
 
-校准集有效性比较设备身份、精确 Hz 轴、IFBW、逐点原始功率编码；名称、图窗、格式和采集版本不参与物理指纹。集摘要中的 startHz、stopHz、points、ifBandwidthHz 始终取自该集冻结的刺激，方便管理器解释当前不兼容原因，不以当前仪器设置覆盖。刺激变化后保留集并显示 incompatible，`correction` 为空；恢复完全相同刺激可重新兼容。Faulted、Closed 或绕过服务的计划版本变化也不能提供当前校正上下文。`MeasurementData(true)` 默认读取可用校正结果，`MeasurementData(false)` 始终读取未校正归一化值；非比值 a/b 波量不应用误差校正。
+校准集有效性比较设备身份、精确 Hz 轴、IFBW、逐点 double dBm 功率；名称、图窗、格式和采集版本不参与物理指纹。功率必须有限且处于 −120～100 dBm，直接服务导入同样校验，不依赖协议入口；负数与小数变化也会使旧集不适用。集摘要中的 startHz、stopHz、points、ifBandwidthHz 始终取自该集冻结的刺激，方便管理器解释当前不兼容原因，不以当前仪器设置覆盖。刺激变化后保留集并显示 incompatible，`correction` 为空；恢复完全相同刺激可重新兼容。Faulted、Closed 或绕过服务的计划版本变化也不能提供当前校正上下文。`MeasurementData(true)` 默认读取可用校正结果，`MeasurementData(false)` 始终读取未校正归一化值；非比值 a/b 波量不应用误差校正。
 
-新 session 不替换已完成集；只有全部标准可用且每个频点求解成功，FINISH 才以不可变数据一次发布、选中并启用新集。内存池上限16，支持 ENABLE/SELECT/DELETE_SET/IMPORT_SET 与只读 `FindCalibrationSet(id)` 导出。导入在受理入队时冻结名称、刺激和系数，队首再次检查端口能力、有限系数、轴、IFBW、形状和容量；调用者保留的可变别名不能改变已受理内容。首版跨进程恢复通过用户导出/导入 schema 1，服务不自动写全局配置或用户文件。
+新 session 不替换已完成集；只有全部标准可用且每个频点求解成功，FINISH 才以不可变数据一次发布、选中并启用新集。内存池上限16，支持 ENABLE/SELECT/DELETE_SET/IMPORT_SET 与只读 `FindCalibrationSet(id)` 导出。导入在受理入队时冻结名称、刺激和系数，队首再次检查端口能力、有限系数、轴、IFBW、功率、形状和容量；调用者保留的可变别名不能改变已受理内容。跨进程恢复通过用户导出/导入 schema 2，功率以 `powerDbm` 数字数组保存，ID 仍是十进制字符串。旧 schema 1 只兼容每项精确字符串 `"0"` 的原功率轴；任意非零旧编码拒绝并要求重新校准。服务不自动写全局配置或用户文件。
 
 校准有独立 revision；非 SCPI 请求严格使用 CAS，SCPI revision=0 保持既有省略版本惯例。取消复用 FIFO：已接受扫描先停止，再清除相同 session；同 session 的 CANCEL 允许其 expected revision 落后于先前 capture 提交，以免扫描过程中发出的取消因正常完成而变旧。session ID 仍必须准确，旧 session 请求不能取消新 session。采集故障后仍允许取消 session，故障不因此恢复。
 

@@ -19,7 +19,7 @@ void BoardLibrary::Open(const std::string &path)
         // 从 VN10 专有函数开始检查，避免选错板卡时调用同名但签名不同的函数。
         functions_.setFreqList = library_.Resolve<VnaBoard::DrvSetFreqListFn>(VnaBoard::g_drvSetFreqListSymbol);
         functions_.setPowerList = library_.Resolve<VnaBoard::DrvSetPowerListFn>(VnaBoard::g_drvSetPowerListSymbol);
-        functions_.setIfbwList = library_.Resolve<VnaBoard::DrvSetIfbwListFn>(VnaBoard::g_drvSetIfbwListSymbol);
+        functions_.setIfBwList = library_.Resolve<VnaBoard::DrvSetIfBwListFn>(VnaBoard::g_drvSetIfBwListSymbol);
         functions_.setWorkPorts = library_.Resolve<VnaBoard::DrvSetWorkPortsFn>(VnaBoard::g_drvSetWorkPortsSymbol);
         functions_.hwInit = library_.Resolve<VnaBoard::DrvHwInitFn>(VnaBoard::g_drvHwInitSymbol);
         functions_.dataFrameDownload =
@@ -43,6 +43,11 @@ void BoardLibrary::Close() noexcept
 void BoardLibrary::KeepLoadedUntilExit() noexcept
 {
     Close();
+}
+
+const BoardFunctions &BoardLibrary::Functions() const noexcept
+{
+    return functions_;
 }
 
 }  // 命名空间 Detail

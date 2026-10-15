@@ -13,8 +13,8 @@ extern "C" {
 VNA_BOARD_EXPORT std::uint32_t VNA_BOARD_CALL DrvHwInit();
 // 数组立即复制，仅更新暂存项；非法暂存项会导致后续组帧失败。
 VNA_BOARD_EXPORT void VNA_BOARD_CALL DrvSetFreqList(std::uint64_t freqList[], std::uint32_t length);
-VNA_BOARD_EXPORT void VNA_BOARD_CALL DrvSetPowerList(std::uint64_t powerList[], std::uint32_t length);
-VNA_BOARD_EXPORT void VNA_BOARD_CALL DrvSetIfbwList(std::uint64_t ifbwList[], std::uint32_t length);
+VNA_BOARD_EXPORT void VNA_BOARD_CALL DrvSetPowerList(double powerList[], std::uint32_t length);
+VNA_BOARD_EXPORT void VNA_BOARD_CALL DrvSetIfBwList(std::uint64_t ifbwList[], std::uint32_t length);
 VNA_BOARD_EXPORT void VNA_BOARD_CALL DrvSetWorkPorts(std::uint32_t ports[], std::uint32_t number);
 // 统一校验并提交全部列表；扫描期间拒绝组帧，失败时保留旧计划。
 VNA_BOARD_EXPORT std::uint32_t VNA_BOARD_CALL DrvDataFrameDownload();

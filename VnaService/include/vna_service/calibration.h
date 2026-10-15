@@ -43,7 +43,7 @@ struct CalibrationSet final {
     std::string deviceIdentity;
     bool includeIsolation = false;
     double ifBandwidthHz = 0.0;
-    std::vector<std::uint64_t> powerRaw;
+    std::vector<double> powerDbm;
     VnaCalibration::CalibrationPtr data;
 };
 

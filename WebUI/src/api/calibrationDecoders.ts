@@ -178,7 +178,7 @@ export function decodeCalibrationExport(
   value: unknown,
 ): Record<string, unknown> {
   const result = object(value, 'calibration data')
-  if (result.schema !== 1) invalid('calibration data.schema')
+  if (result.schema !== 2) invalid('calibration data.schema')
   // 系数合同由服务端校验；浏览器不解算、插值或重写系数。
   return result
 }

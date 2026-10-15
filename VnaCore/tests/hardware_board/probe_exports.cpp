@@ -21,12 +21,12 @@ extern "C" BOARD_PROBE_EXPORT void DrvSetFreqList(std::uint64_t *values, std::ui
     HardwareBoardProbe::State().SetList("FREQ", values, count);
 }
 
-extern "C" BOARD_PROBE_EXPORT void DrvSetPowerList(std::uint64_t *values, std::uint32_t count)
+extern "C" BOARD_PROBE_EXPORT void DrvSetPowerList(double *values, std::uint32_t count)
 {
-    HardwareBoardProbe::State().SetList("POWER", values, count);
+    HardwareBoardProbe::State().SetPowers(values, count);
 }
 
-extern "C" BOARD_PROBE_EXPORT void DrvSetIfbwList(std::uint64_t *values, std::uint32_t count)
+extern "C" BOARD_PROBE_EXPORT void DrvSetIfBwList(std::uint64_t *values, std::uint32_t count)
 {
     HardwareBoardProbe::State().SetList("IFBW", values, count);
 }

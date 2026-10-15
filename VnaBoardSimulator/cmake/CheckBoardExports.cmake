@@ -1,5 +1,5 @@
 set(expected_symbols
-    DrvDataFrameDownload DrvGetSweepData DrvHwInit DrvSetFreqList DrvSetIfbwList
+    DrvDataFrameDownload DrvGetSweepData DrvHwInit DrvSetFreqList DrvSetIfBwList
     DrvSetPowerList DrvSetRfPowerOn DrvSetWorkPorts DrvStartSweep
 )
 

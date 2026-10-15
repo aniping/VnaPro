@@ -99,7 +99,7 @@ void TestMapping(const std::string &path, const std::string &directory)
         "  pattern: '%Y [%K] %n - value=%v'\n"
         "instrument:\n  portCount: 2\n  frequency: {minHz: 10000000, maxHz: 8000000000}\n"
         "  sweep: {defaultStartHz: 20000000, defaultStopHz: 6000000000, defaultPoints: 401, defaultIfBandwidthHz: "
-        "100, defaultPowerRaw: 18446744073709551615, defaultSweepMode: HOLD}\n");
+        "100, defaultPowerDbm: -17.5, defaultSweepMode: HOLD}\n");
     const auto config = VnaServer::LoadServerConfig(path);
     ServerConfigTest::CheckMapped(config, directory);
 }
@@ -213,9 +213,7 @@ void TestInstrumentConstraints(const std::string &path)
         "frequency: {minHz: 9000000000}", "sweep: {defaultStartHz: 9999999}", "sweep: {defaultStopHz: 8000000001}",
         "sweep: {defaultStartHz: 20000000, defaultStopHz: 10000000}", "sweep: {defaultPoints: 1}",
         "sweep: {defaultPoints: 10002}", "sweep: {defaultIfBandwidthHz: 123}", "sweep: {defaultSweepMode: SING}",
-        "sweep: {defaultSweepMode: hold}", "sweep: {defaultSweepMode: null}", "sweep: {defaultSweepMode: []}",
-        "sweep: {defaultPowerRaw: -1}", "sweep: {defaultPowerRaw: '0'}", "sweep: {defaultPowerRaw: 1.5}",
-        "sweep: {defaultPowerRaw: 18446744073709551616}"};
+        "sweep: {defaultSweepMode: hold}", "sweep: {defaultSweepMode: null}", "sweep: {defaultSweepMode: []}"};
     for (const auto &entry : invalid) {
         ExpectInvalid(path, "instrument: {" + entry + "}\n", "instrument");
     }

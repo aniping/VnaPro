@@ -5,13 +5,13 @@
 #include "vna_core/acquisition_core.h"
 
 #include <chrono>
-#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <utility>
 
 #include "device/device_session_factory.h"
 #include "device/plan_preparation_error.h"
+#include "sweep_plan_validation.h"
 #include "vna_core/frame_layout.h"
 #include "vna_log/logger.h"
 
@@ -19,48 +19,8 @@ namespace VnaCore {
 namespace {
 
 constexpr std::size_t QUEUE_CAPACITY = 64U;
-constexpr std::size_t FRAME_BUDGET = 64U * 1024U * 1024U;
 constexpr std::uint64_t CORE_IDENTITY_MAX = (std::numeric_limits<std::uint64_t>::max)();
 constexpr std::chrono::milliseconds g_continuousFrameInterval(10);
-
-std::string Validate(const SweepPlan &plan)
-{
-    const std::size_t count = plan.frequencyRaw.size();
-    if (count == 0U || count > (std::numeric_limits<std::uint32_t>::max() - 1U) / TABLE_VALUES_PER_POINT) {
-        return "frequency count is empty or exceeds native lengths";
-    }
-    if (!plan.frequencyHz.empty() && plan.frequencyHz.size() != count) {
-        return "Hz axis length differs from raw axis";
-    }
-    if (!plan.powerRaw.empty() && plan.powerRaw.size() != count) {
-        return "raw power list length differs from raw frequency axis";
-    }
-    for (const double value : plan.frequencyHz) {
-        if (!std::isfinite(value)) {
-            return "Hz axis contains a non-finite value";
-        }
-    }
-    if (plan.receiverMask == 0U || (plan.receiverMask & ~ALL_RECEIVERS_MASK) != 0U) {
-        return "receiver mask must select ports 1..4";
-    }
-    if (plan.sourcePorts.empty() || plan.sourcePorts.size() > PHYSICAL_PORT_COUNT) {
-        return "source ports must be a nonempty set of ports 1..4";
-    }
-    std::uint32_t sources = 0U;
-    for (const auto source : plan.sourcePorts) {
-        if (source < 1U || source > PHYSICAL_PORT_COUNT || (sources & (1U << (source - 1U))) != 0U) {
-            return "source port is out of range or duplicated";
-        }
-        sources |= 1U << (source - 1U);
-    }
-    if (count > FRAME_BUDGET / (IQ_VALUES_PER_POINT * sizeof(double) * plan.sourcePorts.size())) {
-        return "IQ frame exceeds the core software memory budget";
-    }
-    if (!plan.tableData.empty() && plan.tableData.size() != count * TABLE_VALUES_PER_POINT) {
-        return "opaque table must contain exactly 9N values";
-    }
-    return std::string();
-}
 
 std::unique_ptr<Detail::DeviceSession> ValidateDevice(std::unique_ptr<Detail::DeviceSession> device)
 {
@@ -179,7 +139,7 @@ Ticket AcquisitionCore::Submit(
     Detail::CoreCommandKind kind, SweepPlan plan, RunMode mode, std::uint64_t runId, std::uint64_t revision)
 {
     if (kind == Detail::CoreCommandKind::CONFIGURE) {
-        const auto error = Validate(plan);
+        const auto error = Detail::ValidateSweepPlan(plan);
         if (!error.empty()) {
             return Rejected(error);
         }

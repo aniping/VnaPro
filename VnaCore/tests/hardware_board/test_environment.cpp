@@ -27,7 +27,7 @@ namespace {
 
 const std::vector<std::string> g_names = {"VNAPRO_TEST_BOARD_TRACE", "VNAPRO_TEST_BOARD_FAIL",
     "VNAPRO_TEST_BOARD_FAIL_AT", "VNAPRO_TEST_BOARD_GATE_AT", "VNAPRO_SIM_MODE", "VNAPRO_SIM_SEED",
-    "VNAPRO_SIM_NOISE_AMPLITUDE"};
+    "VNAPRO_SIM_NOISE_AMPLITUDE", "VNAPRO_TEST_BOARD_FAIL_CODE", "VNAPRO_TEST_BOARD_POWER_PATTERN"};
 const std::vector<std::string> g_sentinels = {
     "hardware-probe-mode-unchanged", "hardware-probe-seed-unchanged", "hardware-probe-amplitude-unchanged"};
 
@@ -58,18 +58,27 @@ void SetEnvironment(const std::string &name, const std::string &value)
 
 }  // 匿名命名空间
 
-TestEnvironment::TestEnvironment(
-    std::string trace, const std::string &failure, std::uint32_t failAt, std::uint32_t gateAt)
+TestEnvironment::TestEnvironment(std::string trace, const std::string &failure, std::uint32_t failAt,
+    std::uint32_t gateAt, std::uint32_t failureCode)
     : trace_(std::move(trace))
 {
     std::remove(trace_.c_str());
     std::remove((trace_ + ".gate").c_str());
     const std::vector<std::string> values = {trace_, failure, std::to_string(failAt), std::to_string(gateAt),
-        g_sentinels[0U], g_sentinels[1U], g_sentinels[2U]};
+        g_sentinels[0U], g_sentinels[1U], g_sentinels[2U], std::to_string(failureCode), "ramp"};
     for (std::size_t index = 0U; index < g_names.size(); ++index) {
         saved_.push_back(ReadEnvironment(g_names[index]));
         SetEnvironment(g_names[index], values[index]);
     }
+}
+
+TestEnvironment::TestEnvironment(std::string trace, ExpectedPower power) : TestEnvironment(std::move(trace))
+{
+    const char *name = power == ExpectedPower::ZERO         ? "zero"
+                       : power == ExpectedPower::FRACTIONAL ? "fractional"
+                       : power == ExpectedPower::BOUNDARIES ? "boundaries"
+                                                            : "ramp";
+    SetEnvironment("VNAPRO_TEST_BOARD_POWER_PATTERN", name);
 }
 
 TestEnvironment::~TestEnvironment()

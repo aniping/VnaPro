@@ -139,11 +139,11 @@ instrument:
     defaultStopHz: 8000000000
     defaultPoints: 201
     defaultIfBandwidthHz: 1000
-    defaultPowerRaw: 0
+    defaultPowerDbm: 0.0
     defaultSweepMode: CONT
 ```
 
-频率配置使用不加引号的正十进制整数 Hz，点数支持 2–10001。默认频率必须落在支持范围内，IFBW 默认值必须为支持档位。`defaultPowerRaw` 是 VN10 逐点原始功率编码，支持不加引号的 0…18446744073709551615 整数，启动时冻结；0 已确认是合法默认值，不标注为 0 dBm，也不代替尚未实现的功率菜单/SCPI 命令。配置在启动时验证并冻结，HTTP/SCPI 的设置和测量源/接收端口都受此能力约束；Web 输入范围从 `/api/v1/status` 的 `capabilities` 读取。错误配置在创建设备前退出，退出码为 2。省略配置项使用程序默认值；修改支持范围时应同时调整默认扫描范围。
+频率配置使用不加引号的正十进制整数 Hz，点数支持 2–10001。默认频率必须落在支持范围内，IFBW 默认值必须为支持档位。`defaultPowerDbm` 是 VN10 逐点功率，接受不加引号的有限数值及科学计数法，范围 `[-120,100] dBm`，如 `-17.5`；启动时冻结，不代替尚未实现的功率菜单/SCPI 命令。旧键 `defaultPowerRaw` 仅兼容整数 `0`；非零旧编码必须明确改写为 dBm，两个键不能同时出现。配置在启动时验证并冻结，HTTP/SCPI 的设置和测量源/接收端口都受此能力约束；Web 输入范围从 `/api/v1/status` 的 `capabilities` 读取。错误配置在创建设备前退出，退出码为 2。省略配置项使用程序默认值；修改支持范围时应同时调整默认扫描范围。
 
 `instrument.sweep.defaultSweepMode` 只接受 `CONT` 或 `HOLD`，省略时为 `CONT`。它是无已恢复状态时的服务器启动缺省，不是强制调用仪器 Preset；本版尚未保存跨进程的仪器状态。服务器在监听前应用一次，随后释放内部控制权；设为 `HOLD` 时等待用户触发。服务领域的初始化仍保持 HOLD，单元测试夹具不自动扫描。
 

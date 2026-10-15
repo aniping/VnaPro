@@ -4,6 +4,7 @@
 #include "server_config_loader.h"
 
 #include <array>
+#include <cstdint>
 #include <stdexcept>
 #include <utility>
 
@@ -72,6 +73,28 @@ void ReadLog(const YAML::Node &node, VnaLog::LogConfig &config)
     }
 }
 
+void ReadDefaultPower(const YAML::Node &node, VnaService::InstrumentProfile &profile)
+{
+    if (!node) {
+        return;
+    }
+    if (node["defaultPowerRaw"] && node["defaultPowerDbm"]) {
+        YamlConfig::Invalid(node["defaultPowerDbm"], "instrument.sweep.defaultPowerDbm",
+            "不能同时配置 defaultPowerDbm 和旧 defaultPowerRaw");
+    }
+    if (node["defaultPowerRaw"]) {
+        std::uint64_t legacy = 0U;
+        YamlConfig::ReadUint64(node, "defaultPowerRaw", "instrument.sweep", legacy);
+        if (legacy != 0U) {
+            YamlConfig::Invalid(node["defaultPowerRaw"], "instrument.sweep.defaultPowerRaw",
+                "旧非零功率编码没有可靠的 dBm 语义，请改用 defaultPowerDbm");
+        }
+        profile.defaultPowerDbm = 0.0;
+        return;
+    }
+    YamlConfig::ReadDouble(node, "defaultPowerDbm", "instrument.sweep", profile.defaultPowerDbm);
+}
+
 void ReadInstrument(const YAML::Node &node, ServerConfig &config)
 {
     YamlConfig::CheckMap(node, "instrument", {"portCount", "frequency", "sweep"});
@@ -86,13 +109,13 @@ void ReadInstrument(const YAML::Node &node, ServerConfig &config)
     YamlConfig::ReadFrequency(frequency, "maxHz", "instrument.frequency", profile.maxFrequencyHz);
     const auto sweep = node["sweep"];
     YamlConfig::CheckMap(sweep, "instrument.sweep",
-        {"defaultStartHz", "defaultStopHz", "defaultPoints", "defaultIfBandwidthHz", "defaultPowerRaw",
-            "defaultSweepMode"});
+        {"defaultStartHz", "defaultStopHz", "defaultPoints", "defaultIfBandwidthHz", "defaultPowerDbm",
+            "defaultPowerRaw", "defaultSweepMode"});
     YamlConfig::ReadFrequency(sweep, "defaultStartHz", "instrument.sweep", profile.defaultStartHz);
     YamlConfig::ReadFrequency(sweep, "defaultStopHz", "instrument.sweep", profile.defaultStopHz);
     YamlConfig::ReadUnsigned(sweep, "defaultPoints", "instrument.sweep", profile.defaultPoints);
     YamlConfig::ReadFrequency(sweep, "defaultIfBandwidthHz", "instrument.sweep", profile.defaultIfBandwidthHz);
-    YamlConfig::ReadUint64(sweep, "defaultPowerRaw", "instrument.sweep", profile.defaultPowerRaw);
+    ReadDefaultPower(sweep, profile);
     std::string mode = "CONT";
     YamlConfig::ReadString(sweep, "defaultSweepMode", "instrument.sweep", mode);
     if (mode == "CONT") {

@@ -38,8 +38,8 @@ instrument:
     defaultStopHz: 8000000000
     defaultPoints: 201
     defaultIfBandwidthHz: 1000
-    # VN10 驱动的原始功率编码，不是 dBm；0 为已确认的合法启动默认值。
-    defaultPowerRaw: 0
+    # VN10 逐频点功率，单位 dBm，范围 -120..100，支持负数和小数。
+    defaultPowerDbm: 0.0
     # 无已恢复状态时的服务器启动缺省；CONT 自动连续扫描，HOLD 等待用户触发。
     defaultSweepMode: CONT
 

@@ -10,11 +10,14 @@
 
 namespace VnaCore {
 
+constexpr double MIN_POWER_DBM = -120.0;
+constexpr double MAX_POWER_DBM = 100.0;
+
 struct SweepPlan final {
     std::vector<std::uint64_t> frequencyRaw;
     std::vector<double> frequencyHz;
-    // 新接口的逐点原始功率编码，不表示 dBm；底层兼容空数组为 0，产品启动显式填写。
-    std::vector<std::uint64_t> powerRaw;
+    // 逐点功率 dBm；VN10 使用 double 数组，空数组兼容为 0 dBm，产品启动显式填写。
+    std::vector<double> powerDbm;
     std::uint32_t ifBandwidthRaw = 0U;
     std::uint32_t receiverMask = 0U;
     std::vector<std::uint32_t> sourcePorts;  // 物理端口编号为 1～4。

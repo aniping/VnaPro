@@ -7,6 +7,7 @@ find_package(Threads REQUIRED)
 add_library(tdc1vn10_drv_sim_core OBJECT
     src/board_sim/board_signal_model.cpp
     src/board_sim/board_simulator_state.cpp
+    src/board_sim/board_sweep_validation.cpp
 )
 target_compile_features(tdc1vn10_drv_sim_core PUBLIC cxx_std_14)
 target_include_directories(tdc1vn10_drv_sim_core PUBLIC

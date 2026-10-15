@@ -5,6 +5,7 @@
 #include "device/board/board_device_session.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -27,7 +28,21 @@ void Check(std::uint32_t status, const char *step)
 {
     if (status != NATIVE_SUCCESS) {
         // 只保留数值状态，不将模拟器错误名推广为真实硬件的错误契约。
-        throw std::runtime_error(std::string(step) + " returned " + std::to_string(status));
+        auto message = std::string(step) + " returned " + std::to_string(status);
+        if (status > static_cast<std::uint32_t>((std::numeric_limits<std::int32_t>::max)())) {
+            const auto signedStatus = static_cast<std::int64_t>(status) - (std::int64_t{1} << 32U);
+            message += " (signed 32-bit: " + std::to_string(signedStatus) + ")";
+        }
+        throw std::runtime_error(message);
+    }
+}
+
+void ValidatePowers(const std::vector<double> &powers)
+{
+    for (const auto power : powers) {
+        if (!std::isfinite(power) || power < MIN_POWER_DBM || power > MAX_POWER_DBM) {
+            throw PlanPreparationError("VN10 power must be finite dBm within -120..100");
+        }
     }
 }
 
@@ -35,12 +50,12 @@ void Check(std::uint32_t status, const char *step)
 
 std::unique_ptr<BoardDeviceSession::DownloadLists> BoardDeviceSession::PrepareDownload(const SweepPlan &plan)
 {
+    ValidatePowers(plan.powerDbm);
     std::unique_ptr<DownloadLists> download;
     try {
         download = std::make_unique<DownloadLists>();
         download->frequencies = plan.frequencyRaw;
-        download->powers =
-            plan.powerRaw.empty() ? std::vector<std::uint64_t>(plan.frequencyRaw.size(), 0U) : plan.powerRaw;
+        download->powers = plan.powerDbm.empty() ? std::vector<double>(plan.frequencyRaw.size(), 0.0) : plan.powerDbm;
         download->bandwidths.assign(plan.frequencyRaw.size(), plan.ifBandwidthRaw);
         download->ports.reserve(plan.sourcePorts.size());
         for (const auto source : plan.sourcePorts) {
@@ -135,7 +150,7 @@ void BoardDeviceSession::ApplyPlan(const SweepPlan &plan)
     const auto count = static_cast<std::uint32_t>(stagedLists_->frequencies.size());
     functions.setFreqList(stagedLists_->frequencies.data(), count);
     functions.setPowerList(stagedLists_->powers.data(), count);
-    functions.setIfbwList(stagedLists_->bandwidths.data(), count);
+    functions.setIfBwList(stagedLists_->bandwidths.data(), count);
     functions.setWorkPorts(stagedLists_->ports.data(), static_cast<std::uint32_t>(stagedLists_->ports.size()));
     Check(functions.dataFrameDownload(), "DrvDataFrameDownload");
     activeLists_ = std::move(stagedLists_);
