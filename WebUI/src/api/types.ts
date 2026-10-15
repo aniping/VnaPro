@@ -108,8 +108,8 @@ export type DisplayCommand =
   | {
       action: 'scale'
       traceName: string
-      perDivision: number
-      referenceLevel: number
+      perDivision?: number
+      referenceLevel?: number
       referencePosition: number
     }
   | { action: 'autoscale'; traceName: string; acquisitionRevision: string }

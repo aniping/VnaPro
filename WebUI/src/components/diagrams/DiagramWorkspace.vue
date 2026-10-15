@@ -23,6 +23,7 @@ import {
   type MarkerReadoutPreview,
 } from '../../domain/markerReadouts'
 import type { MarkerMove } from '../../plot/markerDrag'
+import type { ReferencePositionMove } from '../../plot/referencePositionDrag'
 import type { TraceMoveRequest } from '../../domain/diagramLayout'
 import DiagramPane from './DiagramPane.vue'
 import InfoTable from './InfoTable.vue'
@@ -43,7 +44,9 @@ const props = defineProps<{
   config: SweepConfiguration
   frameCondition: FrameCondition
   canEditDisplay: boolean
+  canContinueReferenceDrag?: boolean
   commitMarker: (value: MarkerMove) => Promise<boolean>
+  commitReferencePosition: (value: ReferencePositionMove) => Promise<boolean>
   infoTable?: InfoTableSettings
   annotations?: DisplayAnnotations
 }>()
@@ -210,7 +213,9 @@ function paneStyle(pane: DiagramDefinition) {
         :config="config"
         :frame-condition="frameCondition"
         :can-edit-display="canEditDisplay"
+        :can-continue-reference-drag="canContinueReferenceDrag"
         :commit-marker="commitMarker"
+        :commit-reference-position="commitReferencePosition"
         :marker-info-visible="pane.markerInfoVisible"
         :annotations="annotationSettings"
         :info-table-visible="infoSettings.visible"

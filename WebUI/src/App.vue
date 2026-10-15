@@ -24,6 +24,7 @@ import { useWorkspace } from './composables/useWorkspace'
 import { enableMarkerOnEntry } from './composables/markerMenuEntry'
 import { exportVisibleFrameCsv } from './plot'
 import type { MarkerMove } from './plot/markerDrag'
+import type { ReferencePositionMove } from './plot/referencePositionDrag'
 import type { TraceDestination } from './api/types'
 import type { TraceMoveRequest } from './domain/diagramLayout'
 
@@ -39,6 +40,7 @@ const {
   canRun,
   canCancelCalibration,
   canEditDisplay: canWriteDisplay,
+  canContinueDisplayGesture,
   pendingOperation,
   writeInFlight,
   controlBusy,
@@ -77,6 +79,9 @@ watch(() => status.value?.calibration?.collecting, (collecting, previous) => {
   if (previous === true && collecting === false) calibrationWorkflowOpen.value = false
 })
 const canEditDisplay = computed(() => canWriteDisplay.value && !calibrationAcquisitionVisible.value)
+const canContinueReferenceDrag = computed(() =>
+  canContinueDisplayGesture.value && !calibrationAcquisitionVisible.value,
+)
 const calibrationLabel = computed(() => calibrationSummary(status.value?.calibration))
 const canvasStyle = ref({ left: '0px', top: '0px', transform: 'scale(1)' })
 const busy = computed(() =>
@@ -284,6 +289,24 @@ async function commitMarker(value: MarkerMove): Promise<boolean> {
     ),
   )
 }
+async function commitReferencePosition(
+  value: ReferencePositionMove,
+): Promise<boolean> {
+  if (!canContinueReferenceDrag.value || busy.value) return false
+  // 松手恰逢自动续租时等当前轮询完成，仍使用手势开始时的版本进行 CAS。
+  if (controlBusy.value) await instrument.refresh()
+  if (!canEditDisplay.value || busy.value) return false
+  return Boolean(
+    await instrument.display(
+      {
+        action: 'scale',
+        traceName: value.name,
+        referencePosition: value.referencePosition,
+      },
+      value.displayRevision,
+    ),
+  )
+}
 onMounted(() => {
   fitCanvas()
   window.addEventListener('resize', fitCanvas)
@@ -372,6 +395,8 @@ onBeforeUnmount(() => {
               :frame-condition="frameCondition"
               :can-edit-display="canEditDisplay"
               :commit-marker="commitMarker"
+              :can-continue-reference-drag="canContinueReferenceDrag"
+              :commit-reference-position="commitReferencePosition"
               :info-table="status?.display.infoTable"
               :annotations="status?.display.annotations"
               @relocate-marker-info="

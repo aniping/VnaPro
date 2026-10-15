@@ -78,10 +78,9 @@ export function useInstrument(options: InstrumentOptions = {}) {
       !status.value.control.releasing,
     ),
   )
-  const operationGateOpen = computed(() =>
+  const operationGateReady = computed(() =>
     Boolean(
       hasControl.value &&
-      !controlBusy.value &&
       !writeInFlight.value &&
       !uncertainWrite.value &&
       !pendingOperation.value &&
@@ -89,8 +88,17 @@ export function useInstrument(options: InstrumentOptions = {}) {
       status.value,
     ),
   )
-  const canWrite = computed(() => operationGateOpen.value &&
-    !['Faulted', 'Closed', 'Uninitialized'].includes(status.value?.state ?? 'Uninitialized'))
+  const operationGateOpen = computed(
+    () => operationGateReady.value && !controlBusy.value,
+  )
+  // 续租只暂缓新写入，不撤销已经开始的本地显示手势；真实失权及仪器忙仍立即中止。
+  const canContinueDisplayGesture = computed(
+    () => operationGateReady.value &&
+      !['Faulted', 'Closed', 'Uninitialized'].includes(status.value?.state ?? 'Uninitialized'),
+  )
+  const canWrite = computed(
+    () => canContinueDisplayGesture.value && !controlBusy.value,
+  )
   const canConfigure = computed(
     () =>
       canWrite.value &&
@@ -554,6 +562,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
     canRun,
     canCancelCalibration,
     canEditDisplay: canWrite,
+    canContinueDisplayGesture,
     frameCondition,
     start,
     stop,

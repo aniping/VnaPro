@@ -15,6 +15,7 @@ import {
   type DisplayAnnotations,
   type MarkerInfoLocation,
   type MarkerInfoArea,
+  type DisplayScale,
 } from '../../domain/presentation'
 import {
   markerInfoDragName,
@@ -82,6 +83,11 @@ import {
   type TraceDropPosition,
 } from './traceDrag'
 import { isNewTraceDrag } from '../instrument/newTraceDrag'
+import ReferencePositionHandle from './ReferencePositionHandle.vue'
+import {
+  previewReferenceScale,
+  type ReferencePositionMove,
+} from '../../plot/referencePositionDrag'
 
 const props = defineProps<{
   number: number
@@ -100,7 +106,9 @@ const props = defineProps<{
   config: SweepConfiguration
   frameCondition: FrameCondition
   canEditDisplay: boolean
+  canContinueReferenceDrag?: boolean
   commitMarker: (value: MarkerMove) => Promise<boolean>
+  commitReferencePosition: (value: ReferencePositionMove) => Promise<boolean>
   markerInfoVisible?: boolean
   annotations?: DisplayAnnotations
   infoTableVisible?: boolean
@@ -147,6 +155,12 @@ const tickLabels = ref<HTMLSpanElement[]>([])
 const width = ref(700)
 const height = ref(500)
 const screenScale = ref({ x: 1, y: 1 })
+const referencePreview = ref<{
+  name: string
+  referencePosition: number
+} | null>(null)
+const referenceGestureName = ref('')
+const markerGestureActive = ref(false)
 let observer: ResizeObserver | undefined
 let resolutionQuery: MediaQueryList | undefined
 let paintRequest = 0
@@ -206,13 +220,55 @@ const traces = computed(() =>
 const activeTrace = computed(() =>
   traces.value.find((item) => item.measurement.name === props.primaryTraceName),
 )
+// 预览只替换一条迹线的坐标映射；原始采样、格式投影及后端快照均保持不变。
+const referenceScalePreview = computed(() => {
+  const preview = referencePreview.value
+  if (!preview) return null
+  const trace = traces.value.find(
+    (item) => item.measurement.name === preview.name,
+  )
+  if (!trace || !trace.presentation.visible) return null
+  const scale = previewReferenceScale(
+    trace.scale,
+    trace.presentation.format,
+    preview.referencePosition,
+  )
+  return scale ? { name: trace.measurement.name, scale } : null
+})
+function renderScale(name: string, scale: DisplayScale): DisplayScale {
+  const preview = referenceScalePreview.value
+  return preview?.name === name ? preview.scale : scale
+}
+const referenceHandles = computed(() =>
+  traces.value.filter(
+    (item) => item.presentation.visible && !isCircularFormat(item.presentation.format),
+  ),
+)
+function setReferenceGesture(name: string, active: boolean): void {
+  if (active && !referenceGestureName.value && !referencePreview.value)
+    referenceGestureName.value = name
+  else if (!active && referenceGestureName.value === name)
+    referenceGestureName.value = ''
+}
+function setReferencePreview(
+  name: string,
+  preview: { name: string; referencePosition: number } | null,
+): void {
+  if (preview && preview.name === name && referenceGestureName.value === name)
+    referencePreview.value = preview
+  else if (!preview && referencePreview.value?.name === name)
+    referencePreview.value = null
+}
 const active = computed(() =>
   props.selectedDiagram === undefined
     ? props.measurements.some((item) => item.name === props.activeTraceName)
     : props.number === props.selectedDiagram,
 )
 const axisScale = computed(
-  () => activeTrace.value?.scale ?? FORMAT_INFO.db.fallback,
+  () =>
+    activeTrace.value
+      ? renderScale(activeTrace.value.measurement.name, activeTrace.value.scale)
+      : FORMAT_INFO.db.fallback,
 )
 const axisFormat = computed(
   () => activeTrace.value?.presentation.format ?? 'db',
@@ -487,7 +543,7 @@ const plottedMarkers = computed(() =>
     if (!Number.isFinite(marker.result.value)) return []
     const y = normalizedY(
       marker.result.value,
-      marker.scale,
+      renderScale(marker.name, marker.scale),
       marker.presentation.format,
     )
     if (!Number.isFinite(y) || y < 0 || y > 1) return []
@@ -598,7 +654,7 @@ const backgrounds = computed<MixedBackground[]>(() => {
 })
 
 /** 绘制与点击共用服务端投影；命中只决定用户点中了哪条可见曲线。 */
-const curves = computed<SelectableCurve[]>(() =>
+const projectedCurves = computed<SelectableCurve[]>(() =>
   traces.value.flatMap((item): SelectableCurve[] => {
     if (!item.presentation.visible) return []
     const format = item.presentation.format
@@ -630,6 +686,16 @@ const curves = computed<SelectableCurve[]>(() =>
     }))
   }),
 )
+const curves = computed<SelectableCurve[]>(() => {
+  const preview = referenceScalePreview.value
+  return preview
+    ? projectedCurves.value.map((curve) =>
+        curve.kind === 'cartesian' && curve.name === preview.name
+          ? { ...curve, scale: preview.scale }
+          : curve,
+      )
+    : projectedCurves.value
+})
 
 function schedulePaint(): void {
   cancelAnimationFrame(paintRequest)
@@ -663,7 +729,7 @@ function schedulePaint(): void {
           !isCircularFormat(item.presentation.format),
       )
       .map((item) => ({
-        scale: item.scale,
+        scale: renderScale(item.measurement.name, item.scale),
         format: item.presentation.format,
         color: item.color,
         active: item.measurement.name === activeTrace.value?.measurement.name,
@@ -768,6 +834,7 @@ watch(
 )
 // 完整帧不可变；只监听引用，不能让每个图窗递归遍历其他图窗的全部样本。
 watch(() => props.frame, schedulePaint)
+watch(referenceScalePreview, schedulePaint)
 watch(
   [
     traces,
@@ -826,7 +893,10 @@ function beginDrag(
 ): void {
   if (
     event.button !== 0 ||
+    event.isPrimary === false ||
     !props.canEditDisplay ||
+    referenceGestureName.value !== '' ||
+    referencePreview.value !== null ||
     markerDrag.dragging ||
     markerDrag.pending
   )
@@ -874,6 +944,7 @@ function beginDrag(
   event.preventDefault()
   event.stopPropagation()
   dragPointer = event.pointerId
+  markerGestureActive.value = true
   draggingName = name
   draggingMarkerId = markerId
   previewName = name
@@ -920,6 +991,7 @@ function releaseDragCapture(): void {
   const pointer = dragPointer
   const target = dragTarget
   dragPointer = null
+  markerGestureActive.value = false
   dragTarget = null
   dragCommandAt = null
   draggingName = ''
@@ -995,7 +1067,10 @@ function clickPlot(event: MouseEvent): void {
   )
     return
   const target = event.target as Element | null
-  if (target?.closest?.('.marker-readouts, .marker-handle')) return
+  if (
+    target?.closest?.('.marker-readouts, .marker-handle, .reference-position-handle')
+  )
+    return
   const bounds = plotArea.value?.getBoundingClientRect()
   const name = bounds
     ? hitTestTrace(
@@ -1127,6 +1202,28 @@ function plotKey(event: KeyboardEvent): void {
       @keydown="plotKey"
     >
       <canvas ref="canvas" class="diagram-canvas" aria-hidden="true" />
+      <ReferencePositionHandle
+        v-for="trace in referenceHandles"
+        :key="trace.measurement.name"
+        :name="trace.measurement.name"
+        :format="trace.presentation.format"
+        :scale="trace.scale"
+        :color="trace.color"
+        :active="trace.measurement.name === primaryTraceName"
+        :can-edit-display="
+          canEditDisplay && !markerGestureActive && !dragPreview &&
+          (!referenceGestureName || referenceGestureName === trace.measurement.name) &&
+          (!referencePreview || referencePreview.name === trace.measurement.name)
+        "
+        :can-continue-gesture="canContinueReferenceDrag"
+        :display-revision="displayRevision ?? ''"
+        :rect="rect"
+        :plot-size="{ width, height }"
+        :commit="commitReferencePosition"
+        @preview="setReferencePreview(trace.measurement.name, $event)"
+        @active="setReferenceGesture(trace.measurement.name, $event)"
+        @select="emit('selectTrace', $event)"
+      />
       <span
         v-for="tick in circularAxis ? [] : yTicks"
         ref="tickLabels"

@@ -196,6 +196,8 @@ CSV 使用 schema 4，记录采集、目录、显示版本、抽取信息及后�
 
 ## 验证与界面依据
 
+直角坐标图中，可上下拖动右侧与迹线同色的参考电平三角形调整 `Ref Pos`（底部 0、顶部 10，允许小数）。参考值和每格跨度保持不变，迹线、参考线、刻度标签及 Marker 图形同步移动；测量数据和 Marker 频点不变。手势按屏幕帧合并本地预览，不重新转换投影数组，松手仅提交一次参考位置及开始拖动时的显示版本，由 C++ 验证并保存；冲突或失败恢复后端刻度。Esc、指针取消、捕获丢失、窗口几何变化或失去权限会取消未提交的拖动。普通单击只选择所属迹线；隐藏迹线及 Smith / Polar / Inv Smith 不提供此把手。图内空白和普通网格线仍只用于选择，不提供平移。行为依据为 [ZNB User Manual v74 第 57 页表 3-6](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=57)及[第 443 页 Ref Pos](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=443)。
+
 校准标准预览按会话、步骤、校准版本和保存的 run/frame 字段变化读取，同值状态对象的周期读回不重新清图或发起预览 GET。收集期间只轮询状态、操作结果及所选标准预览，暂停隐藏 DUT 完整矩阵的重复下载；完成或取消后恢复正常帧轮询。Apply 和正常 Cancel 由服务恢复进入前的 Trigger Source/Sweep Mode，前端等权威操作读回，不自行写一组恢复命令；故障取消保持 HOLD。
 
 2026-10-14 校准第二轮验收通过前端 **284 项**及 Vue/TypeScript 检查。设置弹框和采集工作区逐页对照 [ZNB User Manual v74，第 580、582、585 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=580) 的原始嵌入图，核对类型矩阵、端口列、双图与标准 dock 的区域组织。真实模拟服务验收未测空图、Open/Through 保存身份与正确 S 参数、取消后的 DUT 工作区恢复及控制权释放。窄屏采集工作区沿用整体仪器画布缩放，保留所有区域，但不据此声称适合移动触控；前两步弹框按屏宽适配。校准件物理模型、其他方法、可配置标准迹线菜单及独立 Cal Manager 原机表格仍有能力或布局差异，不宣称整套 ZNB 1:1。
