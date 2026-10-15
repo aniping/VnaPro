@@ -10,105 +10,17 @@
 #include <limits>
 #include <utility>
 
+#include "calibration_set_validation.h"
 #include "vna_measurement/measurement_processor.h"
 
 namespace VnaService {
 namespace {
 using VnaCalibration::Complex;
-constexpr std::size_t MAX_NAME_BYTES = 128U;
-
-bool NameValid(const std::string &name)
-{
-    return name.size() <= MAX_NAME_BYTES && std::none_of(name.begin(), name.end(), [](unsigned char value) {
-        return value < 32U || value == 127U;
-    });
-}
-
-bool Finite(const Complex &value) noexcept
-{
-    return std::isfinite(value.real()) && std::isfinite(value.imag());
-}
-
-bool ValidTerms(const VnaCalibration::OnePortTerms &terms) noexcept
-{
-    Complex corrected;
-    return Finite(terms.directivity) && Finite(terms.sourceMatch) && Finite(terms.reflectionTracking) &&
-           VnaCalibration::CorrectOnePort(terms.directivity, terms, corrected) ==
-               VnaCalibration::CalibrationError::NONE;
-}
-
-bool ValidTerms(const VnaCalibration::TwoPortTerms &terms, bool includeIsolation) noexcept
-{
-    VnaCalibration::TwoPortNetwork offsets, corrected;
-    offsets.s11 = terms.forwardReflection.directivity;
-    offsets.s21 = terms.forwardTransmission.isolation;
-    offsets.s22 = terms.reverseReflection.directivity;
-    offsets.s12 = terms.reverseTransmission.isolation;
-    // 导入使用实际校正函数的跟踪项门槛，不能接受启用后必然全部失败的系数。
-    return (includeIsolation || (offsets.s21 == Complex{} && offsets.s12 == Complex{})) &&
-           VnaCalibration::CorrectTwoPort(offsets, terms, corrected) == VnaCalibration::CalibrationError::NONE;
-}
-
-bool ValidPorts(VnaCalibration::CalibrationMethod method, unsigned first, unsigned second, unsigned count) noexcept
-{
-    return first > 0U && first <= count &&
-           ((method == VnaCalibration::CalibrationMethod::ONE_PORT && second == 0U) ||
-               (method == VnaCalibration::CalibrationMethod::TWO_PORT && second > 0U && second <= count &&
-                   second != first));
-}
 
 bool Compatible(const CalibrationSet &set, const std::string &identity, const VnaCore::SweepPlan &plan) noexcept
 {
     return set.data && set.deviceIdentity == identity && set.ifBandwidthHz == plan.ifBandwidthRaw &&
            set.powerRaw == plan.powerRaw && set.data->frequencyHz == plan.frequencyHz;
-}
-
-bool ValidateImported(const CalibrationSet &set, const InstrumentProfile &profile, std::string &error)
-{
-    if (!set.data || !NameValid(set.name) || set.deviceIdentity.empty() || set.deviceIdentity.size() > 512U) {
-        error = "Calibration set name, identity or data is invalid";
-        return false;
-    }
-    const auto &data = *set.data;
-    const auto count = data.frequencyHz.size();
-    if (!ValidPorts(data.method, data.port1, data.port2, profile.portCount) || count < MIN_SWEEP_POINTS ||
-        count > MAX_SWEEP_POINTS || count != set.powerRaw.size() || !std::isfinite(set.ifBandwidthHz) ||
-        (data.method == VnaCalibration::CalibrationMethod::ONE_PORT && set.includeIsolation)) {
-        error = "Calibration set ports, frequency axis or stimulus are invalid";
-        return false;
-    }
-    const std::array<double, 5U> bandwidths{{10.0, 100.0, 1000.0, 10000.0, 100000.0}};
-    if (std::find(bandwidths.begin(), bandwidths.end(), set.ifBandwidthHz) == bandwidths.end()) {
-        error = "Calibration set IF bandwidth is unsupported";
-        return false;
-    }
-    double previous = 0.0;
-    for (double frequency : data.frequencyHz) {
-        if (!std::isfinite(frequency) || frequency < profile.minFrequencyHz || frequency > profile.maxFrequencyHz ||
-            frequency <= previous || std::floor(frequency) != frequency) {
-            error = "Calibration set frequency axis is invalid for this instrument";
-            return false;
-        }
-        previous = frequency;
-    }
-    if (data.method == VnaCalibration::CalibrationMethod::ONE_PORT) {
-        if (data.onePortTerms.size() != count || !data.twoPortTerms.empty() ||
-            !std::all_of(
-                data.onePortTerms.begin(), data.onePortTerms.end(), [](const VnaCalibration::OnePortTerms &terms) {
-                    return ValidTerms(terms);
-                })) {
-            error = "Calibration set one-port coefficients are invalid";
-            return false;
-        }
-    } else if (data.twoPortTerms.size() != count || !data.onePortTerms.empty() ||
-               !std::all_of(data.twoPortTerms.begin(), data.twoPortTerms.end(),
-                   [&set](const VnaCalibration::TwoPortTerms &terms) {
-                       return ValidTerms(terms, set.includeIsolation);
-                   })) {
-        error = "Calibration set two-port coefficients are invalid";
-        return false;
-    }
-    return true;
 }
 
 void AddPort(VnaCore::SweepPlan &plan, unsigned port)
@@ -326,9 +238,7 @@ bool CalibrationWorkspace::Begin(const CalibrationChange &change, const std::str
     if (!CanRevise(error)) {
         return false;
     }
-    if (collecting_ || sets_.size() >= MAX_CALIBRATION_SETS || !NameValid(change.name) ||
-        !ValidPorts(change.method, change.port1, change.port2, profile.portCount) ||
-        (change.method == VnaCalibration::CalibrationMethod::ONE_PORT && change.includeIsolation) ||
+    if (collecting_ || sets_.size() >= MAX_CALIBRATION_SETS || !Detail::CalibrationSetupValid(change, profile) ||
         nextSessionId_ == (std::numeric_limits<std::uint64_t>::max)()) {
         error = "Calibration session, ports, name or set capacity is invalid";
         return false;
@@ -340,6 +250,17 @@ bool CalibrationWorkspace::Begin(const CalibrationChange &change, const std::str
         error = "Calibration requires a strictly increasing physical frequency axis; CW is unsupported";
         return false;
     }
+    InitializeSession(change, identity, plan);
+    collecting_ = true;
+    capturePending_ = false;
+    error_.clear();
+    ++revision_;
+    return true;
+}
+
+void CalibrationWorkspace::InitializeSession(
+    const CalibrationChange &change, const std::string &identity, const VnaCore::SweepPlan &plan)
+{
     VnaCalibration::CalibrationData axis;
     axis.method = change.method;
     axis.port1 = change.port1;
@@ -375,11 +296,6 @@ bool CalibrationWorkspace::Begin(const CalibrationChange &change, const std::str
             samples_.push_back(std::move(isolation));
         }
     }
-    collecting_ = true;
-    capturePending_ = false;
-    error_.clear();
-    ++revision_;
-    return true;
 }
 
 bool CalibrationWorkspace::ValidateStep(std::uint64_t sessionId, const std::string &stepId, std::string &error) const
@@ -502,13 +418,18 @@ bool CalibrationWorkspace::Solve(VnaCalibration::CalibrationData &data, std::str
     return true;
 }
 
+bool CalibrationWorkspace::CanComplete(const std::string &name) const
+{
+    return collecting_ && !capturePending_ && Detail::CalibrationNameValid(name) &&
+           sets_.size() < MAX_CALIBRATION_SETS && nextSetId_ != (std::numeric_limits<std::uint64_t>::max)() &&
+           std::all_of(samples_.begin(), samples_.end(), [](const Sample &sample) {
+               return sample.step.captured;
+           });
+}
+
 bool CalibrationWorkspace::Complete(const std::string &name, std::string &error)
 {
-    if (!CanRevise(error) || !collecting_ || capturePending_ || !NameValid(name) ||
-        sets_.size() >= MAX_CALIBRATION_SETS || nextSetId_ == (std::numeric_limits<std::uint64_t>::max)() ||
-        std::any_of(samples_.begin(), samples_.end(), [](const Sample &sample) {
-            return !sample.step.captured;
-        })) {
+    if (!CanRevise(error) || !CanComplete(name)) {
         error = "Calibration requires all standards, a valid name and an available set slot";
         return false;
     }
@@ -556,54 +477,76 @@ bool CalibrationWorkspace::ApplySaved(
         error = "Saved calibration changes require an idle calibration workspace";
         return false;
     }
-    if (change.kind == CalibrationChangeKind::ENABLE) {
-        if (change.enabled && !Find(selectedSetId_)) {
-            error = "No calibration set is selected";
-            return false;
-        }
-        enabled_ = change.enabled;
-    } else if (change.kind == CalibrationChangeKind::SELECT) {
-        if (!Find(change.setId)) {
-            error = "Calibration set does not exist";
-            return false;
-        }
-        selectedSetId_ = change.setId;
-    } else if (change.kind == CalibrationChangeKind::DELETE_SET) {
-        if (!Find(change.setId)) {
-            error = "Calibration set does not exist";
-            return false;
-        }
-        sets_.erase(std::remove_if(sets_.begin(), sets_.end(),
-                        [&change](const CalibrationSetPtr &set) {
-                            return set->id == change.setId;
-                        }),
-            sets_.end());
-        if (selectedSetId_ == change.setId) {
-            selectedSetId_ = 0U;
-            enabled_ = false;
-        }
-    } else if (change.kind == CalibrationChangeKind::IMPORT_SET) {
-        if (!change.importedSet || sets_.size() >= MAX_CALIBRATION_SETS ||
-            nextSetId_ == (std::numeric_limits<std::uint64_t>::max)() ||
-            !ValidateImported(*change.importedSet, profile, error)) {
-            if (error.empty()) {
-                error = "Calibration import is missing data or exceeds set capacity";
-            }
-            return false;
-        }
-        auto imported = *change.importedSet;
-        imported.id = nextSetId_++;
-        if (imported.name.empty()) {
-            imported.name = "Cal" + std::to_string(imported.id);
-        }
-        imported.data = std::make_shared<const VnaCalibration::CalibrationData>(*imported.data);
-        sets_.push_back(std::make_shared<const CalibrationSet>(std::move(imported)));
-    } else {
-        error = "Unsupported saved calibration operation";
+    if (!UpdateSaved(change, profile, error)) {
         return false;
     }
     error_.clear();
     ++revision_;
+    return true;
+}
+
+bool CalibrationWorkspace::UpdateSaved(
+    const CalibrationChange &change, const InstrumentProfile &profile, std::string &error)
+{
+    switch (change.kind) {
+        case CalibrationChangeKind::ENABLE:
+            if (change.enabled && !Find(selectedSetId_)) {
+                error = "No calibration set is selected";
+                return false;
+            }
+            enabled_ = change.enabled;
+            return true;
+        case CalibrationChangeKind::SELECT:
+            if (!Find(change.setId)) {
+                error = "Calibration set does not exist";
+                return false;
+            }
+            selectedSetId_ = change.setId;
+            return true;
+        case CalibrationChangeKind::DELETE_SET:
+            return DeleteSet(change.setId, error);
+        case CalibrationChangeKind::IMPORT_SET:
+            return ImportSet(change.importedSet, profile, error);
+        default:
+            error = "Unsupported saved calibration operation";
+            return false;
+    }
+}
+
+bool CalibrationWorkspace::DeleteSet(std::uint64_t id, std::string &error)
+{
+    if (!Find(id)) {
+        error = "Calibration set does not exist";
+        return false;
+    }
+    sets_.erase(std::remove_if(sets_.begin(), sets_.end(),
+                    [id](const CalibrationSetPtr &set) {
+                        return set->id == id;
+                    }),
+        sets_.end());
+    if (selectedSetId_ == id) {
+        selectedSetId_ = 0U;
+        enabled_ = false;
+    }
+    return true;
+}
+
+bool CalibrationWorkspace::ImportSet(const CalibrationSetPtr &set, const InstrumentProfile &profile, std::string &error)
+{
+    if (!set || sets_.size() >= MAX_CALIBRATION_SETS || nextSetId_ == (std::numeric_limits<std::uint64_t>::max)() ||
+        !Detail::ValidateImportedCalibration(*set, profile, error)) {
+        if (error.empty()) {
+            error = "Calibration import is missing data or exceeds set capacity";
+        }
+        return false;
+    }
+    auto imported = *set;
+    imported.id = nextSetId_++;
+    if (imported.name.empty()) {
+        imported.name = "Cal" + std::to_string(imported.id);
+    }
+    imported.data = std::make_shared<const VnaCalibration::CalibrationData>(*imported.data);
+    sets_.push_back(std::make_shared<const CalibrationSet>(std::move(imported)));
     return true;
 }
 

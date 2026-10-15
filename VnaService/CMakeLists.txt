@@ -3,6 +3,7 @@ add_library(vna_service STATIC
     src/instrument_service.cpp
     src/instrument_display.cpp
     src/calibration_workspace.cpp
+    src/calibration_set_validation.cpp
     src/instrument_calibration.cpp
 )
 target_include_directories(vna_service PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

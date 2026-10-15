@@ -45,6 +45,12 @@ private:
     };
 
     bool CanRevise(std::string &error) const;
+    void InitializeSession(
+        const CalibrationChange &change, const std::string &identity, const VnaCore::SweepPlan &plan);
+    bool CanComplete(const std::string &name) const;
+    bool UpdateSaved(const CalibrationChange &change, const InstrumentProfile &profile, std::string &error);
+    bool DeleteSet(std::uint64_t id, std::string &error);
+    bool ImportSet(const CalibrationSetPtr &set, const InstrumentProfile &profile, std::string &error);
     bool Solve(VnaCalibration::CalibrationData &data, std::string &error) const;
     void AddSteps(unsigned port);
     const Sample *FindSample(CalibrationStandard kind, unsigned port) const noexcept;
