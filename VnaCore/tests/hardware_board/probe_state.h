@@ -33,6 +33,8 @@ private:
     bool WaitForGate(std::uint32_t occurrence) const;
     bool ListsRetained() const;
     bool ValidateLists() const;
+    bool ValidRead(std::uint32_t first, std::uint32_t count, double *data, int capacity) const;
+    void WriteData(std::uint32_t first, std::uint32_t count, double *data) const;
 
     std::string trace_;
     std::string failure_;

@@ -25,12 +25,12 @@ std::vector<Summary> Summaries(const VnaCore::SweepPlan &plan)
 {
     std::vector<double> ports;
     for (auto port : plan.sourcePorts) {
-        ports.push_back(port - 1U);
+        ports.push_back(port);
     }
     return {{"frequency", "uint64_t", "Hz", {plan.frequencyRaw.begin(), plan.frequencyRaw.end()}},
         {"power", "double", "dBm", plan.powerDbm},
         {"ifbw", "uint32_t", "Hz", std::vector<double>(plan.frequencyRaw.size(), plan.ifBandwidthRaw)},
-        {"ports", "uint32_t", "zero_based", ports}};
+        {"ports", "uint32_t", "one_based", ports}};
 }
 
 void VerifyCalls(

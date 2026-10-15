@@ -32,6 +32,7 @@ public:
     void SetFrequencies(const std::uint64_t *values, std::uint32_t length) noexcept;
     void SetPowers(const double *values, std::uint32_t length) noexcept;
     void SetBandwidths(const std::uint32_t *values, std::uint32_t length) noexcept;
+    // 原生工作端口编号为 1～4；Download 校验重复与范围后转为内部信号下标。
     void SetWorkPorts(const std::uint32_t *values, std::uint32_t length) noexcept;
     // 校验全部暂存项并原子替换已提交计划；失败保留旧计划。
     std::uint32_t Download();

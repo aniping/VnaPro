@@ -71,10 +71,7 @@ void DownloadReference(const VnaCore::Detail::BoardFunctions &functions, const V
     auto frequencies = plan.frequencyRaw;
     auto powers = plan.powerDbm.empty() ? std::vector<double>(TEST_POINTS, 0.0) : plan.powerDbm;
     std::vector<std::uint32_t> bandwidths(TEST_POINTS, plan.ifBandwidthRaw);
-    std::vector<std::uint32_t> ports;
-    for (const auto source : plan.sourcePorts) {
-        ports.push_back(source - 1U);
-    }
+    auto ports = plan.sourcePorts;
     const auto count = static_cast<std::uint32_t>(TEST_POINTS);
     functions.setFreqList(frequencies.data(), count);
     functions.setPowerList(powers.data(), count);

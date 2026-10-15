@@ -57,10 +57,7 @@ std::unique_ptr<BoardDeviceSession::DownloadLists> BoardDeviceSession::PrepareDo
         download->frequencies = plan.frequencyRaw;
         download->powers = plan.powerDbm.empty() ? std::vector<double>(plan.frequencyRaw.size(), 0.0) : plan.powerDbm;
         download->bandwidths.assign(plan.frequencyRaw.size(), plan.ifBandwidthRaw);
-        download->ports.reserve(plan.sourcePorts.size());
-        for (const auto source : plan.sourcePorts) {
-            download->ports.push_back(source - 1U);
-        }
+        download->ports = plan.sourcePorts;
     } catch (const std::exception &) {
         throw PlanPreparationError();
     }

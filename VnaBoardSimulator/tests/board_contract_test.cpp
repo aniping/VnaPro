@@ -44,7 +44,7 @@ void TestRanges(const std::string &path)
     BoardLibraryProbe library(path);
     const auto &api = library.Functions();
     Require(api.initialize() == VnaBoard::DRV_SIM_OK, "动态库初始化失败");
-    Stage(api, 201U, {3U, 0U, 1U, 2U});
+    Stage(api, 201U, {4U, 1U, 2U, 3U});
     Require(api.start() == VnaBoard::DRV_SIM_OK, "动态库异步扫描失败");
     std::vector<double> full(201U * 64U, -123.0);
     std::vector<double> prefix(64U * 64U, -123.0);
@@ -76,12 +76,13 @@ void TestLayoutLiteral(const std::string &path)
     std::uint64_t frequencies[] = {1000000000ULL, 2000000000ULL};
     double powers[] = {-17.5, 0.25};
     std::uint32_t bandwidths[] = {1U, std::numeric_limits<std::uint32_t>::max()};
-    std::uint32_t ports[] = {1U, 0U};
+    std::uint32_t ports[] = {2U, 1U};
     api.frequencies(frequencies, 2U);
     api.powers(powers, 2U);
     api.bandwidths(bandwidths, 2U);
     std::fill_n(bandwidths, 2U, 0U);
     api.ports(ports, 2U);
+    std::fill_n(ports, 2U, 0U);
     Require(api.download() == VnaBoard::DRV_SIM_OK && api.rfPower(1U) == VnaBoard::DRV_SIM_OK &&
                 api.start() == VnaBoard::DRV_SIM_OK,
         "布局测试扫描失败");
@@ -107,7 +108,7 @@ void TestReloadAndNoise(const std::string &path)
         BoardLibraryProbe library(path);
         const auto &api = library.Functions();
         Require(api.initialize() == VnaBoard::DRV_SIM_OK, "重复加载初始化失败");
-        Stage(api, 3U, {0U, 1U});
+        Stage(api, 3U, {1U, 2U});
         Require(api.start() == VnaBoard::DRV_SIM_OK, "噪声扫描失败");
         std::vector<double> values(3U * 32U);
         Require(

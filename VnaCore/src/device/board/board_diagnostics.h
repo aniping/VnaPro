@@ -12,7 +12,7 @@
 namespace VnaCore {
 namespace Detail {
 
-// 精确的 VN10 下发缓冲；会话拥有这些数组，日志只在配置边界同步借用。
+// 精确的 VN10 下发缓冲；工作端口编号 1～4，会话拥有数组，日志只在配置边界同步借用。
 struct BoardDownloadLists final {
     std::vector<std::uint64_t> frequencies;
     std::vector<double> powers;

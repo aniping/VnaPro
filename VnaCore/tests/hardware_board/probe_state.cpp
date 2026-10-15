@@ -174,13 +174,35 @@ bool ProbeState::WaitForGate(std::uint32_t occurrence) const
     return true;
 }
 
+bool ProbeState::ValidRead(std::uint32_t first, std::uint32_t count, double *data, int capacity) const
+{
+    if (!initialized_ || !scanning_ || first != next_ || count == 0U || first >= frequencies_.size()) {
+        return false;
+    }
+    return count <= frequencies_.size() - first && data != nullptr &&
+           capacity == static_cast<int>(count * ports_.size() * VALUES_PER_POINT);
+}
+
+void ProbeState::WriteData(std::uint32_t first, std::uint32_t count, double *data) const
+{
+    for (std::size_t source = 0U; source < ports_.size(); ++source) {
+        for (std::uint32_t point = 0U; point < count; ++point) {
+            for (std::size_t component = 0U; component < VALUES_PER_POINT; ++component) {
+                const std::size_t offset = (source * count + point) * VALUES_PER_POINT + component;
+                // 分配互不重叠的扫次、源端口、频点和分量数值区间，避免组合错位相互抵消。
+                data[offset] = static_cast<double>(static_cast<std::uint64_t>(sweep_) * UINT64_C(1000000) +
+                                                   ports_[source] * UINT64_C(100000) + (first + point) * UINT64_C(100) +
+                                                   component);
+            }
+        }
+    }
+}
+
 std::uint32_t ProbeState::Get(std::uint32_t first, std::uint32_t count, double *data, int capacity)
 {
     const auto occurrence = ++getCalls_;
     const auto arguments = std::to_string(first) + " " + std::to_string(count) + " " + std::to_string(capacity);
-    if (!Enter("GET_BEGIN", arguments) || !initialized_ || !scanning_ || first != next_ || count == 0U ||
-        first >= frequencies_.size() || count > frequencies_.size() - first || data == nullptr ||
-        capacity != static_cast<int>(count * ports_.size() * VALUES_PER_POINT) || !ListsRetained() ||
+    if (!Enter("GET_BEGIN", arguments) || !ValidRead(first, count, data, capacity) || !ListsRetained() ||
         !WaitForGate(occurrence)) {
         return INVALID_CONTRACT;
     }
@@ -190,17 +212,7 @@ std::uint32_t ProbeState::Get(std::uint32_t first, std::uint32_t count, double *
         Record("GET_FAIL", arguments);
         return failure;
     }
-    for (std::size_t source = 0U; source < ports_.size(); ++source) {
-        for (std::uint32_t point = 0U; point < count; ++point) {
-            for (std::size_t component = 0U; component < VALUES_PER_POINT; ++component) {
-                const std::size_t offset = (source * count + point) * VALUES_PER_POINT + component;
-                // 分配互不重叠的扫次、源端口、频点和分量数值区间，避免组合错位相互抵消。
-                data[offset] = static_cast<double>(static_cast<std::uint64_t>(sweep_) * UINT64_C(1000000) +
-                                                   (ports_[source] + 1U) * UINT64_C(100000) +
-                                                   (first + point) * UINT64_C(100) + component);
-            }
-        }
-    }
+    WriteData(first, count, data);
     next_ += count;
     scanning_ = next_ != frequencies_.size();
     Record("GET_END", arguments);

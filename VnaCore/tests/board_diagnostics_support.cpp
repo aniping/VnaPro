@@ -129,8 +129,8 @@ void VerifySummary(const Records &records, std::uint64_t config, const Summary &
     Require(Field(record, "uniform") == (uniform ? "true" : "false"), "Diagnostic uniform metadata changed");
     if (expected.name == "ports") {
         const auto &ports = records[Find(
-            records, {"phase=configure", "config=" + std::to_string(config) + " ", "event=ports", "unit=zero_based"})];
-        Require(Values(ports) == expected.values, "Diagnostic ports must be complete and zero based");
+            records, {"phase=configure", "config=" + std::to_string(config) + " ", "event=ports", "unit=one_based"})];
+        Require(Values(ports) == expected.values, "Diagnostic ports must be complete and one based");
     }
 }
 

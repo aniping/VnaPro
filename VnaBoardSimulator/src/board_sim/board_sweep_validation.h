@@ -11,7 +11,8 @@
 
 namespace VnaBoard {
 
-// 校验候选列表和预算，通过后填入完整 IQ 布局；失败不改变布局字段。
+// 校验新的暂存副本并准备 IQ 布局；成功时原生工作端口 1～4 转为内部下标 0～3。
+// 失败不修改候选布局或端口；成功后的候选不能再次作为原生暂存副本传入。
 std::uint32_t ValidatePlan(SweepPlan &plan);
 
 }  // 命名空间 VnaBoard

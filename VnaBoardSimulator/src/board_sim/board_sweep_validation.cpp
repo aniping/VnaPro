@@ -36,10 +36,10 @@ bool PortsValid(const std::vector<std::uint32_t> &ports)
     }
     std::uint32_t seen = 0U;
     for (const auto port : ports) {
-        if (port >= BOARD_PORT_COUNT || (seen & (1U << port)) != 0U) {
+        if (port < 1U || port > BOARD_PORT_COUNT || (seen & (1U << (port - 1U))) != 0U) {
             return false;
         }
-        seen |= 1U << port;
+        seen |= 1U << (port - 1U);
     }
     return true;
 }
@@ -60,6 +60,9 @@ std::uint32_t ValidatePlan(SweepPlan &plan)
     }
     plan.valuesPerPoint = valuesPerPoint;
     plan.totalValues = plan.frequencies.size() * valuesPerPoint;
+    for (auto &port : plan.workPorts) {
+        --port;
+    }
     return DRV_SIM_OK;
 }
 

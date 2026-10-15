@@ -19,7 +19,7 @@ VnaCore::Detail::BoardDownloadLists ExtremeLists()
     lists.frequencies = {UINT64_C(10000000), UINT64_C(8000000000), (std::numeric_limits<std::uint64_t>::max)()};
     lists.powers = {-120.0, -17.500000000000004, 100.0};
     lists.bandwidths = {1U, 1000U, (std::numeric_limits<std::uint32_t>::max)()};
-    lists.ports = {3U, 0U};
+    lists.ports = {4U, 1U};
     return lists;
 }
 
@@ -28,7 +28,7 @@ std::vector<Summary> Summaries(const VnaCore::Detail::BoardDownloadLists &lists)
     return {{"frequency", "uint64_t", "Hz", {lists.frequencies.begin(), lists.frequencies.end()}},
         {"power", "double", "dBm", lists.powers},
         {"ifbw", "uint32_t", "Hz", {lists.bandwidths.begin(), lists.bandwidths.end()}},
-        {"ports", "uint32_t", "zero_based", {lists.ports.begin(), lists.ports.end()}}};
+        {"ports", "uint32_t", "one_based", {lists.ports.begin(), lists.ports.end()}}};
 }
 
 void VerifyExactValues(const Records &records, const VnaCore::Detail::BoardDownloadLists &lists)
@@ -50,7 +50,7 @@ VnaCore::Detail::BoardDownloadLists LargeLists()
         lists.powers.push_back(index % 2U == 0U ? -17.5 : 0.25);
         lists.bandwidths.push_back(1000U);
     }
-    lists.ports = {0U, 3U};
+    lists.ports = {1U, 4U};
     return lists;
 }
 

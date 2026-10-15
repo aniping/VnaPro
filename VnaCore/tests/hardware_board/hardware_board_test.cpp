@@ -13,8 +13,13 @@ int main(int argc, char **argv)
         HardwareBoardTest::Require(argc == 3, "usage: hardware board test <independent ABI probe> <trace prefix>");
         const std::string library = argv[1];
         const std::string trace = argv[2];
+        HardwareBoardTest::VerifyProfile(library, trace + "-single-p1", {1U});
+        HardwareBoardTest::VerifyProfile(library, trace + "-single-p4", {4U});
+        HardwareBoardTest::VerifyProfile(library, trace + "-two-ascending", {2U, 4U});
         HardwareBoardTest::VerifyProfile(library, trace + "-two", {4U, 2U});
+        HardwareBoardTest::VerifyProfile(library, trace + "-three-subset", {4U, 2U, 1U});
         HardwareBoardTest::VerifyProfile(library, trace + "-four", {3U, 1U, 4U, 2U});
+        HardwareBoardTest::VerifyProfile(library, trace + "-four-reversed", {4U, 3U, 2U, 1U});
         HardwareBoardTest::VerifyPowerDbmContract(library, trace + "-power-dbm");
         HardwareBoardTest::VerifyCloseWaits(library, trace + "-blocked-close");
         HardwareBoardTest::VerifyContinuousFrames(library, trace + "-continuous");

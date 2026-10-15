@@ -22,7 +22,7 @@ VNA_BOARD_EXPORT std::uint32_t VNA_BOARD_CALL DrvDataFrameDownload();
 VNA_BOARD_EXPORT std::uint32_t VNA_BOARD_CALL DrvSetRfPowerOn(std::uint32_t isOn);
 // 异步启动整个已提交计划；必须串行调用，上一扫描完成后才可再次启动。
 VNA_BOARD_EXPORT std::uint32_t VNA_BOARD_CALL DrvStartSweep();
-// 排列为 [工作源端口顺序][本次请求的频点][接收端口 0..3][A实,A虚,B实,B虚]。
+// 排列为 [工作源端口顺序][本次请求的频点][接收槽索引 0..3][A实,A虚,B实,B虚]，接收槽对应物理端口 1..4。
 // dataLen 是 double 元素容量；失败不修改输出；同一扫描可分段、重复读取。
 VNA_BOARD_EXPORT std::uint32_t VNA_BOARD_CALL DrvGetSweepData(
     std::uint32_t start_index, std::uint32_t fNum, double data[], int dataLen);

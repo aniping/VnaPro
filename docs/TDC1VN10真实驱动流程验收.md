@@ -6,7 +6,7 @@
 
 - 返回值 0 表示成功；`4294967295`（`0xFFFFFFFF`，有符号解释为 −1）是已确认的通用失败。其他非零值按调用步骤和原数值报告，不套用模拟器错误枚举。
 - 频率使用 `uint64_t[]` Hz、IFBW 使用 `uint32_t[]` Hz；`DrvSetPowerList(double[], uint32_t)` 使用 dBm，闭区间 `[-120,100]`，允许负数与小数。IFBW 函数精确签名为 `DrvSetIfBwList(uint32_t[], uint32_t)`。
-- 原生端口为 0～3，仪器逻辑端口为 1～4，适配器进行明确转换。
+- `DrvSetWorkPorts` 的原生工作端口为 1～4，与仪器逻辑端口一致；按计划中的端口顺序原样下发。现场已确认此前的 0～3 假设错误，不能将数组下标当作驱动端口编号。
 - 工作端口只决定激励源块的数量。输出按工作源端口分块，每源包含全部请求频点，每点固定四接收端口的 A实/A虚/B实/B虚，共 16 个 double。
 - `DrvGetSweepData` 的 `dataLen` 已确认为 double 元素容量，按 `请求频点数 × 工作端口数 × 16` 传递；两工作端口、两频点传 64，不乘以 `sizeof(double)`。
 - `DrvSetRfPowerOn(0)` 只关闭端口，不停止扫描。运行期不卸载驱动，进程退出时由系统释放。
@@ -29,7 +29,7 @@ RF OFF 不能中止正在阻塞的 Get。供应接口没有取消、完成查询
 
 将整个 `release` 复制到公司环境，编辑程序旁的 `vnapro.yml`，使用真实库对应的 `driver.type: hardware`、`driver.board: tdc1vn10` 与实际 DLL 文件名。日志记录的是适配器实际传给驱动的数组，IFBW 元素应显示 `uint32_t bytes=4`；旧 uint64 缓冲被新驱动按 4 字节读取时可能出现 `1000,0,1000,0` 交错，不能仅检查首项。
 
-默认 INFO 已包含 DLL 路径、初始化调用、配置尝试号、四组数组摘要以及完整原生端口列表。SET 返回 void 只记为调用返回，其有效性由随后 Download 判断；日志不会将其称为配置成功。每个调用均先记 `event=begin`，再调用 DLL，返回后记录 `event=returned`。Download 的状态行保留 `status_u32`、`status_i32` 和 `status_hex`；`result` 只将 0 标为 SUCCESS、4294967295 标为 FAILURE，其他非零码标为 UNRECOGNIZED_NONZERO，并继续按失败处理。未返回的调用会留下 begin，没有虚构的完成记录。
+默认 INFO 已包含 DLL 路径、初始化调用、配置尝试号、四组数组摘要以及完整原生端口列表。端口日志使用 `unit=one_based`，例如 P1/P4 应为 `values=[1,4]`。SET 返回 void 只记为调用返回，其有效性由随后 Download 判断；日志不会将其称为配置成功。每个调用均先记 `event=begin`，再调用 DLL，返回后记录 `event=returned`。Download 的状态行保留 `status_u32`、`status_i32` 和 `status_hex`；`result` 只将 0 标为 SUCCESS、4294967295 标为 FAILURE，其他非零码标为 UNRECOGNIZED_NONZERO，并继续按失败处理。未返回的调用会留下 begin，没有虚构的完成记录。
 
 现场已确认实际返回 `UINT32_MAX`，即 `4294967295`（`0xFFFFFFFF`、有符号解释为 −1），表示通用失败。此前转述的数值是笔误，不作为厂商错误码或故障原因的依据；具体失败原因仍需结合下发参数与驱动现场定位。
 
@@ -62,6 +62,7 @@ DEBUG 在 `DrvDataFrameDownload event=begin` 之前输出频率、功率、IFBW 
 4. 原初始化依赖模拟器默认 RF 关闭。现在 HwInit 成功后显式关闭端口。
 5. 服务不再隐式依赖模拟器功率默认值：`instrument.sweep.defaultPowerDbm` 启动冻结，扫描计划用 `powerDbm: vector<double>` 逐点明确下发。旧 `defaultPowerRaw` 仅兼容整数 0，非零旧编码需明确改写为 dBm；两个配置键不能共存。
 6. 刺激轴读取已成功提交的计划，计划覆盖判断包含功率，范围错误不再标为 mock。旧 VN08 的 9N 表准备逻辑保留兼容；VN10 下发不消费该表。
+7. 原 VN10 适配器将逻辑端口减一，模拟器和探针也沿用相同错误假设。实机已确认 `DrvSetWorkPorts` 使用 1～4；现在适配器直接复制编号，独立探针按收到的原生值编码 IQ，黄金期望仍使用逻辑端口值。旧主机的 `[3,1,4,2]` 被下发成 `[2,0,3,1]`，已由冻结主机配合修正后的探针复现并拒绝。
 
 实际采样值始终来自 Get 返回的 IQ。S 参数按同一源帧计算 `Sij = Bi / Aj`；硬件路径不读取噪声模式、种子、幅度、黄金向量，也不将模拟器身份作为准入条件。
 
@@ -88,3 +89,5 @@ ctest --test-dir cmake-build-debug -j 4 --output-on-failure
 此前基线已完成 75 项 CTest 和前端 439 项测试。接口修正增加供应头独立合同、double 功率及配置/校准回归；本轮补充 IFBW 数组宽度、初始化和配置诊断回归。实际通用失败码只能确认调用失败，不能据此认定具体参数或硬件故障。验收证明软件调用、数据与资源合同，不代替厂商 DLL 和真实板卡的采集验收。
 
 本轮完整 CMake 构建及 76 项 CTest 通过（2026-10-15）；日志轮转读取测试修复短暂文件占用竞态后，确定性独占锁/更名实验及 5 次重复集成测试也通过。根 `release` 的程序、模拟驱动及前端入口与构建产物哈希一致，原 `vnapro.yml` 未改动。验证日志和审查记录位于 `reference/analysis/driver-board-diagnostics-20261015`。
+
+工作端口修正后再次完整 CMake 构建及 76 项 CTest 通过（42.96 秒）。新增单端口 P1/P4、子集及反序下发、0/5/重复端口拒绝、重复 Download 不重复转换的回归；现有 golden/noise 与 HTTP/SCPI 数值检查通过。根 `release` 已更新，原配置保持一致。本次本地验证及审查记录位于 `reference/analysis/driver-work-ports-20261015`；实机调通来自用户现场反馈，本地未加载公司 DLL。

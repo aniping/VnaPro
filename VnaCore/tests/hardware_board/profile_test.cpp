@@ -68,6 +68,7 @@ void VerifyProfile(const std::string &library, const std::string &trace, std::ve
         // 触发前改写调用方副本，探针也在 START 时检查 SET 传入数组仍然有效。
         callerPlan.frequencyRaw.assign(TEST_POINT_COUNT, 999U);
         callerPlan.powerDbm.assign(TEST_POINT_COUNT, -88.5);
+        callerPlan.sourcePorts.assign(callerPlan.sourcePorts.size(), 0U);
         const auto started = Success(core.Start(VnaCore::RunMode::MANUAL));
         Success(core.TriggerOnce(started.runId, configured.configRevision));
         retained = core.ReadView().frame;

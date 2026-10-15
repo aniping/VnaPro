@@ -20,7 +20,7 @@ void Prepare(VnaBoard::BoardSimulatorState &state, std::size_t points, const std
     state.SetPowers(powers.data(), static_cast<std::uint32_t>(points));
     state.SetBandwidths(bandwidths.data(), static_cast<std::uint32_t>(points));
     state.SetWorkPorts(ports.data(), static_cast<std::uint32_t>(ports.size()));
-    Require(state.Download() == VnaBoard::DRV_SIM_OK, "组帧失败");
+    Require(state.Download() == VnaBoard::DRV_SIM_OK, "原生端口 1～4 组帧失败");
     Require(state.SetRfPower(1U) == VnaBoard::DRV_SIM_OK, "射频打开失败");
 }
 

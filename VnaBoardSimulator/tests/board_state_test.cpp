@@ -16,7 +16,7 @@ void TestStagingAndGolden()
     VnaBoard::BoardSimulatorState state;
     Require(state.Start() == VnaBoard::DRV_SIM_NOT_INITIALIZED, "启动必须先初始化");
     Require(state.Initialize() == VnaBoard::DRV_SIM_OK, "初始化失败");
-    Prepare(state, 3U, {2U, 0U});
+    Prepare(state, 3U, {3U, 1U});
     std::vector<std::uint64_t> nextFrequencies(3U, 1100000000ULL);
     state.SetFrequencies(nextFrequencies.data(), 3U);
     nextFrequencies.assign(3U, 999U);
@@ -43,14 +43,14 @@ void TestValidationAndBudget()
     VnaBoard::BoardSimulatorState state;
     Require(state.Initialize() == VnaBoard::DRV_SIM_OK, "初始化失败");
     Prepare(state, 1U);
-    const std::uint32_t duplicate[] = {0U, 0U};
+    const std::uint32_t duplicate[] = {1U, 1U};
     state.SetWorkPorts(duplicate, 2U);
     Require(state.Download() == VnaBoard::DRV_SIM_INVALID_ARGUMENT, "重复工作端口必须拒绝");
     const std::size_t tooMany = VnaBoard::MAX_SWEEP_BYTES / (4U * 16U * sizeof(double)) + 1U;
     const std::vector<std::uint64_t> frequencies(tooMany, 1000000000ULL);
     const std::vector<double> powers(tooMany, 17.0);
     const std::vector<std::uint32_t> bandwidths(tooMany, 1U);
-    const std::uint32_t ports[] = {0U, 1U, 2U, 3U};
+    const std::uint32_t ports[] = {1U, 2U, 3U, 4U};
     state.SetFrequencies(frequencies.data(), static_cast<std::uint32_t>(tooMany));
     state.SetPowers(powers.data(), static_cast<std::uint32_t>(tooMany));
     state.SetBandwidths(bandwidths.data(), static_cast<std::uint32_t>(tooMany));
@@ -159,10 +159,41 @@ void TestUint32BandwidthValidation()
     Require(Read(state, 3U) == committed, "中频 ABI 调整不能改变既有 golden 信号模型");
 }
 
+void TestNativeWorkPorts()
+{
+    VnaBoard::BoardSimulatorState state;
+    Require(state.Initialize() == VnaBoard::DRV_SIM_OK, "端口测试初始化失败");
+    Prepare(state, 2U, {4U, 1U});
+    Require(state.Start() == VnaBoard::DRV_SIM_OK, "端口边界扫描失败");
+    const auto committed = Read(state, 2U, 2U);
+    Require(std::hypot(committed[12U], committed[13U]) > 0.999 && std::hypot(committed[32U], committed[33U]) > 0.999,
+        "原生端口 4/1 必须映射到内部接收轴下标 3/0");
+    Require(state.Download() == VnaBoard::DRV_SIM_OK, "重复组帧不能再次减一原生端口");
+    Require(state.Start() == VnaBoard::DRV_SIM_OK, "重复组帧后的扫描失败");
+    Require(Read(state, 2U, 2U) == committed, "重复组帧改变了信号轴或端口顺序");
+    const std::vector<std::uint32_t> invalid[] = {{0U}, {5U}, {1U, 1U}, {4U, 4U}, {1U, 0U}, {1U, 5U}};
+    for (const auto &ports : invalid) {
+        state.SetWorkPorts(ports.data(), static_cast<std::uint32_t>(ports.size()));
+        Require(state.Download() == VnaBoard::DRV_SIM_INVALID_ARGUMENT, "端口 0/5 或重复端口必须拒绝");
+        Require(state.Start() == VnaBoard::DRV_SIM_OK, "非法端口不能破坏旧计划");
+        Require(Read(state, 2U, 2U) == committed, "失败提交改变了原有端口顺序或信号");
+    }
+    std::uint32_t ports[] = {1U, 4U};
+    state.SetWorkPorts(ports, 2U);
+    std::fill_n(ports, 2U, 0U);
+    Require(state.Download() == VnaBoard::DRV_SIM_OK, "端口 setter 必须复制输入并修正暂存错误");
+    Require(state.Start() == VnaBoard::DRV_SIM_OK, "重排端口扫描失败");
+    const auto reordered = Read(state, 2U, 2U);
+    Require(std::equal(reordered.begin(), reordered.begin() + 32, committed.begin() + 32) &&
+                std::equal(reordered.begin() + 32, reordered.end(), committed.begin()),
+        "端口转换必须保持请求顺序及已有 golden 信号");
+}
+
 }  // 匿名命名空间
 
 void TestState()
 {
+    TestNativeWorkPorts();
     TestStagingAndGolden();
     TestValidationAndBudget();
     TestDoublePowerValidation();

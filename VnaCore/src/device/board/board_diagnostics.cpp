@@ -136,8 +136,8 @@ void LogBoardConfiguration(std::uint64_t config, const BoardDownloadLists &lists
         Summary(config, "frequency", "uint64_t", "Hz", lists.frequencies);
         Summary(config, "power", "double", "dBm", lists.powers);
         Summary(config, "ifbw", "uint32_t", "Hz", lists.bandwidths);
-        Summary(config, "ports", "uint32_t", "zero_based", lists.ports);
-        VnaLog::Info(VnaLog::Module::CORE, "[VN10] phase=configure config={} event=ports unit=zero_based values={}",
+        Summary(config, "ports", "uint32_t", "one_based", lists.ports);
+        VnaLog::Info(VnaLog::Module::CORE, "[VN10] phase=configure config={} event=ports unit=one_based values={}",
             config, ValuesText(lists.ports, 0U, lists.ports.size()));
         if (VnaLog::Logger::Instance().Enabled(VnaLog::Level::DEBUG)) {
             DumpConfiguration(VnaLog::Level::DEBUG, config, lists);

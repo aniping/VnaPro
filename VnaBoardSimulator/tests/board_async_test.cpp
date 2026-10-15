@@ -65,7 +65,7 @@ void TestPartialAndBusy()
     std::future<std::vector<double>> whole;
     BatchGateRelease release(gate);
     Require(state.Initialize() == VnaBoard::DRV_SIM_OK, "初始化失败");
-    Prepare(state, 64U, {0U, 3U});
+    Prepare(state, 64U, {1U, 4U});
     Require(state.Start() == VnaBoard::DRV_SIM_OK, "异步启动失败");
     gate.WaitUntilHeld();
     const auto busyStart = state.Start();
@@ -127,7 +127,7 @@ void TestFrameCompletionBoundary()
 {
     VnaBoard::BoardSimulatorState state;
     Require(state.Initialize() == VnaBoard::DRV_SIM_OK, "初始化失败");
-    Prepare(state, 1U, {0U, 1U, 2U, 3U});
+    Prepare(state, 1U, {1U, 2U, 3U, 4U});
     for (std::size_t sweep = 0U; sweep < 100U; ++sweep) {
         Require(state.Start() == VnaBoard::DRV_SIM_OK, "完整结果返回后立即再次启动不能误报 busy");
         const auto values = Read(state, 1U, 4U);

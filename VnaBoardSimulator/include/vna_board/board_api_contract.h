@@ -38,7 +38,8 @@ enum DrvSimErrorCode : std::uint32_t {
     DRV_SIM_CANCELLED = 9U
 };
 
-// 用户已确认每工作源端口连续返回请求频点，单频点包含四接收端口的 A/B 复数波。
+// 原生工作端口编号为 1～4；每源连续返回请求频点。
+// 单频点的四个接收槽索引 0～3 对应物理接收端口 1～4，各含 A/B 复数波。
 enum BoardFrameLayout : std::uint32_t {
     BOARD_PORT_COUNT = 4U,
     IQ_VALUES_PER_RECEIVER = 4U,

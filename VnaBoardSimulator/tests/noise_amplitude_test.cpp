@@ -14,7 +14,7 @@ std::vector<double> AcquireAmplitude(VnaBoard::BoardSimulatorState &state, const
 {
     SetEnvironment("VNAPRO_SIM_NOISE_AMPLITUDE", amplitude);
     Require(state.Initialize() == VnaBoard::DRV_SIM_OK, "噪声幅度初始化失败");
-    Prepare(state, 3U, {0U, 1U});
+    Prepare(state, 3U, {1U, 2U});
     Require(state.Start() == VnaBoard::DRV_SIM_OK, "噪声幅度扫描启动失败");
     return Read(state, 3U, 2U);
 }

@@ -19,6 +19,7 @@ struct SweepPlan {
     // 逐频点功率，单位 dBm；功率暂不参与模拟 IQ 的物理响应。
     std::vector<double> powers;
     std::vector<std::uint32_t> bandwidths;
+    // 暂存为原生端口 1～4，ValidatePlan 成功后为已提交信号轴下标 0～3。
     std::vector<std::uint32_t> workPorts;
     std::size_t valuesPerPoint = 0U;
     std::size_t totalValues = 0U;

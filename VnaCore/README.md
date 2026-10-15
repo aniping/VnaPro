@@ -14,7 +14,7 @@ runId、configRevision 和 frameSeq 使用 `uint64_t`，最大值为 `1844674407
 
 所有身份计数在递增前检查上限，不循环归零。frameSeq 耗尽时在下一次端口采集前进入 Faulted，保留最后的完整帧；可 Recover 后启动新运行。runId 耗尽时拒绝 Start；configRevision 耗尽时拒绝 Configure，以及需要重新应用成功计划的 Recover。这些拒绝不调用设备，也不修改已有身份、配置或帧。运行或配置编号耗尽后需要重新创建核心实例。
 
-SweepPlan 自有频点、可选不透明 9N 旧接口表和可选逐点 `powerDbm: vector<double>`；非空数组分别必须满足 9N 和 N 长度。功率必须有限且位于 `[-120,100] dBm`，保留负数及小数。VN08 适配器在任何硬件调用前要求完整旧接口表，VN10 不要求它；powerDbm 为空时 VN10 下发 N 个 0 dBm。frequencyHz 可以为空，表示尚未建立物理单位映射。核心不把 native A/B 自动称为 S 参数。sourcePorts 使用 1..4，设备适配转换为 native 0..3。每个 PortFrame 的 IQ 为逐点 16 个 double：接收端口 1..4 各占 `A.real,A.imag,B.real,B.imag` 四项。receiverMask 未激活端口的槽位不能作为有效测量。
+SweepPlan 自有频点、可选不透明 9N 旧接口表和可选逐点 `powerDbm: vector<double>`；非空数组分别必须满足 9N 和 N 长度。功率必须有限且位于 `[-120,100] dBm`，保留负数及小数。VN08 适配器在任何硬件调用前要求完整旧接口表，VN10 不要求它；powerDbm 为空时 VN10 下发 N 个 0 dBm。frequencyHz 可以为空，表示尚未建立物理单位映射。核心不把 native A/B 自动称为 S 参数。sourcePorts 使用 1..4；VN10 的 DrvSetWorkPorts 按同样编号及顺序原样下发，VN08 旧帧使用自己的 sourcePort0 编码。每个 PortFrame 的 IQ 为逐点 16 个 double：接收端口 1..4 各占 `A.real,A.imag,B.real,B.imag` 四项。receiverMask 未激活端口的槽位不能作为有效测量。
 
 设备接口 `AcquireSweep(plan)` 一次返回全部源端口。VN08 适配器内部保留逐源同步 Start/Get；VN10 适配器一次启动工作端口列表扫描，分段等待取数并拆包。核心检查源数量、顺序、端口归属和每源 16N 容量，全部完整后才发布一帧。`AcquisitionCore(path, DriverApi)` 明确选择 ABI；单路径旧构造函数保留 VN08 语义，服务入口默认选择 VN10。两个版本同名函数的签名不同，不自动猜测。
 
@@ -22,9 +22,9 @@ SweepPlan 自有频点、可选不透明 9N 旧接口表和可选逐点 `powerDb
 
 原生动态库必须提供绝对路径，不接受 `C:relative` 等路径。Windows 使用 UTF-8 路径转换后的 LoadLibraryExW 与 LOAD_WITH_ALTERED_SEARCH_PATH，从明确的库目录解析依赖；初始化失败返回终结的错误 ticket。共用操作系统句柄管理，VN08/VN10 分别绑定自己的强类型函数表，全部必需符号绑定成功前不调用驱动。VN10 初始化成功后显式关闭 RF；它的 RF OFF 只关端口，不停止扫描，且 ABI 没有设备释放入口。Close 在核心工作线程中等当前整帧读回后关端口并 join 主机 worker，运行期不卸载 VN10 DLL；对象析构后保留加载引用与驱动借用缓冲至进程退出。RF OFF 失败或无法确认扫描结束时，Close 返回失败并保留原始错误，不能宣称设备已停止。
 
-VN10 的四个 SET 数组由设备会话持有，组帧失败时同时保留上次成功配置和本次候选；只有新配置组帧成功后才替换旧列表。取数缓冲在读取失败后仍保持有效。已确认的契约为返回值 0 成功、UINT32_MAX 通用失败、频率 uint64 Hz、IFBW uint32 Hz、功率为 double dBm 且范围 `[-120,100]`、端口编号 0～3。服务显式填写 `instrument.sweep.defaultPowerDbm`；功率和 IFBW 使用各自正确的元素类型，不重解释数组位型。高位返回码同时显示 uint32 原值和有符号 32 位解释，不据此猜测厂商错误含义。
+VN10 的四个 SET 数组由设备会话持有，组帧失败时同时保留上次成功配置和本次候选；只有新配置组帧成功后才替换旧列表。取数缓冲在读取失败后仍保持有效。已确认的契约为返回值 0 成功、UINT32_MAX 通用失败、频率 uint64 Hz、IFBW uint32 Hz、功率为 double dBm 且范围 `[-120,100]`、DrvSetWorkPorts 端口编号 1～4。服务显式填写 `instrument.sweep.defaultPowerDbm`；功率和 IFBW 使用各自正确的元素类型，不重解释数组位型。高位返回码同时显示 uint32 原值和有符号 32 位解释，不据此猜测厂商错误含义。
 
-VN10 原生边界诊断位于内部 `device/board/board_diagnostics`，不进入服务或 UI。INFO 记录绑定路径、ABI 元素类型、初始化/配置调用进入和返回、四组实际下发数组的类型/字节数/单位/长度/首末/最小最大值及原生端口列表；配置号只用于关联当前会话的下发尝试。DEBUG 在 Download 前按每条至多 16 项记录完整数组。Download 返回失败时 ERROR 也补完整候选值，不要求提前启用 DEBUG；返回码同时保留 unsigned、signed 32 位解释和十六进制。诊断失败不改变设备调用与异常语义，关闭对应等级时不格式化数组。成功的 Start/Get 和逐频点/逐帧路径不增加这些记录。公司现场采集方法见[真实驱动验收](../docs/TDC1VN10真实驱动流程验收.md)。
+VN10 原生边界诊断位于内部 `device/board/board_diagnostics`，不进入服务或 UI。INFO 记录绑定路径、ABI 元素类型、初始化/配置调用进入和返回、四组实际下发数组的类型/字节数/单位/长度/首末/最小最大值及原生端口列表（unit=one_based）；配置号只用于关联当前会话的下发尝试。DEBUG 在 Download 前按每条至多 16 项记录完整数组。Download 返回失败时 ERROR 也补完整候选值，不要求提前启用 DEBUG；返回码同时保留 unsigned、signed 32 位解释和十六进制。诊断失败不改变设备调用与异常语义，关闭对应等级时不格式化数组。成功的 Start/Get 和逐频点/逐帧路径不增加这些记录。公司现场采集方法见[真实驱动验收](../docs/TDC1VN10真实驱动流程验收.md)。
 
 顶层 CMake 先加入 VnaNativeSimulator 和 VnaBoardSimulator，再加入 VnaCore，可注册两种动态模拟集成测试。核心库只复用 ABI 头，不链接模拟实现。
 

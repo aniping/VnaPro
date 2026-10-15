@@ -27,6 +27,22 @@ double ExpectedPower(const std::string &pattern, std::size_t point)
     return 0.0;
 }
 
+bool ValidPorts(std::vector<std::uint32_t> ports)
+{
+    // 只排序验证副本，设备接收和 IQ 源块均保留调用方顺序。
+    std::sort(ports.begin(), ports.end());
+    return ports.front() >= 1U && ports.back() <= 4U && std::adjacent_find(ports.begin(), ports.end()) == ports.end();
+}
+
+std::string PortValues(const std::vector<std::uint32_t> &ports)
+{
+    std::string result;
+    for (const auto port : ports) {
+        result += result.empty() ? std::to_string(port) : "," + std::to_string(port);
+    }
+    return result;
+}
+
 }  // 匿名命名空间
 
 void ProbeState::SetFrequencies(std::uint64_t *values, std::uint32_t count)
@@ -71,9 +87,10 @@ void ProbeState::SetPorts(std::uint32_t *ports, std::uint32_t count)
     }
     ports_.assign(ports, ports + count);
     portPointer_ = ports;
-    auto sorted = ports_;
-    std::sort(sorted.begin(), sorted.end());
-    valid_ = valid_ && sorted.back() < 4U && std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end();
+    valid_ = ValidPorts(ports_);
+    if (!valid_) {
+        Record("PORTS_INVALID", PortValues(ports_));
+    }
 }
 
 bool ProbeState::ValidateLists() const
