@@ -34,8 +34,8 @@ export function spacedAxisLabels<T extends AxisLabelPlacement>(
           : label.top - labelHeight / 2
     return { top, bottom: top + labelHeight }
   }
-  // 小窗除了不重叠，还保留一行留白；数字跳项不改变 Scale/Div 的十格含义。
-  const minimumGap = Math.max(2, labelHeight)
+  // 字框之间保留 2px 留白；空间不足时才跳项，不改变 Scale/Div 的十格含义。
+  const minimumGap = 2
   const selected: T[] = []
   const ordered = [...labels].sort(
     (a, b) => priority(b) - priority(a) || a.division - b.division,

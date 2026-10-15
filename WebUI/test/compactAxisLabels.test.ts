@@ -78,13 +78,58 @@ test('正常大图保持十一项 Y 标签及后端刻度范围', async () => {
   }
 })
 
+test('四分屏尺寸显示完整十一项 Y 标签且字框至少间隔 2px', async () => {
+  const height = 355
+  const view = await pane(height, 475)
+  try {
+    view.props.presentations.Reflect.scale = {
+      min: -30,
+      max: -25,
+      referencePosition: 6,
+    }
+    const before = JSON.stringify(view.props)
+    const labels = view.labels()
+    assert.deepEqual(
+      labels.map((node) => node.children),
+      Array.from({ length: 11 }, (_, index) => `${-25 - index * 0.5}dB`),
+    )
+    assertSeparatedLabels(view, height)
+    assert.equal(JSON.stringify(view.props), before)
+    assert.deepEqual(view.emitted, [])
+  } finally {
+    view.dispose()
+  }
+})
+
+function assertSeparatedLabels(
+  view: Awaited<ReturnType<typeof pane>>,
+  height: number,
+) {
+  const labelHeight = (view.bindings.axisLabelHeight as Ref<number>).value
+  const bounds = view
+    .labels()
+    .map((node) => {
+      const top = hasClass(node, 'edge-top')
+        ? 3
+        : hasClass(node, 'edge-bottom')
+          ? height - 3 - labelHeight
+          : parseFloat(node.props!.style.top) - labelHeight / 2
+      return { top, bottom: top + labelHeight }
+    })
+    .sort((a, b) => a.top - b.top)
+  bounds
+    .slice(1)
+    .forEach((box, index) => assert.ok(box.top >= bounds[index]!.bottom + 2))
+}
+
 test('小图窗的数字刻度跳项显示，保持十格范围、每格设置及参考值', async () => {
   const view = await pane(150, 230)
   try {
     const before = JSON.stringify(view.props)
     const labels = view.labels()
-    assert.ok(labels.length <= 7, '150px 小窗不能挤入接近十一项数字刻度')
+    assert.ok(labels.length < 11, '150px 小窗应减少标签以免字框重叠')
     assert.ok(labels.some((node) => hasClass(node, 'reference-tick')))
+    assertSeparatedLabels(view, 150)
     assert.equal(JSON.stringify(view.props), before)
     assert.deepEqual(view.emitted, [])
   } finally {
@@ -99,25 +144,12 @@ test('短图窗仅减少标签密度，保留参考值而且不把它误认为�
     const before = JSON.stringify(view.props)
     const labels = view.labels()
     assert.ok(labels.length < 11)
-    const labelHeight = (view.bindings.axisLabelHeight as Ref<number>).value
     const reference = labels.find((node) => hasClass(node, 'reference-tick'))!
     assert.ok(reference)
     assert.equal(reference.children, '0dB')
     assert.equal(hasClass(reference, 'edge-top'), false)
     assert.equal(reference.props!.style.top, '11.8px')
-    const bounds = labels
-      .map((node) => {
-        const top = hasClass(node, 'edge-top')
-          ? 3
-          : hasClass(node, 'edge-bottom')
-            ? height - 3 - labelHeight
-            : parseFloat(node.props!.style.top) - labelHeight / 2
-        return { top, bottom: top + labelHeight }
-      })
-      .sort((a, b) => a.top - b.top)
-    bounds
-      .slice(1)
-      .forEach((box, index) => assert.ok(box.top >= bounds[index]!.bottom + 2))
+    assertSeparatedLabels(view, height)
     assert.equal(JSON.stringify(view.props), before)
     assert.deepEqual(view.emitted, [])
   } finally {
