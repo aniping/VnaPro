@@ -35,7 +35,15 @@ def logs(directory):
 
 
 def contents(directory):
-    return "".join(path.read_text(encoding="utf-8") for path in logs(directory))
+    deadline = time.monotonic() + 1
+    while True:
+        try:
+            return "".join(path.read_text(encoding="utf-8") for path in logs(directory))
+        except (FileNotFoundError, PermissionError):
+            # Windows 轮转可在枚举和读取之间更名或暂时占用文件，重取完整快照。
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
 
 
 @contextmanager
