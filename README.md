@@ -83,7 +83,7 @@ clang-format --style=file --dry-run --Werror $cppFiles
 
 ## 校准
 
-Cal → Start (Manual) 支持任意单端口理想 50 Ω OSM/OSL、任意端口对 TOSM/SOLT 及可选隔离。校准独立版本与不可变系数在原始比值之后接入，HTTP、SCPI SDATA、Marker 和 Autoscale 统一读取。校准集最多 16 个，严格匹配物理刺激，Export/Import 使用项目 JSON；ECal、TRL、非理想件模型和硬件精度验证待扩展。操作、接口与边界见[校准接入与使用](docs/校准接入与使用.md)。
+Cal → Start (Manual) 支持任意单端口理想 50 Ω OSM/OSL、任意端口对及完整四端口 TOSM，可选隔离。校准独立版本与不可变系数在原始比值之后接入，HTTP、SCPI SDATA、Marker 和 Autoscale 统一读取。每通道校准池最多 256 集、512 MiB 系数及元数据，仪器合计最多 1 GiB；严格匹配物理刺激，Export/Import 使用项目 JSON。默认开启校准持久化，启动恢复 Ch1 池及选择，校正保持关闭；ECal、TRL、非理想件模型和硬件精度验证待扩展。操作、接口与边界见[校准接入与使用](docs/校准接入与使用.md)。
 
 ## 网络与驱动配置
 
@@ -113,6 +113,7 @@ driver:
 | `server.scpiPort` / `server.webPort` | 0…65535 的整数端口；常规部署使用固定端口，0 由操作系统分配空闲端口 |
 | `server.webEnabled` | 是否启动 Web 入口；关闭时不加载静态页面 |
 | `server.webRoot` | 静态目录，相对路径以程序所在目录为基准，也可填写绝对路径 |
+| `server.calibrationStore` | Ch1 校准存储目录，默认 `calibration`，相对程序目录；空字符串关闭 |
 | `driver.board` | `tdc1vn10` 或 `tdc1vn08`，选择对应驱动 ABI |
 | `driver.type` | `simulator` 启用模拟参数；`hardware` 忽略整个 `simulator` 节点且不修改模拟环境变量；省略时为 `hardware` |
 | `driver.library` | 编译后的库文件名，必须位于程序同目录；只填文件名，不填路径；硬件类型必须显式填写 |
@@ -205,6 +206,12 @@ CALC1:DATA? RDATA
 
 后台配置由值复制，采集按所有需求源端口完成一轮才发布不可变快照。成功配置或测量目录变更增加逻辑 `revision`，仅成功下发采集计划改变 `acquisitionRevision`。帧的 `revision` 保留实际采集计划版本，`measurementRevision` 标记本次复算使用的目录；前端同时核对这两种版本，旧帧不会冒充当前配置的结果。HOLD 等待正在进行的一轮完成；断开 TCP 不撤销已接受操作，新控制连接须等待这些操作终结。
 
+四端口 TOSM 使用四口各 O/S/M 和全部六对理想 THRU，18 次标准连接后求解并联合校正完整 16 项，可选逐对隔离。Web 向导可选择全部四口，或使用项目 SCPI `SENS1:CORR:COLL:METH TOSM,1,2,3,4`。操作、标准条件和证据见[校准接入与使用](docs/校准接入与使用.md)。四口文件用 schema 3，一/二口仍用 schema 2。`server.calibrationStore` 默认 `calibration`，相对程序目录；空字符串关闭持久化。保存成功后操作才完成，目录损坏或系数缺失会阻止启动。
+
+独立 VN10 模拟部署、40 GHz 软件配置和非单位诊断集脚本见[VNB 模拟联调](docs/VNB模拟联调.md)，不代表真实硬件的频率能力或校准精度。
+
+`FORM REAL,64;:FORM:BORD SWAP` 输出小端 IEEE 定长块，`FORM ASCII` 恢复文本。`CALC1:DATA:MSD? '1,2,...,16'` 按定义序号从同一完整帧返回 trace-major 的实部/虚部，要求全部请求项都有兼容且启用的真实校准，覆盖不足或过期报 `-230`。最大 10001 点完整四口 payload 为 2,560,256 字节。`CSET:ACT '名称',0` 按不透明名称激活真实系数；`ACT?` 仍读回 ID，`CAT?` 枚举 ID/名称。
+
 ## 模块与范围
 
 | 目录 | 职责 |
@@ -214,10 +221,10 @@ CALC1:DATA? RDATA
 | `VnaLog` / `config/vnapro.yml` | spdlog 日志门面、线程安全滚动目标与启动配置 |
 | `VnaCore/include/vna_core` | 配置、不可变完整帧、异步命令结果与状态视图 |
 | `VnaCore/src` | 命令 FIFO、单 worker 生命周期、Native 加载与帧转换 |
-| `VnaCalibration` | 三标准/已知 Thru 求解、单端口及完整十二项复数校正，不依赖设备或协议 |
+| `VnaCalibration` | 三标准/已知 Thru 求解、单/双端口及四端口联合复数校正，不依赖设备或协议 |
 | `VnaDisplay` | 共享显示状态、格式投影、一次 Autoscale、原始点及插值 Marker |
 | `VnaService` | 物理配置、测量目录、显示命令、控制权、有限操作及仪器错误状态 |
-| `VnaServer/src/scpi` | 标准命令解析、命令映射、同步屏障、ASCII 响应 |
+| `VnaServer/src/scpi` | 标准命令解析、统一命令登记、同步屏障、ASCII/REAL64 响应 |
 | `VnaServer/src/scpi_tcp_server.*` | TCP 分包/粘包、连接准入、部分发送和网络预算 |
 | `VnaServer/src/network` | SCPI/Web 共用的平台 Socket 操作、网络初始化与句柄生命周期 |
 | `VnaServer/src/web` | 有界 HTTP、静态资源、类型化 API、租约与操作结果 |
@@ -231,11 +238,11 @@ CALC1:DATA? RDATA
 | `VnaServer/tests` | 实际 SCPI / HTTP 端到端验证与有序关闭 |
 | `docs` | 核心设计与服务设计，含结构图和活动图 |
 
-首期仅一个逻辑通道、一个控制者、线性扫描和 SCPI ASCII。物理扫频配置和测量定义增删改在 Ready/Running 下串行执行，已有有限采集任务完成后再处理排队修改；CONT 在完整帧边界替换计划，MAN 保持布防且不隐式触发。忙时 INIT 不提供 PNA 的中止重启语义。`INIT:CONT OFF` 仅选择 MAN 触发源，不能代替 HOLD。S 参数现开放配置端口能力内的完整未校准矩阵；Meas → All S-Params 经删除确认后原子替换为 n² 条迹线及 n×n 图窗，保留扫描和触发设置；Smith/Polar 按复数迹线显示；独立 `ABOR`、`*RST`、`SYST:PRES` 及二进制块尚未实现，收到不支持的命令进入标准错误队列。Web 的界面布局参考 ZNB8，远程 SCPI 保留 Keysight 测量子集并增加项目机械校准子集，不宣称完整罗德协议兼容。
+当前支持多逻辑通道、一个控制者、线性扫描和 SCPI ASCII/REAL64。物理配置和测量目录在完整帧边界串行提交，忙时 INIT 不提供中止重启语义。`INIT:CONT OFF` 完成停止屏障并选择 Single，随后 `INIT:IMM;*OPC?` 采一轮完整帧并保持 HOLD。`*RST` 经各通道真实 Stop/Configure 恢复启动默认刺激、默认测量/显示和 HOLD，保留校准池；`CALC1:PAR:DEL:ALL` 原子清空目标目录。独立 `ABOR`、`SYST:PRES` 尚未实现，不支持的命令进入错误队列。Web 布局参考 ZNB8，远程 SCPI 保留 Keysight 测量子集并增加项目校准及批量读取子集，不宣称完整厂商协议兼容。
 
-网络预算为每消息 16 KiB、每连接待发数据 1 MiB，慢发送超过 10 秒关闭连接；模拟点数上限 10001。错误 FIFO 和命令队列有界。驱动 ABI 没有取消入口，因此无法对阻塞的真实 I/O 承诺限时退出；核心始终等到 worker 收尾后释放缓冲区和动态库。
+网络预算为每消息 16 KiB、每连接待发数据 8 MiB，慢发送超过 10 秒关闭连接；模拟点数上限 10001。错误 FIFO 和命令队列有界。驱动 ABI 没有取消入口，因此无法对阻塞的真实 I/O 承诺限时退出；核心始终等到 worker 收尾后释放缓冲区和动态库。
 
-Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头，普通请求体 16 KiB、普通 JSON 响应与静态文件 4 MiB，完整帧响应 256 MiB；校准写入及导出上限为 8 MiB。重试正文历史共用 64 MiB 上限，终结操作留存 60 秒后释放正文，旧 requestId 返回 410；静态文件与 API 同源。JSON 输入和字符串输出严格验证 UTF-8；编码失败后必须 Reset，静态文件读写缓冲不一致或读取失败会关闭句柄。原子配置带 expectedRevision，有限写请求使用 requestId 去重并返回 operationId，不把 HTTP 202 当成设备成功。
+Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头，普通请求体 16 KiB、普通 JSON 响应与静态文件 4 MiB，完整帧响应 256 MiB；校准写入及导出上限为 32 MiB。重试正文历史共用 64 MiB 上限，终结操作留存 60 秒后释放正文，旧 requestId 返回 410；静态文件与 API 同源。JSON 输入和字符串输出严格验证 UTF-8；编码失败后必须 Reset，静态文件读写缓冲不一致或读取失败会关闭句柄。原子配置带 expectedRevision，有限写请求使用 requestId 去重并返回 operationId，不把 HTTP 202 当成设备成功。
 
 此前采集验收在 Windows MinGW/GCC 10.3 下通过 12 项 CTest，WSL/GCC 13.3 全目标 ThreadSanitizer 同样通过且未报告数据竞争，覆盖完整 IQ golden、11 组核心时序/并发场景、无效样本及噪声贯通。18 项前端合同测试、严格类型检查与生产构建通过，其中两项检查窗口缩放、DPR 和样本投影；Chromium 实际交互验证覆盖配置、四条波形、逐迹线格式/参考位置、扫描控制、M1、三布局菜单、CSV、多会话与断线恢复。本次按职责整理后的正式代码在 Windows 全量 12 项 CTest 通过（13.87 秒），WSL 全目标 ThreadSanitizer 12 项通过（9.98 秒），70 个正式头单独 C++14 编译通过且无头文件循环依赖。临时实际分配故障验证通过 Claim 15 个、单次写入 37 个、结果 Poll 5 个分配点，并用恢复旧危险顺序的副本确认断言可检出错误；随后命名空间统一后的终检另行补记。分阶段证据见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
