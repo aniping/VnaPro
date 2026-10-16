@@ -56,21 +56,25 @@ test('Cal Manager distinguishes browsing a pool set from the channel current set
   const harness = await sfcHarness('src/components/softtools/CalibrationSofttool.vue', props, {})
   context.after(harness.dispose)
   const current = () => findElements(harness.render(), (node) => node.props?.['data-testid'] === 'current-calibration-set')[0]!
-  const select = findElements(harness.render(), (node) => node.type === 'select')[0]!
-  ;(select.props!['onUpdate:modelValue'] as (value: string) => void)('2')
+  const entry = findElements(harness.render(), (node) => node.props?.['data-testid'] === 'calibration-manager-entry')[0]!
+  ;(entry.props!.onClick as () => void)()
+  await nextTick()
+  const manager = () => findComponent(harness.render(), 'CalibrationSetManager')!
+  ;(manager().props!['onUpdate:selectedId'] as (value: string) => void)('2')
   await nextTick()
   assert.match(text(current()), /Cable A.*User Cal On/)
   assert.doesNotMatch(text(current()), /Cable B/)
   assert.equal(commands.length, 0)
 
-  const use = findElements(harness.render(), (node) => node.type === 'button' && text(node) === 'Use Set')[0]!
-  const pending = (use.props!.onClick as () => Promise<void>)()
+  const pending = (manager().props!.onApply as () => Promise<void>)()
   assert.equal(commands[0]!.action, 'select')
   assert.equal('setId' in commands[0]! && commands[0].setId, '2')
   assert.match(text(current()), /Cable A/)
   complete(null)
   await pending
   assert.match(text(current()), /Cable A/, 'failed activation must preserve the current set')
+  assert.equal(manager().props!.selectedId ?? manager().props!['selected-id'], '2', 'failed activation keeps the browsed candidate')
+  assert.ok(manager().props!.error, 'operation failure stays visible in the open manager')
 
   props.status.calibration = { ...calibration(), selectedSetId: '2', compatible: false, reason: 'Frequency axis mismatch' }
   await nextTick()
@@ -80,6 +84,66 @@ test('Cal Manager distinguishes browsing a pool set from the channel current set
   await nextTick()
   assert.match(text(current()), /Cable B.*Cal Off/, 'Cal landing and readonly users can see the current channel set')
   assert.ok(findElements(harness.render(), (node) => text(node).includes('Frequency axis mismatch')).length)
+})
+
+test('an import waits inside its manager and discards a file read after the active channel changes', async (context) => {
+  let read!: (contents: string) => void
+  const commands: CalibrationCommand[] = []
+  const props = reactive({
+    mode: 'cal-use', status: { ...instrumentStatus(), calibration: calibration() },
+    canCalibrate: true, busy: false,
+    command: async (command: CalibrationCommand) => { commands.push(command); return props.status },
+    exportSet: async () => ({}),
+  })
+  const harness = await sfcHarness('src/components/softtools/CalibrationSofttool.vue', props, {})
+  context.after(harness.dispose)
+  const entry = findElements(harness.render(), (node) => node.props?.['data-testid'] === 'calibration-manager-entry')[0]!
+  ;(entry.props!.onClick as () => void)()
+  const manager = () => findComponent(harness.render(), 'CalibrationSetManager')
+  const pending = (harness.bindings.importSelected as (event: Event) => Promise<void>)({
+    target: { value: 'cal.json', files: [{ size: 64, text: () => new Promise<string>((resolve) => { read = resolve }) }] },
+  } as unknown as Event)
+  await nextTick()
+  assert.equal(manager()!.props!.busy, true, 'file reading reserves the manager before parsing or writing')
+  ;(manager()!.props!.onClose as () => void)()
+  await nextTick()
+  assert.ok(manager(), 'closing cannot hide an import that is still reading its file')
+  props.status = { ...props.status, activeChannelId: 2, calibration: { ...calibration(), selectedSetId: '2' } }
+  await nextTick()
+  assert.equal(manager(), undefined)
+  read('{"schema":2,"id":"original-channel-set"}')
+  await pending
+  assert.deepEqual(commands, [], 'the old file must not be imported into the newly active channel')
+})
+
+test('an export captures its original set and cannot download another channel under a changed identity', async (context) => {
+  let complete!: (data: Record<string, unknown>) => void
+  const exports: string[] = []
+  const downloads: string[] = []
+  let objectUrls = 0
+  const props = reactive({
+    mode: 'cal-use', status: { ...instrumentStatus(), calibration: calibration() },
+    canCalibrate: false, busy: false, command: async () => null,
+    exportSet: (setId: string) => {
+      exports.push(setId)
+      return new Promise<Record<string, unknown>>((resolve) => { complete = resolve })
+    },
+  })
+  const harness = await sfcHarness('src/components/softtools/CalibrationSofttool.vue', props, {
+    Blob,
+    URL: { createObjectURL: () => { objectUrls++; return 'blob:calibration' }, revokeObjectURL() {} },
+    document: { createElement: () => ({ href: '', download: '', click() { downloads.push(this.download) } }) },
+    setTimeout: () => 0,
+  })
+  context.after(harness.dispose)
+  const pending = (harness.bindings.exportSelected as () => Promise<void>)()
+  assert.deepEqual(exports, ['1'])
+  props.status = { ...props.status, activeChannelId: 2, calibration: { ...calibration(), selectedSetId: '2' } }
+  await nextTick()
+  complete({ schema: 3, id: '1' })
+  await pending
+  assert.equal(objectUrls, 0, 'a superseded export does not build a download for the new channel')
+  assert.deepEqual(downloads, [])
 })
 
 test('App keeps calibration details outside the toolbar and summary preserves the current set name', async (context) => {

@@ -4,7 +4,7 @@ import { nextTick, reactive } from 'vue'
 import { decodeCalibration } from '../src/api/calibrationDecoders'
 import type { CalibrationCommand, CalibrationSnapshot } from '../src/api/calibrationTypes'
 import { instrumentStatus } from './displayFixtures'
-import { findElements, sfcHarness } from './sfcHarness'
+import { findComponent, findElements, sfcHarness } from './sfcHarness'
 
 function pool(count: number): CalibrationSnapshot {
   return {
@@ -30,7 +30,7 @@ test('204 calibration names and the final selected identity survive decoding wit
   assert.throws(() => decodeCalibration(pool(257)), /calibration.sets/)
 })
 
-test('large calibration pools use a bounded native scrolling list and allow the last set to be selected', async (context) => {
+test('the manager opens the full pool without writing and applies the browsed final set explicitly', async (context) => {
   const calls: CalibrationCommand[] = []
   const calibration = pool(204)
   calibration.selectedSetId = '1'
@@ -41,22 +41,24 @@ test('large calibration pools use a bounded native scrolling list and allow the 
   })
   const harness = await sfcHarness('src/components/softtools/CalibrationSofttool.vue', props, {})
   context.after(harness.dispose)
-  const select = () => findElements(harness.render(), (node) => node.type === 'select')[0]!
-  assert.equal(select().props!.size, 6)
-  assert.match(String(select().props!.class), /calibration-pool/)
-  const options = findElements(harness.render(), (node) => node.type === 'option')
-  assert.equal(options.length, 205)
-  assert.equal(options.at(-1)!.props!.value, '204')
-  assert.equal(options.at(-1)!.children, 'CableTest pool 204')
-  ;(select().props!['onUpdate:modelValue'] as (value: string) => void)('204')
+  assert.equal(findComponent(harness.render(), 'CalibrationSetManager'), undefined)
+  const entry = findElements(harness.render(), (node) => node.props?.['data-testid'] === 'calibration-manager-entry')[0]!
+  ;(entry.props!.onClick as () => void)()
+  await nextTick()
+  const manager = () => findComponent(harness.render(), 'CalibrationSetManager')!
+  assert.equal((manager().props!.calibration as CalibrationSnapshot).sets.length, 204)
+  assert.equal(manager().props!.channelId ?? manager().props!['channel-id'], 1)
+  assert.equal(findElements(harness.render(), (node) => node.type === 'select').length, 0)
+  assert.equal(calls.length, 0, 'opening a manager only reads the existing status summaries')
+  ;(manager().props!['onUpdate:selectedId'] as (value: string) => void)('204')
   await nextTick()
   assert.equal(calls.length, 0, 'browsing the list must not activate calibration')
-  const use = findElements(harness.render(), (node) => node.type === 'button' && node.children === 'Use Set')[0]!
-  assert.equal(use.props!.disabled, false)
-  await (use.props!.onClick as () => Promise<void>)()
+  assert.equal(manager().props!.disabled, false)
+  await (manager().props!.onApply as () => Promise<void>)()
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ action: 'select', setId: '204' }])
   props.canCalibrate = false
   await nextTick()
-  const readonly = findElements(harness.render(), (node) => node.type === 'button' && node.children === 'Use Set')[0]!
-  assert.equal(readonly.props!.disabled, true)
+  assert.equal(manager().props!.disabled, true)
+  await (manager().props!.onApply as () => Promise<void>)()
+  assert.equal(calls.length, 1, 'parent must also enforce the write permission')
 })
