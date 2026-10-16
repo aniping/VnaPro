@@ -83,7 +83,7 @@ clang-format --style=file --dry-run --Werror $cppFiles
 
 ## 校准
 
-Cal → Start (Manual) 支持任意单端口理想 50 Ω OSM/OSL、任意端口对及完整四端口 TOSM，可选隔离。校准独立版本与不可变系数在原始比值之后接入，HTTP、SCPI SDATA、Marker 和 Autoscale 统一读取。每通道校准池最多 256 集、512 MiB 系数及元数据，仪器合计最多 1 GiB；严格匹配物理刺激，默认保存和导出自有 `.vcal` 二进制，另支持完整 CSV 导入导出；旧 JSON 校准文件及 Snau 文件不支持。默认开启校准持久化，启动恢复 Ch1 池及选择，校正保持关闭；ECal、TRL、非理想件模型和硬件精度验证待扩展。操作、接口与边界见[校准接入与使用](docs/校准接入与使用.md)。
+Cal → Start (Manual) 支持任意单端口理想 50 Ω OSM/OSL、任意端口对及完整四端口 TOSM，可选隔离。校准独立版本与不可变系数在原始比值之后接入，HTTP、SCPI SDATA、Marker 和 Autoscale 统一读取。每通道校准池最多 256 集、1 GiB 系数及元数据，仪器合计最多 1 GiB；严格匹配物理刺激，默认保存和导出自有 `.vcal` 二进制，另支持完整 CSV 导入导出；旧 JSON 校准文件及 Snau 文件不支持。默认开启校准持久化，启动恢复 Ch1 池及选择，校正保持关闭；ECal、TRL、非理想件模型和硬件精度验证待扩展。操作、接口与边界见[校准接入与使用](docs/校准接入与使用.md)。
 
 ## 网络与驱动配置
 

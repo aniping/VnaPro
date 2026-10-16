@@ -46,7 +46,7 @@ using CalibrationStoreData::Same;
 using VnaWeb::Json;
 constexpr std::size_t SET_LIMIT = VnaService::MAX_CALIBRATION_SETS;
 constexpr std::size_t COEFFICIENT_BYTE_LIMIT = VnaService::MAX_CALIBRATION_STORAGE_BYTES;
-constexpr std::size_t DISK_BYTE_LIMIT = COEFFICIENT_BYTE_LIMIT * 4U;
+constexpr std::uint64_t DISK_BYTE_LIMIT = static_cast<std::uint64_t>(COEFFICIENT_BYTE_LIMIT) * 4U;
 constexpr std::size_t MANIFEST_BYTE_LIMIT = 64U * 1024U;
 constexpr unsigned MANIFEST_NODE_LIMIT = 8U * SET_LIMIT + 32U;
 

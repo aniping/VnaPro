@@ -46,7 +46,7 @@ struct CalibrationPlanCache final {
     bool MatchesSets(const std::vector<CalibrationSetPtr> &sets, std::uint64_t selected) const noexcept;
 };
 
-// 每通道按需保留当前工作轴最多 512 MiB、旧轴最多 32 MiB，原始池仍受独立 512 MiB 限制。
+// 每通道按需保留当前工作轴最多 512 MiB、旧轴最多 32 MiB，原始池受独立 1 GiB 限制。
 // 不预分配或预读；事务共享不可变系数，源池与同轴引用不计为派生副本。
 std::shared_ptr<const CalibrationPlanCache> PrepareCalibrationCache(const std::vector<CalibrationSetPtr> &sets,
     std::uint64_t selected, const std::string &identity, const VnaCore::SweepPlan &plan,

@@ -20,7 +20,7 @@ namespace VnaService {
 
 constexpr std::size_t MAX_CALIBRATION_SETS = 256U;
 // 每通道保存数据的逻辑字节预算，不包含临时解析、求解或异步持久化副本。
-constexpr std::size_t MAX_CALIBRATION_STORAGE_BYTES = 512U * 1024U * 1024U;
+constexpr std::size_t MAX_CALIBRATION_STORAGE_BYTES = 1024U * 1024U * 1024U;
 constexpr std::size_t MAX_INSTRUMENT_CALIBRATION_STORAGE_BYTES = 1024U * 1024U * 1024U;
 
 enum class CalibrationStandard {

@@ -11,7 +11,7 @@ namespace VnaService {
 namespace Detail {
 namespace {
 constexpr std::size_t MAX_DERIVED_BYTES = 32U * 1024U * 1024U;
-constexpr std::size_t MAX_WORKING_BYTES = MAX_CALIBRATION_STORAGE_BYTES;
+constexpr std::size_t MAX_WORKING_BYTES = 512U * 1024U * 1024U;
 
 std::size_t DerivedBytes(const VnaCalibration::CalibrationData &data)
 {

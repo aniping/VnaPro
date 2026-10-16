@@ -154,8 +154,8 @@ void CurrentWorkingSetExceedsOldAxisBudgetWithoutThrashing()
     for (const auto &entry : cache->working) {
         bytes += entry.bytes;
     }
-    Require(bytes > 32U * 1024U * 1024U && bytes <= VnaService::MAX_CALIBRATION_STORAGE_BYTES &&
-                cache->working.size() == 8U && cache->derived.empty(),
+    Require(bytes > 32U * 1024U * 1024U && bytes <= 512U * 1024U * 1024U && cache->working.size() == 8U &&
+                cache->derived.empty(),
         "the complete current working set must stay resident beyond the old-axis LRU limit");
     for (std::uint64_t id = 1U; id <= 8U; ++id) {
         cache = VnaService::Detail::PrepareCalibrationCache(workspace.SavedSets(), id, IDENTITY, plan, cache);
@@ -166,6 +166,22 @@ void CurrentWorkingSetExceedsOldAxisBudgetWithoutThrashing()
     cache = VnaService::Detail::PrepareCalibrationCache(workspace.SavedSets(), 8U, IDENTITY, plan, cache);
     Require(cache->working.size() == 8U && cache->selected.correction == first.back(),
         "IFBW must not replace or demote the current frequency/power working set");
+}
+
+void CurrentAxisBudgetDoesNotGrowWithTheOriginalPool()
+{
+    VnaService::CalibrationWorkspace workspace;
+    Import(workspace, Source(IDENTITY));
+    Import(workspace, Source(IDENTITY));
+    const auto plan = Plan({10000000.0, 10002000.0});
+    const auto first = VnaService::Detail::PrepareCalibrationCache(workspace.SavedSets(), 1U, IDENTITY, plan, nullptr);
+    auto full = std::make_shared<VnaService::Detail::CalibrationPlanCache>(*first);
+    // 用小对象的逻辑计费模拟满额条目，验证实际淘汰而不申请 512 MiB 系数数组。
+    full->working.front().bytes = 512U * 1024U * 1024U;
+    const auto next = VnaService::Detail::PrepareCalibrationCache(workspace.SavedSets(), 2U, IDENTITY, plan, full);
+    Require(next->working.size() == 1U && next->working.front().source == workspace.Find(2U) &&
+                next->selected.correction != nullptr && full->working.front().source == workspace.Find(1U),
+        "current-axis eviction must remain at 512 MiB when the independent original pool grows to 1024 MiB");
 }
 
 VnaService::CalibrationSetPtr OverflowingMagnitudeSource()
@@ -215,6 +231,7 @@ int main()
         ConditionsAndCacheLifecycleAreIndependent();
         TransactionCandidatesAndDerivedBudget();
         CurrentWorkingSetExceedsOldAxisBudgetWithoutThrashing();
+        CurrentAxisBudgetDoesNotGrowWithTheOriginalPool();
         InvalidDerivedDoesNotPoisonExactOrAnotherSet();
         std::cout << "calibration plan cache tests passed\n";
         return 0;

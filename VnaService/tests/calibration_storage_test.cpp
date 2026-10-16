@@ -155,12 +155,12 @@ void ByteBudgetRejectsRestoreBeforeCopy()
                 error.find("byte budget") != std::string::npos && workspace.StorageBytes() == 0U &&
                 workspace.SavedSets().empty() && workspace.Revision() == 1U,
         "over-budget restore must fail in preflight before deep-copying the shared input payloads");
-    const auto si = Set(0U, 880U);
     const auto tdr = Set(0U, 4000U);
-    const auto mixedBytes = 108U * ExpectedBytes(*si) + 96U * ExpectedBytes(*tdr);
-    Require(mixedBytes < VnaService::MAX_CALIBRATION_STORAGE_BYTES &&
-                204U * ExpectedBytes(*tdr) > VnaService::MAX_CALIBRATION_STORAGE_BYTES,
-        "the SI/TDR production mix fits; 204 full 4000-point arrays must not be advertised as fitting");
+    const auto dense = Set(0U, 6700U);
+    Require(256U * ExpectedBytes(*tdr) <= VnaService::MAX_CALIBRATION_STORAGE_BYTES &&
+                204U * ExpectedBytes(*dense) <= VnaService::MAX_CALIBRATION_STORAGE_BYTES &&
+                205U * ExpectedBytes(*dense) > VnaService::MAX_CALIBRATION_STORAGE_BYTES,
+        "4000-point capacity must fit all 204 paths through the 256-set limit; 6700-point capacity stops at 204");
 }
 
 void CountLimitAndRestoreValidation()
