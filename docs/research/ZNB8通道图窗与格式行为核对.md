@@ -15,6 +15,20 @@
 
 手册没有在上述条款定义这些写操作打断正在执行的底层调用的精确时点。项目可采用“完整帧边界应用候选、重新准备并继续 CONT”的驱动合同，但应明确这是项目实现，不能将其内部时序说成已核验的厂商时序。
 
+## 多通道与刺激缩放
+
+通道拥有硬件采集设置，迹线只属于一个通道；图窗可显示多个通道的迹线，两者不对应。活动迹线决定活动通道；同一通道在不同图窗的底部信息行应同时高亮，而不是仅点亮当前图窗。[第 77–78、99 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=78)
+
+Channel Config → Channels 的 New Channel 使用默认设置并新建一条迹线；Copy Channel 复制当前通道的全部设置（含已有校准）和全部迹线。二者的 + Diagram 变体把新迹线放在新图，否则放在活动图。Delete Channel 删除通道及其迹线，GUI 保护最后通道。通道号取当前最大值加一，不能把 Trace Config 的 Add Trace 当成创建新通道。[第 668–670 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=669)
+
+用户提供的 `PixPin_2026-10-15_22-15-30.mp4` 中，上图 Ch1 保持原频段，下图 Ch2 执行 Stimulus Zoom 后频段收窄。它与官方“修改活动通道刺激范围”的定义一致；不是一帧数据显示成两个通道，也不是仅显示裁切。[第 445–446 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=445)
+
+Continuous 通道循环扫描；但手册不定义本项目 DLL 的具体调度和取消时点。本项目采用单设备、单 worker、完整帧边界轮转，逐通道保存真实计划、运行身份和不可变帧。16 个同时存活通道、128 条全局迹线以及按通道保存的 16 层 Zoom 恢复历史是项目预算，不是 ZNB 最大值。功率字段使用已确认的 VN10 double dBm 合同（−120…100），逐通道写入真实计划，不照抄视频中某台 ZNB 的可调功率范围。
+
+Power 的远程命令沿项目既有 Keysight 方言，支持 `SOURce<Ch>:POWer[:LEVel][:IMMediate][:AMPLitude]` 命令与查询、单位 dBm；依据为 [Keysight 官方命令参考](https://helpfiles.keysight.com/csg/e5063a/programming/command_reference/source/sour_pow.htm)。该命令形状与本项目驱动可接受的数值范围分别验证，不能把 VN10 的范围写成 ENA 或 ZNB 的额定输出范围。
+
+用户补充的标题及四图截图用于对照字段留白、同通道高亮和 Pwr 信息；截图分辨率与浏览器缩放不同，不能据此宣称像素级间距已等同原机。项目标题改为内容宽度排列、2 px 列间距，并按当前刻度分辨率格式化 Ref，避免将自动缩放的浮点尾数直接当作设置读数展示；这些具体数值属于项目显示规则。
+
 ## Format 与 Smith
 
 普通 Format 菜单共十三项：

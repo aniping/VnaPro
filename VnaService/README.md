@@ -1,6 +1,6 @@
 # 仪器服务与 SCPI 引擎
 
-`vna_service` 使用 `vna_core`、`vna_calibration`、`vna_measurement` 与 `vna_display` 的公开接口；`vna_scpi` 将已登记的命令转换为服务操作，不访问驱动。当前实现单通道，SCPI 与 Web 共用服务及独占控制权，兼容范围以实际登记的命令子集为准。
+`vna_service` 使用 `vna_core`、`vna_calibration`、`vna_measurement` 与 `vna_display` 的公开接口；`vna_scpi` 将已登记的命令转换为服务操作，不访问驱动。支持独立通道，SCPI 与 Web 共用服务及独占控制权，兼容范围以实际登记的命令子集为准。
 
 按职责组织类型：instrument_settings.h 放置 InstrumentSettings、ConfigPatch 与配置关联的 TriggerSource/SweepMode；service_task.h 将内部 ServiceTask 与 Kind/Stage 放在一起。Measurement、OperationResult、InstrumentError、DataResult、InstrumentSnapshot 各自有独立的测量定义、异步结果、错误队列、查询数据和状态快照职责，保留独立头文件。instrument_service.h 声明服务入口并包含所需类型。Measurement::Parameter 的行为在 VnaMeasurement/src/measurement.cpp，InstrumentService 直接管理控制归属、设置、错误寄存器和任务 FIFO。ServiceTask 按值存储，Kind 区分物理配置 CONFIGURE 与测量目录 MEASUREMENTS，Stage 标明配置、触发和停止屏障；每个状态推进函数独立可读。测试受控设备和 Fixture 各自独立，通过 Core 的公开所有权注入构造函数接入；长实现位于对应 cpp，由 vna_service_test_support 链接到测试目标。
 
@@ -51,13 +51,41 @@ SING 或手动 Trigger 的有限任务尚未完成时，目录写请求仍可受
 
 以上范围与换算是软件测试 profile，不能推定为 Keysight 或真实板卡的能力。
 
+## 刺激缩放与显示手势
+
+`ApplyStimulusZoom(change, expectedRevision, expectedDisplayRevision, owner)` 是同时涉及采集和显示的事务，复用控制权、授权代次、有限 FIFO 与异步完成机制。`change.action=APPLY` 指定活动可见直角坐标迹线、startHz/stopHz 与 min/max；矩形必须在当前频段和纵轴范围内，频率端点按整数 Hz 提交，点数、IFBW、触发源、运行模式及 runId 保持。圆图、CW、校准采集和无效物理计划明确拒绝。`OUT` 从服务历史恢复上一次频段及对应目标迹线刻度，不恢复目录、Marker 或活动选择。
+
+服务先构造并校验配置、显示和历史候选；频段变化时等待 Core 在完整帧边界成功 Configure，随后一次发布逻辑配置、采集版本、显示版本及历史。准备或配置失败不提交候选；设备部分写入失败仍依核心合同进入 Fault，不能承诺硬件回滚。成功下发之后首帧故障不撤回已生效配置，应通过真实 Fault 状态报告。仅纵轴变化时不调用 Configure，逻辑与采集版本、已有完整帧及 Manual 布防状态保持，只提交显示和历史；完全相同的范围幂等成功，不增加版本或历史。
+
+`StimulusZoom()` 返回 available、canZoomOut、reason、depth，HTTP 以 `status.stimulusZoom` 发布。Zoom In 与 Zoom Out 的可用性独立；切换活动迹线不妨碍恢复历史中的原目标。历史最多 16 项，这是项目资源与恢复规则；恢复前校验当前频段、原目标测量身份、格式及刻度仍匹配缩放后状态，防止覆盖随后外部修改。Marker 或活动选择变化不单独使历史失效。HTTP 请求与字段见[服务设计](../docs/网分服务与远程控制设计.md#6-web-接口与仪器面板)，不新增自创 SCPI 缩放命令。
+
+原图内纵向平移复用显示域 `SCALE/referenceLevel`：只改变 Ref Value，保持每格跨度及 Ref Pos；右侧三角拖动则只改 Ref Pos。两者均不更改样本或采集计划。前端负责像素映射及短暂预览，正式刻度仍由服务显示 FIFO、owner 和 displayRevision CAS 校验。拖至垃圾箱也复用已有动作：命名迹线删除使用测量事务，图窗删除使用双 CAS 原子事务，单 Marker 及全部 Marker 使用显示关闭动作；不把解除显示关联的 `TRAC:DEL` 当成删除测量。最后迹线/图窗继续受保护，关闭 Marker 保留坐标和属性。
+
+工具栏 Graphical Zoom / Zoom 1:1 属于前端临时视口：框选只改变该浏览器该图窗的 X/Y 显示范围，连续帧沿用视口，Reset 恢复原图，不写配置或 displayScale，也不调用本节刺激缩放事务。只读观察者可用；外部配置、格式、刻度或布局变化清除视口。图形缩放内平移只移动本地视口，原图平移才提交 Ref Value。进入 Stimulus Zoom 前先 Reset，避免把显示缩放当成真实扫频变更；当前没有服务端或 SCPI Graphical Zoom 合同。
+
 ## 已实现范围
 
-支持共享显示域的标准格式、尺度、M1～M10 与有界只读观察连接；以及设计白名单中的身份、错误、ESE/ESR/SRE/STB、OPC/WAI、线性频率/点数/IFBW、触发源/范围、CONT/SING/HOLD、INIT:CONT、空闲 MAN 下 INIT、测量定义/选择/目录/删除、ASCii,0、SENS:X? 和 CALC:DATA? RDATA。支持正式短名/全名、通道 1 后缀、分号消息、相对路径、单/双引号、指数数值与 Hz/kHz/MHz/GHz。测量名称保留大小写。
+支持共享显示域的标准格式、尺度、M1～M10 与有界只读观察连接；以及设计白名单中的身份、错误、ESE/ESR/SRE/STB、OPC/WAI、线性频率/点数/IFBW、触发源/范围、CONT/SING/HOLD、INIT:CONT、空闲 MAN 下 INIT、测量定义/选择/目录/删除、ASCii,0、SENS:X? 和 CALC:DATA? RDATA。支持正式短名/全名、实际通道编号后缀、分号消息、相对路径、单/双引号、指数数值与 Hz/kHz/MHz/GHz。测量名称保留大小写。
 
 `CALC:PAR:SEL` 选择测量，不隐式显示隐藏项。`DISP:WIND<w>[:STAT]`、`SIZE`、`CAT?`、`TRAC<t>:FEED/DEL/SEL/STAT` 与 Y Scale 操作映射到共享图窗域；w/t 预算均为 1～128，局部槽身份支持稀疏编号并独立于 Trc 名称，删除槽不压缩其他槽号。CAT 返回局部槽号，FEED/DEL 只写且不删除测量定义；窗口 OFF 保护最后一个图窗。只读观察连接可查询所有已登记窗口状态、目录、尺度。CALC:FORM 增加官方 SWR、UPHase、GDELay、POLar；Web 特有格式没有自创 SCPI 名称。命令表及官方依据见[服务设计](../docs/网分服务与远程控制设计.md#42-首期实现命令)。
 
 SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC 响应前通道进入 HOLD。MAN+CONT 等待 INIT；INIT:CONT OFF 选择手动源，不等同 HOLD。忙时 INIT、中止 ABOR、复位 RST、外触发、组数及二进制格式尚未开放；机械 OSL/SOLT 校准范围见下节。
+
+Web 扫描控制另外保存 `selectedSweepMode`（CONT/SING，默认 CONT），与报告当前运行状态的 `sweepMode`（CONT/SING/HOLD）分开。`/api/v1/sweep-control` 改选 CONT 时通过服务 FIFO 安全切换到连续运行，保留当前触发源；IMM 自动扫描，MAN 直接布防。改选 SING 时经过当前完整帧 Stop 屏障后保持 HOLD，等待显式 start。source 变化保留队首执行时的运行或停止意图：正在运行或布防时，经过完整帧 Stop 屏障后以新源重启；已停止时只提交源选择。运行中的 IMM/Continuous 切到 MAN 后直接等待 Trigger，无需另一次 start；MAN/Single 切到 IMM 后完成一帧并 HOLD。重复选择当前值不停止或重启。start 保留扫描模式与触发源，供 Sweep Control 和工具栏 Restart Sweep 共用；stop 保留选择，兼容 single 动作在同一事务中选 Single 并启动。IMM/Single 完成后 HOLD，MAN/Single 等显式 Trigger 完成一帧后 HOLD，MAN/Continuous 每次 Trigger 后继续布防。Trigger 不会自动启动已停止的周期。停止和有限任务终结均保留所选模式。新动作按控制者及授权代次串行执行，不携带物理参数草稿的 expectedRevision；异步完成与状态读回沿用原 HTTP 操作记录。原机静态菜单、命令依据及尚未确认的 GUI 状态差异见[核对记录](../docs/research/ZNB8点数与中频带宽菜单核对.md#sweep-control-显示与当前控制语义)。
+
+旧 `/api/v1/operations` 的 single/continuous 继续通过 RunSingle/RunContinuous 强制 IMM，SCPI 既有命令保持原合同；Web 新入口不调用这两个兼容快捷动作。尚未支持多次扫描、Restart Manager、批量通道运行控制、Sweep Controller 的 Sweep Info 窗口、External、Multiple、Trigger Manager、Point 逐点触发、Trigger Delay 或 Pipelining，界面须灰显并解释原因。各通道可分别运行；多通道场景仅支持当前通道触发范围，SCPI 请求 ALL 明确拒绝，不伪装为已经全部触发。
+
+### 通道上下文
+
+最多同时 16 个通道，迹线名称及 128 条迹线预算由仪器统一管理。每条测量定义带 `channelId`；图窗可混合显示多个通道，通道不由图窗决定。选择迹线时同步选择其所属通道，也可显式选择无迹线的通道；`ActiveChannelId` 返回当前选择。旧 `Snapshot/Settings` 继续提供活动通道别名，`Snapshot.channels` 提供各通道的设置、CoreView、校准、刺激缩放历史与在途状态。
+
+配置、扫描、触发及校准 API 的末尾 `channelId=0` 表示受理时解析当前上下文，具名迹线按所有者解析。任务在入队时冻结目标，随后选择另一通道不会改写归属；显式通道与具名迹线不匹配时拒绝。控制权、授权代次和服务 FIFO 仍为整台仪器共用，不对每通道额外开放控制者。
+
+Core 保留单个物理设备和 worker，在完整帧边界为可运行通道轮转；切换物理计划不增加其他通道的逻辑采集版本。各通道持有独立 acquisitionRevision、runId、frameSeq 和不可变完整帧，Manual 通道没有触发时不采集，也不阻塞其他 Free Run 通道。设备故障会停止共享设备上的所有采集，并在恢复时重新验证计划。互不影响指配置和数据身份独立，不代表硬件同时扫描。
+
+`CreateChannel` 的 new 使用 profile 默认频段、IFBW、功率和默认迹线；copy 复制源通道全部设置、已保存校准和迹线/Marker，校准可变选择独立，完整帧重新实际获取。`newDiagram` 决定放在新图还是活动图。DeleteChannel 删除所属迹线及显示，保护最后通道；删除屏障完成后才移除上下文。预算及复制采集中通道的拒绝是项目合同。
+
+`InstrumentSettings.powerDbm` 为当前通道的基准源功率，`ConfigPatch.hasPowerDbm` 控制补丁字段。仅接受有限的 −120…100 dBm，保留负数与小数；MakePlan 将该值填入逐点 `SweepPlan.powerDbm`，不再固定使用 profile 默认。修改频段、点数或功率只改变目标通道；校准兼容性同时校验真实频率轴、IFBW 和逐点功率。Zoom 历史按通道保存，Marker 轴重定位/采集版本绑定只处理所属迹线。
 
 刺激轴从已提交物理配置生成，不要求先扫描。RDATA 必须来自当前有效 acquisitionRevision 和 run 的完整帧；纯目录更新可即时重新计算已有 IQ，物理计划更新后的旧帧、有限扫描未终结、故障或非有限数据都报告错误，不返回伪造全零曲线。连续扫描下多条独立查询可能跨帧；同轮读取需要单次完成/HOLD 后保持配置和触发不变。
 

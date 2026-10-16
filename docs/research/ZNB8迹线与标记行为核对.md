@@ -30,6 +30,26 @@
 
 工具栏新增标记放到目标图表的活动迹线上；右上角同时显示 X/Y，持续扫描时 Y 随测量更新。删除可将单个标记或整组读数拖到垃圾桶；最后一条迹线不能删除。[官方 Getting Started v70，第 47–48 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/getting_started/1316_0062_01/ZNB_GettingStarted_en_70.pdf#page=48)
 
+## 2026-10-15：拖到垃圾箱的对象语义
+
+v74 工具栏说明和删除章节区分单击及四种拖放对象；顶部 trace info field / trace line 指迹线标题信息，不是曲线上任意采样点。[官方 v74 第 46 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=46)、[第 56–57 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=56)
+
+| 操作 | 官方语义与本项目映射 |
+| --- | --- |
+| 单击垃圾箱 | 删除活动迹线。 |
+| 把迹线标题拖到垃圾箱 | 删除起拖的指定迹线，不要求先把它变成活动迹线。项目通过命名测量删除事务执行。 |
+| 把单个 Marker 符号拖到垃圾箱 | 关闭该迹线的指定编号，保留坐标与属性。项目不在同次松手后另写 Marker 频率。 |
+| 把 Marker 信息字段拖到垃圾箱 | 关闭该字段所属迹线的全部 Marker，保留成员属性；不是只关闭活动编号，也不是全仪器 All Off。 |
+| 把图窗右上角下拉把手拖到垃圾箱 | 删除该图窗及其中迹线；项目用目录/显示双 CAS 原子事务执行。 |
+
+关闭 Marker 的属性保留依据第 501–502 页；删除迹线则丢失所属 Marker。第 448–449 页规定单迹线图窗随迹线删除、最后迹线不能删除；第 795 页说明删除图窗会删除其中迹线、重排图号，最后图窗禁删。以上是手动界面的保护，不能据此改写所有远程解除显示关联命令的合同。[官方 v74 第 448–449 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=448)、[第 501–502 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=501)、[第 795 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=795)
+
+本项目对拖放冻结名称/Marker 编号/图号及起始版本，松手时拒绝过期令牌、Busy 或失去控制权；不先激活源对象，不因别处切换活动迹线删除错对象。测量和图窗拖放同时检查逻辑与显示快照，Marker 关闭使用显示版本；图窗编号变化由后端重排并读回。标题原来的跨图窗移动、信息字段原来的九宫格/Table 迁移仍保留，只有落在垃圾箱才触发上述动作。
+
+最后一条迹线、最后一个图窗受保护，但最后迹线上的 Marker 仍可单独或整组关闭，不能因为“删除迹线”按钮禁用就连带禁止 Marker 投放。删除最后成员后非末图窗的清理沿用后端既有 Reconcile。`DISP:WIND:TRAC:DEL` 只解除显示槽关联，不是本次垃圾箱的测量删除入口。原机有 Undo，本项目尚未实现，工具栏保持禁用，不宣称能撤销已经删除的测量。[官方 v74 第 56 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=56)
+
+验收分别检查非活动迹线标题、单 Marker、整组信息字段（包括 Table）与图窗把手；还需覆盖旧版本拒绝、最后对象保护、Marker 属性重启恢复，以及一次松手只有删除/关闭或原拖动动作之一。垃圾箱命中距离、悬停样式及删除后的活动对象回退属于项目实现，手册没有给出精确像素或排序算法。
+
 ## 标题与右上角读数
 
 - 官方 Trace List 示例跨行采用对齐的列起点；标题包含迹线名、测量量、格式、尺度和参考值，活动标题蓝底高亮。[User Manual v74，第 91 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=91)
@@ -79,6 +99,14 @@ ENA E5063A 另有 `CALCulate1:MARKer<n>:ACTivate`，其普通编号 1～9，10 �
 每迹线保存十个普通标记及活动编号；新增、选择、关闭和读数共用 C++ 后端。旧 `marker` 字段从集合中的活动标记派生，不保存第二份状态。HTTP 绘图总预算为 8004 个迹线采样值，单条最多 2001 点；格式、Autoscale 和标记仍使用完整原始帧。
 
 本轮实现普通标记的编号选择、独立设置及 All Off。Reference、Delta、Coupled 尚未实现，相关入口不开放；不宣称整套标记能力与 ZNB 1:1。
+
+### 单 Marker 拖离与整组信息框的区别
+
+第 56 页要求单个 Marker 先纵向拖离迹线，再拖入 Delete；拖 Marker 信息框则关闭该迹线的整组 Marker。用户确认“所有 Marker 消失”来自右上角读数信息框，这与官方整组语义一致，不能据此把 All Off 改为只关活动编号。[官方手册第 56 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=56)
+
+原实现只有指针松手落点判定，预览始终吸在曲线上且被图窗裁剪，没有完成可见的“拖离”。本次补充脱离后的跟手符号及垃圾箱高亮，保持源 traceName、markerId 和显示版本冻结；有效落点仅关闭该编号，不发送频率移动或 All Off。脱离的判定要求至少 3 CSS px 移动，同时具有 12 CSS px 纵向意图及 12 CSS px 离线距离，并扣除抓取偏移；这是项目阈值。静止单击、纯横向越过陡边仍走原来的选择/移频。脱离后的无效落点及取消恢复原状态、不改频率，也是项目取消规则，不声称手册规定了相同阈值与回退算法。
+
+本次补充修正通过前端全量 519 项、类型检查、生产构建及发布包检查。独立 8084 模拟实例中，M1/M2/M3 同时启用，纵向空落点取消；M2 正常水平拖动从 4.005 GHz 移至 4.84395 GHz，再拖入垃圾箱后只留下 M1、M3。后端显示版本从 8 变为 9，M2 关闭但保留原频点及采样索引，其他编号完整设置、采集版本和 runId 保持不变；用户正在测试的 8083 实例不参与这些写入。原机单符号和整组字段语义由手册核实，脱离阈值及极端几何主要由真实组件回归覆盖。
 
 ## 复核来源
 

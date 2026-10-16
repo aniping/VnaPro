@@ -29,11 +29,33 @@
 
 ## Sweep Control 显示与当前控制语义
 
-2026-10-14 对照 [v74 第 556–557 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=556)再次核对：ZNB 的 `Continuous / Single` 是互斥模式，`Start Sweep`（正文称 `Restart Sweep`）是独立动作；`All Channels on Hold` 把所有通道设为 Single 模式，并不立即启动。原图控件纵向排列，右侧 `Sweep Control` 页签分两行显示。
+2026-10-15 以 ZNB User Manual v74 为基线重新区分静态菜单、命令语义及尚未确认的 GUI 状态。不能从“模式、启动和触发来源是不同概念”推出“选择所有模式都必须保持停止”。也不能为缩短操作而向原机菜单添加入口。
 
-VnaPro 当前仅有 Ch1，保留现有控制契约：`Continuous` 开始连续扫描，`Hold` 停止扫描；`Single sweep` 会立即采集一帧，完成后回到 Hold。前两项按服务端回读状态显示选中，单次扫描作为独立动作显示，不再固定使用与选中状态相同的蓝色。软工具页签允许换行，避免窄面板裁切完整名称。这是现有能力的映射，不是原机 Single 模式与 Restart Sweep 的完整复刻；尚不提供 Sweeps 计数、Restart Manager 和多通道控制。
+| 核对项 | 官方明确依据 | 可据此实现的范围 |
+| --- | --- | --- |
+| Trigger In 控件 | 第 550 页原图 | Free Run、External、Multiple、Manual、Manual Trigger、Sequence、Delay、Signal Type、Trigger Manager；图中没有 Start/Stop |
+| Continuous | 第 556、1245 页；第 918 页数据导入说明 | 激活连续测量；切回 Continuous 会请求新的硬件数据，不能实现为只选中后一直 HOLD |
+| Single 与周期启动 | 第 556–557、1245–1246 页 | 达到 Sweeps 后停止；Restart/INIT 开始新周期；`INIT:CONT OFF` 示例是在当前扫描结束后停止 |
+| Start Sweep | 第 556 页原图、第 557 页正文 | 原图按钮写 Start Sweep，正文称 Restart Sweep，作用为停止当前周期并开始新周期 |
+| Stop Sweep | 第 557、1247 页 | 明确有停止正在进行的扫频的功能及 `INIT:STOP` 命令；第 556 页原图未显示第二个独立 Stop 按钮 |
+| Manual Trigger | 第 551、913、1592 页 | 产生手动触发事件，作用于等待中的动作；Sequence=Sweep 时一个事件对应一次完整扫频 |
+| 工具栏扫频图标 | 第 46 页 | Restart sweep in all channels，与 Sweep Control 的 Restart Sweep 对应，不能改成选择 Single 的快捷键 |
 
-界面的 `Continuous` 和 `Single sweep` 动作均使用 Immediate 触发源；SCPI 单独设置 Sweep Mode 为 CONT 时会保留现有触发源，MAN/CONT/Running 表示等待 Manual trigger。模式选中只表示已配置的 Sweep Mode，不能据此判断是否正在取数；Trigger 页显示实际触发源，手动触发仅在已布防的 MAN 状态可用。
+原图、控件和命令说明见[第 550–557 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=550)，工具栏见[第 46 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=46)。Sweep Control 按该静态原图保留一个固定标签的 Start Sweep，不添加独立 Stop 按钮，也不猜测 Start/Stop 随运行状态动态复用。Trigger In 取消本项目自行增加的启动、停止及跨页操作指引；未实现控件仍灰显并说明原因。
+
+服务保存 `selectedSweepMode` 作为模式选择，`sweepMode` 继续报告实际 CONT/SING/HOLD，Single 完成不丢失选择。改选 Continuous 立即按当前触发源进入连续运行：IMM 自动采集，MAN 等待手动事件。Single 采用第 1245 页 `INIT:CONT OFF` 示例的合同，在当前完整帧结束后停止，再由 Start Sweep 开新周期。Start Sweep 与工具栏 Restart Sweep 均保留模式和触发源；Manual 下只布防。Manual/Continuous 每次触发后继续等待，Manual/Single 完成一帧后 HOLD，不由 Manual Trigger 隐式重开周期。
+
+切源保留队首执行时的运行或停止意图，运行中使用完整帧 Stop/Start 屏障；已停止时只改源选择，重复选择保持幂等。MAN/Single 已布防时切 IMM 会完成一帧并 HOLD。以上是本项目在现有核心上的状态迁移和安全门控，不等于已经逐状态验证 ZNB 实机。
+
+**资料边界：**第 556 页将 GUI 模式关联到 `INIT:CONT` 和 `SWE:MODE`；[第 1473 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=1473)又区分 SINGle（Single，正在扫描）与 HOLD（Single，未扫描），未说明点击 GUI Single 时具体执行哪个命令。第 551 页“非 Manual 时禁用”只证明来源是必要条件，不能证明闲置、Single 完成或忙时按钮的全部启停条件。手册也没有完整说明停止后切源、重复点击已选 Continuous、Stop 后模式单选变化，或 Start/Stop 是否共用一个动态按钮。当前没有可供核对的实机或操作记录，这些项目保留未验证标记；不据缺失的说明添加自动启动或额外快捷入口，也不声称完整复刻原机状态机。
+
+新界面使用 `POST /api/v1/sweep-control`。既有 `/api/v1/operations` 保留兼容语义，其中 single / continuous 仍强制使用 Immediate；既有 SCPI 的 `SENS:SWE:MODE`、`INIT:CONT` 与 `INIT` 合同保持不变，不用新 Web 的选择动作重解释旧远程命令。
+
+尚未实现的 `Sweeps` 多次扫描计数、`Restart Manager`、批量通道控制、`Sweep Controller`、External、Multiple、`Trigger Manager`、Point 逐点触发、Trigger Delay 和 Pipelining 保留灰显入口并解释限制。各通道可分别设置和运行；当前仅支持目标通道完整帧触发，不提供外部信号、逐点时序或延迟能力。布局参考 ZNB，不据此宣称具备原机全部扫描和触发能力。
+
+2026-10-15 补充：已接入逐通道 Channel Base Power，Stimulus 页含 Power 字段及独立 Power 页，Pwr Bw Avg 增加 Power 页。真实设置使用 VN10 已确认的 double dBm 合同，并进入对应通道逐点计划；底部 Pwr 和 Bw 分别显示该通道配置。功率范围和 UI 精度属于项目实现，不能据此宣称等同所参考 ZNB 型号。滤波器类型、逐端口功率偏移及平均能力仍未开放。
+
+灰显说明按原机职责区分：[第 557–559 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=557)的 `Restart Manager` 设置 Restart Sweep 作用于活动通道或全部通道，以及每通道扫描次数；`Sweep Controller` 仅开关显示 Idle、Preparing、Sweeping、Calculation 等阶段的 Sweep Info 窗口；Pipelining 控制测量数据流水线。[第 552–553 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=552)的 `Trigger Manager` 用于 Multiple 下各测量序列的触发源、信号条件、延迟及外部信号逻辑组合。不能将这三者解释成按事件重启、外部扫频控制器或触发输出路由。
 
 已选中的可用软键在鼠标悬停时继续保持蓝色；正在执行或只读时统一显示禁用样式，选中状态仍来自服务读回。
 
