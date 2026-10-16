@@ -7,14 +7,14 @@ function invalid(field: string): never {
   throw new Error(`服务数据格式无效：${field}`)
 }
 
-/** 严格验证长度与 Base64 尾位后再分配，损坏容量不能触发无界分配。 */
-function bytes(value: unknown, byteCount: number, field: string): Uint8Array {
+/** 只检查编码，不为大型文件提前分配解码副本。 */
+export function validateBase64(value: unknown, byteCount: number, field: string): asserts value is string {
+  const padding = (3 - byteCount % 3) % 3
   if (
     typeof value !== 'string' ||
     value.length !== Math.ceil(byteCount / 3) * 4 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-      value,
-    )
+    value.slice(value.length - padding) !== '='.repeat(padding) ||
+    /[^A-Za-z0-9+/]/.test(value.slice(0, value.length - padding))
   ) {
     invalid(field)
   }
@@ -27,6 +27,11 @@ function bytes(value: unknown, byteCount: number, field: string): Uint8Array {
   ) {
     invalid(field)
   }
+}
+
+/** 严格验证长度与 Base64 尾位后再分配，损坏容量不能触发无界分配。 */
+export function bytes(value: unknown, byteCount: number, field: string): Uint8Array {
+  validateBase64(value, byteCount, field)
   let decoded: string
   try {
     decoded = atob(value)

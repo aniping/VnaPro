@@ -45,6 +45,6 @@ export function calibrationActionLabel(command: CalibrationCommand, calibration:
     case 'enable': return command.enabled ? '启用校正' : '停用校正'
     case 'select': return '选择校准集'
     case 'delete': return '删除校准集'
-    case 'import': return '导入校准集'
+    case 'importFile': return '导入校准集'
   }
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import type { CalibrationSetSummary, CalibrationSnapshot } from '../../api/calibrationTypes'
+import type { CalibrationFileFormat, CalibrationSetSummary, CalibrationSnapshot } from '../../api/calibrationTypes'
 import { calibrationMethodLabel, calibrationPorts, selectedCalibrationSet } from '../../domain/calibration'
 import { frequencyText } from '../../plot/formatting'
 
@@ -16,7 +16,7 @@ const emit = defineEmits<{
   'update:selectedId': [id: string]
   apply: []
   remove: []
-  export: []
+  export: [format: CalibrationFileFormat]
   import: []
   close: []
 }>()
@@ -82,8 +82,8 @@ function confirmRemove() {
 function close() {
   if (!props.busy) emit('close')
 }
-function exportSelected() {
-  if (!props.busy && selectedSet.value) emit('export')
+function exportSelected(format: CalibrationFileFormat = 'binary') {
+  if (!props.busy && selectedSet.value) emit('export', format)
 }
 function importSet() {
   if (canWrite.value) emit('import')
@@ -142,7 +142,7 @@ onMounted(() => dialog.value?.showModal())
               </tr>
               <tr v-if="!visibleSets.length"><td colspan="6" class="empty-state">
                 <template v-if="calibration?.sets.length">无匹配校准集。<button type="button" class="text-button" @click="query = ''; compatibleOnly = false">清除搜索与筛选</button></template>
-                <template v-else>暂无校准集。可导入 VnaPro JSON，或关闭窗口后开始手动校准。</template>
+                <template v-else>暂无校准集。可导入 .vcal 或 CSV，或关闭窗口后开始手动校准。</template>
               </td></tr>
             </tbody>
           </table>
@@ -177,7 +177,8 @@ onMounted(() => dialog.value?.showModal())
         <div class="footer-actions">
           <div class="file-actions">
             <button type="button" data-testid="calibration-import" :disabled="!canWrite" @click="importSet">导入…</button>
-            <button type="button" data-testid="calibration-export" :disabled="busy || !selectedSet" @click="exportSelected">导出…</button>
+            <button type="button" data-testid="calibration-export" :disabled="busy || !selectedSet" @click="exportSelected('binary')">导出二进制</button>
+            <button type="button" data-testid="calibration-export-csv" :disabled="busy || !selectedSet" @click="exportSelected('csv')">导出 CSV</button>
             <button type="button" class="delete-button" data-testid="calibration-delete" :disabled="!canWrite || !selectedSet || Boolean(removeIntent)" @click="requestRemove">删除…</button>
           </div>
           <span class="working-state" role="status">{{ busy ? '正在处理，请稍候…' : '' }}</span>
@@ -244,6 +245,7 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .error { color: var(--color-error); }
 .manager-footer { padding: 12px 16px; border-top: 1px solid #4a5d69; background: var(--color-panel-dark); }
 .footer-actions, .file-actions, .confirmation-actions { display: flex; align-items: center; gap: 8px; }
+.file-actions { flex-wrap: wrap; }
 .working-state { flex: 1; color: var(--color-muted); font-size: 11px; text-align: right; }
 .cal-manager .apply-button { min-width: 140px; color: #fff; background: var(--color-trace-active); border-color: #49bded; }
 .cal-manager .apply-button:hover:not(:disabled) { background: #0b75b9; }

@@ -214,26 +214,26 @@ test('Cal Manager distinguishes a requested enable from an incompatible inactive
   assert.equal('enabled' in calls[0]! && calls[0]!.enabled, false)
 })
 
-test('imported JSON is submitted once for backend validation while readonly and malformed input stay local', async (context) => {
+test('CSV is submitted once for backend validation while readonly and unsupported files stay local', async (context) => {
   const commands: CalibrationCommand[] = []
   const props = reactive({ mode: 'cal-use', status: { ...instrumentStatus(), calibration: calibration(false) }, canCalibrate: true, busy: false,
     command: async (command: CalibrationCommand) => { commands.push(command); return null }, exportSet: async () => ({ schema: 1 }) })
   const harness = await sfcHarness('src/components/softtools/CalibrationSofttool.vue', props, {})
   context.after(harness.dispose)
   const importer = harness.bindings.importSelected as (event: Event) => Promise<void>
-  function input(contents: string): Event {
-    return { target: { value: 'file.json', files: [{ size: contents.length, text: async () => contents }] } } as unknown as Event
+  function input(contents: string, name = 'file.csv'): Event {
+    return { target: { value: name, files: [{ name, size: contents.length, arrayBuffer: async () => new TextEncoder().encode(contents).buffer }] } } as unknown as Event
   }
-  await importer(input('{"schema":1,"id":"1"}'))
+  await importer(input('vnapro_calibration_csv,1\r\n'))
   assert.equal(commands.length, 1)
-  assert.equal(commands[0]!.action, 'import')
+  assert.equal(commands[0]!.action, 'importFile')
   props.canCalibrate = false
-  await importer(input('{"schema":1}'))
+  await importer(input('vnapro_calibration_csv,1\r\n'))
   assert.equal(commands.length, 1)
   props.canCalibrate = true
-  await importer(input('[1,2]'))
+  await importer(input('[1,2]', 'file.json'))
   assert.equal(commands.length, 1)
-  await importer(input('{broken'))
+  await importer(input('{broken', 'file.pcs'))
   assert.equal(commands.length, 1)
 })
 

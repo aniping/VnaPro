@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { nextTick, reactive, type Ref, type VNode } from 'vue'
-import { decodeCalibration, decodeCalibrationExport } from '../src/api/calibrationDecoders'
+import { decodeCalibration } from '../src/api/calibrationDecoders'
 import type { CalibrationCommand, CalibrationSnapshot, CalibrationStep } from '../src/api/calibrationTypes'
 import { calibrationConnection, calibrationMethodLabel, calibrationPorts } from '../src/domain/calibration'
 import { instrumentStatus } from './displayFixtures'
@@ -22,12 +22,6 @@ function fourPort(includeIsolation = false): CalibrationSnapshot {
   return { revision: '5', collecting: true, capturePending: false, sessionId: '6',
     method: 'fourPort', port1: 1, port2: 4, steps, includeIsolation,
     selectedSetId: '0', enabled: false, compatible: false, reason: '', sets: [] }
-}
-
-function document() {
-  return { schema: 3, id: '7', name: 'Four-port TOSM', method: 'fourPort', port1: 1, port2: 4,
-    frequencyHz: [10e6, 20e6], powerDbm: [-12.375, -12.375],
-    onePortTerms: [], twoPortTerms: [], fourPortTerms: [Array(96).fill(0.125), Array(96).fill(-0.25)] }
 }
 
 function text(node: VNode): string {
@@ -56,20 +50,6 @@ test('four-port snapshots accept all 18/24 steps and reject pair-only, missing o
   assert.equal(decodeCalibration(snapshot).sets[0]!.method, 'fourPort')
   assert.equal(calibrationMethodLabel('fourPort'), 'TOSM · 4-Port')
   assert.equal(calibrationPorts('fourPort', 1, 4), 'P1, P2, P3, P4')
-})
-
-test('schema 3 preserves bounded 96-number rows and rejects malformed or mixed one/two/four-port documents', () => {
-  const value = document()
-  assert.equal(decodeCalibrationExport(value), value)
-  for (const fields of [
-    { method: 'twoPort' }, { schema: 2 }, { port2: 2 },
-    { frequencyHz: Array(10002).fill(10e6) }, { powerDbm: [-12.375] },
-    { onePortTerms: [[1]] }, { twoPortTerms: [[1]] },
-    { fourPortTerms: [Array(96).fill(0)] },
-    { fourPortTerms: [Array(95).fill(0), Array(96).fill(0)] },
-    { fourPortTerms: [Array(97).fill(0), Array(96).fill(0)] },
-    { fourPortTerms: [Array(96).fill(Infinity), Array(96).fill(0)] },
-  ]) assert.throws(() => decodeCalibrationExport({ ...value, ...fields }), /calibration data/)
 })
 
 test('four-port setup selects all physical ports and submits a distinct full method with optional six-pair isolation', async (context) => {
@@ -150,24 +130,22 @@ for (const isolation of [false, true]) {
   })
 }
 
-test('schema 3 import rejects malformed rows before sending and keeps valid four-port coefficients intact', async (context) => {
+test('file import rejects JSON and oversized CSV, and forwards file bytes for backend coefficient validation', async (context) => {
   const commands: CalibrationCommand[] = []
   const props = reactive({ mode: 'cal-use', status: { ...instrumentStatus(), calibration: fourPort() }, canCalibrate: true, busy: false,
-    command: async (command: CalibrationCommand) => { commands.push(command); return null }, exportSet: async () => ({ schema: 3 }) })
+    command: async (command: CalibrationCommand) => { commands.push(command); return null }, exportSet: async () => ({}) })
   props.status.calibration.collecting = false
   const harness = await sfcHarness('src/components/softtools/CalibrationSofttool.vue', props, {})
   context.after(harness.dispose)
   const importer = harness.bindings.importSelected as (event: Event) => Promise<void>
-  function input(data: unknown, size?: number): Event {
-    const contents = JSON.stringify(data)
-    return { target: { value: 'four-port.json', files: [{ size: size ?? contents.length, text: async () => contents }] } } as unknown as Event
+  const contents = 'vnapro_calibration_csv,1\r\n'
+  function input(name: string, size = contents.length): Event {
+    return { target: { value: name, files: [{ name, size, arrayBuffer: async () => new TextEncoder().encode(contents).buffer }] } } as unknown as Event
   }
-  await importer(input({ ...document(), fourPortTerms: [[1]] }))
+  await importer(input('four-port.json'))
   assert.equal(commands.length, 0)
-  await importer(input(document(), 32 * 1024 * 1024 + 1))
+  await importer(input('four-port.csv', 32 * 1024 * 1024 + 1))
   assert.equal(commands.length, 0)
-  await importer(input(document(), 20 * 1024 * 1024))
-  assert.equal(commands.length, 1)
-  assert.equal(commands[0]!.action, 'import')
-  assert.deepEqual(JSON.parse(JSON.stringify('data' in commands[0]! && commands[0].data)), document())
+  await importer(input('four-port.csv'))
+  assert.deepEqual(JSON.parse(JSON.stringify(commands)), [{ action: 'importFile', format: 'csv', encoding: 'utf8', content: contents }])
 })

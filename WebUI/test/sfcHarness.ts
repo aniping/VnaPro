@@ -58,6 +58,10 @@ export async function sfcHarness(
     exports: module.exports,
     require: createRequire(resolve(process.cwd(), 'package.json')),
     console,
+    TextEncoder,
+    TextDecoder,
+    atob,
+    btoa,
     ...globals,
   })
   const component = module.exports.default as SetupComponent

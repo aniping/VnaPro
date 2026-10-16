@@ -137,9 +137,10 @@ test('read-only users can browse and export while writes remain guarded at the e
   }
   assert.equal(element(harness, 'calibration-export').props!.disabled, false)
   click(harness, 'calibration-export')
+  click(harness, 'calibration-export-csv')
   const candidate = elements(harness, 'calibration-set-select').find((node) => node.props?.['data-set-id'] === '3')!
   ;(candidate.props!.onClick as () => void)()
-  assert.deepEqual(harness.emitted, [['export'], ['update:selectedId', '3']])
+  assert.deepEqual(harness.emitted, [['export', 'binary'], ['export', 'csv'], ['update:selectedId', '3']])
 })
 
 test('busy submissions cannot close the dialog, change candidate, export or repeat an apply', async (context) => {
@@ -147,7 +148,7 @@ test('busy submissions cannot close the dialog, change candidate, export or repe
   props.busy = true
   const harness = await sfcHarness('src/components/softtools/CalibrationSetManager.vue', props, {})
   context.after(harness.dispose)
-  for (const id of ['calibration-manager-close', 'calibration-apply', 'calibration-export']) {
+  for (const id of ['calibration-manager-close', 'calibration-apply', 'calibration-export', 'calibration-export-csv']) {
     assert.equal(element(harness, id).props!.disabled, true)
     click(harness, id)
   }

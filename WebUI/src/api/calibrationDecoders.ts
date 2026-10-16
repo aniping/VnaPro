@@ -194,35 +194,6 @@ export function decodeCalibration(
   return result
 }
 
-export function decodeCalibrationExport(
-  value: unknown,
-): Record<string, unknown> {
-  const result = object(value, 'calibration data')
-  if (result.schema !== 2 && result.schema !== 3) invalid('calibration data.schema')
-  if (result.schema === 3) {
-    if (result.method !== 'fourPort') invalid('calibration data.method')
-    if (result.port1 !== 1 || result.port2 !== 4) invalid('calibration data.ports')
-    const frequency = array(result.frequencyHz, 'calibration data.frequencyHz', 10001)
-    if (frequency.length < 2) invalid('calibration data.frequencyHz count')
-    for (const value of frequency) number(value, 'calibration data.frequencyHz', Number.MIN_VALUE)
-    const power = array(result.powerDbm, 'calibration data.powerDbm', frequency.length)
-    if (power.length !== frequency.length) invalid('calibration data.powerDbm count')
-    for (const value of power) number(value, 'calibration data.powerDbm', -120, 100)
-    array(result.onePortTerms, 'calibration data.onePortTerms', 0)
-    array(result.twoPortTerms, 'calibration data.twoPortTerms', 0)
-    const terms = array(result.fourPortTerms, 'calibration data.fourPortTerms', frequency.length)
-    if (terms.length !== frequency.length) invalid('calibration data.fourPortTerms count')
-    // 固定每点 4×4×3 个复数项；逐值校验，不复制或重写近百万个系数。
-    for (const row of terms) {
-      const values = array(row, 'calibration data.fourPortTerms row', 96)
-      if (values.length !== 96) invalid('calibration data.fourPortTerms row')
-      for (const value of values) number(value, 'calibration data.fourPortTerms coefficient')
-    }
-  } else if (result.method === 'fourPort') invalid('calibration data.schema')
-  // 系数合同由服务端校验；浏览器不解算、插值或重写系数。
-  return result
-}
-
 export function decodeCalibrationPreview(
   value: unknown,
 ): CalibrationPreviewResponse {

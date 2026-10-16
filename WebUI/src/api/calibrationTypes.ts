@@ -1,6 +1,14 @@
 import type { ProjectionState } from './types'
 
 export type CalibrationMethod = 'onePort' | 'twoPort' | 'fourPort'
+export type CalibrationFileFormat = 'binary' | 'csv'
+export type CalibrationFile = {
+  format: CalibrationFileFormat
+  encoding: 'base64' | 'utf8'
+  filename: string
+  byteLength: number
+  content: string
+}
 export type CalibrationStandard =
   | 'open'
   | 'short'
@@ -96,4 +104,4 @@ export type CalibrationCommand =
   | { action: 'cancel'; sessionId: string }
   | { action: 'enable'; enabled: boolean }
   | { action: 'select' | 'delete'; setId: string }
-  | { action: 'import'; data: Record<string, unknown> }
+  | { action: 'importFile'; format: CalibrationFileFormat; encoding: 'base64' | 'utf8'; content: string }

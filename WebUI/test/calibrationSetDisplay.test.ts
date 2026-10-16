@@ -87,7 +87,7 @@ test('Cal Manager distinguishes browsing a pool set from the channel current set
 })
 
 test('an import waits inside its manager and discards a file read after the active channel changes', async (context) => {
-  let read!: (contents: string) => void
+  let read!: (contents: ArrayBuffer) => void
   const commands: CalibrationCommand[] = []
   const props = reactive({
     mode: 'cal-use', status: { ...instrumentStatus(), calibration: calibration() },
@@ -101,7 +101,7 @@ test('an import waits inside its manager and discards a file read after the acti
   ;(entry.props!.onClick as () => void)()
   const manager = () => findComponent(harness.render(), 'CalibrationSetManager')
   const pending = (harness.bindings.importSelected as (event: Event) => Promise<void>)({
-    target: { value: 'cal.json', files: [{ size: 64, text: () => new Promise<string>((resolve) => { read = resolve }) }] },
+    target: { value: 'cal.csv', files: [{ name: 'cal.csv', size: 64, arrayBuffer: () => new Promise<ArrayBuffer>((resolve) => { read = resolve }) }] },
   } as unknown as Event)
   await nextTick()
   assert.equal(manager()!.props!.busy, true, 'file reading reserves the manager before parsing or writing')
@@ -111,7 +111,7 @@ test('an import waits inside its manager and discards a file read after the acti
   props.status = { ...props.status, activeChannelId: 2, calibration: { ...calibration(), selectedSetId: '2' } }
   await nextTick()
   assert.equal(manager(), undefined)
-  read('{"schema":2,"id":"original-channel-set"}')
+  read(new TextEncoder().encode('vnapro_calibration_csv,1\n').buffer)
   await pending
   assert.deepEqual(commands, [], 'the old file must not be imported into the newly active channel')
 })
@@ -140,7 +140,7 @@ test('an export captures its original set and cannot download another channel un
   assert.deepEqual(exports, ['1'])
   props.status = { ...props.status, activeChannelId: 2, calibration: { ...calibration(), selectedSetId: '2' } }
   await nextTick()
-  complete({ schema: 3, id: '1' })
+  complete({ format: 'binary', encoding: 'base64', filename: 'vnapro-1.vcal', byteLength: 1, content: 'AA==' })
   await pending
   assert.equal(objectUrls, 0, 'a superseded export does not build a download for the new channel')
   assert.deepEqual(downloads, [])

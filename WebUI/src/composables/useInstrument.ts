@@ -19,7 +19,7 @@ import type {
   TraceDestination,
   TraceCreationOptions,
 } from '../api/types'
-import type { CalibrationCommand } from '../api/calibrationTypes'
+import type { CalibrationCommand, CalibrationFileFormat } from '../api/calibrationTypes'
 import { calibrationActionLabel, calibrationSummary } from '../domain/calibration'
 import { channelFrameCondition } from '../domain/channels'
 
@@ -723,8 +723,8 @@ export function useInstrument(options: InstrumentOptions = {}) {
         ? submit(calibrationActionLabel(command, calibration), 'calibration', () => api.calibration!(command, expectedRevision ?? calibration.revision, channelId), allowed)
         : Promise.resolve(null)
     },
-    exportCalibration: (setId: string) => api.exportCalibration
-      ? api.exportCalibration(setId, status.value?.activeChannelId)
+    exportCalibration: (setId: string, format: CalibrationFileFormat = 'binary') => api.exportCalibration
+      ? api.exportCalibration(setId, status.value?.activeChannelId, format)
       : Promise.reject(new Error('当前服务不支持校准集导出。')),
     calibrationPreview: (sessionId: string, stepId: string) => api.calibrationPreview
       ? api.calibrationPreview(sessionId, stepId, status.value?.activeChannelId)

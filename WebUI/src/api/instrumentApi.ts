@@ -21,8 +21,9 @@ import type {
   TraceDestination,
   TraceCreationOptions,
 } from './types'
-import type { CalibrationCommand, CalibrationPreviewResponse, CalibrationSnapshot } from './calibrationTypes'
-import { decodeCalibration, decodeCalibrationExport, decodeCalibrationPreview } from './calibrationDecoders'
+import type { CalibrationCommand, CalibrationFileFormat, CalibrationPreviewResponse, CalibrationSnapshot } from './calibrationTypes'
+import { decodeCalibrationFile } from './calibrationFiles'
+import { decodeCalibration, decodeCalibrationPreview } from './calibrationDecoders'
 
 export class ApiError extends Error {
   constructor(
@@ -152,7 +153,7 @@ export interface InstrumentGateway {
   abortRequests(): void
   calibration?(command: CalibrationCommand, expectedRevision: string, channelId?: number): Promise<AcceptedOperation>
   calibrationStatus?(): Promise<CalibrationSnapshot>
-  exportCalibration?(setId: string, channelId?: number): Promise<Record<string, unknown>>
+  exportCalibration?(setId: string, channelId?: number, format?: CalibrationFileFormat): Promise<Record<string, unknown>>
   calibrationPreview?(sessionId: string, stepId: string, channelId?: number): Promise<CalibrationPreviewResponse>
 }
 
@@ -355,8 +356,10 @@ export class InstrumentApi implements InstrumentGateway {
     return this.request('/calibration', decodeAccepted, 'POST',
       { ...command, ...(channelId === undefined ? {} : { channelId }), expectedRevision, requestId: requestId() }, this.token, 202)
   }
-  exportCalibration(setId: string, channelId?: number): Promise<Record<string, unknown>> {
-    return this.request(`/calibration/sets/${encodeURIComponent(setId)}${channelId === undefined ? '' : `?channelId=${channelId}`}`, decodeCalibrationExport)
+  exportCalibration(setId: string, channelId?: number, format?: CalibrationFileFormat): Promise<Record<string, unknown>> {
+    const query = [...(channelId === undefined ? [] : [`channelId=${channelId}`]), ...(format ? [`format=${format}`] : [])].join('&')
+    return this.request(`/calibration/sets/${encodeURIComponent(setId)}${query ? `?${query}` : ''}`,
+      decodeCalibrationFile)
   }
   calibrationPreview(sessionId: string, stepId: string, channelId?: number): Promise<CalibrationPreviewResponse> {
     return this.request(`/calibration/preview?sessionId=${encodeURIComponent(sessionId)}&stepId=${encodeURIComponent(stepId)}${channelId === undefined ? '' : `&channelId=${channelId}`}`, decodeCalibrationPreview)

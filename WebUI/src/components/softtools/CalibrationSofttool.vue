@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { InstrumentStatus } from '../../api/types'
-import type { CalibrationCommand } from '../../api/calibrationTypes'
-import { decodeCalibrationExport } from '../../api/calibrationDecoders'
+import type { CalibrationCommand, CalibrationFileFormat } from '../../api/calibrationTypes'
+import { calibrationFileBlob, decodeCalibrationFile, readCalibrationFile } from '../../api/calibrationFiles'
 import { calibrationMethodLabel, calibrationPorts, selectedCalibrationSet } from '../../domain/calibration'
 import { frequencyText } from '../../plot/formatting'
 import CalibrationSetManager from './CalibrationSetManager.vue'
@@ -13,7 +13,7 @@ const props = defineProps<{
   canCalibrate: boolean
   busy: boolean
   command: (command: CalibrationCommand) => Promise<InstrumentStatus | null>
-  exportSet: (setId: string) => Promise<Record<string, unknown>>
+  exportSet: (setId: string, format?: CalibrationFileFormat) => Promise<Record<string, unknown>>
 }>()
 const emit = defineEmits<{ start: [] }>()
 const calibration = computed(() => props.status?.calibration)
@@ -69,19 +69,21 @@ async function act(command: CalibrationCommand) {
   } finally { working.value = false }
 }
 
-async function exportSelected() {
+async function exportSelected(format: CalibrationFileFormat = 'binary') {
   if (disposed || !selectedSet.value || working.value) return
   const setId = selected.value
   const channelId = props.status?.activeChannelId
   working.value = true
   error.value = ''
   try {
-    const data = await props.exportSet(setId)
+    const data = await props.exportSet(setId, format)
     if (disposed || props.status?.activeChannelId !== channelId) return
-    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+    const file = decodeCalibrationFile(data)
+    if (file.format !== format) throw new Error('校准文件格式与请求不符。')
+    const url = URL.createObjectURL(calibrationFileBlob(file))
     const link = document.createElement('a')
     link.href = url
-    link.download = `vnapro-${setId.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`
+    link.download = file.filename
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   } catch (failure) {
@@ -100,13 +102,10 @@ async function importSelected(event: Event) {
   working.value = true
   error.value = ''
   try {
-    if (file.size > 32 * 1024 * 1024) throw new Error('校准文件超过 32 MiB，请选择 VnaPro 校准集 JSON。')
-    const data: unknown = JSON.parse(await file.text())
+    const command = await readCalibrationFile(file)
     if (disposed || props.status?.activeChannelId !== channelId) return
-    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('请选择 VnaPro 校准集 JSON 对象。')
-    if ('schema' in data && data.schema === 3) decodeCalibrationExport(data)
     working.value = false
-    await act({ action: 'import', data: data as Record<string, unknown> })
+    await act(command)
   } catch (failure) {
     if (!disposed && props.status?.activeChannelId === channelId)
       error.value = failure instanceof Error ? failure.message : '读取校准文件失败。'
@@ -146,7 +145,7 @@ async function importSelected(event: Event) {
       <h2 class="softtool-section-title">Cal Manager</h2>
       <button ref="managerEntry" type="button" class="softtool-button" data-testid="calibration-manager-entry" :disabled="working" @click="managerOpen = true">Cal Manager…</button>
       <p class="softtool-note">{{ calibration?.sets.length ?? 0 }} 套校准集 · 搜索、查看与应用</p>
-      <input ref="fileInput" type="file" accept=".json,application/json" class="calibration-file" aria-label="Import VnaPro calibration JSON" @change="importSelected">
+      <input ref="fileInput" type="file" accept=".vcal,.csv" class="calibration-file" aria-label="Import VnaPro calibration file" @change="importSelected">
     </template>
     <p v-if="calibration?.collecting" class="softtool-note warning">正在收集标准。更改扫描或校准集前，请完成或取消手动校准。</p>
     <p v-if="!canCalibrate && !busy" class="softtool-note warning">采集和应用校准需要控制权及可用的仪器状态。</p>
