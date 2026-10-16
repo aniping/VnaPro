@@ -114,7 +114,8 @@ std::string Keyword(std::string token)
         {"DISPLAY", "DISP"}, {"WINDOW", "WIND"}, {"TRACE", "TRAC"}, {"SCALE", "SCAL"}, {"PDIVISION", "PDIV"},
         {"RLEVEL", "RLEV"}, {"RPOSITION", "RPOS"}, {"MARKER", "MARK"}, {"STATE", "STAT"}, {"DISCRETE", "DISC"},
         {"CORRECTION", "CORR"}, {"COLLECTION", "COLL"}, {"COLLECT", "COLL"}, {"METHOD", "METH"}, {"ACQUIRE", "ACQ"},
-        {"ABORT", "ABOR"}, {"ACTIVE", "ACT"}, {"POWER", "POW"}, {"LEVEL", "LEV"}, {"AMPLITUDE", "AMPL"}};
+        {"ABORT", "ABOR"}, {"ACTIVE", "ACT"}, {"POWER", "POW"}, {"LEVEL", "LEV"}, {"AMPLITUDE", "AMPL"},
+        {"BORDER", "BORD"}};
     const auto found = names.find(token);
     if (found != names.end()) {
         token = found->second;
@@ -260,6 +261,9 @@ bool Numeric(const std::string &text, double &value, bool frequencyUnits)
         return false;
     }
     const std::size_t parsedLength = static_cast<std::size_t>(end - input.c_str());
+    if (input.substr(0U, parsedLength).find_first_not_of("0123456789+-.eE") != std::string::npos) {
+        return false;
+    }
     const std::string unit = Upper(Trim(input.substr(parsedLength)));
     double scale = 1.0;
     if (!unit.empty()) {

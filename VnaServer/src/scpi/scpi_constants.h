@@ -23,10 +23,10 @@ enum ScpiErrorCode {
 };
 
 // 各项上限分别约束不同的协议或传输资源。
-constexpr std::size_t RESPONSE_MESSAGE_BYTE_LIMIT = 1024U * 1024U;
-constexpr std::size_t NUMERIC_ARRAY_BYTE_LIMIT = 1024U * 1024U;
-constexpr std::size_t RESPONSE_QUEUE_BYTE_LIMIT = 1024U * 1024U;
-constexpr std::size_t TRANSPORT_OUTPUT_BYTE_LIMIT = 1024U * 1024U;
+constexpr std::size_t RESPONSE_MESSAGE_BYTE_LIMIT = 8U * 1024U * 1024U;
+constexpr std::size_t NUMERIC_ARRAY_BYTE_LIMIT = RESPONSE_MESSAGE_BYTE_LIMIT - 16U;
+constexpr std::size_t RESPONSE_QUEUE_BYTE_LIMIT = RESPONSE_MESSAGE_BYTE_LIMIT;
+constexpr std::size_t TRANSPORT_OUTPUT_BYTE_LIMIT = RESPONSE_MESSAGE_BYTE_LIMIT;
 constexpr std::size_t LINE_BUDGET = 16U * 1024U;
 constexpr std::size_t MESSAGE_QUEUE_LIMIT = 32U;
 // 全部 SCPI 连接的数量上限，同时约束累计输入、编码与输出内存预算。

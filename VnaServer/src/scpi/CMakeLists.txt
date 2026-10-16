@@ -1,10 +1,12 @@
-add_library(vna_scpi STATIC scpi_engine.cpp scpi_parser.cpp scpi_display_adapter.cpp scpi_calibration_adapter.cpp scpi_query_policy.cpp)
+add_library(vna_scpi STATIC scpi_engine.cpp scpi_parser.cpp scpi_display_adapter.cpp scpi_calibration_adapter.cpp
+    scpi_query_policy.cpp scpi_command_registry.cpp scpi_numeric_encoder.cpp)
 target_include_directories(vna_scpi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(vna_scpi PUBLIC vna_service)
 target_compile_features(vna_scpi PUBLIC cxx_std_14)
 target_compile_options(vna_scpi PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)
+
     add_executable(vna_scpi_channel_tests tests/channel_scpi_test.cpp)
     target_link_libraries(vna_scpi_channel_tests PRIVATE vna_scpi vna_service_test_support)
     target_compile_options(vna_scpi_channel_tests PRIVATE -Wall -Wextra -Wpedantic)
