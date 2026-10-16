@@ -55,7 +55,7 @@ test('the manager opens the full pool without writing and applies the browsed fi
   assert.equal(calls.length, 0, 'browsing the list must not activate calibration')
   assert.equal(manager().props!.disabled, false)
   await (manager().props!.onApply as () => Promise<void>)()
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ action: 'select', setId: '204' }])
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ action: 'activate', setId: '204' }])
   props.canCalibrate = false
   await nextTick()
   assert.equal(manager().props!.disabled, true)

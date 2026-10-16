@@ -1,4 +1,5 @@
 import type { CalibrationCommand, CalibrationMethod, CalibrationSnapshot, CalibrationStep } from '../api/calibrationTypes'
+import { calibrationStateLabel } from './calibrationApplicability'
 
 export function calibrationMethodLabel(method: CalibrationMethod): string {
   return method === 'onePort' ? 'Refl OSM' : method === 'fourPort' ? 'TOSM · 4-Port' : 'TOSM · 2-Port'
@@ -16,7 +17,7 @@ export function calibrationSummary(calibration?: CalibrationSnapshot): string {
   if (!calibration) return 'RAW 接收波与 S 参数 · 未校准'
   if (!calibration?.selectedSetId) return 'Cal Off · 无活动校准'
   const set = selectedCalibrationSet(calibration)
-  const state = calibration.enabled && calibration.compatible ? 'User Cal On' : 'Cal Off'
+  const state = calibrationStateLabel(calibration)
   return set ? `${state} · ${set.name} · ${calibrationMethodLabel(set.method)} · ${calibrationPorts(set.method, set.port1, set.port2)}` : state
 }
 
@@ -44,6 +45,7 @@ export function calibrationActionLabel(command: CalibrationCommand, calibration:
     case 'cancel': return '取消校准'
     case 'enable': return command.enabled ? '启用校正' : '停用校正'
     case 'select': return '选择校准集'
+    case 'activate': return '应用并启用校准集'
     case 'delete': return '删除校准集'
     case 'importFile': return '导入校准集'
   }

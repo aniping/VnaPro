@@ -17,6 +17,7 @@ import {
   text,
 } from './decodeValues'
 import { FRAME_POINT_LIMIT } from './frameLimits'
+import { decodeCalibrationApplicability } from './calibrationApplicability'
 
 function identifier(value: unknown, field: string, empty = false): string {
   const result = text(value, field)
@@ -97,6 +98,12 @@ function summary(value: unknown, portCount: number): CalibrationSetSummary {
       )
   if (item.points !== undefined)
     result.points = integer(item.points, 'calibration.set.points', 2, 10001)
+  for (const field of ['powerMinDbm', 'powerMaxDbm'] as const)
+    if (item[field] !== undefined) result[field] = number(item[field], `calibration.set.${field}`)
+  if (item.deviceIdentity !== undefined) result.deviceIdentity = text(item.deviceIdentity, 'calibration.set.deviceIdentity')
+  if (item.applicability !== undefined) result.applicability = decodeCalibrationApplicability(item.applicability)
+  if (result.powerMinDbm !== undefined && result.powerMaxDbm !== undefined && result.powerMinDbm > result.powerMaxDbm)
+    invalid('calibration.set power range')
   if (
     result.startHz !== undefined &&
     result.stopHz !== undefined &&
@@ -129,6 +136,8 @@ export function decodeCalibration(
     ),
     enabled: flag(item.enabled, 'calibration.enabled'),
     compatible: flag(item.compatible, 'calibration.compatible'),
+    ...(item.effective === undefined ? {} : { effective: flag(item.effective, 'calibration.effective') }),
+    ...(item.applicability === undefined ? {} : { applicability: decodeCalibrationApplicability(item.applicability) }),
     reason: text(item.reason, 'calibration.reason'),
     ...(item.includeIsolation === undefined
       ? {}
@@ -186,6 +195,9 @@ export function decodeCalibration(
   }
   if (result.capturePending && !result.collecting)
     invalid('calibration.capturePending')
+  if (result.effective && (!result.enabled || !result.compatible ||
+      (result.applicability && (!result.applicability.applicable || !result.applicability.prepared))))
+    invalid('calibration.effective')
   if (
     result.selectedSetId &&
     !result.sets.some((entry) => entry.id === result.selectedSetId)

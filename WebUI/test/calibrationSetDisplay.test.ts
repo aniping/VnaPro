@@ -67,7 +67,7 @@ test('Cal Manager distinguishes browsing a pool set from the channel current set
   assert.equal(commands.length, 0)
 
   const pending = (manager().props!.onApply as () => Promise<void>)()
-  assert.equal(commands[0]!.action, 'select')
+  assert.equal(commands[0]!.action, 'activate')
   assert.equal('setId' in commands[0]! && commands[0].setId, '2')
   assert.match(text(current()), /Cable A/)
   complete(null)

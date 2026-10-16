@@ -59,6 +59,25 @@ export interface CalibrationStep {
   frameSeq: string
 }
 
+/** 服务端针对完整激励轴计算；预检通过不等于系数已经准备完成。 */
+export interface CalibrationApplicability {
+  applicable: boolean
+  prepared: boolean
+  frequencyMode: 'none' | 'exact' | 'subset' | 'interpolated'
+  reasonCode: 'none' | 'noSelection' | 'configurationNotReady' | 'deviceMismatch' | 'invalidAxis' | 'outOfRange' | 'powerMismatch' | 'invalidCoefficients'
+  reason: string
+  sourcePoints: number
+  targetPoints: number
+  exactPoints: number
+  interpolatedPoints: number
+  targetStartHz: number
+  targetStopHz: number
+  targetIfBandwidthHz: number
+  targetMinPowerDbm: number
+  targetMaxPowerDbm: number
+  warnings: Array<'ifbwChanged' | 'interpolation'>
+}
+
 export interface CalibrationSetSummary {
   id: string
   name: string
@@ -71,6 +90,10 @@ export interface CalibrationSetSummary {
   stopHz?: number
   points?: number
   ifBandwidthHz?: number
+  powerMinDbm?: number
+  powerMaxDbm?: number
+  deviceIdentity?: string
+  applicability?: CalibrationApplicability
 }
 
 export interface CalibrationSnapshot {
@@ -85,6 +108,8 @@ export interface CalibrationSnapshot {
   selectedSetId: string
   enabled: boolean
   compatible: boolean
+  effective?: boolean
+  applicability?: CalibrationApplicability
   reason: string
   includeIsolation?: boolean
   error?: string
@@ -103,5 +128,5 @@ export type CalibrationCommand =
   | { action: 'finish'; sessionId: string; name: string }
   | { action: 'cancel'; sessionId: string }
   | { action: 'enable'; enabled: boolean }
-  | { action: 'select' | 'delete'; setId: string }
+  | { action: 'activate' | 'select' | 'delete'; setId: string }
   | { action: 'importFile'; format: CalibrationFileFormat; encoding: 'base64' | 'utf8'; content: string }
