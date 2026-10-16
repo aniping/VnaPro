@@ -4,6 +4,8 @@ add_library(vna_web STATIC
     http_api.cpp
     display_json.cpp
     calibration_json.cpp
+    calibration_binary.cpp
+    calibration_binary_layout.cpp
     calibration_document_json.cpp
     calibration_preview_json.cpp
     trace_action_adapter.cpp
