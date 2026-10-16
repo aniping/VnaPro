@@ -11,6 +11,7 @@ import {
 } from '../src/components/diagrams/traceDrag'
 import { presentation, reflection } from './displayFixtures'
 import { findElements, sfcHarness } from './sfcHarness'
+import { trashDropIntent, TRASH_DRAG_TYPE } from '../src/domain/trashDrop'
 
 function dragEvent(type?: string, data = '') {
   const values = new Map(type ? [[type, data]] : [])
@@ -83,6 +84,24 @@ test('只读、无显示版本及外来传输包不能移动迹线', () => {
     assert.equal(traceDragIntent(event as unknown as DragEvent), null)
 })
 
+test('迹线删除令牌单独冻结双版本，旧移动包保持原合同且缺版本时不允许删除', () => {
+  const event = dragEvent()
+  const source = { name: 'Inactive', revision: '12', displayRevision: '34' }
+  beginTraceDrag(event as unknown as DragEvent, source, true)
+  source.name = 'Active'
+  source.revision = '13'
+  assert.deepEqual(trashDropIntent(event as unknown as DragEvent), {
+    kind: 'trace', name: 'Inactive', revision: '12', displayRevision: '34',
+  })
+  assert.deepEqual(JSON.parse(event.dataTransfer.getData(TRACE_DRAG_TYPE)), {
+    name: 'Inactive', displayRevision: '34',
+  })
+  const legacy = dragEvent()
+  beginTraceDrag(legacy as unknown as DragEvent, { name: 'Inactive', displayRevision: '34' }, true)
+  assert.equal(isTraceDrag(legacy as unknown as DragEvent), true)
+  assert.equal(legacy.dataTransfer.types.includes(TRASH_DRAG_TYPE), false)
+})
+
 test('五个图窗落区随宽高缩放，中心归入原窗，四边保持实际分割方向', () => {
   const probes = [
     [0.5, 0.5, 'center'],
@@ -135,10 +154,11 @@ test('真实迹线标题提供拖动但不提前发送选择、创建或修改�
     presentation: presentation(),
     scale: { min: -100, max: 0 },
     color: '#8ee31d',
-    active: true,
+    active: false,
     smithRadius: 1,
     canEditDisplay: true,
     displayRevision: '17',
+    revision: '12',
   })
   const view = await sfcHarness(
     'src/components/diagrams/TraceStrip.vue',
@@ -156,6 +176,9 @@ test('真实迹线标题提供拖动但不提前发送选择、创建或修改�
       kind: 'move',
       name: 'Reflect',
       displayRevision: '17',
+    })
+    assert.deepEqual(trashDropIntent(event as unknown as DragEvent), {
+      kind: 'trace', name: 'Reflect', revision: '12', displayRevision: '17',
     })
     assert.deepEqual(view.emitted, [])
     assert.equal(JSON.stringify(props), before)

@@ -1,5 +1,6 @@
 import { isNewTraceDrag, NEW_TRACE_DRAG_TYPE } from '../instrument/newTraceDrag'
 import type { TraceDropPosition } from '../../domain/diagramLayout'
+import { beginTrashDrag } from '../../domain/trashDrop'
 export type { TraceDropPosition } from '../../domain/diagramLayout'
 
 export const TRACE_DRAG_TYPE = 'application/x-vnapro-trace'
@@ -7,6 +8,7 @@ export const TRACE_DRAG_TYPE = 'application/x-vnapro-trace'
 export interface TraceDragSource {
   name: string
   displayRevision: string
+  revision?: string
 }
 
 export type TraceDragIntent =
@@ -28,8 +30,10 @@ export function beginTraceDrag(
     event.preventDefault()
     return
   }
-  event.dataTransfer.setData(TRACE_DRAG_TYPE, JSON.stringify(source))
+  event.dataTransfer.setData(TRACE_DRAG_TYPE, JSON.stringify({ name: source.name, displayRevision: source.displayRevision }))
   event.dataTransfer.effectAllowed = 'move'
+  if (source.revision)
+    beginTrashDrag(event, { kind: 'trace', name: source.name, revision: source.revision, displayRevision: source.displayRevision }, enabled)
 }
 
 /** dragover 期间浏览器只开放 MIME types，不能依赖 getData 读取源。 */

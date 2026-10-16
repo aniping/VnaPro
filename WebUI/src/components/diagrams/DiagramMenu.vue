@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { LayoutMode } from '../../domain/presentation'
+import { beginTrashDrag } from '../../domain/trashDrop'
 
 const props = defineProps<{
   number: number
@@ -12,6 +13,8 @@ const props = defineProps<{
   canAddTrace?: boolean
   canAddDiagram?: boolean
   canDeleteDiagram?: boolean
+  revision?: string
+  displayRevision?: string
 }>()
 const emit = defineEmits<{
   activate: []
@@ -86,6 +89,18 @@ function deleteDiagram() {
   close()
 }
 
+function beginDiagramDrag(event: DragEvent) {
+  const enabled = props.canEditDisplay && props.canDeleteDiagram !== false
+  if (!beginTrashDrag(event, {
+    kind: 'diagram', diagram: props.number,
+    revision: props.revision ?? '', displayRevision: props.displayRevision ?? '',
+  }, enabled)) {
+    event.preventDefault()
+    return
+  }
+  close()
+}
+
 function arrange(action: 'overlay' | 'split') {
   if (!props.canEditDisplay) return
   emit('arrange', action)
@@ -150,6 +165,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
       aria-haspopup="menu"
       :aria-expanded="open"
       :data-testid="`diagram-menu-${number}`"
+      :draggable="canEditDisplay && canDeleteDiagram !== false && Boolean(revision && displayRevision)"
+      @dragstart="beginDiagramDrag"
       @click.stop="toggle"
       @keydown.down.prevent.stop="open ? navigate($event) : toggle()"
       @keydown.esc.prevent.stop="close(true)"

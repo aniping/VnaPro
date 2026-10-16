@@ -10,6 +10,7 @@ import {
   transmission,
 } from './displayFixtures'
 import { findElements, sfcHarness } from './sfcHarness'
+import { trashDropIntent } from '../src/domain/trashDrop'
 
 function textContent(value: unknown): string {
   if (typeof value === 'string') return value
@@ -18,6 +19,47 @@ function textContent(value: unknown): string {
     return textContent(Reflect.get(value, 'children'))
   return ''
 }
+
+test('inactive diagram handle freezes its own number and both versions without activating or deleting it', async () => {
+  const props = reactive({
+    number: 3, active: false, layout: 'grid', hasTrace: false, canEditDisplay: true,
+    canDeleteDiagram: true, revision: '12' as string | undefined, displayRevision: '34' as string | undefined,
+  })
+  function event() {
+    const values = new Map<string, string>()
+    let prevented = false
+    return {
+      dataTransfer: { types: [] as string[], effectAllowed: '',
+        setData(key: string, value: string) { values.set(key, value); this.types.push(key) },
+        getData(key: string) { return values.get(key) ?? '' },
+      },
+      preventDefault() { prevented = true }, prevented: () => prevented,
+    }
+  }
+  const view = await sfcHarness('src/components/diagrams/DiagramMenu.vue', props, {})
+  const trigger = () => findElements(view.render(), (node) => node.props?.['data-testid'] === `diagram-menu-${props.number}`)[0]!.props!
+  try {
+    const before = JSON.stringify(props)
+    const dragging = event()
+    assert.equal(trigger().draggable, true)
+    trigger().onDragstart(dragging)
+    assert.deepEqual(trashDropIntent(dragging as unknown as DragEvent), {
+      kind: 'diagram', diagram: 3, revision: '12', displayRevision: '34',
+    })
+    assert.equal(JSON.stringify(props), before)
+    assert.deepEqual(view.emitted, [])
+    for (const block of [() => { props.canEditDisplay = false }, () => { props.canDeleteDiagram = false },
+      () => { props.revision = undefined }, () => { props.displayRevision = undefined }]) {
+      block()
+      const attempt = event()
+      assert.equal(trigger().draggable, false)
+      trigger().onDragstart(attempt)
+      assert.equal(attempt.prevented(), true)
+      assert.equal(trashDropIntent(attempt as unknown as DragEvent), null)
+      props.canEditDisplay = true; props.canDeleteDiagram = true; props.revision = '12'; props.displayRevision = '34'
+    }
+  } finally { view.dispose() }
+})
 
 test('native diagram menu provides independent arrangement and single-transaction trace/diagram actions', async () => {
   const props = reactive({

@@ -3,6 +3,8 @@ import test from 'node:test'
 import { reactive, type VNode } from 'vue'
 import { transmission } from './displayFixtures'
 import { findElements, sfcHarness } from './sfcHarness'
+import { MARKER_INFO_DRAG_TYPE } from '../src/domain/markerReadouts'
+import { trashDropIntent, TRASH_DRAG_TYPE } from '../src/domain/trashDrop'
 
 function textContent(value: unknown): string {
   if (typeof value === 'string') return value
@@ -40,6 +42,39 @@ function item(name: string, markerId: number, color: string) {
 function hasClass(node: VNode, name: string): boolean {
   return String(node.props?.class).split(' ').includes(name)
 }
+
+test('marker info field carries its inactive trace group and frozen display version without selecting or closing markers', async () => {
+  const props = reactive({
+    markers: [item('Inactive', 2, '#60e600'), item('Inactive', 7, '#60e600')],
+    canEditDisplay: true, displayRevision: '34' as string | undefined,
+  })
+  const values = new Map<string, string>()
+  const event = {
+    dataTransfer: { effectAllowed: '', types: [] as string[],
+      setData(key: string, value: string) { values.set(key, value); this.types.push(key) },
+      getData(key: string) { return values.get(key) ?? '' },
+    },
+    preventDefault() { assert.fail('A writable marker field must remain draggable') },
+  }
+  const view = await sfcHarness('src/components/diagrams/MarkerReadout.vue', props, {})
+  try {
+    const before = JSON.stringify(props.markers)
+    view.render().props!.onDragstart(event)
+    assert.equal(values.get(MARKER_INFO_DRAG_TYPE), 'Inactive')
+    assert.deepEqual(trashDropIntent(event as unknown as DragEvent), {
+      kind: 'markers', name: 'Inactive', displayRevision: '34',
+    })
+    props.displayRevision = '35'
+    assert.equal(trashDropIntent(event as unknown as DragEvent)?.displayRevision, '34')
+    assert.deepEqual(view.emitted, [])
+    assert.equal(JSON.stringify(props.markers), before)
+    values.clear(); event.dataTransfer.types = []
+    props.displayRevision = undefined
+    view.render().props!.onDragstart(event)
+    assert.equal(values.get(MARKER_INFO_DRAG_TYPE), 'Inactive')
+    assert.equal(event.dataTransfer.types.includes(TRASH_DRAG_TYPE), false)
+  } finally { view.dispose() }
+})
 
 test('multi-trace marker readouts keep local marker numbers and make trace ownership and color visible', async () => {
   const markers = [

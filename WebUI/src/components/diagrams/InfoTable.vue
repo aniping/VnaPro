@@ -17,6 +17,7 @@ defineProps<{
   position: InfoTablePosition
   annotations: DisplayAnnotations
   canEditDisplay: boolean
+  displayRevision?: string
 }>()
 const emit = defineEmits<{
   select: [value: { name: string; markerId: number }]
@@ -56,6 +57,7 @@ function drop(event: DragEvent) {
         :info-table-visible="true"
         :markers="field.markers"
         :can-edit-display="canEditDisplay"
+        :display-revision="displayRevision"
         :font-scale="annotations.fontScale"
         :stimulus-info-visible="annotations.stimulusInfoVisible"
         @select="emit('select', $event)"

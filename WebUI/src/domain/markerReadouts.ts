@@ -2,6 +2,7 @@ import type { AcquiredFrame, Measurement, ReceiverTrace } from '../api/types'
 import type { DisplayFormat, TracePresentation } from './presentation'
 import { activeMarkerId, traceMarkers } from './markers'
 import { markerResult, type MarkerResult } from '../plot/traceMath'
+import { beginTrashDrag } from './trashDrop'
 
 export interface MarkerReadoutItem {
   name: string
@@ -77,6 +78,18 @@ export function previewMarkerReadouts(
 }
 
 export const MARKER_INFO_DRAG_TYPE = 'application/x-vnapro-marker-info'
+
+/** 信息字段代表所属迹线的整组 Marker；移动令牌继续兼容旧字段拖放。 */
+export function beginMarkerInfoDrag(event: DragEvent, name: string, enabled: boolean, displayRevision?: string): void {
+  if (!enabled || !name || !event.dataTransfer) {
+    event.preventDefault()
+    return
+  }
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData(MARKER_INFO_DRAG_TYPE, name)
+  if (displayRevision)
+    beginTrashDrag(event, { kind: 'markers', name, displayRevision }, enabled)
+}
 
 /** 拖放只携带归属名，字段有效性、控制权与版本仍由后端执行时检查。 */
 export function markerInfoDragName(event: DragEvent): string | null {

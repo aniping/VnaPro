@@ -11,7 +11,7 @@ import {
 } from '../../plot/formatting'
 import { circularReadout } from '../../plot/smithMath'
 import {
-  MARKER_INFO_DRAG_TYPE,
+  beginMarkerInfoDrag,
   type MarkerReadoutItem,
 } from '../../domain/markerReadouts'
 const props = defineProps<{
@@ -23,6 +23,7 @@ const props = defineProps<{
   fontScale?: number
   location?: MarkerInfoLocation
   infoTableVisible?: boolean
+  displayRevision?: string
 }>()
 // 多迹线可重复使用 M1..M10；归属列辅助区分，不重新编号或排序后端结果。
 const showTraceNames = computed(
@@ -68,12 +69,7 @@ function relocate() {
 }
 function beginInfoDrag(event: DragEvent) {
   const name = props.markers[0]?.name
-  if (!props.canEditDisplay || !name || !event.dataTransfer) {
-    event.preventDefault()
-    return
-  }
-  event.dataTransfer.effectAllowed = 'move'
-  event.dataTransfer.setData(MARKER_INFO_DRAG_TYPE, name)
+  beginMarkerInfoDrag(event, name ?? '', props.canEditDisplay, props.displayRevision)
   contextTrace.value = ''
 }
 function closeOutside(event: PointerEvent) {
@@ -104,7 +100,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
     aria-label="Marker readout"
     :title="
       canEditDisplay
-        ? 'Drag to move Marker info; right-click for options'
+        ? '拖动移动读数信息框；拖入垃圾箱关闭本迹线全部 Marker；右键查看选项'
         : undefined
     "
     :draggable="canEditDisplay"
