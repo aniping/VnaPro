@@ -17,6 +17,8 @@ namespace VnaService {
 // 单执行线程校准工作区，不执行设备 I/O；候选复制后可原子提交。
 class CalibrationWorkspace final {
 public:
+    // 每通道会话身份独立命名；复制已完成校准集时不能复用源通道的未来会话 ID。
+    void SetChannelId(unsigned channelId) noexcept;
     std::uint64_t Revision() const noexcept;
     bool Collecting() const noexcept;
     bool SessionMatches(std::uint64_t id) const noexcept;
@@ -61,6 +63,7 @@ private:
     bool includeIsolation_ = false;
     std::uint64_t revision_ = 1U;
     std::uint64_t nextSessionId_ = 1U;
+    std::uint64_t sessionNamespace_ = 0U;
     std::uint64_t nextSetId_ = 1U;
     bool collecting_ = false;
     bool capturePending_ = false;

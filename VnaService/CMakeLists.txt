@@ -2,6 +2,8 @@ add_library(vna_service STATIC
     src/instrument_profile.cpp
     src/instrument_service.cpp
     src/instrument_display.cpp
+    src/instrument_zoom.cpp
+    src/instrument_channels.cpp
     src/calibration_workspace.cpp
     src/calibration_set_validation.cpp
     src/instrument_calibration.cpp

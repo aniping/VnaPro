@@ -30,12 +30,14 @@ struct ConfigPatch final {
     bool hasSpanHz = false;
     bool hasPoints = false;
     bool hasIfBandwidthHz = false;
+    bool hasPowerDbm = false;
     double startHz = 0;
     double stopHz = 0;
     double centerHz = 0;
     double spanHz = 0;
     unsigned points = 0;
     double ifBandwidthHz = 0;
+    double powerDbm = 0;
 };
 
 struct InstrumentSettings final {
@@ -43,7 +45,10 @@ struct InstrumentSettings final {
     double stopHz = 8000000000.0;
     unsigned points = 201U;
     double ifBandwidthHz = 1000.0;
+    double powerDbm = 0.0;
     TriggerSource triggerSource = TriggerSource::IMMEDIATE;
+    // 用户选中的扫描方式独立于运行态；停止及单次完成后保留该选择。
+    SweepMode selectedSweepMode = SweepMode::CONTINUOUS;
     SweepMode sweepMode = SweepMode::HOLD;
     bool currentTriggerScope = false;
     std::vector<Measurement> measurements;

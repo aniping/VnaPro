@@ -14,6 +14,12 @@
 #include "vna_measurement/measurement_processor.h"
 
 namespace VnaService {
+void CalibrationWorkspace::SetChannelId(unsigned channelId) noexcept
+{
+    sessionNamespace_ = channelId <= 1U ? 0U : static_cast<std::uint64_t>(channelId) << 32U;
+    nextSessionId_ = sessionNamespace_ + 1U;
+}
+
 namespace {
 using VnaCalibration::Complex;
 
@@ -239,7 +245,7 @@ bool CalibrationWorkspace::Begin(const CalibrationChange &change, const std::str
         return false;
     }
     if (collecting_ || sets_.size() >= MAX_CALIBRATION_SETS || !Detail::CalibrationSetupValid(change, profile) ||
-        nextSessionId_ == (std::numeric_limits<std::uint64_t>::max)()) {
+        nextSessionId_ >= sessionNamespace_ + 0xffffffffULL) {
         error = "Calibration session, ports, name or set capacity is invalid";
         return false;
     }

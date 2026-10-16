@@ -32,8 +32,12 @@ OperationResult CalibrationResult(bool ok, int code = 0, const std::string &mess
 }  // 匿名命名空间
 
 Operation InstrumentService::ApplyCalibration(
-    CalibrationChange change, std::uint64_t expectedCalibrationRevision, const std::string &owner)
+    CalibrationChange change, std::uint64_t expectedCalibrationRevision, const std::string &owner, unsigned channelId)
 {
+    ContextScope channelScope(*this, channelId);
+    if (!channelScope.Valid()) {
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Unknown channel or trace/channel mismatch", owner);
+    }
     if (change.kind == CalibrationChangeKind::CAPTURE && HasMeasurement()) {
         return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "A finite acquisition is already pending", owner);
     }
@@ -46,10 +50,16 @@ Operation InstrumentService::ApplyCalibration(
     return Enqueue(std::move(task), owner);
 }
 
-CalibrationSnapshot InstrumentService::Calibration() const
+CalibrationSnapshot InstrumentService::Calibration(unsigned channelId) const
 {
+    ContextScope channelScope(const_cast<InstrumentService &>(*this), channelId);
+    if (!channelScope.Valid()) {
+        CalibrationSnapshot failure;
+        failure.reason = "Unknown channel or trace/channel mismatch";
+        return failure;
+    }
     auto result = calibration_.Snapshot(Identity(), activePlan_);
-    const auto view = core_.ReadView();
+    const auto view = core_.ReadView(contextChannelId_);
     if (!profileReady_ || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
         view.configRevision != settings_.acquisitionRevision) {
         result.compatible = false;
@@ -58,13 +68,24 @@ CalibrationSnapshot InstrumentService::Calibration() const
     return result;
 }
 
-CalibrationSetPtr InstrumentService::FindCalibrationSet(std::uint64_t id) const
+CalibrationSetPtr InstrumentService::FindCalibrationSet(std::uint64_t id, unsigned channelId) const
 {
+    ContextScope channelScope(const_cast<InstrumentService &>(*this), channelId);
+    if (!channelScope.Valid()) {
+        return {};
+    }
     return calibration_.Find(id);
 }
 
-CalibrationPreviewResult InstrumentService::CalibrationPreview(std::uint64_t sessionId, const std::string &stepId) const
+CalibrationPreviewResult InstrumentService::CalibrationPreview(
+    std::uint64_t sessionId, const std::string &stepId, unsigned channelId) const
 {
+    ContextScope channelScope(const_cast<InstrumentService &>(*this), channelId);
+    if (!channelScope.Valid()) {
+        CalibrationPreviewResult failure;
+        failure.error = "Unknown channel or trace/channel mismatch";
+        return failure;
+    }
     return calibration_.Preview(sessionId, stepId);
 }
 
@@ -81,6 +102,11 @@ void InstrumentService::FailCalibration(const std::string &error, int code)
 
 bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
 {
+    if (CalibrationCollecting() && !calibration_.Collecting()) {
+        FailCalibration(
+            "Calibration collection owns the instrument in another channel", Detail::SETTINGS_CONFLICT_ERROR);
+        return false;
+    }
     const auto &change = task.calibrationChange;
     const auto revision = calibration_.Revision();
     const bool cancelOldRevision = change.kind == CalibrationChangeKind::CANCEL &&
@@ -89,7 +115,7 @@ bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
         FailCalibration("Calibration revision changed", Detail::SETTINGS_CONFLICT_ERROR);
         return false;
     }
-    const auto view = core_.ReadView();
+    const auto view = core_.ReadView(contextChannelId_);
     if (change.kind == CalibrationChangeKind::CANCEL &&
         (view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED)) {
         std::string error;
@@ -168,7 +194,7 @@ bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
         calibration_.SetCapturePending(true);
     }
     if (RequiresHold(change.kind) && view.state == VnaCore::CoreState::RUNNING) {
-        task.ticket = core_.Stop(view.runId);
+        task.ticket = core_.Stop(view.runId, contextChannelId_);
         task.stage = Detail::ServiceTaskStage::WAITING_STOP;
     } else {
         task.stage = Detail::ServiceTaskStage::READY_TO_START;
@@ -180,12 +206,12 @@ bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
 void InstrumentService::ContinueCalibration(Detail::ServiceTask &task)
 {
     if (task.plan.receiverMask != activePlan_.receiverMask || task.plan.sourcePorts != activePlan_.sourcePorts) {
-        task.ticket = core_.Configure(task.plan);
+        task.ticket = core_.Configure(task.plan, contextChannelId_);
         task.stage = Detail::ServiceTaskStage::WAITING_CONFIGURATION;
         return;
     }
     if (task.calibrationChange.kind == CalibrationChangeKind::CAPTURE) {
-        task.ticket = core_.Start(VnaCore::RunMode::MANUAL);
+        task.ticket = core_.Start(VnaCore::RunMode::MANUAL, contextChannelId_);
         task.stage = Detail::ServiceTaskStage::WAITING_START;
         return;
     }
@@ -237,17 +263,18 @@ void InstrumentService::PollCalibration(Detail::ServiceTask &task)
     } else if (task.stage == Detail::ServiceTaskStage::WAITING_CONFIGURATION) {
         settings_.acquisitionRevision = result.configRevision;
         activePlan_ = task.plan;
-        display_.BindAcquisitionRevision(settings_.acquisitionRevision);
+        const auto names = ChannelTraceNames(contextChannelId_);
+        display_.BindAcquisitionRevision(settings_.acquisitionRevision, &names);
         task.stage = Detail::ServiceTaskStage::READY_TO_START;
         ContinueCalibration(task);
     } else if (task.stage == Detail::ServiceTaskStage::WAITING_START) {
         task.captureRunId = result.runId;
         task.captureConfigRevision = result.configRevision;
-        task.ticket = core_.TriggerOnce(result.runId, result.configRevision);
+        task.ticket = core_.TriggerOnce(result.runId, result.configRevision, contextChannelId_);
         task.stage = Detail::ServiceTaskStage::WAITING_SINGLE_FRAME;
     } else if (task.stage == Detail::ServiceTaskStage::WAITING_SINGLE_FRAME) {
         task.captureFrameSeq = result.frameSeq;
-        const auto view = core_.ReadView();
+        const auto view = core_.ReadView(contextChannelId_);
         task.capturedFrame = view.frame;
         // TriggerOnce 返回的身份必须对应完整的新运行，不接受被保留的旧标准或 DUT。
         if (!task.capturedFrame || result.runId != task.captureRunId ||
@@ -257,11 +284,11 @@ void InstrumentService::PollCalibration(Detail::ServiceTask &task)
             // 本阶段仍必须经过停止屏障，错误在屏障后统一报告。
             task.capturedFrame.reset();
         }
-        task.ticket = core_.Stop(task.captureRunId);
+        task.ticket = core_.Stop(task.captureRunId, contextChannelId_);
         task.stage = Detail::ServiceTaskStage::WAITING_FINAL_STOP;
     } else if (task.stage == Detail::ServiceTaskStage::WAITING_FINAL_STOP) {
         settings_.sweepMode = SweepMode::HOLD;
-        const auto view = core_.ReadView();
+        const auto view = core_.ReadView(contextChannelId_);
         if (!task.capturedFrame || view.runId != task.captureRunId ||
             view.configRevision != task.captureConfigRevision ||
             !calibration_.SessionMatches(task.calibrationChange.sessionId) ||
