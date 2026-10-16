@@ -194,4 +194,6 @@ JSON 回归保留溢出/下溢、非正规数、负零、复用失败恢复及�
 | 4000-points | 合成性能夹具 16 套×4000 点 | 18081 / 15026 |
 | 6700-points | 合成性能夹具 16 套×6700 点 | 18082 / 15027 |
 
-三组均为模拟设备身份、四端口含隔离、10 MHz～40 GHz、IFBW 1 kHz、0 dBm、HOLD。只在各自 EXE 同目录读取 `vnapro.yml`，不支持 `--config`。复制前核对冻结证据、完整 ID/点数/选中集、每个文件及 payload 校验，复制后比对池文件、EXE、DLL、WebUI、licenses 和自有配置的完整 SHA256；记录见包内 `pool-copy-verification.json`，操作说明见 `README.zh-CN.md`。这是软件验收数据，不代表实机射频精度；未覆盖 release 根文件或自动启动该验收包。
+三组均为模拟设备身份、四端口含隔离、10 MHz～40 GHz、IFBW 1 kHz、0 dBm、HOLD。只在各自 EXE 同目录读取 `vnapro.yml`，不支持 `--config`。复制前核对冻结证据、完整 ID/点数/选中集、每个文件及 payload 校验，复制后比对池文件、EXE、DLL、WebUI、licenses 和自有配置的完整 SHA256；记录见包内 `pool-copy-verification.json`，操作说明见 `README.zh-CN.md`。这是软件验收数据，不代表实机射频精度；验收包复制命令只写新建子目录，未自动启动该验收包。
+
+最终保护核对发现，根 `release/vna_server.exe` 在本轮 20:50:37 被更新，SHA256 从 `cf3cf59f4ba475478991d5e013be2e36153771e24fec35b56135ded14220cf37` 变为 `0f67e7a85721faa1091b9d77038d1ffd6253a06c1606eeefabcce6f76f0df451`，与同时生成的 debug EXE 相同；debug `.ninja_log` 记录了编译链接，但触发来源未确定。本轮工具构建命令均指向私有构建目录，没有猜测来源或覆盖恢复该文件。其余 17 个原 release 文件及无关工作区文件摘要不变，独立验收包仍为上文已验证的 `4dc3…` 程序且全部复制文件摘要匹配；根 EXE 的观察差异与验收包验证结果分别记录。
