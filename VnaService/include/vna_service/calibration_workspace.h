@@ -26,6 +26,12 @@ public:
     CalibrationSnapshot Snapshot(const std::string &identity, const VnaCore::SweepPlan &plan) const;
     VnaCalibration::CalibrationPtr Correction(const std::string &identity, const VnaCore::SweepPlan &plan) const;
     CalibrationSetPtr Find(std::uint64_t id) const;
+    std::size_t StorageBytes() const noexcept;
+    const std::vector<CalibrationSetPtr> &SavedSets() const noexcept;
+    std::uint64_t SelectedSetId() const noexcept;
+    // 仅全新空工作区可恢复；冻结输入别名，保留存储 ID，恢复后校正始终关闭。
+    bool RestoreSaved(std::vector<CalibrationSetPtr> sets, std::uint64_t selectedSetId,
+        const InstrumentProfile &profile, std::string &error);
     CalibrationPreviewResult Preview(std::uint64_t sessionId, const std::string &stepId) const;
     // 需求始终包含当前会话和选中集，关闭校正不强行缩减硬件计划。
     void ExtendPlan(VnaCore::SweepPlan &plan) const;
@@ -54,8 +60,10 @@ private:
     bool DeleteSet(std::uint64_t id, std::string &error);
     bool ImportSet(const CalibrationSetPtr &set, const InstrumentProfile &profile, std::string &error);
     bool Solve(VnaCalibration::CalibrationData &data, std::string &error) const;
+    bool SolveFourPort(VnaCalibration::CalibrationData &data, std::string &error) const;
     void AddSteps(unsigned port);
-    const Sample *FindSample(CalibrationStandard kind, unsigned port) const noexcept;
+    void AddPair(unsigned first, unsigned second);
+    const Sample *FindSample(CalibrationStandard kind, unsigned first, unsigned second = 0U) const noexcept;
     CalibrationSet session_;
     VnaCalibration::CalibrationMethod method_ = VnaCalibration::CalibrationMethod::ONE_PORT;
     unsigned port1_ = 1U;
@@ -71,6 +79,7 @@ private:
     std::string error_;
     std::vector<Sample> samples_;
     std::vector<CalibrationSetPtr> sets_;
+    std::size_t storageBytes_ = 0U;
     std::uint64_t selectedSetId_ = 0U;
 };
 

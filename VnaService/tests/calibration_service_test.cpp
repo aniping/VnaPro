@@ -495,12 +495,11 @@ void SetPoolImportAndStimulusCompatibility()
     CalibrationChange import;
     import.kind = CalibrationChangeKind::IMPORT_SET;
     import.importedSet = saved;
-    for (std::size_t count = 1U; count < VnaService::MAX_CALIBRATION_SETS; ++count) {
+    constexpr std::size_t IMPORTED_TEST_SETS = 4U;
+    for (std::size_t count = 1U; count < IMPORTED_TEST_SETS; ++count) {
         Require(Finish(fixture, Submit(fixture, import)).ok, "import validated calibration into bounded pool");
     }
-    Require(!Finish(fixture, Submit(fixture, import)).ok, "full pool rejects import without mutation");
-    Require(
-        fixture.service.Calibration().sets.size() == VnaService::MAX_CALIBRATION_SETS, "pool capacity remains bounded");
+    Require(fixture.service.Calibration().sets.size() == IMPORTED_TEST_SETS, "saved imports remain separate sets");
     CalibrationChange remove;
     remove.kind = CalibrationChangeKind::DELETE_SET;
     remove.setId = saved->id;

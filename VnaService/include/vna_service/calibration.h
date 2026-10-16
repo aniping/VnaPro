@@ -5,6 +5,7 @@
 #ifndef VNAPRO_VNA_SERVICE_CALIBRATION_H
 #define VNAPRO_VNA_SERVICE_CALIBRATION_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -16,7 +17,10 @@
 
 namespace VnaService {
 
-constexpr std::size_t MAX_CALIBRATION_SETS = 16U;
+constexpr std::size_t MAX_CALIBRATION_SETS = 256U;
+// 每通道保存数据的逻辑字节预算，不包含临时解析、求解或异步持久化副本。
+constexpr std::size_t MAX_CALIBRATION_STORAGE_BYTES = 512U * 1024U * 1024U;
+constexpr std::size_t MAX_INSTRUMENT_CALIBRATION_STORAGE_BYTES = 1024U * 1024U * 1024U;
 
 enum class CalibrationStandard {
     OPEN,
@@ -32,6 +36,7 @@ enum class CalibrationChangeKind {
     CANCEL,
     ENABLE,
     SELECT,
+    ACTIVATE,
     DELETE_SET,
     IMPORT_SET
 };
@@ -51,6 +56,7 @@ using CalibrationSetPtr = std::shared_ptr<const CalibrationSet>;
 
 struct CalibrationChange final {
     CalibrationChangeKind kind = CalibrationChangeKind::BEGIN;
+    // FOUR_PORT 明确覆盖物理 1..4，端点元数据固定 port1=1、port2=4，并非一对端口。
     VnaCalibration::CalibrationMethod method = VnaCalibration::CalibrationMethod::ONE_PORT;
     unsigned port1 = 1U;
     unsigned port2 = 0U;

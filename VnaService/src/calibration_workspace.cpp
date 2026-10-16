@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <utility>
 
 #include "calibration_set_validation.h"
@@ -37,6 +38,19 @@ void AddPort(VnaCore::SweepPlan &plan, unsigned port)
     plan.receiverMask |= 1U << (port - 1U);
     if (std::find(plan.sourcePorts.begin(), plan.sourcePorts.end(), port) == plan.sourcePorts.end()) {
         plan.sourcePorts.push_back(port);
+    }
+}
+
+void AddCalibrationPorts(
+    VnaCore::SweepPlan &plan, VnaCalibration::CalibrationMethod method, unsigned first, unsigned second)
+{
+    if (method == VnaCalibration::CalibrationMethod::FOUR_PORT) {
+        for (unsigned port = 1U; port <= 4U; ++port) {
+            AddPort(plan, port);
+        }
+    } else {
+        AddPort(plan, first);
+        AddPort(plan, second);
     }
 }
 
@@ -101,6 +115,74 @@ CalibrationSetPtr CalibrationWorkspace::Find(std::uint64_t id) const
     return {};
 }
 
+std::size_t CalibrationWorkspace::StorageBytes() const noexcept
+{
+    return storageBytes_;
+}
+
+const std::vector<CalibrationSetPtr> &CalibrationWorkspace::SavedSets() const noexcept
+{
+    return sets_;
+}
+
+std::uint64_t CalibrationWorkspace::SelectedSetId() const noexcept
+{
+    return selectedSetId_;
+}
+
+bool CalibrationWorkspace::RestoreSaved(std::vector<CalibrationSetPtr> sets, std::uint64_t selectedSetId,
+    const InstrumentProfile &profile, std::string &error)
+{
+    error.clear();
+    if (revision_ != 1U || collecting_ || !sets_.empty() || nextSetId_ != 1U || sets.size() > MAX_CALIBRATION_SETS) {
+        error = "Calibration restore requires a fresh empty workspace and a bounded set count";
+        return false;
+    }
+    std::set<std::uint64_t> ids;
+    std::uint64_t maximumId = 0U;
+    std::size_t bytes = 0U;
+    for (const auto &set : sets) {
+        if (!set || set->id == 0U || set->id == (std::numeric_limits<std::uint64_t>::max)() ||
+            !ids.insert(set->id).second) {
+            if (error.empty()) {
+                error = "Stored calibration IDs or contents are invalid";
+            }
+            return false;
+        }
+        const auto size = Detail::CalibrationStorageBytes(*set);
+        if (size > MAX_CALIBRATION_STORAGE_BYTES - bytes) {
+            error = "Stored calibration data exceeds the channel byte budget";
+            return false;
+        }
+        bytes += size;
+        maximumId = (std::max)(maximumId, set->id);
+    }
+    if (selectedSetId != 0U && ids.count(selectedSetId) == 0U) {
+        error = "Stored selected calibration ID does not exist";
+        return false;
+    }
+    for (const auto &set : sets) {
+        if (!Detail::ValidateImportedCalibration(*set, profile, error)) {
+            return false;
+        }
+    }
+    std::vector<CalibrationSetPtr> frozen;
+    frozen.reserve(sets.size());
+    for (const auto &set : sets) {
+        auto copy = *set;
+        copy.data = std::make_shared<const VnaCalibration::CalibrationData>(*set->data);
+        frozen.push_back(std::make_shared<const CalibrationSet>(std::move(copy)));
+    }
+    sets_ = std::move(frozen);
+    storageBytes_ = bytes;
+    selectedSetId_ = selectedSetId;
+    nextSetId_ = maximumId + 1U;
+    enabled_ = false;
+    error_.clear();
+    ++revision_;
+    return true;
+}
+
 CalibrationPreviewResult CalibrationWorkspace::Preview(std::uint64_t sessionId, const std::string &stepId) const
 {
     CalibrationPreviewResult result;
@@ -130,8 +212,8 @@ CalibrationPreviewResult CalibrationWorkspace::Preview(std::uint64_t sessionId, 
     result.measurement.name = found->step.id;
     result.measurement.kind = VnaMeasurement::MeasurementKind::S_PARAMETER;
     result.measurement.receiverKind = 'b';
-    result.measurement.receiverPort = pair ? port2_ : found->step.port1;
-    result.measurement.sourcePort = pair ? port1_ : found->step.port1;
+    result.measurement.receiverPort = pair ? found->step.port2 : found->step.port1;
+    result.measurement.sourcePort = found->step.port1;
     result.trace.points.reserve(found->network.size());
     for (const auto &point : found->network) {
         const auto value = pair ? point.s21 : point.s11;
@@ -204,13 +286,11 @@ VnaCalibration::CalibrationPtr CalibrationWorkspace::Correction(
 void CalibrationWorkspace::ExtendPlan(VnaCore::SweepPlan &plan) const
 {
     if (collecting_) {
-        AddPort(plan, port1_);
-        AddPort(plan, port2_);
+        AddCalibrationPorts(plan, method_, port1_, port2_);
     }
     const auto set = Find(selectedSetId_);
     if (set) {
-        AddPort(plan, set->data->port1);
-        AddPort(plan, set->data->port2);
+        AddCalibrationPorts(plan, set->data->method, set->data->port1, set->data->port2);
     }
     std::sort(plan.sourcePorts.begin(), plan.sourcePorts.end());
 }
@@ -235,6 +315,24 @@ void CalibrationWorkspace::AddSteps(unsigned port)
         sample.step.kind = kinds[index];
         sample.step.port1 = port;
         samples_.push_back(std::move(sample));
+    }
+}
+
+void CalibrationWorkspace::AddPair(unsigned first, unsigned second)
+{
+    Sample thru;
+    thru.step.kind = CalibrationStandard::THRU;
+    thru.step.port1 = first;
+    thru.step.port2 = second;
+    const auto suffix = std::to_string(first) + "-" + std::to_string(second);
+    thru.step.id = "thru-" + suffix;
+    samples_.push_back(std::move(thru));
+    if (includeIsolation_) {
+        Sample isolation;
+        isolation.step = samples_.back().step;
+        isolation.step.kind = CalibrationStandard::ISOLATION;
+        isolation.step.id = "isolation-" + suffix;
+        samples_.push_back(std::move(isolation));
     }
 }
 
@@ -285,22 +383,21 @@ void CalibrationWorkspace::InitializeSession(
     port2_ = change.port2;
     includeIsolation_ = change.includeIsolation;
     samples_.clear();
+    if (method_ == VnaCalibration::CalibrationMethod::FOUR_PORT) {
+        for (unsigned port = 1U; port <= 4U; ++port) {
+            AddSteps(port);
+        }
+        for (unsigned first = 1U; first < 4U; ++first) {
+            for (unsigned second = first + 1U; second <= 4U; ++second) {
+                AddPair(first, second);
+            }
+        }
+        return;
+    }
     AddSteps(port1_);
     if (method_ == VnaCalibration::CalibrationMethod::TWO_PORT) {
         AddSteps(port2_);
-        Sample thru;
-        thru.step.kind = CalibrationStandard::THRU;
-        thru.step.port1 = port1_;
-        thru.step.port2 = port2_;
-        thru.step.id = "thru-" + std::to_string(port1_) + "-" + std::to_string(port2_);
-        samples_.push_back(std::move(thru));
-        if (includeIsolation_) {
-            Sample isolation;
-            isolation.step = samples_.back().step;
-            isolation.step.kind = CalibrationStandard::ISOLATION;
-            isolation.step.id = "isolation-" + std::to_string(port1_) + "-" + std::to_string(port2_);
-            samples_.push_back(std::move(isolation));
-        }
+        AddPair(port1_, port2_);
     }
 }
 
@@ -345,10 +442,12 @@ bool CalibrationWorkspace::Capture(
     const bool pair =
         found->step.kind == CalibrationStandard::THRU || found->step.kind == CalibrationStandard::ISOLATION;
     std::vector<Complex> s11, s21, s22, s12;
-    const unsigned reflectionPort = pair ? port1_ : found->step.port1;
+    const unsigned reflectionPort = found->step.port1;
+    const unsigned second = found->step.port2;
     if (!ReadTrace(frame, reflectionPort, reflectionPort, s11, error) ||
-        (pair && (!ReadTrace(frame, port2_, port1_, s21, error) || !ReadTrace(frame, port2_, port2_, s22, error) ||
-                     !ReadTrace(frame, port1_, port2_, s12, error)))) {
+        (pair &&
+            (!ReadTrace(frame, second, reflectionPort, s21, error) || !ReadTrace(frame, second, second, s22, error) ||
+                !ReadTrace(frame, reflectionPort, second, s12, error)))) {
         return false;
     }
     std::vector<VnaCalibration::TwoPortNetwork> network(s11.size());
@@ -371,10 +470,10 @@ bool CalibrationWorkspace::Capture(
 }
 
 const CalibrationWorkspace::Sample *CalibrationWorkspace::FindSample(
-    CalibrationStandard kind, unsigned port) const noexcept
+    CalibrationStandard kind, unsigned first, unsigned second) const noexcept
 {
     for (const auto &sample : samples_) {
-        if (sample.step.kind == kind && sample.step.port1 == port) {
+        if (sample.step.kind == kind && sample.step.port1 == first && sample.step.port2 == second) {
             return &sample;
         }
     }
@@ -383,6 +482,9 @@ const CalibrationWorkspace::Sample *CalibrationWorkspace::FindSample(
 
 bool CalibrationWorkspace::Solve(VnaCalibration::CalibrationData &data, std::string &error) const
 {
+    if (method_ == VnaCalibration::CalibrationMethod::FOUR_PORT) {
+        return SolveFourPort(data, error);
+    }
     const std::array<Complex, 3U> standards{{Complex{1.0, 0.0}, Complex{-1.0, 0.0}, Complex{}}};
     const auto *open = FindSample(CalibrationStandard::OPEN, port1_);
     const auto *shorted = FindSample(CalibrationStandard::SHORT, port1_);
@@ -390,8 +492,8 @@ bool CalibrationWorkspace::Solve(VnaCalibration::CalibrationData &data, std::str
     const auto *reverseOpen = FindSample(CalibrationStandard::OPEN, port2_);
     const auto *reverseShort = FindSample(CalibrationStandard::SHORT, port2_);
     const auto *reverseLoad = FindSample(CalibrationStandard::LOAD, port2_);
-    const auto *thru = FindSample(CalibrationStandard::THRU, port1_);
-    const auto *isolation = FindSample(CalibrationStandard::ISOLATION, port1_);
+    const auto *thru = FindSample(CalibrationStandard::THRU, port1_, port2_);
+    const auto *isolation = FindSample(CalibrationStandard::ISOLATION, port1_, port2_);
     VnaCalibration::TwoPortNetwork defined;
     defined.s21 = defined.s12 = Complex{1.0, 0.0};
     for (std::size_t point = 0U; point < data.frequencyHz.size(); ++point) {
@@ -424,6 +526,56 @@ bool CalibrationWorkspace::Solve(VnaCalibration::CalibrationData &data, std::str
     return true;
 }
 
+bool CalibrationWorkspace::SolveFourPort(VnaCalibration::CalibrationData &data, std::string &error) const
+{
+    const std::array<Complex, 3U> standards{{Complex{1.0, 0.0}, Complex{-1.0, 0.0}, Complex{}}};
+    VnaCalibration::TwoPortNetwork defined;
+    defined.s21 = defined.s12 = Complex{1.0, 0.0};
+    data.fourPortTerms.reserve(data.frequencyHz.size());
+    for (std::size_t point = 0U; point < data.frequencyHz.size(); ++point) {
+        std::array<VnaCalibration::OnePortTerms, 4U> reflections;
+        VnaCalibration::FourPortTerms matrix;
+        for (unsigned port = 1U; port <= 4U; ++port) {
+            const auto *open = FindSample(CalibrationStandard::OPEN, port);
+            const auto *shorted = FindSample(CalibrationStandard::SHORT, port);
+            const auto *load = FindSample(CalibrationStandard::LOAD, port);
+            const std::array<Complex, 3U> measured{
+                {open->network[point].s11, shorted->network[point].s11, load->network[point].s11}};
+            auto &terms = reflections[port - 1U];
+            if (VnaCalibration::SolveThreeStandards(measured, standards, terms) !=
+                VnaCalibration::CalibrationError::NONE) {
+                error =
+                    "Invalid reflection standards at port " + std::to_string(port) + ", point " + std::to_string(point);
+                return false;
+            }
+            matrix[(port - 1U) * 4U + port - 1U] = {terms.directivity, terms.sourceMatch, terms.reflectionTracking};
+        }
+        for (unsigned first = 1U; first < 4U; ++first) {
+            for (unsigned second = first + 1U; second <= 4U; ++second) {
+                const auto *thru = FindSample(CalibrationStandard::THRU, first, second);
+                const auto *isolation = FindSample(CalibrationStandard::ISOLATION, first, second);
+                const Complex xf = isolation ? isolation->network[point].s21 : Complex{};
+                const Complex xr = isolation ? isolation->network[point].s12 : Complex{};
+                VnaCalibration::TwoPortTerms terms;
+                if (VnaCalibration::SolveKnownThru(thru->network[point], defined, reflections[first - 1U],
+                        reflections[second - 1U], xf, xr, terms) != VnaCalibration::CalibrationError::NONE) {
+                    error = "Invalid THRU standards at pair " + std::to_string(first) + "-" + std::to_string(second) +
+                            ", point " + std::to_string(point);
+                    return false;
+                }
+                const auto &forward = terms.forwardTransmission;
+                const auto &reverse = terms.reverseTransmission;
+                matrix[(second - 1U) * 4U + first - 1U] = {
+                    forward.isolation, forward.loadMatch, forward.transmissionTracking};
+                matrix[(first - 1U) * 4U + second - 1U] = {
+                    reverse.isolation, reverse.loadMatch, reverse.transmissionTracking};
+            }
+        }
+        data.fourPortTerms.push_back(std::move(matrix));
+    }
+    return true;
+}
+
 bool CalibrationWorkspace::CanComplete(const std::string &name) const
 {
     return collecting_ && !capturePending_ && Detail::CalibrationNameValid(name) &&
@@ -445,11 +597,19 @@ bool CalibrationWorkspace::Complete(const std::string &name, std::string &error)
         return false;
     }
     CalibrationSet set = session_;
-    set.id = nextSetId_++;
+    set.id = nextSetId_;
     set.name = name.empty() ? (set.name.empty() ? "Cal" + std::to_string(set.id) : set.name) : name;
     set.data = std::make_shared<const VnaCalibration::CalibrationData>(std::move(data));
+    const auto bytes = Detail::CalibrationStorageBytes(set);
+    if (bytes > MAX_CALIBRATION_STORAGE_BYTES - storageBytes_) {
+        error = "Calibration result exceeds the channel storage byte budget";
+        error_ = error;
+        return false;
+    }
     auto immutable = std::make_shared<const CalibrationSet>(std::move(set));
     sets_.push_back(immutable);
+    ++nextSetId_;
+    storageBytes_ += bytes;
     selectedSetId_ = immutable->id;
     enabled_ = true;
     collecting_ = false;
@@ -509,6 +669,27 @@ bool CalibrationWorkspace::UpdateSaved(
             }
             selectedSetId_ = change.setId;
             return true;
+        case CalibrationChangeKind::ACTIVATE: {
+            CalibrationSetPtr selected;
+            for (const auto &set : sets_) {
+                if (change.name.empty() ? set->id == change.setId : set->name == change.name) {
+                    if (selected) {
+                        error = "Calibration set name is ambiguous";
+                        return false;
+                    }
+                    selected = set;
+                }
+            }
+            if (!selected || !Detail::ValidateImportedCalibration(*selected, profile, error)) {
+                if (error.empty()) {
+                    error = "Calibration set does not exist or is invalid";
+                }
+                return false;
+            }
+            selectedSetId_ = selected->id;
+            enabled_ = true;
+            return true;
+        }
         case CalibrationChangeKind::DELETE_SET:
             return DeleteSet(change.setId, error);
         case CalibrationChangeKind::IMPORT_SET:
@@ -521,7 +702,8 @@ bool CalibrationWorkspace::UpdateSaved(
 
 bool CalibrationWorkspace::DeleteSet(std::uint64_t id, std::string &error)
 {
-    if (!Find(id)) {
+    const auto stored = Find(id);
+    if (!stored) {
         error = "Calibration set does not exist";
         return false;
     }
@@ -530,6 +712,7 @@ bool CalibrationWorkspace::DeleteSet(std::uint64_t id, std::string &error)
                         return set->id == id;
                     }),
         sets_.end());
+    storageBytes_ -= Detail::CalibrationStorageBytes(*stored);
     if (selectedSetId_ == id) {
         selectedSetId_ = 0U;
         enabled_ = false;
@@ -547,12 +730,19 @@ bool CalibrationWorkspace::ImportSet(const CalibrationSetPtr &set, const Instrum
         return false;
     }
     auto imported = *set;
-    imported.id = nextSetId_++;
+    imported.id = nextSetId_;
     if (imported.name.empty()) {
         imported.name = "Cal" + std::to_string(imported.id);
     }
+    const auto bytes = Detail::CalibrationStorageBytes(imported);
+    if (bytes > MAX_CALIBRATION_STORAGE_BYTES - storageBytes_) {
+        error = "Calibration import exceeds the channel storage byte budget";
+        return false;
+    }
     imported.data = std::make_shared<const VnaCalibration::CalibrationData>(*imported.data);
     sets_.push_back(std::make_shared<const CalibrationSet>(std::move(imported)));
+    ++nextSetId_;
+    storageBytes_ += bytes;
     return true;
 }
 

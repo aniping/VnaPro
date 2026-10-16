@@ -40,6 +40,19 @@ bool ValidTerms(const VnaCalibration::TwoPortTerms &terms, bool includeIsolation
            VnaCalibration::CorrectTwoPort(offsets, terms, corrected) == VnaCalibration::CalibrationError::NONE;
 }
 
+bool ValidTerms(const VnaCalibration::FourPortTerms &terms, bool includeIsolation) noexcept
+{
+    VnaCalibration::FourPortNetwork offsets, corrected;
+    for (std::size_t cell = 0U; cell < terms.size(); ++cell) {
+        if (!Finite(terms[cell].offset) || !Finite(terms[cell].match) || !Finite(terms[cell].tracking) ||
+            (!includeIsolation && cell / 4U != cell % 4U && terms[cell].offset != Complex{})) {
+            return false;
+        }
+        offsets[cell] = terms[cell].offset;
+    }
+    return VnaCalibration::CorrectFourPort(offsets, terms, corrected) == VnaCalibration::CalibrationError::NONE;
+}
+
 bool ValidShape(const CalibrationSet &set, const InstrumentProfile &profile)
 {
     const auto &data = *set.data;
@@ -88,13 +101,20 @@ bool ValidCoefficients(const CalibrationSet &set)
     const auto &data = *set.data;
     const auto count = data.frequencyHz.size();
     if (data.method == VnaCalibration::CalibrationMethod::ONE_PORT) {
-        return data.onePortTerms.size() == count && data.twoPortTerms.empty() &&
+        return data.onePortTerms.size() == count && data.twoPortTerms.empty() && data.fourPortTerms.empty() &&
                std::all_of(
                    data.onePortTerms.begin(), data.onePortTerms.end(), [](const VnaCalibration::OnePortTerms &terms) {
                        return ValidTerms(terms);
                    });
     }
-    return data.twoPortTerms.size() == count && data.onePortTerms.empty() &&
+    if (data.method == VnaCalibration::CalibrationMethod::FOUR_PORT) {
+        return data.fourPortTerms.size() == count && data.onePortTerms.empty() && data.twoPortTerms.empty() &&
+               std::all_of(data.fourPortTerms.begin(), data.fourPortTerms.end(),
+                   [&set](const VnaCalibration::FourPortTerms &terms) {
+                       return ValidTerms(terms, set.includeIsolation);
+                   });
+    }
+    return data.twoPortTerms.size() == count && data.onePortTerms.empty() && data.fourPortTerms.empty() &&
            std::all_of(
                data.twoPortTerms.begin(), data.twoPortTerms.end(), [&set](const VnaCalibration::TwoPortTerms &terms) {
                    return ValidTerms(terms, set.includeIsolation);
@@ -103,6 +123,31 @@ bool ValidCoefficients(const CalibrationSet &set)
 }  // 匿名命名空间
 
 namespace Detail {
+std::size_t CalibrationStorageBytes(const CalibrationSet &set) noexcept
+{
+    const auto overflow = MAX_CALIBRATION_STORAGE_BYTES + 1U;
+    if (!set.data) {
+        return overflow;
+    }
+    std::size_t bytes = sizeof(CalibrationSet) + sizeof(VnaCalibration::CalibrationData) + sizeof(CalibrationSetPtr);
+    const auto add = [&bytes, overflow](std::size_t count, std::size_t elementSize) {
+        if (bytes >= overflow || count > (overflow - bytes) / elementSize) {
+            bytes = overflow;
+        } else {
+            bytes += count * elementSize;
+        }
+    };
+    add(set.name.size(), sizeof(char));
+    add(set.deviceIdentity.size(), sizeof(char));
+    add(2U, sizeof(char));
+    add(set.powerDbm.size(), sizeof(double));
+    add(set.data->frequencyHz.size(), sizeof(double));
+    add(set.data->onePortTerms.size(), sizeof(VnaCalibration::OnePortTerms));
+    add(set.data->twoPortTerms.size(), sizeof(VnaCalibration::TwoPortTerms));
+    add(set.data->fourPortTerms.size(), sizeof(VnaCalibration::FourPortTerms));
+    return bytes;
+}
+
 bool CalibrationNameValid(const std::string &name)
 {
     return name.size() <= MAX_NAME_BYTES && std::none_of(name.begin(), name.end(), [](unsigned char value) {
@@ -116,7 +161,8 @@ bool CalibrationPortsValid(
     return first > 0U && first <= count &&
            ((method == VnaCalibration::CalibrationMethod::ONE_PORT && second == 0U) ||
                (method == VnaCalibration::CalibrationMethod::TWO_PORT && second > 0U && second <= count &&
-                   second != first));
+                   second != first) ||
+               (method == VnaCalibration::CalibrationMethod::FOUR_PORT && count >= 4U && first == 1U && second == 4U));
 }
 
 bool CalibrationSetupValid(const CalibrationChange &change, const InstrumentProfile &profile)
@@ -141,9 +187,7 @@ bool ValidateImportedCalibration(const CalibrationSet &set, const InstrumentProf
         return false;
     }
     if (!ValidCoefficients(set)) {
-        error = set.data->method == VnaCalibration::CalibrationMethod::ONE_PORT
-                    ? "Calibration set one-port coefficients are invalid"
-                    : "Calibration set two-port coefficients are invalid";
+        error = "Calibration coefficient shape, values or isolation metadata are invalid";
         return false;
     }
     return true;
