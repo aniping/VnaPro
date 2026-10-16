@@ -70,12 +70,23 @@ VnaCalibration::CalibrationMethod Method(const std::string &method)
     if (method == "twoPort") {
         return VnaCalibration::CalibrationMethod::TWO_PORT;
     }
+    if (method == "fourPort") {
+        return VnaCalibration::CalibrationMethod::FOUR_PORT;
+    }
     throw std::invalid_argument("Unsupported calibration method");
 }
 
 const char *MethodName(VnaCalibration::CalibrationMethod method)
 {
-    return method == VnaCalibration::CalibrationMethod::ONE_PORT ? "onePort" : "twoPort";
+    switch (method) {
+        case VnaCalibration::CalibrationMethod::ONE_PORT:
+            return "onePort";
+        case VnaCalibration::CalibrationMethod::TWO_PORT:
+            return "twoPort";
+        case VnaCalibration::CalibrationMethod::FOUR_PORT:
+            return "fourPort";
+    }
+    throw std::invalid_argument("Unsupported calibration method");
 }
 
 const char *StandardName(VnaService::CalibrationStandard standard)

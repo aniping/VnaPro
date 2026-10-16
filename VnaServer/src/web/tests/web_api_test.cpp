@@ -6,6 +6,8 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <locale>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -420,6 +422,91 @@ void InvalidPointsRemainExplicit()
         "Retained invalid-data snapshot is unchanged by the next scan");
 }
 
+class CommaDecimal final : public std::numpunct<char> {
+protected:
+    char do_decimal_point() const override
+    {
+        return ',';
+    }
+};
+
+class ScopedCommaLocale final {
+public:
+    ScopedCommaLocale() : previous_(std::locale::global(std::locale(std::locale::classic(), new CommaDecimal)))
+    {
+    }
+
+    ~ScopedCommaLocale()
+    {
+        std::locale::global(previous_);
+    }
+
+private:
+    std::locale previous_;
+};
+
+void JsonNumberStreamReuse()
+{
+    ScopedCommaLocale locale;
+    std::string input = "[1.25,-0,-0.0,-0e+10,6.022e23,1e-30,7]";
+    VnaWeb::JsonParser parser(input);
+    for (unsigned pass = 0U; pass < 3U; ++pass) {
+        const auto value = parser.Parse();
+        Require(value.array.size() == 7U && value.array[0U].number == 1.25 && value.array[6U].number == 7.0,
+            "Reused number stream resets its buffer and EOF state within and between documents");
+        for (unsigned index = 1U; index <= 3U; ++index) {
+            Require(value.array[index].number == 0.0 && std::signbit(value.array[index].number),
+                "JSON negative zero retains its sign for integer, fraction and exponent spelling");
+        }
+        Require(value.array[4U].number == 6.022e23 && value.array[5U].number == 1e-30,
+            "JSON dot decimal and exponents ignore the global comma locale");
+    }
+    for (const std::string bad : {"+1", "01", "-01", ".1", "1.", "1e", "1e+", "1e-", "--1", "0x10", "NaN", "Infinity",
+             "-Infinity", "1,5", "[1,,2]", "[1,1e400]"}) {
+        input = bad;
+        bool rejected = false;
+        try {
+            parser.Parse();
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        Require(rejected, "Reused parser rejects invalid JSON number: " + bad);
+        input = "-2.5";
+        Require(parser.Parse().number == -2.5, "A failed parse does not poison the next number conversion");
+    }
+}
+
+void JsonNumberBoundaryCompatibility()
+{
+    ScopedCommaLocale locale;
+    std::string input;
+    VnaWeb::JsonParser parser(input);
+    for (const std::string token : {"1.7976931348623157e308", "-1.7976931348623157e308", "1.7976931348623159e308",
+             "2.2250738585072014e-308", "2.225073858507201e-308", "4.9406564584124654e-324", "-4.9406564584124654e-324",
+             "1e-400", "-1e-400", "1e400", "-1e400", "0e999999999", "1", "-0"}) {
+        // Preserve the previous per-number classic stream semantics, including platform underflow behavior.
+        std::istringstream baseline(token);
+        baseline.imbue(std::locale::classic());
+        double expected = 0.0;
+        baseline >> expected;
+        const bool expectedAccepted = !baseline.fail() && baseline.eof() && std::isfinite(expected);
+        input = token;
+        Json actual;
+        bool accepted = false;
+        try {
+            actual = parser.Parse();
+            accepted = true;
+        } catch (const std::runtime_error &) {
+        }
+        Require(accepted == expectedAccepted, "JSON boundary acceptance preserves stream semantics: " + token);
+        if (accepted) {
+            Require(actual.type == Json::Type::NUMBER && actual.number == expected &&
+                        std::signbit(actual.number) == std::signbit(expected),
+                "JSON boundary value and zero sign preserve stream semantics: " + token);
+        }
+    }
+}
+
 void JsonAndEndpoint()
 {
     const auto value = VnaWeb::ParseJson("{\"escaped\":\"quote\\\";\\n\\u4e2d\",\"array\":[true,null,1.25]}");
@@ -502,7 +589,9 @@ int main()
         {"release-expiry-shutdown", ReleasingAndLease}, {"snapshot-and-sampling", SnapshotAndSampling},
         {"operation-retention-budgets", OperationRetentionAndBudgets},
         {"long-operation-retention", LongOperationRetention},
-        {"invalid-points-remain-explicit", InvalidPointsRemainExplicit}, {"json-and-endpoint", JsonAndEndpoint},
+        {"invalid-points-remain-explicit", InvalidPointsRemainExplicit},
+        {"json-number-stream-reuse", JsonNumberStreamReuse},
+        {"json-number-boundary-compatibility", JsonNumberBoundaryCompatibility}, {"json-and-endpoint", JsonAndEndpoint},
         {"ratio-metadata-invalid-reference", RatioMetadataAndInvalidReference}};
     unsigned failures = 0;
     for (const auto &test : tests) {

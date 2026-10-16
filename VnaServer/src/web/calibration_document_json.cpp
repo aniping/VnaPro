@@ -144,6 +144,24 @@ void ImportTerms(const Json &document, VnaCalibration::CalibrationData &data)
 {
     const auto &one = Field(document, "onePortTerms", Json::Type::ARRAY).array;
     const auto &two = Field(document, "twoPortTerms", Json::Type::ARRAY).array;
+    if (data.method == VnaCalibration::CalibrationMethod::FOUR_PORT) {
+        const auto &four = Field(document, "fourPortTerms", Json::Type::ARRAY).array;
+        if (!one.empty() || !two.empty() || four.size() != data.frequencyHz.size()) {
+            throw std::invalid_argument("Four-port coefficient shape does not match the frequency axis");
+        }
+        for (const auto &row : four) {
+            if (row.type != Json::Type::ARRAY || row.array.size() != 96U) {
+                throw std::invalid_argument("Four-port coefficient rows require 16 cells of three complex terms");
+            }
+            VnaCalibration::FourPortTerms terms;
+            for (std::size_t cell = 0U; cell < terms.size(); ++cell) {
+                terms[cell] = {
+                    ComplexAt(row, cell * 6U), ComplexAt(row, cell * 6U + 2U), ComplexAt(row, cell * 6U + 4U)};
+            }
+            data.fourPortTerms.push_back(std::move(terms));
+        }
+        return;
+    }
     const bool reflection = data.method == VnaCalibration::CalibrationMethod::ONE_PORT;
     const auto count = data.frequencyHz.size();
     if ((reflection && (one.size() != count || !two.empty())) ||
@@ -163,7 +181,8 @@ Json CalibrationJson::Export(const VnaService::CalibrationSet &set)
     }
     const auto &data = *set.data;
     Json value = Json::MakeObject();
-    value["schema"] = Json(2U);
+    const bool fourPort = data.method == VnaCalibration::CalibrationMethod::FOUR_PORT;
+    value["schema"] = Json(fourPort ? 3U : 2U);
     value["id"] = Json(std::to_string(set.id));
     value["name"] = Json(set.name);
     value["deviceIdentity"] = Json(set.deviceIdentity);
@@ -187,18 +206,35 @@ Json CalibrationJson::Export(const VnaService::CalibrationSet &set)
     value["frequencyHz"] = std::move(frequencies);
     value["onePortTerms"] = ExportTerms(data, true);
     value["twoPortTerms"] = ExportTerms(data, false);
+    if (fourPort) {
+        Json rows = Json::MakeArray();
+        for (const auto &terms : data.fourPortTerms) {
+            Json row = Json::MakeArray();
+            for (const auto &cell : terms) {
+                AppendComplex(row, cell.offset);
+                AppendComplex(row, cell.match);
+                AppendComplex(row, cell.tracking);
+            }
+            rows.array.push_back(std::move(row));
+        }
+        value["fourPortTerms"] = std::move(rows);
+    }
     return value;
 }
 
 VnaService::CalibrationSetPtr CalibrationJson::Import(const Json &document)
 {
     const double schema = Number(document, "schema");
-    if (schema != 1.0 && schema != 2.0) {
+    if (schema != 1.0 && schema != 2.0 && schema != 3.0) {
         throw std::invalid_argument("Unsupported calibration schema");
     }
-    Fields(document, {"schema", "id", "name", "deviceIdentity", "ifBandwidthHz", "includeIsolation",
-                         schema == 1.0 ? "powerRaw" : "powerDbm", "method", "port1", "port2", "frequencyHz",
-                         "onePortTerms", "twoPortTerms"});
+    std::vector<std::string> allowed{"schema", "id", "name", "deviceIdentity", "ifBandwidthHz", "includeIsolation",
+        schema == 1.0 ? "powerRaw" : "powerDbm", "method", "port1", "port2", "frequencyHz", "onePortTerms",
+        "twoPortTerms"};
+    if (schema == 3.0) {
+        allowed.push_back("fourPortTerms");
+    }
+    Fields(document, allowed);
     auto set = std::make_shared<VnaService::CalibrationSet>();
     set->name = Text(document, "name");
     set->deviceIdentity = Text(document, "deviceIdentity");
@@ -206,6 +242,9 @@ VnaService::CalibrationSetPtr CalibrationJson::Import(const Json &document)
     set->includeIsolation = Field(document, "includeIsolation", Json::Type::BOOLEAN).boolean;
     auto data = std::make_shared<VnaCalibration::CalibrationData>();
     data->method = Method(Text(document, "method"));
+    if ((schema == 3.0) != (data->method == VnaCalibration::CalibrationMethod::FOUR_PORT)) {
+        throw std::invalid_argument("Four-port coefficients require calibration schema 3");
+    }
     data->port1 = Port(document, "port1");
     data->port2 = Port(document, "port2", true);
     ImportAxis(document, *data);

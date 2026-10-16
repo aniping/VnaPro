@@ -261,6 +261,65 @@ void ScpiMechanicalWorkflow()
         "SCPI cancellation closes the workspace and restores manual entry arming");
 }
 
+void FourPortWorkflowAndSchema()
+{
+    VnaServiceTest::Fixture fixture(Profile());
+    VnaScpi::ScpiEngine engine(fixture.service);
+    Require(Query(engine, "SENS1:CORR:COLL:METH TOSM,1,2,3,4;*OPC?") == "+1\n", "SCPI starts explicit four-port TOSM");
+    const auto state = fixture.service.Calibration();
+    Require(state.method == VnaCalibration::CalibrationMethod::FOUR_PORT && state.steps.size() == 18U,
+        "Four-port TOSM requires twelve reflection standards and all six THRU pairs");
+    Query(engine, "SENS1:CORR:COLL:SAVE 'incomplete';*OPC?");
+    Require(Query(engine, "SYST:ERR?").find("0,") != 0U && fixture.service.Calibration().selectedSetId == 0U,
+        "Incomplete four-port standards cannot create an active calibration");
+    Query(engine, "SENS1:CORR:COLL:ABOR;*OPC?");
+    Require(Query(engine, "SENS1:CORR:COLL:METH TOSM,1,2,3,4,ON;*OPC?") == "+1\n" &&
+                fixture.service.Calibration().steps.size() == 24U,
+        "Four-port measured isolation requires each of the six pairs");
+    Query(engine, "SENS1:CORR:COLL:ABOR;*OPC?");
+    Query(engine, "SENS1:CORR:COLL:METH TOSM,1,2,4,3;*OPC?");
+    Require(Query(engine, "SYST:ERR?").find("-224,") == 0U && !fixture.service.Calibration().collecting,
+        "Invalid four-port physical order cannot silently change the source/receiver mapping");
+
+    auto data = std::make_shared<VnaCalibration::CalibrationData>();
+    data->method = VnaCalibration::CalibrationMethod::FOUR_PORT;
+    data->port1 = 1U;
+    data->port2 = 4U;
+    data->frequencyHz = fixture.service.StimulusAxis().values;
+    VnaCalibration::FourPortTerms terms;
+    for (auto &cell : terms) {
+        cell = {{0.0, 0.0}, {0.02, -0.01}, {1.2, 0.03}};
+    }
+    data->fourPortTerms.assign(data->frequencyHz.size(), terms);
+    VnaService::CalibrationSet set;
+    set.name = "Four-port roundtrip";
+    set.deviceIdentity = fixture.service.Identity();
+    set.ifBandwidthHz = fixture.service.Settings().ifBandwidthHz;
+    set.powerDbm.assign(data->frequencyHz.size(), fixture.service.Settings().powerDbm);
+    set.data = data;
+    auto document = VnaWeb::CalibrationJson::Export(set);
+    Require(
+        Field(document, "schema").number == 3.0 && Field(document, "fourPortTerms").array.front().array.size() == 96U,
+        "Schema 3 preserves all 48 complex four-port error terms per frequency");
+    auto request = Json::MakeObject();
+    request["action"] = Json("import");
+    request["data"] = document;
+    const auto imported = VnaWeb::CalibrationJson::Change(request).importedSet;
+    Require(imported->data->method == VnaCalibration::CalibrationMethod::FOUR_PORT &&
+                imported->data->fourPortTerms.size() == data->frequencyHz.size() &&
+                imported->data->fourPortTerms.back()[15U].tracking == terms[15U].tracking,
+        "Four-port coefficients survive export and import");
+    document["fourPortTerms"].array.front().array.pop_back();
+    request["data"] = document;
+    bool rejected = false;
+    try {
+        VnaWeb::CalibrationJson::Change(request);
+    } catch (const std::invalid_argument &) {
+        rejected = true;
+    }
+    Require(rejected, "Truncated four-port coefficient rows cannot be imported");
+}
+
 void WebFinishAndCancelRestoreContinuousAcquisition()
 {
     VnaServiceTest::Fixture fixture(Profile());
@@ -323,6 +382,7 @@ int main()
     try {
         WebAndScpiReadSameCorrection();
         ScpiMechanicalWorkflow();
+        FourPortWorkflowAndSchema();
         WebFinishAndCancelRestoreContinuousAcquisition();
         VnaCalibrationProtocolTest::CheckHistoryBudget();
         std::cout << "PASS calibration HTTP/SCPI ownership, CAS, correction and mechanical workflow\n";

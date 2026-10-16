@@ -6,7 +6,6 @@
 
 #include <cmath>
 #include <locale>
-#include <sstream>
 #include <stdexcept>
 
 namespace VnaWeb {
@@ -47,8 +46,9 @@ void AppendUtf8(std::string &output, unsigned scalar)
 }
 }  // 匿名命名空间
 
-JsonParser::JsonParser(const std::string &input, unsigned maxNodes) noexcept : text_(input), maxNodes_(maxNodes)
+JsonParser::JsonParser(const std::string &input, unsigned maxNodes) : text_(input), maxNodes_(maxNodes)
 {
+    numberConverter_.imbue(std::locale::classic());
 }
 
 Json JsonParser::Parse()
@@ -298,11 +298,11 @@ Json JsonParser::Number()
         }
         Digits();
     }
-    std::istringstream number(text_.substr(begin, position_ - begin));
-    number.imbue(std::locale::classic());
+    numberConverter_.clear();
+    numberConverter_.str(text_.substr(begin, position_ - begin));
     double parsed = 0.0;
-    number >> parsed;
-    if (number.fail() || !number.eof() || !std::isfinite(parsed)) {
+    numberConverter_ >> parsed;
+    if (numberConverter_.fail() || !numberConverter_.eof() || !std::isfinite(parsed)) {
         throw std::runtime_error("JSON number is not finite");
     }
     return Json(parsed);
