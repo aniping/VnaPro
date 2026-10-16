@@ -29,13 +29,16 @@ defineProps<{ name: string }>();
     <template v-else-if="name === 'marker'">
       <path d="M2 18h4l4-8 4 9 6-8M10 3v5" /><path class="glyph-fill" d="m7 3 3 4 3-4Z" />
     </template>
+    <template v-else-if="name === 'add-channel'">
+      <path d="M3 4h11v16H3ZM3 9h11M18 11v10M13 16h10" />
+    </template>
     <template v-else-if="name === 'delete'">
       <path d="M5 7h14M9 4h6M7 7l1 13h8l1-13M10 10v7M14 10v7" />
     </template>
     <template v-else-if="name === 'export'">
       <path d="M5 3h10l4 4v14H5ZM15 3v5h4M12 10v7m-3-3 3 3 3-3" />
     </template>
-    <template v-else-if="name === 'single'">
+    <template v-else-if="name === 'restart'">
       <path d="M3 17h4l3-9 4 10 4-7h3M6 4h8" /><path class="glyph-fill" d="m15 2 4 2-4 2Z" />
     </template>
     <template v-else-if="name === 'autoscale'">

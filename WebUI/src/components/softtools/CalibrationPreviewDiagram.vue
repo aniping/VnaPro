@@ -12,6 +12,7 @@ const props = defineProps<{
   config: SweepConfiguration
   calibrationLabel: string
   emptyText: string
+  channelId?: number
 }>()
 const area = ref<HTMLElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -166,7 +167,7 @@ watch(
       >
     </div>
     <div class="cal-preview-channel">
-      <span class="cal-preview-channel-name">Ch1</span
+      <span class="cal-preview-channel-name">Ch{{ channelId ?? 1 }}</span
       ><span>Start&nbsp; {{ frequencyText(startHz) }}</span
       ><span
         >Bw&nbsp;

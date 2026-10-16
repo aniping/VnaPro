@@ -230,6 +230,7 @@ function portComplete(port: number) {
         v-for="format in ['db', 'phase'] as const"
         :key="format"
         :format="format"
+        :channel-id="status.activeChannelId"
         :preview="preview"
         :parameter="parameter"
         :config="status.config"
@@ -240,7 +241,7 @@ function portComplete(port: number) {
       />
     </div>
     <section class="cal-acquisition-dock" aria-label="Calibration standards">
-      <div class="cal-dock-rail">Calibration - Ch1</div>
+      <div class="cal-dock-rail">Calibration - Ch{{ status.activeChannelId ?? 1 }}</div>
       <div class="cal-dock-body">
         <div class="cal-standard-groups">
           <section

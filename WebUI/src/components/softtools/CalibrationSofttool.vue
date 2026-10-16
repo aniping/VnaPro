@@ -73,7 +73,7 @@ async function importSelected(event: Event) {
 <template>
   <section class="softtool-section" aria-label="Calibration controls">
     <div class="softtool-readout" data-testid="current-calibration-set" aria-label="Current channel calibration">
-      <span>Current Cal Set · Ch1</span>
+      <span>Current Cal Set · Ch{{ status?.activeChannelId ?? 1 }}</span>
       <strong>{{ currentSet?.name ?? 'No calibration data' }}</strong>
       <span>{{ active ? 'User Cal On' : 'Cal Off' }}<template v-if="currentSet"> · {{ calibrationMethodLabel(currentSet.method) }} · {{ calibrationPorts(currentSet.method, currentSet.port1, currentSet.port2) }}</template></span>
     </div>
@@ -85,7 +85,7 @@ async function importSelected(event: Event) {
         {{ calibration?.collecting ? 'Continue (Manual)…' : 'Start (Manual)…' }}
       </button>
       <p class="softtool-note">选择端口和类型，连接理想 50 Ω 标准，再逐项采集并 Apply。</p>
-      <div class="softtool-readout"><span>Channel</span><strong>Ch1</strong></div>
+      <div class="softtool-readout"><span>Channel</span><strong>Ch{{ status?.activeChannelId ?? 1 }}</strong></div>
       <div class="softtool-readout"><span>Frequency range / points</span><strong>{{ status ? frequencyText(status.config.startHz) : '—' }}–{{ status ? frequencyText(status.config.stopHz) : '—' }}<br>{{ status?.config.points }} pts · {{ status ? frequencyText(status.config.ifBandwidthHz) : '—' }} IFBW</strong></div>
       <div class="softtool-divider" />
       <h2 class="softtool-section-title">Calibration Unit</h2>
@@ -106,7 +106,7 @@ async function importSelected(event: Event) {
         <option v-for="set in calibration?.sets ?? []" :key="set.id" :value="set.id">{{ set.name }}{{ set.compatible ? '' : ' · 不适用' }}</option>
       </select>
       <div v-if="selectedSet" class="softtool-readout"><span>{{ calibrationMethodLabel(selectedSet.method) }}</span><strong>{{ calibrationPorts(selectedSet.method, selectedSet.port1, selectedSet.port2) }}</strong></div>
-      <p v-if="selectedSet && selectedSet.id !== calibration?.selectedSetId" class="softtool-note">仅查看此集；点击 Use Set 后才会用于 Ch1。</p>
+      <p v-if="selectedSet && selectedSet.id !== calibration?.selectedSetId" class="softtool-note">仅查看此集；点击 Use Set 后才会用于 Ch{{ status?.activeChannelId ?? 1 }}。</p>
       <div v-if="selectedSet" class="softtool-readout"><span>Calibrated frequency range</span><strong>{{ selectedSet.startHz === undefined || selectedSet.stopHz === undefined ? '未记录' : `${frequencyText(selectedSet.startHz)}–${frequencyText(selectedSet.stopHz)}` }}</strong><span>Points / IFBW</span><strong>{{ selectedSet.points ?? '未记录' }} pts · {{ selectedSet.ifBandwidthHz === undefined ? '未记录' : frequencyText(selectedSet.ifBandwidthHz) }} IFBW</strong></div>
       <p v-if="selectedSet?.method === 'twoPort'" class="softtool-note">{{ selectedSet.includeIsolation === undefined ? 'Isolation 模型未说明' : selectedSet.includeIsolation ? 'Isolation：已测串扰' : 'Isolation：假定串扰为零' }}</p>
       <div class="softtool-grid">

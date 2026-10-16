@@ -6,6 +6,9 @@ import InstrumentStatusBar from './components/instrument/InstrumentStatusBar.vue
 import DiagramWorkspace from './components/diagrams/DiagramWorkspace.vue'
 import SofttoolHost from './components/softtools/SofttoolHost.vue'
 import ChannelSettingsSofttool from './components/softtools/ChannelSettingsSofttool.vue'
+import ChannelConfigSofttool from './components/softtools/ChannelConfigSofttool.vue'
+import { MAX_CHANNELS } from './domain/channels'
+import ZoomStimulusSofttool from './components/softtools/ZoomStimulusSofttool.vue'
 import MeasurementSofttool from './components/softtools/MeasurementSofttool.vue'
 import NewTraceWorkflow from './components/softtools/NewTraceWorkflow.vue'
 import TraceCatalogSofttool from './components/softtools/TraceCatalogSofttool.vue'
@@ -16,7 +19,7 @@ import CalibrationSofttool from './components/softtools/CalibrationSofttool.vue'
 import CalibrationWorkflow from './components/softtools/CalibrationWorkflow.vue'
 import CalibrationAcquisition from './components/softtools/CalibrationAcquisition.vue'
 import { calibrationSummary } from './domain/calibration'
-import { MAX_DIAGRAMS, MAX_TRACES } from './domain/presentation'
+import { isCircularFormat, MAX_DIAGRAMS, MAX_TRACES } from './domain/presentation'
 import SystemSofttool from './components/softtools/SystemSofttool.vue'
 import DisplaySofttool from './components/softtools/DisplaySofttool.vue'
 import { useInstrument } from './composables/useInstrument'
@@ -25,13 +28,16 @@ import { enableMarkerOnEntry } from './composables/markerMenuEntry'
 import { exportVisibleFrameCsv } from './plot'
 import type { MarkerMove } from './plot/markerDrag'
 import type { ReferencePositionMove } from './plot/referencePositionDrag'
-import type { TraceDestination } from './api/types'
+import type { StimulusZoomSelection, TraceDestination } from './api/types'
+import type { TracePanMove } from './plot/plotGestures'
+import type { TrashIntent } from './domain/trashDrop'
 import type { TraceMoveRequest } from './domain/diagramLayout'
 
 const instrument = useInstrument()
 const {
   status,
   frame,
+  channelFrames,
   connected,
   hasControl,
   canConfigure,
@@ -90,7 +96,7 @@ const busy = computed(() =>
   ),
 )
 const group = computed(() =>
-  ['start', 'stop', 'center', 'span'].includes(activeTool.value)
+  ['start', 'stop', 'center', 'span', 'stimulus-zoom', 'stimulus-power'].includes(activeTool.value)
     ? 'stimulus'
     : ['meas', 'meas-wave'].includes(activeTool.value)
       ? 'measurement'
@@ -100,12 +106,13 @@ const group = computed(() =>
           ? 'sweep'
           : ['cal', 'cal-use'].includes(activeTool.value)
             ? 'calibration'
-            : activeTool.value === 'bandwidth'
+            : activeTool.value === 'channel-config' ? 'channel'
+            : ['bandwidth', 'power'].includes(activeTool.value)
               ? 'bandwidth'
               : 'system',
 )
 const focusField = computed(() =>
-  group.value === 'stimulus'
+  group.value === 'stimulus' && ['start', 'stop', 'center', 'span'].includes(activeTool.value)
     ? (activeTool.value as 'start' | 'stop' | 'center' | 'span')
     : undefined,
 )
@@ -118,12 +125,13 @@ const title = computed(
       sweep: 'Sweep',
       bandwidth: 'Pwr Bw Avg',
       calibration: 'Calibration',
+      channel: 'Channel Config',
       system: 'System',
     })[group.value],
 )
 const tabs = computed(() =>
   group.value === 'stimulus'
-    ? [{ id: 'start', label: 'Stimulus' }]
+    ? [{ id: 'start', label: 'Stimulus' }, { id: 'stimulus-power', label: 'Power' }, { id: 'stimulus-zoom', label: 'Zoom Stimulus' }]
     : group.value === 'measurement'
       ? [
           { id: 'meas', label: 'S-Params' },
@@ -146,7 +154,7 @@ const tabs = computed(() =>
           ? [
               { id: 'sweep', label: 'Sweep Params' },
               { id: 'sweep-control', label: 'Sweep Control' },
-              { id: 'trigger', label: 'Trigger' },
+              { id: 'trigger', label: 'Trigger In' },
             ]
           : group.value === 'calibration'
             ? [
@@ -154,7 +162,8 @@ const tabs = computed(() =>
                 { id: 'cal-use', label: 'Use Cal' },
               ]
             : group.value === 'bandwidth'
-              ? [{ id: 'bandwidth', label: 'Bandwidth' }]
+              ? [{ id: 'power', label: 'Power' }, { id: 'bandwidth', label: 'Bandwidth' }]
+              : group.value === 'channel' ? [{ id: 'channel-config', label: 'Channels' }]
               : [
                   { id: 'setup', label: 'State' },
                   { id: 'display', label: 'Display' },
@@ -164,12 +173,70 @@ const tabs = computed(() =>
 )
 const activeTab = computed(() =>
   group.value === 'stimulus'
-    ? 'start'
+    ? ['stimulus-zoom', 'stimulus-power'].includes(activeTool.value) ? activeTool.value : 'start'
     : activeTool.value === 'tools'
       ? 'file'
       : activeTool.value,
 )
 const emptyConfig = { startHz: 0, stopHz: 0, points: 0, ifBandwidthHz: 0 }
+const zoomSelecting = ref(false)
+const graphicalZoomSelecting = ref(false)
+const graphicalZoomed = ref<Record<number, boolean>>({})
+const graphicalZoomResets = ref<Record<number, number>>({})
+const activeGraphicalZoom = computed(() => Boolean(graphicalZoomed.value[status.value?.display.selectedDiagram ?? 0]))
+const canGraphicalZoom = computed(() => Boolean(connected.value && !busy.value && !calibrationAcquisitionVisible.value &&
+  frame.value && frameCondition.value.kind === 'current' && activePresentation.value?.visible &&
+  !isCircularFormat(activePresentation.value.format) && status.value &&
+  status.value.config.startHz < status.value.config.stopHz))
+const graphicalZoomReason = computed(() => canGraphicalZoom.value
+  ? 'Zoom Select · 框选放大显示区域，扫频与测量数据保持不变'
+  : 'Zoom Select · 请在当前完整帧的可见直角坐标图中操作')
+const canZoom = computed(() => Boolean(canConfigure.value && canEditDisplay.value &&
+  !activeGraphicalZoom.value && status.value?.stimulusZoom?.available && activePresentation.value?.visible &&
+  !isCircularFormat(activePresentation.value.format) && (!frame.value || frameCondition.value.kind === 'current')))
+const canZoomOut = computed(() => Boolean(canConfigure.value && status.value?.stimulusZoom?.canZoomOut))
+const zoomReason = computed(() => !status.value?.stimulusZoom
+  ? '当前服务未提供刺激缩放，请更新服务。'
+  : activeGraphicalZoom.value ? '请先点击工具栏 1:1 复位显示缩放。'
+  : !canConfigure.value ? '请取得控制权并等待当前操作完成。'
+  : !activePresentation.value?.visible || isCircularFormat(activePresentation.value.format)
+    ? '请选择可见的矩形坐标迹线。'
+    : frame.value && frameCondition.value.kind !== 'current' ? '请等待当前扫频范围的数据。'
+    : status.value.stimulusZoom.reason)
+watch([() => status.value?.revision, () => status.value?.display.revision, activeTraceName, group], () => { zoomSelecting.value = false })
+watch([() => status.value?.revision, () => status.value?.display.revision,
+  () => status.value?.display.selectedDiagram, activeTraceName, activeTool], () => { graphicalZoomSelecting.value = false })
+function chooseZoom() {
+  if (!canZoom.value) return
+  graphicalZoomSelecting.value = false
+  zoomSelecting.value = !zoomSelecting.value
+}
+function chooseGraphicalZoom() {
+  if (!canGraphicalZoom.value) return
+  zoomSelecting.value = false
+  graphicalZoomSelecting.value = !graphicalZoomSelecting.value
+}
+function resetGraphicalZoom() {
+  const diagram = status.value?.display.selectedDiagram
+  if (!diagram) return
+  graphicalZoomSelecting.value = false
+  graphicalZoomResets.value = { ...graphicalZoomResets.value, [diagram]: (graphicalZoomResets.value[diagram] ?? 0) + 1 }
+}
+function graphicalZoomChanged(value: { diagram: number; zoomed: boolean }) {
+  graphicalZoomed.value = { ...graphicalZoomed.value, [value.diagram]: value.zoomed }
+}
+async function commitStimulusZoom(value: StimulusZoomSelection): Promise<boolean> {
+  zoomSelecting.value = false
+  if (!canZoom.value) return false
+  const { revision, displayRevision, ...rectangle } = value
+  return Boolean(await instrument.stimulusZoom({ action: 'apply', ...rectangle }, revision, displayRevision))
+}
+async function zoomOut(): Promise<boolean> {
+  zoomSelecting.value = false
+  const snapshot = status.value
+  return Boolean(snapshot && canZoomOut.value && await instrument.stimulusZoom(
+    { action: 'out' }, snapshot.revision, snapshot.display.revision))
+}
 function selectTool(id: string) {
   activeTool.value = id
   softtoolVisible.value = true
@@ -203,6 +270,7 @@ function fitCanvas() {
   }
 }
 function keydown(event: KeyboardEvent) {
+  if (event.defaultPrevented) return
   if (event.key === 'Escape' && !document.querySelector('dialog[open]'))
     softtoolVisible.value = false
 }
@@ -214,7 +282,7 @@ function exportCsv() {
   )
   const link = document.createElement('a')
   link.href = url
-  link.download = `vnapro-frame-${frame.value.frameSeq}.csv`
+  link.download = `vnapro-ch${frame.value.channelId}-frame-${frame.value.frameSeq}.csv`
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
@@ -230,6 +298,22 @@ async function deleteActive() {
       status.value.revision,
     )
   }
+}
+async function deleteTrash(value: TrashIntent): Promise<boolean> {
+  const snapshot = status.value
+  if (!snapshot || busy.value || value.displayRevision !== snapshot.display.revision) return false
+  if (value.kind === 'trace' || value.kind === 'diagram') {
+    if (!canChangeMeasurements.value || value.revision !== snapshot.revision) return false
+    if (value.kind === 'diagram')
+      return Boolean(snapshot.display.diagrams.length > 1 && snapshot.display.diagrams.some(d => d.number === value.diagram) &&
+        await instrument.deleteDiagram(value.diagram, value.revision, value.displayRevision))
+    return Boolean(snapshot.measurements.length > 1 && snapshot.measurements.some(m => m.name === value.name) &&
+      await instrument.deleteMeasurement(value.name, value.revision))
+  }
+  if (!canEditDisplay.value || !snapshot.measurements.some(m => m.name === value.name)) return false
+  return Boolean(await instrument.display(value.kind === 'marker'
+    ? { action: 'marker', traceName: value.name, markerId: value.markerId, enabled: false }
+    : { action: 'marker', traceName: value.name, markerAction: 'allOff' }, value.displayRevision))
 }
 async function addTrace(destination?: {
   diagram?: number
@@ -268,10 +352,10 @@ async function copyActiveTrace() {
   if (
     canChangeMeasurements.value &&
     !busy.value &&
-    activeMeasurement.value &&
     measurements.value.length < MAX_TRACES
   ) {
-    await instrument.cloneMeasurement(activeMeasurement.value.name)
+    if (activeMeasurement.value) await instrument.cloneMeasurement(activeMeasurement.value.name)
+    else await instrument.createTrace()
   }
 }
 async function commitMarker(value: MarkerMove): Promise<boolean> {
@@ -307,6 +391,12 @@ async function commitReferencePosition(
     ),
   )
 }
+async function commitTracePan(value: TracePanMove): Promise<boolean> {
+  if (!canContinueReferenceDrag.value || busy.value) return false
+  if (controlBusy.value) await instrument.refresh()
+  return Boolean(canEditDisplay.value && !busy.value && await instrument.display(
+    { action: 'scale', traceName: value.name, referenceLevel: value.reference }, value.displayRevision))
+}
 onMounted(() => {
   fitCanvas()
   window.addEventListener('resize', fitCanvas)
@@ -334,6 +424,11 @@ onBeforeUnmount(() => {
           <section class="measurement-stage" aria-label="Measurement display">
             <InstrumentToolbar
               :backend="status?.backend"
+              :sweep-supported="Boolean(status?.config.selectedSweepMode)"
+              :can-graphical-zoom="canGraphicalZoom"
+              :graphical-zoom-selecting="graphicalZoomSelecting"
+              :can-reset-graphical-zoom="activeGraphicalZoom || graphicalZoomSelecting"
+              :graphical-zoom-reason="graphicalZoomReason"
               :layout="layout"
               :has-trace="Boolean(activeMeasurement) && !calibrationAcquisitionVisible"
               :can-autoscale="canEditDisplay && canAutoscale"
@@ -343,10 +438,15 @@ onBeforeUnmount(() => {
               :can-write="canRun"
               :busy="busy"
               :can-delete="canChangeMeasurements && measurements.length > 1"
+              :revision="status?.revision"
+              :display-revision="status?.display.revision"
               :can-add-trace="
                 canChangeMeasurements && measurements.length < MAX_TRACES
               "
+              :can-add-channel="canChangeMeasurements && Boolean(status?.channels) && (status?.channels?.length ?? MAX_CHANNELS) < MAX_CHANNELS && measurements.length < MAX_TRACES && (status?.display.diagrams.length ?? MAX_DIAGRAMS) < MAX_DIAGRAMS"
               @select-tool="selectTool"
+              @choose-graphical-zoom="chooseGraphicalZoom"
+              @reset-graphical-zoom="resetGraphicalZoom"
               @toggle-layout="
                 workspace.setLayout(
                   layout === 'maximized' ? 'grid' : 'maximized',
@@ -359,9 +459,11 @@ onBeforeUnmount(() => {
                 })
               "
               @export-csv="exportCsv"
-              @single="instrument.run('single')"
+              @restart="instrument.sweepControl({ action: 'start' })"
               @add-trace="copyActiveTrace"
+              @add-channel="instrument.channel({ action: 'new', newDiagram: true })"
               @delete-trace="deleteActive"
+              @trash-drop="deleteTrash"
             />
             <CalibrationAcquisition
               v-if="calibrationAcquisitionVisible && status"
@@ -376,11 +478,26 @@ onBeforeUnmount(() => {
               v-else
               :diagrams="status?.display.diagrams ?? []"
               :frame="frame"
+              :channel-frames="channelFrames"
+              :channels="status?.channels"
+              :active-channel-id="status?.activeChannelId"
+              :connected="connected"
               :measurements="measurements"
               :presentations="presentations"
               :active-trace-name="activeTraceName"
               :selected-diagram="status?.display.selectedDiagram"
               :display-revision="status?.display.revision"
+              :revision="status?.revision"
+              :zoom-selecting="zoomSelecting"
+              :graphical-zoom-selecting="graphicalZoomSelecting"
+              :graphical-zoom-resets="graphicalZoomResets"
+              :can-zoom="canZoom"
+              :commit-stimulus-zoom="commitStimulusZoom"
+              :commit-trace-pan="commitTracePan"
+              :commit-trash="deleteTrash"
+              @cancel-zoom="zoomSelecting = false"
+              @cancel-graphical-zoom="graphicalZoomSelecting = false"
+              @graphical-zoom-changed="graphicalZoomChanged"
               :can-add-trace="
                 canChangeMeasurements && measurements.length < MAX_TRACES
               "
@@ -442,14 +559,25 @@ onBeforeUnmount(() => {
             @select="selectTool"
             @close="softtoolVisible = false"
           >
+            <ChannelConfigSofttool v-if="activeTool === 'channel-config'" :status="status" :can-write="canChangeMeasurements" :busy="busy" :perform="instrument.channel" />
             <ChannelSettingsSofttool
-              v-show="group === 'stimulus'"
+              v-show="group === 'stimulus' && !['stimulus-zoom', 'stimulus-power'].includes(activeTool)"
               mode="frequency"
               :status="status"
               :can-configure="canConfigure"
               :busy="busy"
               :focus-field="focusField"
               :apply="instrument.configure"
+            />
+            <ZoomStimulusSofttool
+              v-if="activeTool === 'stimulus-zoom'"
+              :can-zoom="canZoom"
+              :can-zoom-out="canZoomOut"
+              :busy="busy"
+              :selecting="zoomSelecting"
+              :reason="zoomReason"
+              :choose="chooseZoom"
+              :zoom-out="zoomOut"
             />
             <ChannelSettingsSofttool
               v-show="activeTool === 'sweep'"
@@ -460,13 +588,14 @@ onBeforeUnmount(() => {
               :apply="instrument.configure"
             />
             <ChannelSettingsSofttool
-              v-show="group === 'bandwidth'"
+              v-show="activeTool === 'bandwidth'"
               mode="bandwidth"
               :status="status"
               :can-configure="canConfigure"
               :busy="busy"
               :apply="instrument.configure"
             />
+            <ChannelSettingsSofttool v-show="activeTool === 'power' || activeTool === 'stimulus-power'" mode="power" :status="status" :can-configure="canConfigure" :busy="busy" :apply="instrument.configure" />
             <MeasurementSofttool
               v-if="group === 'measurement'"
               :status="status"
@@ -521,7 +650,7 @@ onBeforeUnmount(() => {
               :status="status"
               :can-write="canRun"
               :busy="busy"
-              :action="instrument.run"
+              :action="instrument.sweepControl"
             />
             <CalibrationSofttool
               v-if="group === 'calibration'"
@@ -582,6 +711,7 @@ onBeforeUnmount(() => {
           />
         </div>
         <InstrumentStatusBar
+          :active-channel-id="status?.activeChannelId"
           :connected="connected"
           :core-state="status?.state ?? ''"
           :mode="status?.config.sweepMode ?? ''"

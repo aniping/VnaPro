@@ -56,7 +56,6 @@ const groups: { title: string; keys: Hardkey[] }[] = [
         id: 'channel-config',
         lines: ['Channel', 'Config'],
         label: 'Channel Config',
-        unsupported: '当前仅支持一个通道',
       },
       { id: 'trigger', lines: ['Trigger'], label: 'Trigger' },
       {

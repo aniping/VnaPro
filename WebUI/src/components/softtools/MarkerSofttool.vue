@@ -89,7 +89,7 @@ function applyFrequency() {
       data-testid="marker-scope"
       :style="{ borderLeft: `3px solid ${color}`, paddingLeft: '7px' }"
     >
-      <span>Active Trace · Ch1</span>
+      <span>Active Trace · Ch{{ measurement?.channelId ?? 1 }}</span>
       <strong>{{ measurement?.name ?? 'No active trace' }}</strong>
       <span
         >{{ measurement?.parameter ?? '请选择测量' }} · M{{ selectedId }}</span

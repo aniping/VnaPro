@@ -5,6 +5,7 @@ const props = defineProps<{
   connected: boolean;
   coreState: string;
   mode: string;
+  activeChannelId?: number;
   controller: 'none' | 'scpi' | 'web';
   hasControl: boolean;
   claimBusy: boolean;
@@ -24,7 +25,7 @@ const emit = defineEmits<{
 }>();
 
 const menus = [
-  ['File', 'file'], ['Trace', 'trace-config'], ['Channel', 'sweep'],
+  ['File', 'file'], ['Trace', 'trace-config'], ['Channel', 'channel-config'],
   ['Display', 'display'], ['Tools', 'tools'], ['System', 'setup'], ['Help', 'help'],
 ] as const;
 const now = ref(new Date());
@@ -44,7 +45,7 @@ const ownerLabel = computed(() => props.hasControl ? 'Local' : props.controller 
     </nav>
     <div class="status-message" :class="{ error: Boolean(error) || noticeKind === 'error' }" role="status" aria-live="polite" :title="summary">{{ summary }}</div>
     <div class="status-metadata" :title="`Frame ${frameSeq ?? '—'} · Run ${runId ?? '—'} · Configuration revision ${revision ?? '—'}`"><span>F {{ frameSeq ?? '—' }}</span><span>R {{ revision ?? '—' }}</span></div>
-    <div class="status-channel"><i :class="{ online: connected, fault: coreState === 'Faulted' }" aria-hidden="true" />Ch1: {{ status }}</div>
+    <div class="status-channel"><i :class="{ online: connected, fault: coreState === 'Faulted' }" aria-hidden="true" />Ch{{ activeChannelId ?? 1 }}: {{ status }}</div>
     <button type="button" class="status-control" :class="{ local: hasControl }" :disabled="!connected || claimBusy || (!hasControl && controller !== 'none')" :aria-busy="claimBusy" :title="hasControl ? 'Release control · 释放控制权' : controller === 'none' ? 'Acquire control · 获取控制权' : '控制权由其他客户端持有'" data-testid="control-toggle" @click="hasControl ? emit('releaseControl') : emit('acquireControl')">{{ claimBusy ? 'Waiting…' : ownerLabel }}</button>
     <time class="status-clock" :datetime="now.toISOString()">{{ time }}</time>
   </footer>
