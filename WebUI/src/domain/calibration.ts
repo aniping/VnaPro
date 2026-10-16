@@ -1,11 +1,11 @@
 import type { CalibrationCommand, CalibrationMethod, CalibrationSnapshot, CalibrationStep } from '../api/calibrationTypes'
 
 export function calibrationMethodLabel(method: CalibrationMethod): string {
-  return method === 'onePort' ? 'Refl OSM' : 'TOSM · 2-Port'
+  return method === 'onePort' ? 'Refl OSM' : method === 'fourPort' ? 'TOSM · 4-Port' : 'TOSM · 2-Port'
 }
 
 export function calibrationPorts(method: CalibrationMethod, port1: number, port2: number): string {
-  return method === 'onePort' ? `P${port1}` : `P${port1}, P${port2}`
+  return method === 'onePort' ? `P${port1}` : method === 'fourPort' ? 'P1, P2, P3, P4' : `P${port1}, P${port2}`
 }
 
 export function selectedCalibrationSet(calibration?: CalibrationSnapshot) {
@@ -20,13 +20,14 @@ export function calibrationSummary(calibration?: CalibrationSnapshot): string {
   return set ? `${state} · ${set.name} · ${calibrationMethodLabel(set.method)} · ${calibrationPorts(set.method, set.port1, set.port2)}` : state
 }
 
-export function calibrationConnection(step: CalibrationStep): string {
+export function calibrationConnection(step: CalibrationStep, method?: CalibrationMethod): string {
+  const inactive = method === 'fourPort' ? ' 其余未参与连接的端口均接 50 Ω 匹配负载。' : ''
   switch (step.kind) {
-    case 'open': return `将 Open 开路标准连接至 P${step.port1}。`
-    case 'short': return `将 Short 短路标准连接至 P${step.port1}。`
-    case 'load': return `将 Match 50 Ω 匹配负载连接至 P${step.port1}。`
-    case 'thru': return `将 Through 直通标准连接于 P${step.port1} 与 P${step.port2} 之间。`
-    case 'isolation': return `分别为 P${step.port1} 与 P${step.port2} 连接 50 Ω 匹配负载，断开两端口直通。`
+    case 'open': return `将 Open 开路标准连接至 P${step.port1}。` + inactive
+    case 'short': return `将 Short 短路标准连接至 P${step.port1}。` + inactive
+    case 'load': return `将 Match 50 Ω 匹配负载连接至 P${step.port1}。` + inactive
+    case 'thru': return `将 Through 直通标准连接于 P${step.port1} 与 P${step.port2} 之间。` + inactive
+    case 'isolation': return `分别为 P${step.port1} 与 P${step.port2} 连接 50 Ω 匹配负载，断开两端口直通。` + inactive
   }
 }
 

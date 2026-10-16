@@ -9,6 +9,8 @@ import type {
 } from '../../api/calibrationTypes'
 import {
   calibrationConnection,
+  calibrationMethodLabel,
+  calibrationPorts,
   STANDARD_LABELS,
 } from '../../domain/calibration'
 import CalibrationSymbol from './CalibrationSymbol.vue'
@@ -32,7 +34,7 @@ const calibration = computed(() => props.status.calibration!)
 const sessionId = calibration.value.sessionId
 const selectedStepId = ref(calibration.value.steps[0]?.id ?? '')
 const name = ref(
-  `${calibration.value.method === 'onePort' ? 'Refl OSM' : 'TOSM'} ${[calibration.value.port1, ...(calibration.value.method === 'twoPort' ? [calibration.value.port2] : [])].map((port) => `P${port}`).join(', ')}`,
+  `${calibrationMethodLabel(calibration.value.method)} ${calibrationPorts(calibration.value.method, calibration.value.port1, calibration.value.port2)}`,
 )
 const working = ref(false)
 const error = ref('')
@@ -59,28 +61,16 @@ const complete = computed(
     calibration.value.steps.length > 0 &&
     calibration.value.steps.every((step) => step.captured),
 )
-const ports = computed(() => [
-  calibration.value.port1,
-  ...(calibration.value.method === 'twoPort' ? [calibration.value.port2] : []),
-])
-const groups = computed(() => [
-  ...ports.value.map((port) => ({
-    id: `port-${port}`,
-    ports: [port],
-    steps: calibration.value.steps.filter(
-      (step) => step.port1 === port && step.port2 === 0,
-    ),
-  })),
-  ...(calibration.value.method === 'twoPort'
-    ? [
-        {
-          id: 'pair',
-          ports: ports.value,
-          steps: calibration.value.steps.filter((step) => step.port2 !== 0),
-        },
-      ]
-    : []),
-])
+const groups = computed(() => {
+  const result = new Map<string, { id: string; ports: number[]; steps: CalibrationStep[] }>()
+  for (const step of calibration.value.steps) {
+    const id = step.port2 ? `pair-${step.port1}-${step.port2}` : `port-${step.port1}`
+    if (!result.has(id)) result.set(id, { id, ports: step.port2 ? [step.port1, step.port2] : [step.port1], steps: [] })
+    result.get(id)!.steps.push(step)
+  }
+  return [...result.values()]
+})
+const capturedCount = computed(() => calibration.value.steps.filter((step) => step.captured).length)
 const parameter = computed(() =>
   selectedStep.value
     ? `S${selectedStep.value.port2 || selectedStep.value.port1}${selectedStep.value.port1}`
@@ -88,7 +78,7 @@ const parameter = computed(() =>
 )
 const calibrationLabel = computed(
   () =>
-    `${calibration.value.method === 'onePort' ? 'OSM' : 'TOSM'} ${ports.value.map((port) => `P${port}`).join(',')}`,
+    `${calibrationMethodLabel(calibration.value.method)} ${calibrationPorts(calibration.value.method, calibration.value.port1, calibration.value.port2)}`,
 )
 let previewEpoch = 0
 async function refreshPreview() {
@@ -222,6 +212,7 @@ function portComplete(port: number) {
 <template>
   <section
     class="cal-acquisition"
+    :class="{ 'is-four-port': calibration.method === 'fourPort' }"
     aria-label="Calibration measurement workspace"
     :aria-busy="working || calibration.capturePending"
   >
@@ -248,6 +239,7 @@ function portComplete(port: number) {
             v-for="group in groups"
             :key="group.id"
             class="cal-standard-group"
+            :data-cal-group="group.id"
             :aria-label="group.ports.map((port) => `P${port}`).join(' to ')"
           >
             <div
@@ -291,7 +283,7 @@ function portComplete(port: number) {
                 measuring: selectedStepId === step.id && working,
               }"
               :disabled="unavailable"
-              :title="calibrationConnection(step)"
+              :title="calibrationConnection(step, calibration.method)"
               :data-cal-step="step.id"
               @click="capture(step)"
             >
@@ -332,6 +324,7 @@ function portComplete(port: number) {
           </section>
         </div>
         <div class="cal-dock-summary">
+          <p v-if="calibration.method === 'fourPort'" class="cal-four-port-progress" role="status">完整四端口 TOSM · {{ capturedCount }} / {{ calibration.steps.length }} 项已采集</p>
           <button
             v-if="
               selectedStep?.captured && !preview && !previewLoading && !stale
@@ -352,7 +345,7 @@ function portComplete(port: number) {
           <p>
             {{
               selectedStep
-                ? calibrationConnection(selectedStep)
+                ? calibrationConnection(selectedStep, calibration.method)
                 : '连接标准并选择对应按钮。'
             }}
           </p>
@@ -362,12 +355,13 @@ function portComplete(port: number) {
           </p>
           <p
             v-if="
-              calibration.method === 'twoPort' && !calibration.includeIsolation
+              calibration.method !== 'onePort' && !calibration.includeIsolation
             "
             class="cal-assumption"
           >
             未测 Isolation；假定串扰为零。
           </p>
+          <p v-if="calibration.method === 'fourPort'">P1–P4 各测三项 OSM；全部六对直接测量 Through{{ calibration.includeIsolation ? ' 与 Isolation' : '' }}。向下滚动可访问所有端口对。</p>
           <p
             v-if="stale || error || calibration.error"
             class="cal-dock-error"
@@ -485,6 +479,27 @@ function portComplete(port: number) {
 }
 .cal-standard-group {
   width: 131px;
+}
+.is-four-port .cal-dock-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+}
+.is-four-port .cal-standard-groups {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  min-width: 0;
+}
+.is-four-port .cal-standard-group {
+  width: auto;
+}
+.is-four-port .cal-dock-summary {
+  position: sticky;
+  top: 0;
+}
+.cal-four-port-progress {
+  margin-top: 0;
+  color: #edf5f8;
+  font-size: 11px;
 }
 .cal-standard-port {
   min-height: 73px;
@@ -694,5 +709,16 @@ function portComplete(port: number) {
 .cal-toggle-state.on {
   color: #fff;
   background: #009af0;
+}
+@media (max-width: 850px) {
+  .is-four-port .cal-dock-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .is-four-port .cal-standard-groups {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+  .is-four-port .cal-dock-summary {
+    position: static;
+  }
 }
 </style>

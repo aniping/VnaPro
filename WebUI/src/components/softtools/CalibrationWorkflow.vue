@@ -34,10 +34,12 @@ const unavailable = computed(
   () => props.disabled || working.value || stale.value,
 )
 const validSetup = computed(
-  () => selectedPorts.value.length === (method.value === 'onePort' ? 1 : 2),
+  () => method.value === 'fourPort'
+    ? ports.value.length >= 4 && [1, 2, 3, 4].every((port) => selectedPorts.value.includes(port)) && selectedPorts.value.length === 4
+    : selectedPorts.value.length === (method.value === 'onePort' ? 1 : 2),
 )
 const methodName = computed(() =>
-  method.value === 'onePort' ? 'Refl OSM' : 'TOSM',
+  method.value === 'onePort' ? 'Refl OSM' : method.value === 'fourPort' ? 'TOSM · 4-Port' : 'TOSM · 2-Port',
 )
 const selectedNames = computed(() =>
   selectedPorts.value.map((port) => `P${port}`).join(', '),
@@ -55,6 +57,7 @@ const types: {
   { id: 'trans-both', label: 'Trans\nNorm\nBoth', symbol: 'both' },
   { id: 'one-path', label: 'One Path\nTwo\nPorts', symbol: 'onePath' },
   { id: 'tosm', label: 'TOSM', symbol: 'full', method: 'twoPort' },
+  { id: 'tosm-four-port', label: 'TOSM\n4 Ports', symbol: 'full', method: 'fourPort' },
   { id: 'uosm', label: 'UOSM', symbol: 'full' },
   { id: 'trl', label: 'TRL', symbol: 'full' },
   { id: 'nist', label: 'NIST\nMultiline\nTRL', symbol: 'full' },
@@ -66,14 +69,17 @@ const types: {
   { id: 'huosm', label: 'HUOSM', symbol: 'full' },
 ]
 function selectPort(port: number) {
-  if (unavailable.value || !ports.value.includes(port)) return
+  if (unavailable.value || method.value === 'fourPort' || !ports.value.includes(port)) return
   selectedPorts.value = selectedPorts.value.includes(port)
     ? selectedPorts.value.filter((entry) => entry !== port)
     : [...selectedPorts.value, port].sort((first, second) => first - second)
   error.value = ''
 }
 function selectMethod(value: CalibrationMethod) {
-  if (!unavailable.value) method.value = value
+  if (unavailable.value || (value === 'fourPort' && ports.value.length < 4)) return
+  if (value === 'fourPort') selectedPorts.value = [1, 2, 3, 4]
+  else if (method.value === 'fourPort') selectedPorts.value = value === 'onePort' ? [1] : [1, 2]
+  method.value = value
 }
 function next() {
   if (!unavailable.value && validSetup.value) phase.value = 2
@@ -89,9 +95,9 @@ async function begin() {
         action: 'begin',
         method: method.value,
         port1: selectedPorts.value[0]!,
-        ...(method.value === 'twoPort'
+        ...(method.value !== 'onePort'
           ? {
-              port2: selectedPorts.value[1]!,
+              port2: method.value === 'fourPort' ? 4 : selectedPorts.value[1]!,
               includeIsolation: includeIsolation.value,
             }
           : {}),
@@ -173,7 +179,8 @@ onMounted(() => dialog.value?.showModal())
               :class="{ selected: selectedPorts.includes(port) }"
               :aria-label="`Port ${port}`"
               :aria-pressed="selectedPorts.includes(port)"
-              :disabled="unavailable"
+              :disabled="unavailable || method === 'fourPort'"
+              :title="method === 'fourPort' ? '完整四端口固定使用 P1、P2、P3、P4' : undefined"
               :data-cal-port="port"
               @click="selectPort(port)"
             >
@@ -196,12 +203,14 @@ onMounted(() => dialog.value?.showModal())
             type="button"
             class="cal-type"
             :class="{ selected: type.method === method }"
-            :disabled="unavailable || !type.method"
+            :disabled="unavailable || !type.method || (type.method === 'fourPort' && ports.length < 4)"
             :aria-label="type.label.replaceAll('\n', ' ')"
             :aria-pressed="type.method === method"
             :title="
               type.method
-                ? `${type.method === 'onePort' ? '一个端口' : '两个端口'} · 理想 50 Ω 标准`
+                ? type.method === 'fourPort'
+                  ? ports.length < 4 ? '需要四个物理端口；当前设备不支持' : '四个端口 · 全六对直接测量 · 理想 50 Ω 标准'
+                  : `${type.method === 'onePort' ? '一个端口' : '两个端口'} · 理想 50 Ω 标准`
                 : '尚未实现此校准方法'
             "
             :data-cal-type="type.id"
@@ -218,8 +227,10 @@ onMounted(() => dialog.value?.showModal())
         <p class="cal-setting-notice" :class="{ error: !validSetup }">
           {{
             validSetup
-              ? '首版提供单端口 Refl OSM 与双端口 TOSM；灰色方法尚未接入。'
-              : `${methodName} 需要选择${method === 'onePort' ? '一个' : '两个'}物理端口。`
+              ? method === 'fourPort'
+                ? '完整 P1–P4：各端口 Open / Short / Match，共 12 项；全部六对 Through 直接测量，共 18 项。'
+                : '提供单端口 Refl OSM、双端口 TOSM，以及四端口设备的完整 TOSM。'
+              : `${methodName} 需要选择${method === 'onePort' ? '一个' : method === 'fourPort' ? '四个' : '两个'}物理端口。`
           }}
         </p>
       </template>
@@ -228,7 +239,7 @@ onMounted(() => dialog.value?.showModal())
         <div
           class="cal-connector-matrix"
           :style="{
-            gridTemplateColumns: `124px repeat(${selectedPorts.length}, 136px)`,
+            gridTemplateColumns: selectedPorts.length === 4 ? '100px repeat(4, minmax(0, 1fr))' : `124px repeat(${selectedPorts.length}, 136px)`,
             '--cal-port-count': selectedPorts.length,
           }"
         >
@@ -286,22 +297,23 @@ onMounted(() => dialog.value?.showModal())
             /></span>
           </button>
         </div>
-        <label v-if="method === 'twoPort'" class="cal-isolation-setting"
+        <label v-if="method !== 'onePort'" class="cal-isolation-setting"
           ><input
             v-model="includeIsolation"
             type="checkbox"
             :disabled="unavailable"
-          />Measure Isolation</label
+          />Measure Isolation{{ method === 'fourPort' ? ' · 全六对，合计 24 项标准' : '' }}</label
         >
         <p class="cal-setting-notice">
           理想 50 Ω：Open +1、Short −1、Match 0；{{
-            method === 'twoPort'
+            method !== 'onePort'
               ? includeIsolation
                 ? '采集真实隔离响应。'
                 : 'Through 为理想直通，未测隔离时假定串扰为零。'
               : '机械连接器与性别模型未接入。'
           }}
         </p>
+        <p v-if="method === 'fourPort'" class="cal-setting-notice">完整四端口 TOSM：12 项 OSM + 6 对 Through{{ includeIsolation ? ' + 6 对 Isolation' : '' }}。各对均直接测量；Through 假定双向互易、无损且匹配。未参与连接的端口均接 50 Ω 匹配负载。当前不支持未知直通或非理想件模型。</p>
       </template>
       <p v-if="stale || error" class="cal-setting-notice error" role="alert">
         {{ stale ? '扫描设置已变化，请关闭并重新打开。' : error }}

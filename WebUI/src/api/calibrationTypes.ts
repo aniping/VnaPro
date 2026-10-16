@@ -1,6 +1,6 @@
 import type { ProjectionState } from './types'
 
-export type CalibrationMethod = 'onePort' | 'twoPort'
+export type CalibrationMethod = 'onePort' | 'twoPort' | 'fourPort'
 export type CalibrationStandard =
   | 'open'
   | 'short'

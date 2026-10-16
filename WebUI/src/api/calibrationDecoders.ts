@@ -1,4 +1,5 @@
 import type {
+  CalibrationMethod,
   CalibrationPreviewResponse,
   CalibrationSetSummary,
   CalibrationSnapshot,
@@ -29,12 +30,14 @@ function idleIdentity(value: unknown, field: string): string {
 }
 
 function ports(
-  method: 'onePort' | 'twoPort',
+  method: CalibrationMethod,
   port1: number,
   port2: number,
 ): void {
   if (method === 'twoPort' && (port2 === 0 || port1 === port2))
     invalid('calibration ports')
+  if (method === 'fourPort' && (port1 !== 1 || port2 !== 4))
+    invalid('calibration fourPort ports')
 }
 
 function step(value: unknown, portCount: number): CalibrationStep {
@@ -70,6 +73,7 @@ function summary(value: unknown, portCount: number): CalibrationSetSummary {
     method: choice(item.method, 'calibration.set.method', [
       'onePort',
       'twoPort',
+      'fourPort',
     ]),
     port1: integer(item.port1, 'calibration.set.port1', 1, portCount),
     port2: integer(item.port2, 'calibration.set.port2', 0, portCount),
@@ -113,10 +117,10 @@ export function decodeCalibration(
     collecting: flag(item.collecting, 'calibration.collecting'),
     capturePending: flag(item.capturePending, 'calibration.capturePending'),
     sessionId: idleIdentity(item.sessionId, 'calibration.sessionId'),
-    method: choice(item.method, 'calibration.method', ['onePort', 'twoPort']),
+    method: choice(item.method, 'calibration.method', ['onePort', 'twoPort', 'fourPort']),
     port1: integer(item.port1, 'calibration.port1', 1, portCount),
     port2: integer(item.port2, 'calibration.port2', 0, portCount),
-    steps: array(item.steps, 'calibration.steps', 8).map((value) =>
+    steps: array(item.steps, 'calibration.steps', 24).map((value) =>
       step(value, portCount),
     ),
     selectedSetId: idleIdentity(
@@ -137,10 +141,12 @@ export function decodeCalibration(
     ...(item.error === undefined
       ? {}
       : { error: text(item.error, 'calibration.error') }),
-    sets: array(item.sets, 'calibration.sets', 16).map((value) =>
+    sets: array(item.sets, 'calibration.sets', 256).map((value) =>
       summary(value, portCount),
     ),
   }
+  if (result.method !== 'fourPort' && result.steps.length > 8)
+    invalid('calibration.steps')
   if (
     new Set(result.steps.map((entry) => entry.id)).size !==
       result.steps.length ||
@@ -154,7 +160,7 @@ export function decodeCalibration(
     const selectedPorts =
       result.method === 'onePort'
         ? [result.port1]
-        : [result.port1, result.port2]
+        : result.method === 'fourPort' ? [1, 2, 3, 4] : [result.port1, result.port2]
     if (
       result.steps.some(
         (entry) =>
@@ -163,6 +169,20 @@ export function decodeCalibration(
       )
     )
       invalid('calibration.step coverage')
+    if (result.method === 'fourPort') {
+      const required = new Set<string>()
+      for (const port of selectedPorts)
+        for (const kind of ['open', 'short', 'load'])
+          required.add(kind + ':' + port + ':0')
+      for (let first = 1; first <= 4; first++)
+        for (let second = first + 1; second <= 4; second++) {
+          required.add('thru:' + first + ':' + second)
+          if (result.includeIsolation) required.add('isolation:' + first + ':' + second)
+        }
+      if (result.steps.length !== required.size ||
+          result.steps.some((entry) => !required.delete(entry.kind + ':' + entry.port1 + ':' + entry.port2)))
+        invalid('calibration fourPort step coverage')
+    }
   }
   if (result.capturePending && !result.collecting)
     invalid('calibration.capturePending')
@@ -178,7 +198,27 @@ export function decodeCalibrationExport(
   value: unknown,
 ): Record<string, unknown> {
   const result = object(value, 'calibration data')
-  if (result.schema !== 2) invalid('calibration data.schema')
+  if (result.schema !== 2 && result.schema !== 3) invalid('calibration data.schema')
+  if (result.schema === 3) {
+    if (result.method !== 'fourPort') invalid('calibration data.method')
+    if (result.port1 !== 1 || result.port2 !== 4) invalid('calibration data.ports')
+    const frequency = array(result.frequencyHz, 'calibration data.frequencyHz', 10001)
+    if (frequency.length < 2) invalid('calibration data.frequencyHz count')
+    for (const value of frequency) number(value, 'calibration data.frequencyHz', Number.MIN_VALUE)
+    const power = array(result.powerDbm, 'calibration data.powerDbm', frequency.length)
+    if (power.length !== frequency.length) invalid('calibration data.powerDbm count')
+    for (const value of power) number(value, 'calibration data.powerDbm', -120, 100)
+    array(result.onePortTerms, 'calibration data.onePortTerms', 0)
+    array(result.twoPortTerms, 'calibration data.twoPortTerms', 0)
+    const terms = array(result.fourPortTerms, 'calibration data.fourPortTerms', frequency.length)
+    if (terms.length !== frequency.length) invalid('calibration data.fourPortTerms count')
+    // 固定每点 4×4×3 个复数项；逐值校验，不复制或重写近百万个系数。
+    for (const row of terms) {
+      const values = array(row, 'calibration data.fourPortTerms row', 96)
+      if (values.length !== 96) invalid('calibration data.fourPortTerms row')
+      for (const value of values) number(value, 'calibration data.fourPortTerms coefficient')
+    }
+  } else if (result.method === 'fourPort') invalid('calibration data.schema')
   // 系数合同由服务端校验；浏览器不解算、插值或重写系数。
   return result
 }

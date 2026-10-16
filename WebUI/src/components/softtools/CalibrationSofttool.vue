@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { InstrumentStatus } from '../../api/types'
 import type { CalibrationCommand } from '../../api/calibrationTypes'
+import { decodeCalibrationExport } from '../../api/calibrationDecoders'
 import { calibrationMethodLabel, calibrationPorts, selectedCalibrationSet } from '../../domain/calibration'
 import { frequencyText } from '../../plot/formatting'
 
@@ -62,9 +63,10 @@ async function importSelected(event: Event) {
   if (!file || managerDisabled.value) return
   error.value = ''
   try {
-    if (file.size > 16 * 1024 * 1024) throw new Error('校准文件超过 16 MiB，请选择 VnaPro 校准集 JSON。')
+    if (file.size > 32 * 1024 * 1024) throw new Error('校准文件超过 32 MiB，请选择 VnaPro 校准集 JSON。')
     const data: unknown = JSON.parse(await file.text())
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('请选择 VnaPro 校准集 JSON 对象。')
+    if ('schema' in data && data.schema === 3) decodeCalibrationExport(data)
     await act({ action: 'import', data: data as Record<string, unknown> })
   } catch (failure) { error.value = failure instanceof Error ? failure.message : '读取校准文件失败。' }
 }
@@ -100,15 +102,16 @@ async function importSelected(event: Event) {
       </button>
       <div class="softtool-divider" />
       <h2 class="softtool-section-title">Cal Manager</h2>
-      <label class="softtool-label" for="calibration-set">Available Cal Sets</label>
-      <select id="calibration-set" v-model="selected" class="field-input" :disabled="working">
+      <label class="softtool-label" for="calibration-set">Available Cal Sets · {{ calibration?.sets.length ?? 0 }}</label>
+      <select id="calibration-set" v-model="selected" class="field-input" :class="{ 'calibration-pool': (calibration?.sets.length ?? 0) > 16 }" :size="(calibration?.sets.length ?? 0) > 16 ? 6 : 1" :disabled="working">
         <option value="">{{ calibration?.sets.length ? 'Select set…' : 'No calibration data' }}</option>
         <option v-for="set in calibration?.sets ?? []" :key="set.id" :value="set.id">{{ set.name }}{{ set.compatible ? '' : ' · 不适用' }}</option>
       </select>
       <div v-if="selectedSet" class="softtool-readout"><span>{{ calibrationMethodLabel(selectedSet.method) }}</span><strong>{{ calibrationPorts(selectedSet.method, selectedSet.port1, selectedSet.port2) }}</strong></div>
       <p v-if="selectedSet && selectedSet.id !== calibration?.selectedSetId" class="softtool-note">仅查看此集；点击 Use Set 后才会用于 Ch{{ status?.activeChannelId ?? 1 }}。</p>
       <div v-if="selectedSet" class="softtool-readout"><span>Calibrated frequency range</span><strong>{{ selectedSet.startHz === undefined || selectedSet.stopHz === undefined ? '未记录' : `${frequencyText(selectedSet.startHz)}–${frequencyText(selectedSet.stopHz)}` }}</strong><span>Points / IFBW</span><strong>{{ selectedSet.points ?? '未记录' }} pts · {{ selectedSet.ifBandwidthHz === undefined ? '未记录' : frequencyText(selectedSet.ifBandwidthHz) }} IFBW</strong></div>
-      <p v-if="selectedSet?.method === 'twoPort'" class="softtool-note">{{ selectedSet.includeIsolation === undefined ? 'Isolation 模型未说明' : selectedSet.includeIsolation ? 'Isolation：已测串扰' : 'Isolation：假定串扰为零' }}</p>
+      <p v-if="selectedSet?.method === 'fourPort'" class="softtool-note">完整四端口 · P1–P4 全六对直接测量 Through。</p>
+      <p v-if="selectedSet && selectedSet.method !== 'onePort'" class="softtool-note">{{ selectedSet.includeIsolation === undefined ? 'Isolation 模型未说明' : selectedSet.includeIsolation ? 'Isolation：已测串扰' : 'Isolation：假定串扰为零' }}</p>
       <div class="softtool-grid">
         <button type="button" class="softtool-button" :disabled="managerDisabled || !selectedSet?.compatible" @click="act({ action: 'select', setId: selected })">Use Set</button>
         <button type="button" class="softtool-button" :disabled="managerDisabled || !selectedSet" @click="act({ action: 'delete', setId: selected })">Delete Set</button>
@@ -116,7 +119,7 @@ async function importSelected(event: Event) {
         <button type="button" class="softtool-button" :disabled="managerDisabled" @click="fileInput?.click()">Import…</button>
       </div>
       <input ref="fileInput" type="file" accept=".json,application/json" class="calibration-file" aria-label="Import VnaPro calibration JSON" @change="importSelected">
-      <p class="softtool-note">校准集保存在服务端内存。Export / Import 使用 VnaPro JSON；服务重启后可导入恢复。</p>
+      <p class="softtool-note">Ch1 默认由服务端保存校准集，重启后恢复且默认关闭校正；禁用服务端存储时及其他通道请使用 Export / Import 备份 VnaPro JSON。选择适用的校准集并启用 User Cal。</p>
     </template>
     <p v-if="calibration?.collecting" class="softtool-note warning">正在收集标准。更改扫描或校准集前，请完成或取消手动校准。</p>
     <p v-if="!canCalibrate && !busy" class="softtool-note warning">采集和应用校准需要控制权及可用的仪器状态。</p>
@@ -126,4 +129,6 @@ async function importSelected(event: Event) {
 
 <style scoped>
 .calibration-file { display: none; }
+.calibration-pool { height: auto; min-height: 144px; padding: 3px; }
+.calibration-pool option { padding: 4px; }
 </style>

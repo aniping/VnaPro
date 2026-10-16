@@ -14,7 +14,7 @@ test('calibration export accepts schema 2 without rewriting fractional dBm metad
 })
 
 test('calibration export rejects stale or unsupported server formats', () => {
-  for (const schema of [1, 0, 3, '2', null]) {
+  for (const schema of [1, 0, 4, '2', null]) {
     assert.throws(() => decodeCalibrationExport({ schema }), /schema/)
   }
   assert.throws(() => decodeCalibrationExport([]), /calibration data/)
