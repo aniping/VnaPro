@@ -4,12 +4,16 @@ import type { InstrumentGateway } from '../api/instrumentApi'
 import type {
   AcceptedOperation,
   AcquiredFrame,
+  ChannelCommand,
+  FrameResponse,
   FrameCondition,
   InstrumentNotice,
   InstrumentStatus,
   MeasurementCandidate,
   PendingOperation,
   RunAction,
+  SweepControlCommand,
+  StimulusZoomCommand,
   SweepPatch,
   DisplayCommand,
   TraceDestination,
@@ -17,6 +21,7 @@ import type {
 } from '../api/types'
 import type { CalibrationCommand } from '../api/calibrationTypes'
 import { calibrationActionLabel, calibrationSummary } from '../domain/calibration'
+import { channelFrameCondition } from '../domain/channels'
 
 interface InstrumentOptions {
   api?: InstrumentGateway
@@ -44,6 +49,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const now = options.now ?? Date.now
   const status = shallowRef<InstrumentStatus | null>(null)
   const frame = shallowRef<AcquiredFrame | null>(null)
+  const channelFrames = shallowRef<Record<number, FrameResponse>>({})
   const frameCurrent = shallowRef(false)
   const frameError = shallowRef('')
   const connected = shallowRef(false)
@@ -69,6 +75,35 @@ export function useInstrument(options: InstrumentOptions = {}) {
   let initialClaimAttempted = false
   let lastRenewed = 0
   let resolveOperation: ((value: InstrumentStatus | null) => void) | null = null
+
+  function selectActiveFrame(id = status.value?.activeChannelId ?? 1): void {
+    const response = channelFrames.value[id]
+    if (!response) {
+      if (status.value?.channels) {
+        frame.value = null
+        frameCurrent.value = false
+      }
+      return
+    }
+    frame.value = response.available ? response : null
+    frameCurrent.value = response.current
+    frameError.value = response.available ? '' : response.reason
+  }
+
+  function acceptFrames(response: FrameResponse, id = status.value?.activeChannelId ?? 1, clearUnavailable = false): void {
+    const next = { ...channelFrames.value }
+    for (const entry of response.channelFrames ?? [response]) {
+      const channelId = entry.channelId ?? id
+      const previous = next[channelId]
+      next[channelId] = !entry.available && previous?.available && !clearUnavailable
+        ? { ...previous, current: false }
+        : entry
+    }
+    channelFrames.value = next
+    selectActiveFrame(id)
+    const unavailable = (response.channelFrames ?? [response]).find((entry) => (entry.channelId ?? id) === id && !entry.available)
+    if (unavailable && !unavailable.available) frameError.value = unavailable.reason
+  }
 
   const hasControl = computed(() =>
     Boolean(
@@ -126,6 +161,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const frameCondition = computed<FrameCondition>(() => {
     const currentStatus = status.value
     const currentFrame = frame.value
+    if (currentStatus?.channels) return channelFrameCondition(currentStatus, currentStatus.activeChannelId ?? 1, currentFrame, connected.value)
     if (!currentFrame) {
       if (currentStatus?.state === 'Faulted')
         return { kind: 'fault', label: 'FAULT', detail: currentStatus.error }
@@ -149,6 +185,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
       }
     if (
       !currentStatus?.activeConfigValid ||
+      currentFrame.channelId !== (currentStatus.activeChannelId ?? 1) ||
       currentFrame.revision !== currentStatus.acquisitionRevision ||
       currentFrame.measurementRevision !== currentStatus.revision
     ) {
@@ -314,17 +351,14 @@ export function useInstrument(options: InstrumentOptions = {}) {
           if (projection.displayRevision !== readback.display.revision) return
           if (readback.calibration && projection.calibrationRevision !== readback.calibration.revision) return
           // HOLD 保留旧采集帧也能更新显示；采集新鲜度继续交由 frameCondition 判断。
-          frame.value = projection
-          frameCurrent.value = projection.current
-          frameError.value = ''
+          acceptFrames(projection, readback.activeChannelId ?? 1)
         } else {
           // 后端明确确认尚无物理帧时，旧窗口缓存不能继续提供标记投影。
-          frame.value = null
-          frameCurrent.value = false
-          frameError.value = projection.reason
+          acceptFrames(projection, readback.activeChannelId ?? 1, true)
         }
       }
       status.value = readback
+      selectActiveFrame(readback.activeChannelId ?? 1)
       connected.value = true
       pendingOperation.value = null
       error.value = null
@@ -374,15 +408,10 @@ export function useInstrument(options: InstrumentOptions = {}) {
           notify(message(statusResult.reason), 'error')
       }
       if (frameResult.status === 'fulfilled' && frameResult.value) {
-        if (frameResult.value.available) {
-          frame.value = frameResult.value
-          frameCurrent.value = frameResult.value.current
-          frameError.value = ''
-        } else {
-          frameCurrent.value = false
-          frameError.value = frameResult.value.reason
-        }
+        acceptFrames(frameResult.value)
       } else if (frameResult.status === 'rejected') {
+        channelFrames.value = Object.fromEntries(Object.entries(channelFrames.value).map(([id, entry]) =>
+          [id, entry.available ? { ...entry, current: false } : entry]))
         frameCurrent.value = false
         frameError.value = message(frameResult.reason)
         if (
@@ -391,6 +420,10 @@ export function useInstrument(options: InstrumentOptions = {}) {
         )
           connected.value = false
       }
+      if (frame.value?.channelId !== (status.value?.activeChannelId ?? 1)) selectActiveFrame()
+      const channelIds = status.value?.channels?.map((channel) => channel.channelId)
+      if (channelIds && Object.keys(channelFrames.value).some((id) => !channelIds.includes(Number(id))))
+        channelFrames.value = Object.fromEntries(Object.entries(channelFrames.value).filter(([id]) => channelIds.includes(Number(id))))
       initialized.value = true
       if (connected.value) {
         await observeOperation(epoch)
@@ -544,6 +577,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   return {
     status,
     frame,
+    channelFrames,
     connected,
     initialized,
     frameCurrent,
@@ -572,9 +606,9 @@ export function useInstrument(options: InstrumentOptions = {}) {
     dismissNotice: () => {
       notice.value = null
     },
-    configure: (candidate: SweepPatch, expectedRevision: string) =>
+    configure: (candidate: SweepPatch, expectedRevision: string, channelId = status.value?.activeChannelId) =>
       submit('Apply configuration', 'config', () =>
-        api.configure(candidate, expectedRevision),
+        api.configure(candidate, expectedRevision, channelId),
       ),
     addMeasurement: (
       candidate: MeasurementCandidate,
@@ -631,14 +665,14 @@ export function useInstrument(options: InstrumentOptions = {}) {
           )
         : Promise.resolve(null)
     },
-    deleteDiagram: (diagram: number) => {
+    deleteDiagram: (diagram: number, expectedRevision?: string, expectedDisplayRevision?: string) => {
       const snapshot = status.value
       return snapshot
         ? submit('Delete diagram', 'measurement', () =>
             api.deleteDiagram(
               diagram,
-              snapshot.revision,
-              snapshot.display.revision,
+              expectedRevision ?? snapshot.revision,
+              expectedDisplayRevision ?? snapshot.display.revision,
             ),
           )
         : Promise.resolve(null)
@@ -652,18 +686,48 @@ export function useInstrument(options: InstrumentOptions = {}) {
       ),
     run: (action: RunAction) =>
       canRun.value ? submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)) : Promise.resolve(null),
+    sweepControl: (command: SweepControlCommand) => {
+      if (!canRun.value || !api.sweepControl || !status.value?.config.selectedSweepMode)
+        return Promise.resolve(null)
+      const label = command.action === 'mode'
+        ? `Sweep mode ${command.mode === 'CONT' ? 'Continuous' : 'Single'}`
+        : command.action === 'source'
+          ? `Trigger source ${command.source === 'IMM' ? 'Free Run' : 'Manual'}`
+          : { start: 'Start Sweep', stop: 'Stop Sweep', trigger: 'Manual Trigger', single: 'Single Sweep' }[command.action]
+      const channelId = status.value.activeChannelId
+      return submit(label, 'sweep', () => api.sweepControl!(command, channelId))
+    },
+    stimulusZoom: (command: StimulusZoomCommand, expectedRevision: string, expectedDisplayRevision: string) => {
+      const zoom = status.value?.stimulusZoom
+      if (!canConfigure.value || !api.stimulusZoom ||
+          !(command.action === 'out' ? zoom?.canZoomOut : zoom?.available))
+        return Promise.resolve(null)
+      const channelId = command.action === 'apply'
+        ? status.value?.measurements.find((trace) => trace.name === command.traceName)?.channelId
+        : status.value?.activeChannelId
+      return submit(command.action === 'out' ? 'Zoom Out' : 'Zoom Stimulus', 'config',
+        () => api.stimulusZoom!(command, expectedRevision, expectedDisplayRevision, channelId))
+    },
+    channel: (command: ChannelCommand) => {
+      const snapshot = status.value
+      return snapshot && api.channel
+        ? submit(command.action === 'select' ? 'Select channel' : command.action === 'delete' ? 'Delete channel' : command.action === 'copy' ? 'Copy channel' : 'New channel',
+          'measurement', () => api.channel!(command, snapshot.revision, snapshot.display.revision))
+        : Promise.resolve(null)
+    },
     calibrate: (command: CalibrationCommand, expectedRevision?: string) => {
       const calibration = status.value?.calibration
+      const channelId = status.value?.activeChannelId
       const allowed = command.action === 'cancel' ? canCancelCalibration.value : canCalibrate.value
       return allowed && calibration && api.calibration
-        ? submit(calibrationActionLabel(command, calibration), 'calibration', () => api.calibration!(command, expectedRevision ?? calibration.revision), allowed)
+        ? submit(calibrationActionLabel(command, calibration), 'calibration', () => api.calibration!(command, expectedRevision ?? calibration.revision, channelId), allowed)
         : Promise.resolve(null)
     },
     exportCalibration: (setId: string) => api.exportCalibration
-      ? api.exportCalibration(setId)
+      ? api.exportCalibration(setId, status.value?.activeChannelId)
       : Promise.reject(new Error('当前服务不支持校准集导出。')),
     calibrationPreview: (sessionId: string, stepId: string) => api.calibrationPreview
-      ? api.calibrationPreview(sessionId, stepId)
+      ? api.calibrationPreview(sessionId, stepId, status.value?.activeChannelId)
       : Promise.reject(new Error('当前服务未提供标准测量预览。')),
   }
 }

@@ -12,6 +12,8 @@ import type {
   MeasurementCandidate,
   OperationSnapshot,
   RunAction,
+  SweepControlCommand,
+  StimulusZoomCommand,
   SweepConfiguration,
 } from '../src/api/types'
 import { useInstrument } from '../src/composables/useInstrument'
@@ -50,6 +52,7 @@ function snapshot(revision = '1'): InstrumentStatus {
       ifBandwidthHz: 1000,
       triggerSource: 'IMM',
       sweepMode: 'HOLD',
+      selectedSweepMode: 'CONT',
     },
     measurements: [
       {
@@ -90,6 +93,7 @@ class FakeGateway implements InstrumentGateway {
   claims = 0
   aborts = 0
   operationOwners: string[] = []
+  sweepCommands: SweepControlCommand[] = []
   statusLoader: () => Promise<InstrumentStatus> = async () =>
     structuredClone(this.current)
   operationLoader: () => Promise<OperationSnapshot> = async () => ({
@@ -126,6 +130,10 @@ class FakeGateway implements InstrumentGateway {
     return this.submitter()
   }
   operate(_action: RunAction) {
+    return this.submitter()
+  }
+  sweepControl(command: SweepControlCommand) {
+    this.sweepCommands.push(command)
     return this.submitter()
   }
   operation(_id: string, owner: string) {
@@ -834,6 +842,66 @@ test('configuration operation completion retains its status-only readback behavi
   await model.refresh()
   assert.equal((await changing)?.revision, '2')
   assert.equal(frames, 1)
+})
+
+test('sweep selection waits for completed-operation readback and shares the write gate', async (context) => {
+  const api = new FakeGateway()
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const selecting = model.sweepControl({ action: 'source', source: 'MAN' })
+  await microtasks()
+  assert.equal(model.status.value!.config.triggerSource, 'IMM')
+  assert.equal(await model.sweepControl({ action: 'start' }), null)
+  assert.deepEqual(api.sweepCommands, [{ action: 'source', source: 'MAN' }])
+  completedOperation(api)
+  api.current.config.triggerSource = 'MAN'
+  await model.refresh()
+  assert.equal((await selecting)?.config.triggerSource, 'MAN')
+  assert.equal(model.pendingOperation.value, null)
+  delete api.current.config.selectedSweepMode
+  await model.refresh()
+  assert.equal(await model.sweepControl({ action: 'start' }), null)
+  assert.equal(api.sweepCommands.length, 1)
+})
+
+test('stimulus zoom waits for authoritative readback and can restore history with another active format', async (context) => {
+  const calls: { command: StimulusZoomCommand; revision: string; displayRevision: string }[] = []
+  const api = Object.assign(new FakeGateway(), {
+    stimulusZoom(command: StimulusZoomCommand, revision: string, displayRevision: string) {
+      calls.push({ command, revision, displayRevision })
+      return Promise.resolve({ operationId: 'op-1', state: 'pending' as const })
+    },
+  })
+  api.current.stimulusZoom = { available: true, canZoomOut: false, reason: '', depth: 0 }
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const command: StimulusZoomCommand = {
+    action: 'apply', traceName: 'DefaultA', startHz: 20e6, stopHz: 80e6, min: -40, max: -10,
+  }
+  const zooming = model.stimulusZoom(command, '1', '4')
+  await microtasks()
+  assert.equal(model.status.value!.config.startHz, 1e6)
+  assert.equal(await model.stimulusZoom({ action: 'out' }, '1', '4'), null)
+  assert.deepEqual(calls, [{ command, revision: '1', displayRevision: '4' }])
+  completedOperation(api)
+  api.current.config.startHz = 20e6
+  api.current.config.stopHz = 80e6
+  api.current.revision = '2'
+  api.current.display.revision = '5'
+  api.current.stimulusZoom = { available: false, canZoomOut: true, reason: 'Circular trace selected', depth: 1 }
+  await model.refresh()
+  assert.equal((await zooming)?.config.startHz, 20e6)
+  const restoring = model.stimulusZoom({ action: 'out' }, '2', '5')
+  await microtasks()
+  assert.equal(calls.length, 2)
+  assert.deepEqual(calls[1], { command: { action: 'out' }, revision: '2', displayRevision: '5' })
+  api.current.config.startHz = 1e6
+  await model.refresh()
+  assert.equal((await restoring)?.config.startHz, 1e6)
+  delete api.current.stimulusZoom
+  await model.refresh()
+  assert.equal(await model.stimulusZoom(command, '2', '5'), null)
+  assert.equal(calls.length, 2)
 })
 
 test('removing the last displayed trace completes from status without waiting for an unusable frame endpoint', async (context) => {

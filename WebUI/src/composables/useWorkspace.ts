@@ -31,9 +31,12 @@ export function useWorkspace(
   send: (command: DisplayCommand) => unknown,
 ) {
   const presentations = computed(() => status()?.display.presentations ?? {})
-  const activeTraceName = computed(
-    () => status()?.display.selectedMeasurement ?? '',
-  )
+  const activeTraceName = computed(() => {
+    const snapshot = status()
+    const name = snapshot?.display.selectedMeasurement ?? ''
+    const trace = snapshot?.measurements.find((entry) => entry.name === name)
+    return snapshot?.channels && (trace?.channelId ?? 1) !== (snapshot.activeChannelId ?? 1) ? '' : name
+  })
   const layout = computed(() => status()?.display.layout ?? 'single')
   const displayedNames = computed(() => status()?.display.displayedNames ?? [])
   const activeMeasurement = computed(() =>
