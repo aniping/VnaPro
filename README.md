@@ -83,7 +83,7 @@ clang-format --style=file --dry-run --Werror $cppFiles
 
 ## 校准
 
-Cal → Start (Manual) 支持任意单端口理想 50 Ω OSM/OSL、任意端口对及完整四端口 TOSM，可选隔离。校准独立版本与不可变系数在原始比值之后接入，HTTP、SCPI SDATA、Marker 和 Autoscale 统一读取。每通道校准池最多 256 集、512 MiB 系数及元数据，仪器合计最多 1 GiB；严格匹配物理刺激，Export/Import 使用项目 JSON。默认开启校准持久化，启动恢复 Ch1 池及选择，校正保持关闭；ECal、TRL、非理想件模型和硬件精度验证待扩展。操作、接口与边界见[校准接入与使用](docs/校准接入与使用.md)。
+Cal → Start (Manual) 支持任意单端口理想 50 Ω OSM/OSL、任意端口对及完整四端口 TOSM，可选隔离。校准独立版本与不可变系数在原始比值之后接入，HTTP、SCPI SDATA、Marker 和 Autoscale 统一读取。每通道校准池最多 256 集、512 MiB 系数及元数据，仪器合计最多 1 GiB；严格匹配物理刺激，默认保存和导出自有 `.vcal` 二进制，另支持完整 CSV 导入导出；旧 JSON 校准文件及 Snau 文件不支持。默认开启校准持久化，启动恢复 Ch1 池及选择，校正保持关闭；ECal、TRL、非理想件模型和硬件精度验证待扩展。操作、接口与边界见[校准接入与使用](docs/校准接入与使用.md)。
 
 ## 网络与驱动配置
 
@@ -244,7 +244,7 @@ CALC1:DATA? RDATA
 
 网络预算为每消息 16 KiB、每连接待发数据 8 MiB，慢发送超过 10 秒关闭连接；模拟点数上限 10001。错误 FIFO 和命令队列有界。驱动 ABI 没有取消入口，因此无法对阻塞的真实 I/O 承诺限时退出；核心始终等到 worker 收尾后释放缓冲区和动态库。
 
-Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头，普通请求体 16 KiB、普通 JSON 响应与静态文件 4 MiB，完整帧响应 256 MiB；校准写入及导出上限为 32 MiB。重试正文历史共用 64 MiB 上限，终结操作留存 60 秒后释放正文，旧 requestId 返回 410；静态文件与 API 同源。JSON 输入和字符串输出严格验证 UTF-8；编码失败后必须 Reset，静态文件读写缓冲不一致或读取失败会关闭句柄。原子配置带 expectedRevision，有限写请求使用 requestId 去重并返回 operationId，不把 HTTP 202 当成设备成功。
+Web 采用 HTTP/1.1 有界非阻塞收发，最多 8 个连接、8 KiB 请求头，普通请求体 16 KiB、普通 JSON 响应与静态文件 4 MiB，完整帧响应 256 MiB；校准文件封套、输出及重试规范正文上限为 36 MiB（原始二进制 8 MiB、CSV 32 MiB，余量用于转义）。重试正文历史共用 64 MiB 上限，终结操作留存 60 秒后释放正文，旧 requestId 返回 410；静态文件与 API 同源。JSON 输入和字符串输出严格验证 UTF-8；编码失败后必须 Reset，静态文件读写缓冲不一致或读取失败会关闭句柄。原子配置带 expectedRevision，有限写请求使用 requestId 去重并返回 operationId，不把 HTTP 202 当成设备成功。
 
 此前采集验收在 Windows MinGW/GCC 10.3 下通过 12 项 CTest，WSL/GCC 13.3 全目标 ThreadSanitizer 同样通过且未报告数据竞争，覆盖完整 IQ golden、11 组核心时序/并发场景、无效样本及噪声贯通。18 项前端合同测试、严格类型检查与生产构建通过，其中两项检查窗口缩放、DPR 和样本投影；Chromium 实际交互验证覆盖配置、四条波形、逐迹线格式/参考位置、扫描控制、M1、三布局菜单、CSV、多会话与断线恢复。本次按职责整理后的正式代码在 Windows 全量 12 项 CTest 通过（13.87 秒），WSL 全目标 ThreadSanitizer 12 项通过（9.98 秒），70 个正式头单独 C++14 编译通过且无头文件循环依赖。临时实际分配故障验证通过 Claim 15 个、单次写入 37 个、结果 Poll 5 个分配点，并用恢复旧危险顺序的副本确认断言可检出错误；随后命名空间统一后的终检另行补记。分阶段证据见[模拟设备采集验收](docs/模拟设备采集验收.md)。
 
