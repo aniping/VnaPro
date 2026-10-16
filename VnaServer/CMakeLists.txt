@@ -107,6 +107,9 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/WebHttpIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim> ${CMAKE_SOURCE_DIR}/WebUI/dist)
     set_tests_properties(web_http_integration PROPERTIES TIMEOUT 60)
+    add_test(NAME http_client_connection
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/HttpClientConnectionTest.py)
+    set_tests_properties(http_client_connection PROPERTIES TIMEOUT 15)
     add_test(NAME web_frame_scheduling
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/WebFrameSchedulingTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn10_drv_sim>)

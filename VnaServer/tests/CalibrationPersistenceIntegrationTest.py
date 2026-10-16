@@ -194,7 +194,7 @@ def mutate(http, token, kind, request_id, succeed=True, history_stats=None, **fi
                 ), result
             return result
         assert time.monotonic() < deadline, result
-        # 每轮查询新建短连接；大池验收无需毫秒级观察，避免积压大量 TIME_WAIT。
+        # 串行复用连接，保留原有大池验收的 50 ms 轮询节拍。
         time.sleep(0.05)
 
 

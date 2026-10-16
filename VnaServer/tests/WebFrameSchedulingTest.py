@@ -120,11 +120,12 @@ def exercise(http, scpi_port, token):
         assert time.monotonic() < deadline, "等待第一个完整采集帧超时"
         time.sleep(0.01)
     scpi = connect_scpi(scpi_port)
+    observer = HttpClient(http.port)
     try:
         barrier = threading.Barrier(3)
         with ThreadPoolExecutor(max_workers=3) as pool:
             frame_samples = pool.submit(measure_frames, http, barrier)
-            status_samples = pool.submit(measure_status, http, token, barrier)
+            status_samples = pool.submit(measure_status, observer, token, barrier)
             control_samples = pool.submit(measure_scpi, scpi, barrier)
             measured = {
                 "frame": frame_samples.result(),
@@ -150,6 +151,7 @@ def exercise(http, scpi_port, token):
             assert scpi.query("*IDN?").startswith("VnaPro,")
         check_acquisition_progress(http, int(frame["frameSeq"]))
     finally:
+        observer.close()
         scpi.close()
 
 

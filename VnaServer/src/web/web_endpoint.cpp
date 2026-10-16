@@ -163,11 +163,11 @@ std::string Reason(unsigned status)
     }
 }
 
-std::string ResponseHeader(unsigned status, const std::string &contentType, std::size_t length)
+std::string ResponseHeader(unsigned status, const std::string &contentType, std::size_t length, bool keepAlive)
 {
     return "HTTP/1.1 " + std::to_string(status) + " " + Reason(status) + "\r\nContent-Type: " + contentType +
-           "\r\nContent-Length: " + std::to_string(length) +
-           "\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n";
+           "\r\nContent-Length: " + std::to_string(length) + "\r\nConnection: " + (keepAlive ? "keep-alive" : "close") +
+           "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n";
 }
 
 std::string MimeType(const std::string &path)
@@ -263,6 +263,29 @@ void ValidateHeaderFraming(const HttpRequest &request)
     }
 }
 
+bool RequestsKeepAlive(const HttpRequest &request)
+{
+    // 当前不实现 HEAD 的无正文响应，不允许其响应污染下一事务。
+    if (request.method == "HEAD") {
+        return false;
+    }
+    const auto connection = request.headers.find("connection");
+    if (connection == request.headers.end()) {
+        return false;
+    }
+    std::istringstream tokens(Lower(connection->second));
+    std::string token;
+    bool keepAlive = false;
+    while (std::getline(tokens, token, ',')) {
+        const auto value = Trim(token);
+        if (value == "close") {
+            return false;
+        }
+        keepAlive = keepAlive || value == "keep-alive";
+    }
+    return keepAlive;
+}
+
 }  // 匿名命名空间
 
 WebEndpoint::WebEndpoint(VnaService::InstrumentService &service, const WebOptions &options)
@@ -331,6 +354,7 @@ void WebEndpoint::Respond(HttpConnection &client, HttpResponse response)
 
 void WebEndpoint::Error(HttpConnection &client, unsigned status, const std::string &message)
 {
+    client.keepAlive = false;
     Respond(client, HttpError(status, "http_error", message));
 }
 
@@ -358,6 +382,7 @@ bool WebEndpoint::ParseHeaders(HttpConnection &client)
     if (!ParseContentLength(client) || !ValidateContentType(client)) {
         return false;
     }
+    client.keepAlive = RequestsKeepAlive(client.request);
     client.parsed = true;
     return true;
 }
@@ -455,7 +480,7 @@ bool WebEndpoint::Receive(HttpConnection &client)
         }
         const std::size_t complete = client.headerLength + client.bodyLength;
         if (client.input.size() > complete) {
-            Error(client, 400, "One HTTP message per connection is supported");
+            Error(client, 400, "HTTP pipelining is unsupported");
             return true;
         }
         if (client.input.size() == complete) {
@@ -480,7 +505,7 @@ void WebEndpoint::EncodeOutput(HttpConnection &client)
                 std::string body = client.encoder.Take();
                 client.encoderActive = false;
                 client.responseBytes = body.size();
-                client.output = ResponseHeader(client.status, client.contentType, body.size()) + body;
+                client.output = ResponseHeader(client.status, client.contentType, body.size(), client.keepAlive) + body;
                 if (client.frameDiagnostics) {
                     client.encodedAt = Clock::now();
                     const auto wallTime = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -493,7 +518,8 @@ void WebEndpoint::EncodeOutput(HttpConnection &client)
         }
         if (client.fileActive && client.file.Advance(client.fileOutput)) {
             client.output =
-                ResponseHeader(client.status, client.contentType, client.fileOutput.size()) + client.fileOutput;
+                ResponseHeader(client.status, client.contentType, client.fileOutput.size(), client.keepAlive) +
+                client.fileOutput;
             client.file.Close();
             client.fileActive = false;
             client.fileOutput.clear();
@@ -505,17 +531,37 @@ void WebEndpoint::EncodeOutput(HttpConnection &client)
         client.file.Close();
         client.fileActive = false;
         client.fileOutput.clear();
+        client.keepAlive = false;
         const std::string body = "{\"error\":{\"code\":\"output_failed\",\"message\":\"Response encoding failed\"}}";
         // 接下来发送的是错误响应，不能把它记作原帧发送成功。
         client.frameDiagnostics = false;
-        client.output = ResponseHeader(500, "application/json", body.size()) + body;
+        client.output = ResponseHeader(500, "application/json", body.size(), false) + body;
         client.responseBytes = body.size();
         client.encodedAt = Clock::now();
     }
 }
 
+bool WebEndpoint::CheckKeepAliveInput(HttpConnection &client)
+{
+    if (!client.keepAlive) {
+        return true;
+    }
+    // 响应尚未发完时不消费下一请求；提前到达的字节按不支持 pipelining 关闭。
+    char next = 0;
+    const int count = recv(client.socket.Get(), &next, 1, MSG_PEEK);
+    if (count < 0 && WouldBlock(SocketError())) {
+        return true;
+    }
+    client.keepAlive = false;
+    // 单向关闭的对端仍可接收本次完整响应，但不能再复用连接。
+    return count == 0;
+}
+
 bool WebEndpoint::SendOutput(HttpConnection &client)
 {
+    if (!CheckKeepAliveInput(client)) {
+        return false;
+    }
     EncodeOutput(client);
     if (client.output.empty()) {
         return true;
@@ -580,7 +626,14 @@ void WebEndpoint::PollClients()
                                ? ((time - client->progress) < g_writeProgressTimeout && SendOutput(*client))
                                : Receive(*client);
         if (!alive) {
-            client = clients_.erase(client);
+            auto next = client;
+            ++next;
+            if (client->keepAlive && !client->output.empty() && client->sent == client->output.size()) {
+                // 重建全部事务状态，保留同一套接字；下一轮再接收下一请求。
+                clients_.emplace(next, std::move(client->socket), client->connectionId);
+            }
+            clients_.erase(client);
+            client = next;
         } else {
             ++client;
         }

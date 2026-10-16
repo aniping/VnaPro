@@ -115,4 +115,22 @@ JSON 回归保留溢出/下溢、非正规数、负零、复用失败恢复及�
 
 本轮 15 项相关 CTest 通过；新增 Store 回归在原 `3cfafa8` 实现下因缺失 `.bin` 确定失败，最终实现通过。最终隔离 EXE SHA256 为 `eafa46ab28a79cf7b78e13b2f8e20b786734e032daafbf925132c9422c4cf71c`。Python 3.12.14 直接运行完整 204 集持久化脚本通过，耗时 101.30 s，导入 83.52 s、两次恢复均约 2.45 s；验证完整 ID/系数、同帧 16S、复位、持久删除及实际保存失败回滚。操作历史保护触发 20 次原有同正文等待重试，未扩大预算；单独故障路径也通过（2.50 s）。
 
-原始 `calibration_persistence_integration` CTest（Python 3.12.9）仍于 `pool-import-61` 的 GET operation 建立连接阶段发生 5 s 超时，进程存活；本次该项未通过，不宣称全部 CTest 全绿。失败位置与前轮未定位的连接问题相同，但尚不能证明根因相同或归因解释器。没有修改请求超时、轮询间隔、传输重试或网络实现；另一环境的完整通过与原入口失败分别保留。
+缓存提交时，原始 `calibration_persistence_integration` CTest（Python 3.12.9）仍于 `pool-import-61` 的 GET operation 建立连接阶段发生 5 s 超时，进程存活；当时该项未通过。该历史失败与另一环境的完整通过分别保留，后续定位和修复见下节。
+
+## HTTP 短连接超时定位与修复
+
+原入口有时通过，额外记录每个请求也会改变复现时序。采用成功时只保留内存连接环、仅失败时采样的独立副本，在约 8.6 s 内捕获了真实 `socket.connect` 超时：失败 GET 的客户端源端口 7651，曾被此前四口大 POST 使用；间隔 16 条成功连接后，隐式分配又选回了同一 `127.0.0.1:7651 → 127.0.0.1:13733` 四元组。失败原 socket 尚未关闭时，客户端为 SYN_SENT、服务监听正常，同时反向四元组仍为 TIME_WAIT。不能再仅用 TIME_WAIT 总量或解释器版本推断原因。
+
+最小实验不运行 VNB：TCP 服务完整读取 1 MiB 后回复并主动关闭，客户端读到 EOF，再将新 socket 普通绑定到同一源端口。3/3 在真实 connect 阶段超时约 5 s，应用层只接到第一条连接；仅换新源端口或仅把数据改为 1 KiB，控制组均成功。结合真实调用记录，确认失败机制为旧四元组尚受服务端 TIME_WAIT 保护时被客户端重新选用；无需校准解析、保存或服务执行器阻塞即可重现。未抓取 TCP 序号/时间戳，不能把具体内核 SYN 判定宣称为已测事实。[TCP TIME_WAIT 规范](https://www.rfc-editor.org/rfc/rfc9293.html#section-3.6)
+
+已否决两种端口绑定方案：显式 `bind(0)` 的候选仍在原完整 CTest 第 131 次导入后的 GET connect 超时，`SO_EXCLUSIVEADDRUSE` 最小实验也仍超时。绑定只保证 socket 存活期间的资源，不能保证被动关闭后的旧四元组不再被选中，不能把窄化测试通过当成修复成立。[Winsock bind 文档](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-bind)
+
+最终修复让服务端支持显式 `Connection: keep-alive` 的串行请求，完整发送响应后保留同一个 TCP socket，并重建全部请求状态；正文、头、控制令牌、编码器及计时不继承。无显式保留请求及 `Connection: close` 仍关闭；`close` 优先。framing、超限及编码错误关闭连接；HEAD 保持关闭边界，不扩展其既有响应支持。仍最多 8 个连接，下一请求或空闲等待沿用 10 s 接收期限，写进展期限不变。暂不支持 pipelining，同批多消息拒绝，响应期间可见的提前字节也会导致关闭。[HTTP 持久连接规范](https://www.rfc-editor.org/rfc/rfc9112.html#section-9.3)
+
+共享测试 `HttpClient` 每实例持有一条连接，完整读取响应后复用；异常时关闭并直接抛出，不自动重发。并发读取使用独立实例，结束后调用 `close()`。HTTP 请求超时仍为 5 s，持久化轮询仍为 50 ms，未新增传输重试、sleep 或系统 TCP 调整；原有 429 操作历史背压等待保持原预算。
+
+新增跨平台 `http_client_connection` CTest 用真实 HTTP/1.1 peer 验证 1 MiB POST、大响应、API 错误后 GET 只发生一次 accept，并验证丢失写响应不会重发。旧 helper 明确失败（四次请求建立四条连接），新 helper 通过。真实旧 VNB 也因不保留连接被新增回归检出；新服务覆盖同 socket 的 API/静态文件/JSON 切换、令牌隔离、坏 framing 与超限关闭及显式关闭优先。
+
+最终隔离 EXE SHA256 为 `6cd4889a5002dc631152cd5b0836fe6cd5fb296202fd9df0b42827f196ee708c`。原始 `calibration_persistence_integration` CTest 使用原 Python 3.12.9、原工作目录和完整 204 × 800 点脚本，连续三轮分别通过 102.86/101.45/102.79 s。命令为 `ctest --test-dir <独立构建目录> -R '^calibration_persistence_integration$' --repeat until-fail:3 -j1 --output-on-failure -V`，首次失败即停止，三轮不是失败重试至通过。每轮均验证完整 ID/系数、同帧 16S、两次恢复、复位、持久删除及真实保存失败回滚；原有 429 背压等待各触发 19 次，传输层没有重发。恢复仍约 2.4 s。
+
+另有 12 项相关 CTest 通过，覆盖客户端复用、真实 Web、帧调度/保真/诊断、两型号并发噪声读取、校准、SCPI、日志关联、有序关闭与 socket poll。独立窄化验证在同连接两次成功后，不发送新请求，10.015 s 收到 `408 + Connection: close` 及 EOF；单次合并双请求收到 `400 + close` 及 EOF。检查未增加服务接收、写进展或客户端请求期限。扩展运行中的 `logging_integration` 在 3 KiB 轮转后要求仍保留旧 `VnaCore` 记录而失败；冻结旧 EXE 单次也在相同行失败，且该测试禁用 Web，属于已有窗口断言问题，本次未改它，不能据相关通过数宣称整个 CTest 全绿。测试均使用隔离实例，原程序、配置及真实池 manifest 的最终文件摘要与本次构建前快照一致。

@@ -27,6 +27,7 @@ class SocketPollSet;
 
 namespace VnaWeb {
 // 在与 InstrumentService 和 SCPI 相同的执行器上管理传输状态。
+// 默认响应后关闭；显式 Connection: keep-alive 可串行复用，不支持 pipelining。
 class WebEndpoint final {
 public:
     // 绑定监听套接字；服务的生命周期必须覆盖本端点，失败时抛出异常。
@@ -77,6 +78,7 @@ private:
         std::size_t sent = 0;
         bool parsed = false;
         bool dispatched = false;
+        bool keepAlive = false;
         unsigned status = 200;
         std::string contentType = "application/json; charset=utf-8";
         JsonEncoder encoder;
@@ -104,6 +106,7 @@ private:
     bool ValidateContentType(HttpConnection &client);
     void Dispatch(HttpConnection &client);
     bool Receive(HttpConnection &client);
+    bool CheckKeepAliveInput(HttpConnection &client);
     bool SendOutput(HttpConnection &client);
     void EncodeOutput(HttpConnection &client);
     void AcceptConnections();

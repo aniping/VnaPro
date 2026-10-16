@@ -1,18 +1,18 @@
 """联合验证真实类型化 HTTP API 和仪器 TCP SCPI 服务。"""
 
 import errno
-from http.client import HTTPConnection
-from html.parser import HTMLParser
 import json
 import math
 import os
 import queue
 import socket
 import subprocess
-from pathlib import Path
 import sys
 import threading
 import time
+from html.parser import HTMLParser
+from http.client import HTTPConnection
+from pathlib import Path
 from urllib.parse import quote
 
 from server_startup import isolated_server, listening_port
@@ -23,17 +23,23 @@ def reject_constant(value):
 
 
 class HttpClient:
+    """串行请求复用一条连接；并发调用使用独立实例，结束后调用 close。"""
+
     def __init__(self, port):
         self.port = port
+        self.connection = HTTPConnection("127.0.0.1", port, timeout=5)
+
+    def close(self):
+        self.connection.close()
 
     def request(self, method, path, body=None, token=None, expected=200, raw=False):
-        headers = {}
+        headers = {"Connection": "keep-alive"}
         if token is not None:
             headers["X-Vna-Session"] = token
         if body is not None:
             headers["Content-Type"] = "application/json"
             body = body if isinstance(body, str) else json.dumps(body, separators=(",", ":"))
-        connection = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        connection = self.connection
         try:
             connection.request(method, path, body=body, headers=headers)
             response = connection.getresponse()
@@ -49,8 +55,9 @@ class HttpClient:
                 assert isinstance(result.get("error"), dict), result
                 assert "code" in result["error"] and "message" in result["error"], result
             return result
-        finally:
-            connection.close()
+        except Exception:
+            self.close()
+            raise
 
     def status(self, token=None):
         return self.request("GET", "/api/v1/status", token=token)
@@ -384,6 +391,7 @@ def exercise(http_port, scpi_port):
     assert http.status()["control"]["hasControl"] is False, "Observers do not inherit the writer token"
     control = http.status(token)["control"]
     assert control["owner"] == "web" and control["hasControl"] is True and control["leaseRemainingMs"] > 0, control
+    assert http.status()["control"]["hasControl"] is False, "Reusing a socket must not retain the previous token"
     renewed = http.request("POST", "/api/v1/control/claim", {"sessionId": token}, token)
     assert renewed["sessionId"] == token and renewed["hasControl"] is True, renewed
     assert_scpi_observer(scpi_port, http, token)
@@ -503,10 +511,13 @@ def exercise(http_port, scpi_port):
         connection.putrequest("POST", "/api/v1/config")
         connection.putheader("Content-Type", "application/json")
         connection.putheader("Content-Length", "16385")
+        connection.putheader("Connection", "keep-alive")
         connection.endheaders()
         response = connection.getresponse()
         assert response.status == 413, "Oversized declared body must be rejected before waiting for bytes"
+        assert response.getheader("Connection").lower() == "close", "Framing errors must disable reuse"
         response.read()
+        assert connection.sock is None
     finally:
         connection.close()
     assert http.status()["revision"] == status["revision"], "Rejected HTTP input must not mutate the instrument"
@@ -514,6 +525,53 @@ def exercise(http_port, scpi_port):
 
 def assert_atomic(http, previous, target):
     assert config_tuple(http.status()) in (previous, target), "An atomic patch exposed partially committed settings"
+
+
+def assert_connection_reuse(http_port):
+    connection = HTTPConnection("127.0.0.1", http_port, timeout=5)
+    try:
+        connection.request("GET", "/api/v1/status", headers={"Connection": "upgrade, Keep-Alive"})
+        response = connection.getresponse()
+        assert response.status == 200
+        assert response.getheader("Connection").lower() == "keep-alive", "Server must retain opted-in connections"
+        json.loads(response.read())
+        transport = connection.sock
+        assert transport is not None
+        for method, path, body, expected in (
+            ("POST", "/api/v1/does-not-exist", "{}", 403),
+            ("GET", "/", None, 200),
+            ("GET", "/api/v1/status", None, 200),
+        ):
+            connection.request(method, path, body, {
+                "Connection": "keep-alive", "Content-Type": "application/json",
+            })
+            response = connection.getresponse()
+            data = response.read()
+            assert response.status == expected, (path, response.status, data[:500])
+            assert response.getheader("Connection").lower() == "keep-alive"
+            assert connection.sock is transport, "API errors and static/JSON responses must reuse the same socket"
+        connection.request("GET", "/api/v1/status", headers={"Connection": "keep-alive, close"})
+        response = connection.getresponse()
+        assert response.status == 200 and response.getheader("Connection").lower() == "close"
+        response.read()
+        assert connection.sock is None, "Explicit close must take precedence over keep-alive"
+    finally:
+        connection.close()
+
+    for method, length, expected in (("GET", "invalid", 400), ("HEAD", "0", 405)):
+        connection = HTTPConnection("127.0.0.1", http_port, timeout=5)
+        try:
+            connection.putrequest(method, "/api/v1/status")
+            connection.putheader("Connection", "keep-alive")
+            connection.putheader("Content-Length", length)
+            connection.endheaders()
+            response = connection.getresponse()
+            assert response.status == expected
+            assert response.getheader("Connection").lower() == "close"
+            response.read()
+            assert connection.sock is None
+        finally:
+            connection.close()
 
 
 def main():
@@ -547,6 +605,7 @@ def main():
                 if listener is not None:
                     ports[listener[0]] = listener[1]
                 assert time.monotonic() < deadline, "Both listeners did not start"
+            assert_connection_reuse(ports["http"])
             exercise(ports["http"], ports["scpi"])
             assert process.poll() is None, "Server exited during integration checks"
             print("HTTP/SCPI integration passed: static assets, typed operations, frames, ownership, input limits")

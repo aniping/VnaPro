@@ -1,6 +1,7 @@
 """验证 Native、Core、服务层及 HTTP、SCPI 中可重复且随采集变化的设备数据。"""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import hashlib
 import json
 import math
@@ -108,23 +109,24 @@ def exercise(http, scpi_port, pressure=False, changing=True):
         lock = threading.Lock()
 
         def reader():
-            seen = set()
-            previous = 0
-            deadline = time.monotonic() + 10
-            while len(seen) < 20:
-                frame = http.frame()
-                if frame.get("current") and frame.get("runId") == run:
-                    check_frame(frame, revision, measurement_revision, run)
-                    seq = int(frame["frameSeq"])
-                    assert seq >= previous, "Published frames must not move backwards"
-                    previous = seq
-                    digest = hashlib.sha256(json.dumps(frame, sort_keys=True).encode()).hexdigest()
-                    with lock:
-                        assert signatures.setdefault(seq, digest) == digest, "One frame identity cannot have two contents"
-                    seen.add(seq)
-                assert time.monotonic() < deadline, "Continuous acquisition stopped making progress"
-                time.sleep(0.002)
-            return len(seen)
+            with closing(HttpClient(http.port)) as reader_http:
+                seen = set()
+                previous = 0
+                deadline = time.monotonic() + 10
+                while len(seen) < 20:
+                    frame = reader_http.frame()
+                    if frame.get("current") and frame.get("runId") == run:
+                        check_frame(frame, revision, measurement_revision, run)
+                        seq = int(frame["frameSeq"])
+                        assert seq >= previous, "Published frames must not move backwards"
+                        previous = seq
+                        digest = hashlib.sha256(json.dumps(frame, sort_keys=True).encode()).hexdigest()
+                        with lock:
+                            assert signatures.setdefault(seq, digest) == digest, "One frame identity cannot have two contents"
+                        seen.add(seq)
+                    assert time.monotonic() < deadline, "Continuous acquisition stopped making progress"
+                    time.sleep(0.002)
+                return len(seen)
 
         with ThreadPoolExecutor(max_workers=3) as readers:
             results = list(readers.map(lambda _: reader(), range(3)))
