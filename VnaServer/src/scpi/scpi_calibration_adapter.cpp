@@ -161,7 +161,7 @@ ScpiCalibrationResult ScpiCalibrationAdapter::Collection(const ParsedCommand &co
     VnaService::CalibrationChange change;
     change.sessionId = snapshot.sessionId;
     if (command.path == "SENS1:CORR:COLL:METH" || command.path == "SENS1:CORR:COLL:METH:DEF") {
-        Count(command, 2U, 4U);
+        Count(command, 2U, 6U);
         const std::string method = Upper(Value(command.arguments[0]));
         change.kind = VnaService::CalibrationChangeKind::BEGIN;
         change.port1 = Port(command.arguments[1]);
@@ -169,10 +169,23 @@ ScpiCalibrationResult ScpiCalibrationAdapter::Collection(const ParsedCommand &co
             Count(command, 2U, 2U);
             change.method = VnaCalibration::CalibrationMethod::ONE_PORT;
         } else if (method == "TOSM" || method == "SOLT") {
-            Count(command, 3U, 4U);
-            change.method = VnaCalibration::CalibrationMethod::TWO_PORT;
-            change.port2 = Port(command.arguments[2]);
-            change.includeIsolation = command.arguments.size() == 4U && Boolean(command.arguments[3]);
+            if (command.arguments.size() >= 5U) {
+                // 项目四端口子集显式列出全部物理口，避免与双端口的可选隔离参数混淆。
+                for (unsigned port = 1U; port <= 4U; ++port) {
+                    if (Port(command.arguments[port]) != port) {
+                        throw std::invalid_argument("Four-port TOSM requires physical ports 1,2,3,4 in order");
+                    }
+                }
+                change.method = VnaCalibration::CalibrationMethod::FOUR_PORT;
+                change.port1 = 1U;
+                change.port2 = 4U;
+                change.includeIsolation = command.arguments.size() == 6U && Boolean(command.arguments[5]);
+            } else {
+                Count(command, 3U, 4U);
+                change.method = VnaCalibration::CalibrationMethod::TWO_PORT;
+                change.port2 = Port(command.arguments[2]);
+                change.includeIsolation = command.arguments.size() == 4U && Boolean(command.arguments[3]);
+            }
         } else {
             throw std::invalid_argument("Only mechanical OSM and TOSM calibration are available");
         }
@@ -234,11 +247,25 @@ ScpiCalibrationResult ScpiCalibrationAdapter::Sets(const ParsedCommand &command)
         return result;
     }
     if (!command.query && (command.path == "SENS1:CORR:CSET:ACT" || command.path == "SENS1:CORR:CSET:DEL")) {
-        Count(command, 1U, 1U);
         VnaService::CalibrationChange change;
-        change.kind = command.path == "SENS1:CORR:CSET:ACT" ? VnaService::CalibrationChangeKind::SELECT
-                                                            : VnaService::CalibrationChangeKind::DELETE_SET;
-        change.setId = Identifier(command.arguments[0]);
+        if (command.path == "SENS1:CORR:CSET:DEL") {
+            Count(command, 1U, 1U);
+            change.kind = VnaService::CalibrationChangeKind::DELETE_SET;
+            change.setId = Identifier(command.arguments[0]);
+        } else {
+            Count(command, 1U, 2U);
+            change.kind = VnaService::CalibrationChangeKind::ACTIVATE;
+            if (command.arguments.size() == 1U) {
+                change.setId = Identifier(command.arguments[0]);
+            } else {
+                if (!StringArgument(command.arguments[0], change.name) || change.name.empty()) {
+                    throw std::invalid_argument("Calibration set name requires a nonempty quoted string");
+                }
+                if (Identifier(command.arguments[1]) != 0U) {
+                    throw std::invalid_argument("Only activation without changing stimulus (mode 0) is supported");
+                }
+            }
+        }
         auto result = Handled();
         result.operation = service_.ApplyCalibration(std::move(change), 0U, "SCPI", command.channelId);
         return result;
