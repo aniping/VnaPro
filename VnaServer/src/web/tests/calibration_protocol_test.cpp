@@ -13,69 +13,26 @@
 #include <vector>
 
 #include "calibration_history_test.h"
+#include "calibration_protocol_test_support.h"
 #include "fixture.h"
 #include "scpi/scpi_engine.h"
+#include "web/calibration_binary.h"
+#include "web/calibration_file_json.h"
 #include "web/calibration_json.h"
 #include "web/http_api.h"
 #include "web/json_encoder.h"
 
 namespace {
+using namespace VnaCalibrationProtocolTest;
 using VnaWeb::HttpApi;
 using VnaWeb::HttpResponse;
 using VnaWeb::Json;
 constexpr double RAW_REAL = 0.2776235288454596;
 constexpr double RAW_IMAG = -0.3626684156056705;
 
-void Require(bool value, const std::string &message)
-{
-    if (!value) {
-        throw std::runtime_error(message);
-    }
-}
-
-const Json &Field(const Json &value, const std::string &key)
-{
-    const auto field = value.Find(key);
-    Require(field != nullptr, "Missing calibration field: " + key);
-    return *field;
-}
-
 void Near(double value, double expected)
 {
     Require(std::isfinite(value) && std::abs(value - expected) < 1e-12, "Calibration numeric path differs");
-}
-
-HttpResponse Request(HttpApi &api, const std::string &path, const Json &body = Json(), const std::string &token = "")
-{
-    VnaWeb::HttpRequest request;
-    const auto separator = path.find('?');
-    request.path = path.substr(0U, separator);
-    request.query = separator == std::string::npos ? "" : path.substr(separator + 1U);
-    request.method = body.type == Json::Type::NULL_VALUE ? "GET" : "POST";
-    if (request.method == "POST") {
-        request.body = VnaWeb::StringifyJson(body, VnaWeb::CALIBRATION_JSON_BYTE_LIMIT);
-    }
-    if (!token.empty()) {
-        request.headers["x-vna-session"] = token;
-    }
-    return api.Handle(request);
-}
-
-void Complete(HttpApi &api, const HttpResponse &accepted, const std::string &token)
-{
-    Require(accepted.status == 202U, "Calibration rejected: " + VnaWeb::StringifyJson(accepted.json));
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-    for (;;) {
-        const auto result =
-            Request(api, "/api/v1/operations/" + Field(accepted.json, "operationId").string, Json(), token);
-        const auto state = Field(result.json, "state").string;
-        if (state != "pending") {
-            Require(state == "completed", "Calibration operation failed: " + VnaWeb::StringifyJson(result.json));
-            return;
-        }
-        Require(std::chrono::steady_clock::now() < deadline, "Calibration protocol timeout");
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
 }
 
 std::string Query(VnaScpi::ScpiEngine &engine, const std::string &line)
@@ -88,15 +45,6 @@ std::string Query(VnaScpi::ScpiEngine &engine, const std::string &line)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while (engine.HasPending());
     return engine.TakeOutput();
-}
-
-Json Action(HttpApi &api, const std::string &action, const std::string &id)
-{
-    auto body = Json::MakeObject();
-    body["requestId"] = Json(id);
-    body["expectedRevision"] = Field(Request(api, "/api/v1/calibration").json, "revision");
-    body["action"] = Json(action);
-    return body;
 }
 
 VnaService::InstrumentProfile Profile()
@@ -127,18 +75,21 @@ Json SetDocument(VnaServiceTest::Fixture &fixture)
     const VnaCalibration::OnePortTerms terms{{0.02, 0.01}, {-0.1, 0.03}, {0.92, -0.08}};
     data->onePortTerms.assign(data->frequencyHz.size(), terms);
     VnaService::CalibrationSet set;
+    set.id = 1U;
     set.name = "Fixed external vector";
     set.deviceIdentity = fixture.service.Identity();
     set.ifBandwidthHz = frame->plan.ifBandwidthRaw;
     set.powerDbm = frame->plan.powerDbm;
     set.data = data;
-    return VnaWeb::CalibrationJson::Export(set);
+    return VnaWeb::CalibrationFileJson::Export(set, "binary");
 }
 
 std::string ImportAndEnableSet(HttpApi &api, const std::string &token, const Json &document)
 {
-    auto imported = Action(api, "import", "import");
-    imported["data"] = document;
+    auto imported = Action(api, "importFile", "import");
+    for (const auto *field : {"format", "encoding", "content"}) {
+        imported[field] = Field(document, field);
+    }
     Require(Request(api, "/api/v1/calibration", imported).status == 403U, "Observers cannot import calibration");
     const auto accepted = Request(api, "/api/v1/calibration", imported, token);
     Complete(api, accepted, token);
@@ -215,7 +166,10 @@ void WebAndScpiReadSameCorrection()
         "Correction changes only calibration version and reuses raw frame");
     VerifyScpiCorrection(fixture.service);
     const auto document = Request(api, "/api/v1/calibration/sets/" + setId).json;
-    Require(Field(document, "powerDbm").array.front().type == Json::Type::NUMBER, "Power is numeric dBm");
+    Require(Field(document, "format").string == "binary" &&
+                VnaWeb::CalibrationFileJson::Import(document)->powerDbm.front() == 0.,
+        "Default download is binary and retains physical power in dBm");
+    FileTransportsPreserveWriteContract(api, token, setId);
     auto enable = Action(api, "enable", "disable");
     enable["enabled"] = Json(false);
     Complete(api, Request(api, "/api/v1/calibration", enable, token), token);
@@ -261,7 +215,49 @@ void ScpiMechanicalWorkflow()
         "SCPI cancellation closes the workspace and restores manual entry arming");
 }
 
-void FourPortWorkflowAndSchema()
+void FourPortFileRoundtrip(VnaServiceTest::Fixture &fixture)
+{
+    auto data = std::make_shared<VnaCalibration::CalibrationData>();
+    data->method = VnaCalibration::CalibrationMethod::FOUR_PORT;
+    data->port1 = 1U;
+    data->port2 = 4U;
+    data->frequencyHz = fixture.service.StimulusAxis().values;
+    VnaCalibration::FourPortTerms terms;
+    for (auto &cell : terms) {
+        cell = {{0.0, 0.0}, {0.02, -0.01}, {1.2, 0.03}};
+    }
+    data->fourPortTerms.assign(data->frequencyHz.size(), terms);
+    VnaService::CalibrationSet set;
+    set.id = 1U;
+    set.name = "Four-port roundtrip";
+    set.deviceIdentity = fixture.service.Identity();
+    set.ifBandwidthHz = fixture.service.Settings().ifBandwidthHz;
+    set.powerDbm.assign(data->frequencyHz.size(), fixture.service.Settings().powerDbm);
+    set.data = data;
+    auto document = VnaWeb::CalibrationFileJson::Export(set, "binary");
+    auto request = Json::MakeObject();
+    request["action"] = Json("importFile");
+    for (const auto *field : {"format", "encoding", "content"}) {
+        request[field] = Field(document, field);
+    }
+    const auto imported = VnaWeb::CalibrationJson::Change(request).importedSet;
+    Require(imported->data->method == VnaCalibration::CalibrationMethod::FOUR_PORT &&
+                imported->data->fourPortTerms.size() == data->frequencyHz.size() &&
+                imported->data->fourPortTerms.back()[15U].tracking == terms[15U].tracking,
+        "Four-port coefficients survive export and import");
+    auto content = Field(request, "content").string;
+    content.resize(content.size() - 4U);
+    request["content"] = Json(content);
+    bool rejected = false;
+    try {
+        VnaWeb::CalibrationJson::Change(request);
+    } catch (const std::invalid_argument &) {
+        rejected = true;
+    }
+    Require(rejected, "Truncated four-port coefficient rows cannot be imported");
+}
+
+void FourPortWorkflowAndFile()
 {
     VnaServiceTest::Fixture fixture(Profile());
     VnaScpi::ScpiEngine engine(fixture.service);
@@ -281,43 +277,7 @@ void FourPortWorkflowAndSchema()
     Require(Query(engine, "SYST:ERR?").find("-224,") == 0U && !fixture.service.Calibration().collecting,
         "Invalid four-port physical order cannot silently change the source/receiver mapping");
 
-    auto data = std::make_shared<VnaCalibration::CalibrationData>();
-    data->method = VnaCalibration::CalibrationMethod::FOUR_PORT;
-    data->port1 = 1U;
-    data->port2 = 4U;
-    data->frequencyHz = fixture.service.StimulusAxis().values;
-    VnaCalibration::FourPortTerms terms;
-    for (auto &cell : terms) {
-        cell = {{0.0, 0.0}, {0.02, -0.01}, {1.2, 0.03}};
-    }
-    data->fourPortTerms.assign(data->frequencyHz.size(), terms);
-    VnaService::CalibrationSet set;
-    set.name = "Four-port roundtrip";
-    set.deviceIdentity = fixture.service.Identity();
-    set.ifBandwidthHz = fixture.service.Settings().ifBandwidthHz;
-    set.powerDbm.assign(data->frequencyHz.size(), fixture.service.Settings().powerDbm);
-    set.data = data;
-    auto document = VnaWeb::CalibrationJson::Export(set);
-    Require(
-        Field(document, "schema").number == 3.0 && Field(document, "fourPortTerms").array.front().array.size() == 96U,
-        "Schema 3 preserves all 48 complex four-port error terms per frequency");
-    auto request = Json::MakeObject();
-    request["action"] = Json("import");
-    request["data"] = document;
-    const auto imported = VnaWeb::CalibrationJson::Change(request).importedSet;
-    Require(imported->data->method == VnaCalibration::CalibrationMethod::FOUR_PORT &&
-                imported->data->fourPortTerms.size() == data->frequencyHz.size() &&
-                imported->data->fourPortTerms.back()[15U].tracking == terms[15U].tracking,
-        "Four-port coefficients survive export and import");
-    document["fourPortTerms"].array.front().array.pop_back();
-    request["data"] = document;
-    bool rejected = false;
-    try {
-        VnaWeb::CalibrationJson::Change(request);
-    } catch (const std::invalid_argument &) {
-        rejected = true;
-    }
-    Require(rejected, "Truncated four-port coefficient rows cannot be imported");
+    FourPortFileRoundtrip(fixture);
 }
 
 void WebFinishAndCancelRestoreContinuousAcquisition()
@@ -382,7 +342,7 @@ int main()
     try {
         WebAndScpiReadSameCorrection();
         ScpiMechanicalWorkflow();
-        FourPortWorkflowAndSchema();
+        FourPortWorkflowAndFile();
         WebFinishAndCancelRestoreContinuousAcquisition();
         VnaCalibrationProtocolTest::CheckHistoryBudget();
         std::cout << "PASS calibration HTTP/SCPI ownership, CAS, correction and mechanical workflow\n";

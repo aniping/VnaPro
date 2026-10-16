@@ -110,6 +110,7 @@ private:
     void RollbackWrite(HttpSession &session, const std::string &operationId) noexcept;
     HttpResponse Write(const HttpRequest &request, const Json &body);
     HttpResponse Route(const HttpRequest &request);
+    HttpResponse CalibrationSetFile(const std::string &setId, const std::string &query, unsigned channelId) const;
     VnaService::InstrumentService &service_;
     const Now now_;
     std::map<std::string, HttpSession> sessions_;

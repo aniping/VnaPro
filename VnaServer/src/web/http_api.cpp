@@ -618,18 +618,7 @@ HttpResponse HttpApi::Route(const HttpRequest &request)
         if (request.path.find(calibrationPrefix) == 0U) {
             std::string remaining;
             const auto channelId = QueryChannel(request.query, remaining);
-            if (!remaining.empty()) {
-                throw std::invalid_argument("Unknown calibration set query field");
-            }
-            Json id = Json::MakeObject();
-            id["id"] = Json(request.path.substr(calibrationPrefix.size()));
-            const auto set = service_.FindCalibrationSet(DisplayJson::Revision(id, "id"), channelId);
-            if (!set) {
-                return HttpError(404, "calibration_not_found", "Calibration set does not exist");
-            }
-            HttpResponse response;
-            response.json = CalibrationJson::Export(*set);
-            return response;
+            return CalibrationSetFile(request.path.substr(calibrationPrefix.size()), remaining, channelId);
         }
         const std::string prefix = "/api/v1/operations/";
         if (request.path.find(prefix) == 0U) {

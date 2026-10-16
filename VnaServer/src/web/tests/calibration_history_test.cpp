@@ -11,6 +11,7 @@
 #include <thread>
 
 #include "fixture.h"
+#include "web/calibration_file_json.h"
 #include "web/calibration_json.h"
 #include "web/http_api.h"
 #include "web/json_encoder.h"
@@ -100,13 +101,14 @@ Json BudgetDocument(const std::string &identity)
     terms.reverseTransmission = terms.forwardTransmission;
     data->twoPortTerms.assign(data->frequencyHz.size(), terms);
     VnaService::CalibrationSet set;
+    set.id = 1U;
     set.name = "Retained byte budget vector";
     set.deviceIdentity = identity;
     set.includeIsolation = true;
     set.ifBandwidthHz = 1000.0;
     set.powerDbm.assign(data->frequencyHz.size(), 0.0);
     set.data = data;
-    const auto document = VnaWeb::CalibrationJson::Export(set);
+    const auto document = VnaWeb::CalibrationFileJson::Export(set, "csv");
     Require(VnaWeb::StringifyJson(document, VnaWeb::CALIBRATION_JSON_BYTE_LIMIT).size() > 4U * 1024U * 1024U,
         "Budget regression uses a real large coefficient document");
     return document;
@@ -116,8 +118,10 @@ void FillHistoryBudget(
     HttpApi &api, const std::string &token, const Json &document, Json &firstRequest, std::string &firstOperation)
 {
     for (unsigned index = 0U; index < VnaService::MAX_CALIBRATION_SETS; ++index) {
-        auto body = Action(api, "import", "budget-" + std::to_string(index));
-        body["data"] = document;
+        auto body = Action(api, "importFile", "budget-" + std::to_string(index));
+        for (const auto *key : {"format", "encoding", "content"}) {
+            body[key] = Field(document, key);
+        }
         const auto response = Request(api, "/api/v1/calibration", body, token);
         if (response.status == 429U) {
             Require(Field(Field(response.json, "error"), "code").string == "retry_history_full",
@@ -166,8 +170,10 @@ void CheckHistoryBudget()
     AdvancePastExpiry(api, token, clock);
     Require(Request(api, "/api/v1/calibration", firstRequest, token).status == 410U,
         "Expired retry keeps a tombstone without retaining coefficient bytes");
-    auto recovered = Action(api, "import", "budget-after-expiry");
-    recovered["data"] = document;
+    auto recovered = Action(api, "importFile", "budget-after-expiry");
+    for (const auto *key : {"format", "encoding", "content"}) {
+        recovered[key] = Field(document, key);
+    }
     Complete(api, Request(api, "/api/v1/calibration", recovered, token), token);
 }
 }  // 命名空间 VnaCalibrationProtocolTest

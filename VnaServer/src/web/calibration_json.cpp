@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "vna_service/instrument_profile.h"
+#include "web/calibration_file_json.h"
 #include "web/calibration_json_fields.h"
 #include "web/display_json.h"
 
@@ -107,6 +108,42 @@ const char *StandardName(VnaService::CalibrationStandard standard)
     }
 }
 
+void BeginChange(const Json &body, VnaService::CalibrationChange &change, std::vector<std::string> &allowed)
+{
+    allowed.insert(allowed.end(), {"method", "port1", "port2", "includeIsolation"});
+    change.kind = VnaService::CalibrationChangeKind::BEGIN;
+    change.method = Method(Text(body, "method"));
+    change.port1 = Port(body, "port1");
+    if (body.Find("port2")) {
+        change.port2 = Port(body, "port2", true);
+    }
+    if (body.Find("includeIsolation")) {
+        change.includeIsolation = Field(body, "includeIsolation", Json::Type::BOOLEAN).boolean;
+    }
+}
+
+void CollectionChange(const Json &body, const std::string &action, VnaService::CalibrationChange &change,
+    std::vector<std::string> &allowed)
+{
+    using Kind = VnaService::CalibrationChangeKind;
+    allowed.push_back("sessionId");
+    change.sessionId = DisplayJson::Revision(body, "sessionId");
+    if (change.sessionId == 0U) {
+        throw std::invalid_argument("A collecting calibration session is required");
+    }
+    if (action == "capture") {
+        allowed.push_back("stepId");
+        change.kind = Kind::CAPTURE;
+        change.stepId = Text(body, "stepId");
+    } else if (action == "finish") {
+        allowed.push_back("name");
+        change.kind = Kind::FINISH;
+        change.name = body.Find("name") ? Text(body, "name") : "";
+    } else {
+        change.kind = Kind::CANCEL;
+    }
+}
+
 }  // 命名空间 CalibrationJsonDetail
 
 using namespace CalibrationJsonDetail;
@@ -167,33 +204,9 @@ VnaService::CalibrationChange CalibrationJson::Change(const Json &body)
     VnaService::CalibrationChange change;
     using Kind = VnaService::CalibrationChangeKind;
     if (action == "begin") {
-        allowed.insert(allowed.end(), {"method", "port1", "port2", "includeIsolation"});
-        change.kind = Kind::BEGIN;
-        change.method = Method(Text(body, "method"));
-        change.port1 = Port(body, "port1");
-        if (body.Find("port2")) {
-            change.port2 = Port(body, "port2", true);
-        }
-        if (body.Find("includeIsolation")) {
-            change.includeIsolation = Field(body, "includeIsolation", Json::Type::BOOLEAN).boolean;
-        }
+        BeginChange(body, change, allowed);
     } else if (action == "capture" || action == "finish" || action == "cancel") {
-        allowed.push_back("sessionId");
-        change.sessionId = DisplayJson::Revision(body, "sessionId");
-        if (change.sessionId == 0U) {
-            throw std::invalid_argument("A collecting calibration session is required");
-        }
-        if (action == "capture") {
-            allowed.push_back("stepId");
-            change.kind = Kind::CAPTURE;
-            change.stepId = Text(body, "stepId");
-        } else if (action == "finish") {
-            allowed.push_back("name");
-            change.kind = Kind::FINISH;
-            change.name = body.Find("name") ? Text(body, "name") : "";
-        } else {
-            change.kind = Kind::CANCEL;
-        }
+        CollectionChange(body, action, change, allowed);
     } else if (action == "enable") {
         allowed.push_back("enabled");
         change.kind = Kind::ENABLE;
@@ -202,10 +215,10 @@ VnaService::CalibrationChange CalibrationJson::Change(const Json &body)
         allowed.push_back("setId");
         change.kind = action == "select" ? Kind::SELECT : Kind::DELETE_SET;
         change.setId = DisplayJson::Revision(body, "setId");
-    } else if (action == "import") {
-        allowed.push_back("data");
+    } else if (action == "importFile") {
+        allowed.insert(allowed.end(), {"format", "encoding", "content"});
         change.kind = Kind::IMPORT_SET;
-        change.importedSet = Import(Field(body, "data", Json::Type::OBJECT));
+        change.importedSet = CalibrationFileJson::Import(body);
     } else {
         throw std::invalid_argument("Unsupported calibration action");
     }
