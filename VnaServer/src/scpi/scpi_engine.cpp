@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "scpi/scpi_calibration_adapter.h"
+#include "scpi/scpi_command_registry.h"
 #include "scpi/scpi_constants.h"
 #include "scpi/scpi_display_adapter.h"
 #include "scpi/scpi_parser.h"
@@ -56,7 +57,7 @@ bool Matches(const std::string &value, const char *shortName, const char *fullNa
 
 bool ScpiEngine::HasPending() const noexcept
 {
-    return !messages_.empty() || sequential_.valid() || waiting_ || !encoding_.empty() || !watches_.empty() ||
+    return !messages_.empty() || sequential_.valid() || waiting_ || encoder_.Pending() || !watches_.empty() ||
            (control_ && service_.HasPending());
 }
 
@@ -109,35 +110,21 @@ void ScpiEngine::BeginEncoding(VnaService::DataResult data, const ParsedCommand 
     if (!connected_) {
         return;
     }
-    encoding_ = std::move(data.values);
-    encoded_ = 0;
-    encodedResponse_.clear();
-    if (encoding_.empty()) {
-        RecordCommandError(command, DATA_CORRUPT_OR_STALE, "Empty data array");
+    if (!encoder_.Begin(std::move(data.values), format_, byteOrder_)) {
+        RecordCommandError(command, DATA_CORRUPT_OR_STALE, "Empty, invalid or oversized numeric data");
     }
 }
 
 void ScpiEngine::EncodeBatch()
 {
-    if (encoding_.empty()) {
+    if (!encoder_.Pending()) {
         return;
     }
-    const std::size_t end = (std::min)(encoded_ + ENCODING_BATCH_SIZE, encoding_.size());
-    for (; encoded_ < end; ++encoded_) {
-        if (encoded_ != 0U) {
-            encodedResponse_ += ',';
-        }
-        encodedResponse_ += Number(encoding_[encoded_]);
-    }
-    if (encodedResponse_.size() > NUMERIC_ARRAY_BYTE_LIMIT) {
+    if (!encoder_.Poll()) {
         RecordCommandError(ParsedCommand{}, INPUT_BUFFER_OVERRUN, "Array exceeds software output budget");
         messages_.front().queryFailed = true;
-        encoding_.clear();
-        encodedResponse_.clear();
-    } else if (encoded_ == encoding_.size()) {
-        AppendResponse(encodedResponse_);
-        encoding_.clear();
-        encodedResponse_.clear();
+    } else if (!encoder_.Pending()) {
+        AppendResponse(encoder_.TakeOutput());
     }
 }
 
@@ -200,7 +187,7 @@ void ScpiEngine::Dispatch(const ParsedCommand &original)
     if (command.channelId == 0U && (command.path.find("TRIG") == 0U || command.path.find("INIT") == 0U)) {
         command.channelId = service_.ActiveChannelId();
     }
-    if (DispatchCommon(command) || DispatchSweep(command)) {
+    if (DispatchRegistered(command)) {
         return;
     }
     const auto calibration = ScpiCalibrationAdapter(service_).Execute(command);
@@ -225,122 +212,103 @@ void ScpiEngine::Dispatch(const ParsedCommand &original)
         }
         return;
     }
-    if (DispatchMeasurement(command)) {
-        return;
-    }
     RecordCommandError(command, UNDEFINED_HEADER, "Undefined header");
 }
 
-bool ScpiEngine::DispatchCommon(const ParsedCommand &command)
+bool ScpiEngine::DispatchRegistered(const ParsedCommand &command)
 {
-    const std::string &path = command.path;
-    if (path == "*IDN" && command.query) {
-        DispatchIdentity(command);
+    const auto *definition = FindCommand(command.path);
+    if (definition == nullptr) {
+        return false;
+    }
+    if (command.query ? !definition->query : !definition->setter) {
+        RecordCommandError(command, UNDEFINED_HEADER, "Unsupported query or setter header");
         return true;
     }
-    if (path == "*CLS" && !command.query) {
-        DispatchClearStatus(command);
-        return true;
+    switch (definition->handler) {
+        case CommandHandler::IDENTITY:
+            DispatchIdentity(command);
+            break;
+        case CommandHandler::CLEAR_STATUS:
+            DispatchClearStatus(command);
+            break;
+        case CommandHandler::RESET:
+            DispatchReset(command);
+            break;
+        case CommandHandler::OPERATION_COMPLETE:
+            DispatchOperationComplete(command);
+            break;
+        case CommandHandler::WAIT:
+            DispatchWait(command);
+            break;
+        case CommandHandler::ENABLE_REGISTER:
+            DispatchEnableRegister(command);
+            break;
+        case CommandHandler::STATUS_REGISTER:
+            DispatchStatusRegister(command);
+            break;
+        case CommandHandler::NEXT_ERROR:
+            DispatchNextError(command);
+            break;
+        case CommandHandler::ERROR_COUNT:
+            DispatchErrorCount(command);
+            break;
+        case CommandHandler::FREQUENCY:
+            DispatchFrequency(command);
+            break;
+        case CommandHandler::POINTS:
+            DispatchPoints(command);
+            break;
+        case CommandHandler::BANDWIDTH:
+            DispatchBandwidth(command);
+            break;
+        case CommandHandler::POWER:
+            DispatchPower(command);
+            break;
+        case CommandHandler::SWEEP_TYPE:
+            DispatchSweepType(command);
+            break;
+        case CommandHandler::TRIGGER_SOURCE:
+            DispatchTriggerSource(command);
+            break;
+        case CommandHandler::TRIGGER_SCOPE:
+            DispatchTriggerScope(command);
+            break;
+        case CommandHandler::SWEEP_MODE:
+            DispatchSweepMode(command);
+            break;
+        case CommandHandler::INITIATE:
+            DispatchInitiate(command);
+            break;
+        case CommandHandler::DEFINE_MEASUREMENT:
+            DispatchDefineMeasurement(command);
+            break;
+        case CommandHandler::MEASUREMENT_CATALOG:
+            DispatchMeasurementCatalog(command);
+            break;
+        case CommandHandler::DELETE_MEASUREMENT:
+            DispatchDeleteMeasurement(command);
+            break;
+        case CommandHandler::DELETE_ALL_MEASUREMENTS:
+            DispatchDeleteAllMeasurements(command);
+            break;
+        case CommandHandler::DATA_FORMAT:
+            DispatchDataFormat(command);
+            break;
+        case CommandHandler::BYTE_ORDER:
+            DispatchByteOrder(command);
+            break;
+        case CommandHandler::STIMULUS_AXIS:
+            DispatchStimulusAxis(command);
+            break;
+        case CommandHandler::MEASUREMENT_DATA:
+            DispatchMeasurementData(command);
+            break;
+        case CommandHandler::MULTIPLE_MEASUREMENT_DATA:
+            DispatchMultipleMeasurementData(command);
+            break;
     }
-    if (path == "*OPC") {
-        DispatchOperationComplete(command);
-        return true;
-    }
-    if (path == "*WAI" && !command.query) {
-        DispatchWait(command);
-        return true;
-    }
-    if (path == "*ESE" || path == "*SRE") {
-        DispatchEnableRegister(command);
-        return true;
-    }
-    if ((path == "*ESR" || path == "*STB") && command.query) {
-        DispatchStatusRegister(command);
-        return true;
-    }
-    if ((path == "SYST:ERR" || path == "SYST:ERR:NEXT") && command.query) {
-        DispatchNextError(command);
-        return true;
-    }
-    if (path == "SYST:ERR:COUN" && command.query) {
-        DispatchErrorCount(command);
-        return true;
-    }
-    return false;
-}
-
-bool ScpiEngine::DispatchSweep(const ParsedCommand &command)
-{
-    const std::string &path = command.path;
-    if (path == "SENS1:FREQ:STAR" || path == "SENS1:FREQ:STOP") {
-        DispatchFrequency(command);
-        return true;
-    }
-    if (path == "SENS1:SWE:POIN") {
-        DispatchPoints(command);
-        return true;
-    }
-    if (path == "SENS1:BAND" || path == "SENS1:BAND:RES" || path == "SENS1:BWID" || path == "SENS1:BWID:RES") {
-        DispatchBandwidth(command);
-        return true;
-    }
-    if (path == "SENS1:SWE:TYPE") {
-        DispatchSweepType(command);
-        return true;
-    }
-    if (path == "SOUR1:POW" || path == "SOUR1:POW:LEV" || path == "SOUR1:POW:IMM" || path == "SOUR1:POW:AMPL" ||
-        path == "SOUR1:POW:LEV:IMM" || path == "SOUR1:POW:LEV:AMPL" || path == "SOUR1:POW:IMM:AMPL" ||
-        path == "SOUR1:POW:LEV:IMM:AMPL") {
-        DispatchPower(command);
-        return true;
-    }
-    if (path == "TRIG:SOUR" || path == "TRIG:SEQ:SOUR" || path == "INIT:CONT" || path == "INIT1:CONT") {
-        DispatchTriggerSource(command);
-        return true;
-    }
-    if (path == "TRIG:SCOP" || path == "TRIG:SEQ:SCOP") {
-        DispatchTriggerScope(command);
-        return true;
-    }
-    if (path == "SENS1:SWE:MODE") {
-        DispatchSweepMode(command);
-        return true;
-    }
-    if ((path == "INIT" || path == "INIT1" || path == "INIT:IMM" || path == "INIT1:IMM") && !command.query) {
-        DispatchInitiate(command);
-        return true;
-    }
-    return false;
-}
-
-bool ScpiEngine::DispatchMeasurement(const ParsedCommand &command)
-{
-    const std::string &path = command.path;
-    if (path == "CALC1:PAR:DEF:EXT" || path == "CALC1:PAR:EXT") {
-        DispatchDefineMeasurement(command);
-        return true;
-    }
-    if (path == "CALC1:PAR:CAT:EXT" && command.query) {
-        DispatchMeasurementCatalog(command);
-        return true;
-    }
-    if ((path == "CALC1:PAR:DEL" || path == "CALC1:PAR:DEL:NAME") && !command.query) {
-        DispatchDeleteMeasurement(command);
-        return true;
-    }
-    if (path == "FORM" || path == "FORM:DATA") {
-        DispatchDataFormat(command);
-        return true;
-    }
-    if ((path == "SENS1:X" || path == "SENS1:X:VAL") && command.query) {
-        DispatchStimulusAxis(command);
-        return true;
-    }
-    if (path == "CALC1:DATA" && command.query) {
-        DispatchMeasurementData(command);
-        return true;
-    }
-    return false;
+    return true;
 }
 
 void ScpiEngine::DispatchIdentity(const ParsedCommand &command)
@@ -355,6 +323,20 @@ void ScpiEngine::DispatchClearStatus(const ParsedCommand &command)
     if (CheckArguments(command, 0)) {
         service_.ClearStatus();
     }
+}
+
+void ScpiEngine::DispatchReset(const ParsedCommand &command)
+{
+    if (!CheckArguments(command, 0U)) {
+        return;
+    }
+    // 服务 FIFO 顺序覆盖所有已存在通道；最后一个 future 也是前序操作的屏障。
+    const auto channels = service_.Snapshot().channels;
+    for (std::size_t index = 0U; index < channels.size(); ++index) {
+        SetOperation(service_.ResetMeasurements("SCPI", channels[index].id, index + 1U == channels.size()));
+    }
+    format_ = NumericFormat::ASCII;
+    byteOrder_ = ByteOrder::NORMAL;
 }
 
 void ScpiEngine::DispatchOperationComplete(const ParsedCommand &command)
@@ -536,7 +518,10 @@ void ScpiEngine::DispatchTriggerSource(const ParsedCommand &command)
     const bool boolean = path.find("INIT") == 0U;
     if (command.query) {
         if (CheckArguments(command, 0)) {
-            AppendResponse(boolean ? (settings.triggerSource == VnaService::TriggerSource::IMMEDIATE ? "1" : "0")
+            AppendResponse(boolean ? (settings.selectedSweepMode == VnaService::SweepMode::CONTINUOUS &&
+                                                 settings.triggerSource == VnaService::TriggerSource::IMMEDIATE
+                                             ? "1"
+                                             : "0")
                                    : (settings.triggerSource == VnaService::TriggerSource::IMMEDIATE ? "IMM" : "MAN"));
         }
         return;
@@ -545,14 +530,20 @@ void ScpiEngine::DispatchTriggerSource(const ParsedCommand &command)
         return;
     }
     const std::string value = Upper(command.arguments.front());
+    if (boolean) {
+        if (value == "OFF" || value == "0") {
+            SetOperation(service_.SelectSingleAndHold("SCPI", command.channelId));
+        } else if (value == "ON" || value == "1") {
+            SetOperation(service_.RunContinuous("SCPI", command.channelId));
+        } else {
+            RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Continuous initiation accepts ON/OFF or 1/0");
+        }
+        return;
+    }
     VnaService::TriggerSource source = VnaService::TriggerSource::MANUAL;
-    if (boolean && (value == "ON" || value == "1")) {
+    if (Matches(value, "IMM", "IMMEDIATE")) {
         source = VnaService::TriggerSource::IMMEDIATE;
-    } else if (boolean && (value == "OFF" || value == "0")) {
-        source = VnaService::TriggerSource::MANUAL;
-    } else if (!boolean && Matches(value, "IMM", "IMMEDIATE")) {
-        source = VnaService::TriggerSource::IMMEDIATE;
-    } else if (!boolean && Matches(value, "MAN", "MANUAL")) {
+    } else if (Matches(value, "MAN", "MANUAL")) {
         source = VnaService::TriggerSource::MANUAL;
     } else {
         RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported trigger source");
@@ -622,7 +613,10 @@ void ScpiEngine::DispatchSweepMode(const ParsedCommand &command)
 void ScpiEngine::DispatchInitiate(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
-        SetOperation(service_.Trigger("SCPI", command.channelId), true);
+        const bool stopped = service_.Settings(command.channelId).sweepMode == VnaService::SweepMode::HOLD;
+        SetOperation(
+            stopped ? service_.RunSingle("SCPI", command.channelId) : service_.Trigger("SCPI", command.channelId),
+            true);
     }
 }
 
@@ -696,24 +690,91 @@ void ScpiEngine::DispatchDataFormat(const ParsedCommand &command)
 {
     if (command.query) {
         if (CheckArguments(command, 0)) {
-            AppendResponse("ASC,0");
+            AppendResponse(format_ == NumericFormat::ASCII ? "ASC,0" : "REAL,64");
         }
         return;
     }
     if (command.arguments.empty() || command.arguments.size() > 2U) {
-        RecordCommandError(command, MISSING_PARAMETER, "FORM requires ASCii[,0]");
+        RecordCommandError(command, command.arguments.empty() ? MISSING_PARAMETER : PARAMETER_NOT_ALLOWED,
+            "FORM requires ASCii[,0] or REAL,64");
         return;
     }
-    if (!Matches(Upper(command.arguments[0]), "ASC", "ASCII")) {
-        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only ASCii data format is implemented");
+    const auto type = Upper(command.arguments[0]);
+    const bool ascii = Matches(type, "ASC", "ASCII");
+    if (!ascii && type != "REAL") {
+        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Supported numeric formats are ASCii and REAL,64");
+        return;
+    }
+    if (!ascii && command.arguments.size() != 2U) {
+        RecordCommandError(command, MISSING_PARAMETER, "REAL format requires width 64");
         return;
     }
     if (command.arguments.size() == 2U) {
         unsigned precision = 0;
-        if (!Integer(command.arguments[1], precision, 0U)) {
-            RecordCommandError(command, DATA_OUT_OF_RANGE, "Only ASCii,0 is implemented");
+        if (!Integer(command.arguments[1], precision, 64U) || precision != (ascii ? 0U : 64U)) {
+            RecordCommandError(command, DATA_OUT_OF_RANGE, "Supported numeric formats are ASCii,0 and REAL,64");
+            return;
         }
     }
+    format_ = ascii ? NumericFormat::ASCII : NumericFormat::REAL64;
+}
+
+void ScpiEngine::DispatchByteOrder(const ParsedCommand &command)
+{
+    if (!CheckArguments(command, command.query ? 0U : 1U)) {
+        return;
+    }
+    if (command.query) {
+        AppendResponse(byteOrder_ == ByteOrder::NORMAL ? "NORM" : "SWAP");
+        return;
+    }
+    const auto order = Upper(command.arguments.front());
+    if (Matches(order, "NORM", "NORMAL")) {
+        byteOrder_ = ByteOrder::NORMAL;
+    } else if (Matches(order, "SWAP", "SWAPPED")) {
+        byteOrder_ = ByteOrder::SWAPPED;
+    } else {
+        RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Byte order requires NORMal or SWAPped");
+    }
+}
+
+void ScpiEngine::DispatchDeleteAllMeasurements(const ParsedCommand &command)
+{
+    if (CheckArguments(command, 0U)) {
+        SetOperation(service_.DeleteAllMeasurements("SCPI", command.channelId));
+    }
+}
+
+void ScpiEngine::DispatchMultipleMeasurementData(const ParsedCommand &command)
+{
+    if (!CheckArguments(command, 1U)) {
+        return;
+    }
+    std::string selection;
+    if (!StringArgument(command.arguments.front(), selection)) {
+        RecordCommandError(command, DATA_TYPE_ERROR, "Measurement numbers require a quoted comma-separated list");
+        return;
+    }
+    std::vector<unsigned> numbers;
+    std::size_t begin = 0U;
+    do {
+        const auto separator = selection.find(',', begin);
+        const auto item = Trim(selection.substr(begin, separator - begin));
+        unsigned number = 0U;
+        if (item.empty() || item.find_first_not_of("0123456789") != std::string::npos ||
+            !Integer(item, number, VnaDisplay::MAX_DISPLAY_TRACES) || number == 0U ||
+            numbers.size() >= VnaDisplay::MAX_DISPLAY_TRACES) {
+            RecordCommandError(
+                command, ILLEGAL_PARAMETER_VALUE, "Measurement selection requires positive catalog numbers");
+            return;
+        }
+        numbers.push_back(number);
+        if (separator == std::string::npos) {
+            break;
+        }
+        begin = separator + 1U;
+    } while (true);
+    BeginEncoding(service_.MeasurementData(numbers, true, command.channelId), command);
 }
 
 void ScpiEngine::DispatchStimulusAxis(const ParsedCommand &command)
@@ -746,7 +807,7 @@ void ScpiEngine::Poll()
         return;
     }
     EncodeBatch();
-    if (!encoding_.empty()) {
+    if (encoder_.Pending()) {
         return;
     }
     PollMessages();
@@ -811,7 +872,7 @@ void ScpiEngine::PollMessages()
         const ParsedCommand command = ParseCommand(message.units[message.position], message.parent);
         ++message.position;
         Dispatch(command);
-        if (sequential_.valid() || waiting_ || !encoding_.empty()) {
+        if (sequential_.valid() || waiting_ || encoder_.Pending()) {
             break;
         }
     }
@@ -902,8 +963,7 @@ void ScpiEngine::Disconnect() noexcept
     connected_ = false;
     output_.clear();
     outputBytes_ = 0;
-    encoding_.clear();
-    encodedResponse_.clear();
+    encoder_.Clear();
     for (auto &message : messages_) {
         message.response.clear();
     }

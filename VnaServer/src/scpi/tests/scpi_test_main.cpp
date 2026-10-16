@@ -289,7 +289,10 @@ void PendingBarriersAndErrors(const std::string &driver)
     Command(engine, "*CLS;TRIG:SOUR MAN;:SENS1:SWE:MODE CONT");
     Expect(Command(engine, "INIT1:IMM;*OPC?") == "+1\n", "manual INIT finite completion");
     Command(engine, "INIT:CONT OFF");
-    Expect(Command(engine, "SENS1:SWE:MODE?") == "CONT\n", "INIT CONT OFF is not HOLD");
+    Expect(Command(engine, "SENS1:SWE:MODE?") == "HOLD\n" && fixture.core.ReadView().state == VnaCore::CoreState::READY,
+        "INIT CONT OFF must stop continuous acquisition before the next single initiation");
+    Expect(Command(engine, "INIT:IMM;*OPC?") == "+1\n" && Command(engine, "INIT:CONT?") == "0\n",
+        "INIT after CONT OFF must acquire one complete frame and remain in single initiation mode");
     Command(engine, "SENS1:SWE:MODE HOLD");
     Command(engine, "*CLS;TRIG:SOUR IMM;:SENS1:SWE:MODE CONT");
     Command(engine, "INIT1:IMM");
@@ -571,6 +574,78 @@ void InvalidServiceEnumsDoNotMutate(const std::string &)
         "a valid finite operation must still complete after enum rejection");
     service.ReleaseControl();
 }
+
+void ContinuousOffStopsAlreadySelectedSingle(const std::string &)
+{
+    VnaServiceTest::Fixture fixture;
+    VnaScpi::ScpiEngine engine(fixture.service);
+    Command(engine, "TRIG:SOUR MAN;:SENS1:SWE:MODE SING;*OPC?");
+    const auto armed = fixture.core.ReadView();
+    Expect(armed.state == VnaCore::CoreState::RUNNING && !armed.frame &&
+               fixture.service.Settings().selectedSweepMode == VnaService::SweepMode::SINGLE,
+        "Manual/Single must be armed before continuous-off regression");
+    Expect(Command(engine, "INIT:CONT OFF;*OPC?") == "+1\n" &&
+               fixture.core.ReadView().state == VnaCore::CoreState::READY &&
+               fixture.core.ReadView().runId == armed.runId && !fixture.core.ReadView().frame &&
+               fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD &&
+               fixture.service.Settings().selectedSweepMode == VnaService::SweepMode::SINGLE &&
+               fixture.service.Settings().triggerSource == VnaService::TriggerSource::MANUAL,
+        "INIT:CONT OFF must stop an already selected Single without acquiring or changing its source");
+    Command(engine, "INIT:CONT ON;*OPC?");
+    fixture.device->Arm();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (!fixture.device->HasEntered()) {
+        Expect(std::chrono::steady_clock::now() < deadline, "continuous scan did not enter the stop gate");
+        std::this_thread::yield();
+    }
+    Expect(engine.SubmitLine("INIT:CONT OFF;*OPC?"), "continuous-off submission failed");
+    for (unsigned tick = 0U; tick < 10U; ++tick) {
+        engine.Poll();
+    }
+    Expect(engine.TakeOutput().empty() && engine.HasPending() &&
+               fixture.core.ReadView().state == VnaCore::CoreState::RUNNING &&
+               fixture.service.Settings().selectedSweepMode == VnaService::SweepMode::CONTINUOUS,
+        "Continuous-off must not publish Single/HOLD before the current full frame stops");
+    fixture.device->Release();
+    Drain(engine);
+    Expect(engine.TakeOutput() == "+1\n" && fixture.core.ReadView().state == VnaCore::CoreState::READY &&
+               fixture.service.Settings().sweepMode == VnaService::SweepMode::HOLD &&
+               fixture.service.Settings().selectedSweepMode == VnaService::SweepMode::SINGLE,
+        "Continuous-off must complete after the real stop barrier");
+}
+
+void ResetRestoresGlobalDisplayDefaults(const std::string &)
+{
+    VnaServiceTest::Fixture fixture;
+    VnaScpi::ScpiEngine engine(fixture.service);
+    Command(engine, "DISP:WIND2:STAT ON;:DISP:WIND3:STAT ON;:DISP:WIND1:SIZE MAX;*OPC?");
+    VnaDisplay::DisplayChange table;
+    table.kind = VnaDisplay::DisplayChangeKind::INFO_TABLE;
+    table.infoTable.hasVisible = true;
+    table.infoTable.settings.visible = true;
+    table.infoTable.hasPosition = true;
+    table.infoTable.settings.position = VnaDisplay::InfoTablePosition::LEFT;
+    Expect(AwaitOperation(fixture.service, fixture.service.ApplyDisplay(table)).ok, "set global information table");
+    VnaDisplay::DisplayChange annotations;
+    annotations.kind = VnaDisplay::DisplayChangeKind::DISPLAY_ANNOTATIONS;
+    annotations.annotations.hasActiveTraceOnly = true;
+    annotations.annotations.settings.activeTraceOnly = true;
+    annotations.annotations.hasStimulusInfoVisible = true;
+    annotations.annotations.settings.stimulusInfoVisible = false;
+    annotations.annotations.hasFontScale = true;
+    annotations.annotations.settings.fontScale = 150.0;
+    Expect(AwaitOperation(fixture.service, fixture.service.ApplyDisplay(annotations)).ok, "set global annotations");
+    const auto revision = fixture.service.Display().revision;
+    Expect(Command(engine, "*RST;*OPC?") == "+1\n", "reset must finish real default configuration");
+    const auto &display = fixture.service.Display();
+    Expect(Command(engine, "DISP:WIND1:SIZE?;:DISP:WIND2:STAT?;:DISP:WIND3:STAT?") == "NORM;0;0\n" &&
+               display.revision > revision && display.layout == VnaDisplay::LayoutMode::SINGLE &&
+               display.diagrams.size() == 1U && display.gridColumns == 0U && display.diagramLayout.Empty() &&
+               !display.infoTable.visible && display.infoTable.position == VnaDisplay::InfoTablePosition::BOTTOM &&
+               !display.annotations.activeTraceOnly && display.annotations.stimulusInfoVisible &&
+               display.annotations.fontScale == 100.0 && display.displayedNames == std::vector<std::string>{"Trc1"},
+        "Instrument reset must restore one default window and all global display settings with a new revision");
+}
 }  // 匿名命名空间
 
 int main(int argc, char **argv)
@@ -601,5 +676,9 @@ int main(int argc, char **argv)
     Run("embedded NUL numeric suffix", EmbeddedNulNumeric, driver, failed);
     Run("bootstrap preparation failure permits an atomic retry", BootstrapPreparationFailureCanRetry, driver, failed);
     Run("invalid service enum values reject before device mutation", InvalidServiceEnumsDoNotMutate, driver, failed);
+    Run("continuous-off stops already selected Single and waits for a full frame",
+        ContinuousOffStopsAlreadySelectedSingle, driver, failed);
+    Run("instrument reset restores global default display and removes empty windows",
+        ResetRestoresGlobalDisplayDefaults, driver, failed);
     return failed == 0U ? 0 : 1;
 }

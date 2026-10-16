@@ -5,6 +5,7 @@
 
 #include <string>
 
+#include "scpi/scpi_command_registry.h"
 #include "scpi/scpi_parser.h"
 #include "vna_display/display_workspace.h"
 #include "vna_display/marker_collection.h"
@@ -102,13 +103,11 @@ bool IsObserverQuery(const ParsedCommand &original)
     if (!command.query || command.errorCode != 0) {
         return false;
     }
-    const char * const paths[] = {"*IDN", "*OPC", "*ESE", "*SRE", "*STB", "SYST:ERR:COUN", "SENS1:FREQ:STAR",
-        "SENS1:FREQ:STOP", "SENS1:SWE:POIN", "SENS1:BAND", "SENS1:BAND:RES", "SENS1:BWID", "SENS1:BWID:RES",
-        "SENS1:SWE:TYPE", "TRIG:SOUR", "TRIG:SEQ:SOUR", "TRIG:SCOP", "TRIG:SEQ:SCOP", "INIT:CONT", "INIT1:CONT",
-        "SENS1:SWE:MODE", "CALC1:PAR:SEL", "CALC1:PAR:CAT:EXT", "FORM", "FORM:DATA", "SENS1:X", "SENS1:X:VAL",
-        "CALC1:DATA", "CALC1:FORM", "SENS1:CORR", "SENS1:CORR:STAT", "SENS1:CORR:COLL:STAT", "SENS1:CORR:CSET:CAT",
-        "SENS1:CORR:CSET:ACT", "SOUR1:POW", "SOUR1:POW:LEV", "SOUR1:POW:IMM", "SOUR1:POW:AMPL", "SOUR1:POW:LEV:IMM",
-        "SOUR1:POW:LEV:AMPL", "SOUR1:POW:IMM:AMPL", "SOUR1:POW:LEV:IMM:AMPL"};
+    if (const auto *definition = FindCommand(command.path)) {
+        return definition->query && definition->observer;
+    }
+    const char * const paths[] = {"CALC1:PAR:SEL", "CALC1:FORM", "SENS1:CORR", "SENS1:CORR:STAT",
+        "SENS1:CORR:COLL:STAT", "SENS1:CORR:CSET:CAT", "SENS1:CORR:CSET:ACT"};
     for (const auto *path : paths) {
         if (command.path == path) {
             return true;

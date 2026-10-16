@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "scpi/parsed_command.h"
+#include "scpi/scpi_numeric_encoder.h"
 #include "vna_service/instrument_service.h"
 
 namespace VnaScpi {
@@ -69,11 +70,10 @@ private:
     bool NumericArgument(const ParsedCommand &command, double &value, double minimum, double maximum, bool hz);
     bool QueryNumeric(const ParsedCommand &command, double current, double minimum, double maximum);
     void Dispatch(const ParsedCommand &command);
-    bool DispatchCommon(const ParsedCommand &command);
-    bool DispatchSweep(const ParsedCommand &command);
-    bool DispatchMeasurement(const ParsedCommand &command);
+    bool DispatchRegistered(const ParsedCommand &command);
     void DispatchIdentity(const ParsedCommand &command);
     void DispatchClearStatus(const ParsedCommand &command);
+    void DispatchReset(const ParsedCommand &command);
     void DispatchOperationComplete(const ParsedCommand &command);
     void DispatchWait(const ParsedCommand &command);
     void DispatchEnableRegister(const ParsedCommand &command);
@@ -92,9 +92,12 @@ private:
     void DispatchDefineMeasurement(const ParsedCommand &command);
     void DispatchMeasurementCatalog(const ParsedCommand &command);
     void DispatchDeleteMeasurement(const ParsedCommand &command);
+    void DispatchDeleteAllMeasurements(const ParsedCommand &command);
     void DispatchDataFormat(const ParsedCommand &command);
+    void DispatchByteOrder(const ParsedCommand &command);
     void DispatchStimulusAxis(const ParsedCommand &command);
     void DispatchMeasurementData(const ParsedCommand &command);
+    void DispatchMultipleMeasurementData(const ParsedCommand &command);
     void PollOperationWatches();
     bool PollBarrier();
     void PollMessages();
@@ -113,9 +116,9 @@ private:
     bool waitingQuery_ = false;
     std::vector<VnaService::Operation> barrier_;
     std::vector<ScpiOpcWatch> watches_;
-    std::vector<double> encoding_;
-    std::size_t encoded_ = 0;
-    std::string encodedResponse_;
+    NumericFormat format_ = NumericFormat::ASCII;
+    ByteOrder byteOrder_ = ByteOrder::NORMAL;
+    NumericEncoder encoder_;
 };
 
 }  // 命名空间 VnaScpi
