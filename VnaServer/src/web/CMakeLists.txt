@@ -6,6 +6,8 @@ add_library(vna_web STATIC
     calibration_json.cpp
     calibration_binary.cpp
     calibration_binary_layout.cpp
+    calibration_csv_reader.cpp
+    calibration_csv_layout.cpp
     calibration_document_json.cpp
     calibration_preview_json.cpp
     trace_action_adapter.cpp
