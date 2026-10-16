@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <set>
 #include <stdexcept>
 
@@ -20,6 +21,7 @@ constexpr unsigned ASCII_CONTROL_LIMIT = 32U;
 constexpr unsigned ASCII_DELETE = 127U;
 constexpr char TRACE_QUERY_PREFIX[] = "trace=";
 constexpr char ENCODING_QUERY_PREFIX[] = "encoding=";
+constexpr char CHANNEL_QUERY_PREFIX[] = "channelId=";
 
 unsigned HexDigit(char value)
 {
@@ -82,6 +84,24 @@ FrameQuery ParseFrameQuery(const std::string &query)
             }
             hasEncoding = true;
             result.packed = encoding == "packed";
+        } else if (field.find(CHANNEL_QUERY_PREFIX) == 0U) {
+            if (result.channelId != 0U) {
+                throw std::invalid_argument("Duplicate frame channelId");
+            }
+            const auto number = field.substr(sizeof(CHANNEL_QUERY_PREFIX) - 1U);
+            if (number.empty() || number.find_first_not_of("0123456789") != std::string::npos) {
+                throw std::invalid_argument("channelId must be a positive integer");
+            }
+            for (const auto digit : number) {
+                const auto value = static_cast<unsigned>(digit - '0');
+                if (result.channelId > ((std::numeric_limits<unsigned>::max)() - value) / 10U) {
+                    throw std::invalid_argument("channelId is out of range");
+                }
+                result.channelId = result.channelId * 10U + value;
+            }
+            if (result.channelId == 0U) {
+                throw std::invalid_argument("channelId must be a positive integer");
+            }
         } else {
             if (!result.selection.empty()) {
                 result.selection += '&';

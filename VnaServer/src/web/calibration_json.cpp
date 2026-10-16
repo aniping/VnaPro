@@ -152,7 +152,7 @@ Json CalibrationJson::Snapshot(const VnaService::CalibrationSnapshot &snapshot)
 VnaService::CalibrationChange CalibrationJson::Change(const Json &body)
 {
     const std::string action = Text(body, "action");
-    std::vector<std::string> allowed{"requestId", "expectedRevision", "action"};
+    std::vector<std::string> allowed{"requestId", "expectedRevision", "action", "channelId"};
     VnaService::CalibrationChange change;
     using Kind = VnaService::CalibrationChangeKind;
     if (action == "begin") {

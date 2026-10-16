@@ -14,6 +14,7 @@ namespace VnaWeb {
 struct FrameQuery final {
     std::string selection;
     bool packed = false;
+    unsigned channelId = 0U;
 };
 
 // 分离显示集合选择与数组编码；重复编码字段、未知编码或空字段均拒绝。

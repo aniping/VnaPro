@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -49,7 +50,7 @@ VnaService::Operation TraceActionAdapter::Execute(
     if (!clone && !add && !remove && !matrix) {
         throw std::invalid_argument("Unknown measurement action");
     }
-    std::vector<std::string> allowed{"requestId", "expectedRevision", "expectedDisplayRevision"};
+    std::vector<std::string> allowed{"requestId", "expectedRevision", "expectedDisplayRevision", "channelId"};
     if (matrix) {
         allowed.push_back("confirmed");
     } else {
@@ -71,15 +72,24 @@ VnaService::Operation TraceActionAdapter::Execute(
     }
     const auto revision = DisplayJson::Revision(body, "expectedRevision");
     const auto displayRevision = DisplayJson::Revision(body, "expectedDisplayRevision");
+    unsigned channelId = 0U;
+    if (const auto *value = body.Find("channelId")) {
+        if (value->type != Json::Type::NUMBER || !std::isfinite(value->number) || value->number < 1.0 ||
+            value->number > (std::numeric_limits<unsigned>::max)() || std::floor(value->number) != value->number ||
+            !service.HasChannel(static_cast<unsigned>(value->number))) {
+            throw std::invalid_argument("channelId must identify an existing channel");
+        }
+        channelId = static_cast<unsigned>(value->number);
+    }
     if (matrix) {
         const auto *confirmed = body.Find("confirmed");
         if (confirmed == nullptr || confirmed->type != Json::Type::BOOLEAN || !confirmed->boolean) {
             throw std::invalid_argument("Replacing all measurement definitions requires confirmed: true");
         }
-        return service.CreateAllSParameters(revision, displayRevision, owner);
+        return service.CreateAllSParameters(revision, displayRevision, owner, channelId);
     }
     if (remove) {
-        return service.DeleteDiagram(Diagram(body, true), revision, displayRevision, owner);
+        return service.DeleteDiagram(Diagram(body, true), revision, displayRevision, owner, channelId);
     }
     VnaService::TraceCreationOptions options;
     options.diagram = Diagram(body, false);
@@ -100,13 +110,14 @@ VnaService::Operation TraceActionAdapter::Execute(
             }
             options.parameter = parameter->string;
         }
-        return service.AddMeasurement(revision, displayRevision, owner, options);
+        return service.AddMeasurement(revision, displayRevision, owner, options, channelId);
     }
     const auto *source = body.Find("sourceName");
     if (source != nullptr && source->type != Json::Type::STRING) {
         throw std::invalid_argument("sourceName must be a string");
     }
-    return service.CloneMeasurement(source == nullptr ? "" : source->string, revision, displayRevision, owner, options);
+    return service.CloneMeasurement(
+        source == nullptr ? "" : source->string, revision, displayRevision, owner, options, channelId);
 }
 
 }  // 命名空间 VnaWeb

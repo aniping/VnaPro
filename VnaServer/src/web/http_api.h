@@ -80,11 +80,18 @@ private:
     Json ControlJson(const VnaService::InstrumentSnapshot &snapshot, const HttpRequest &request) const;
     HttpResponse Status(const HttpRequest &request) const;
     HttpResponse Frame(const std::string &query) const;
+    static HttpResponse ChannelFrame(const VnaService::InstrumentSnapshot &snapshot,
+        const VnaService::InstrumentChannelSnapshot &channel, const std::vector<VnaService::Measurement> &selected,
+        bool packed);
+    unsigned Channel(const Json &body, bool required = false) const;
+    unsigned QueryChannel(const std::string &query, std::string &remaining) const;
     static Json TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
         const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes,
         const VnaMeasurement::TraceResult &result, bool packed);
     HttpWriteResult StartDisplayWrite(const Json &body, const std::string &id);
+    HttpWriteResult StartStimulusZoomWrite(const Json &body, const std::string &id);
     HttpWriteResult StartConfigurationWrite(const Json &body, const std::string &id);
+    HttpWriteResult StartChannelWrite(const Json &body, const std::string &id);
     HttpWriteResult StartDefinitionWrite(const Json &body, const std::string &id);
     HttpResponse OperationStatus(const std::string &id, const std::string &requester) const;
     HttpResponse Accepted(const std::string &id, const std::string &owner) const;
@@ -95,6 +102,7 @@ private:
     static VnaService::ConfigPatch ConfigurationPatch(const Json &body);
     static VnaService::Measurement MeasurementDefinition(const Json &body);
     VnaService::Operation StartAction(const Json &body, const std::string &id);
+    VnaService::Operation StartSweepControl(const Json &body, const std::string &id);
     bool RetryResponse(const HttpSession &session, const HttpWriteIdentity &request, HttpResponse &response) const;
     bool RetryBudgetAllows(const HttpSession &session, std::size_t addedBytes) const noexcept;
     HttpResponse RecordWrite(

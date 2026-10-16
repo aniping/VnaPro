@@ -22,13 +22,14 @@ def status_defaults(http, port_count, startup_mode="CONT"):
     assert status["capabilities"] == {
         "portCount": port_count, "minFrequencyHz": MIN_HZ, "maxFrequencyHz": MAX_HZ,
         "minSweepPoints": 2, "maxSweepPoints": 10001,
+        "minPowerDbm": -120, "maxPowerDbm": 100,
     }, status["capabilities"]
     config = status["config"]
     assert (config["startHz"], config["stopHz"], config["points"], config["ifBandwidthHz"]) == (
         MIN_HZ, MAX_HZ, DEFAULT_POINTS, 1000,
     ), config
     assert status["measurements"] == [{
-        "name": "Trc1", "receiverKind": "b", "receiverPort": 2, "sourcePort": 1,
+        "name": "Trc1", "channelId": 1, "receiverKind": "b", "receiverPort": 2, "sourcePort": 1,
         "parameter": "S21", "kind": "sParameter", "unit": "1", "calibration": "uncalibrated",
     }], status["measurements"]
     assert config["sweepMode"] == startup_mode and config["triggerSource"] == "IMM", config

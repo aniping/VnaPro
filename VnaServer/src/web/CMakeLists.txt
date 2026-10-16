@@ -7,6 +7,7 @@ add_library(vna_web STATIC
     calibration_document_json.cpp
     calibration_preview_json.cpp
     trace_action_adapter.cpp
+    stimulus_zoom_json.cpp
     frame_selection.cpp
     frame_array_json.cpp
     json.cpp

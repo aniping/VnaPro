@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "vna_core/frame_layout.h"
+#include "vna_core/sweep_plan.h"
 #include "vna_measurement/measurement_processor.h"
 #include "vna_service/instrument_profile.h"
 #include "vna_service/instrument_service.h"
@@ -28,6 +29,7 @@
 #include "web/frame_selection.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
+#include "web/stimulus_zoom_json.h"
 #include "web/trace_action_adapter.h"
 
 namespace VnaWeb {
@@ -146,6 +148,7 @@ Json MeasurementJson(const VnaService::Measurement &measurement, const VnaCalibr
 {
     Json value = Json::MakeObject();
     value["name"] = Json(measurement.name);
+    value["channelId"] = Json(measurement.channelId);
     value["receiverKind"] = Json(std::string(1, measurement.receiverKind));
     value["receiverPort"] = Json(measurement.receiverPort);
     value["sourcePort"] = Json(measurement.sourcePort);
@@ -297,6 +300,8 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
     capabilities["maxFrequencyHz"] = Json(profile.maxFrequencyHz);
     capabilities["minSweepPoints"] = Json(VnaService::MIN_SWEEP_POINTS);
     capabilities["maxSweepPoints"] = Json(VnaService::MAX_SWEEP_POINTS);
+    capabilities["minPowerDbm"] = Json(VnaCore::MIN_POWER_DBM);
+    capabilities["maxPowerDbm"] = Json(VnaCore::MAX_POWER_DBM);
     value["capabilities"] = std::move(capabilities);
     value["state"] = Json(CoreStateName(snapshot.core.state));
     value["error"] = Json(snapshot.core.error);
@@ -311,10 +316,35 @@ HttpResponse HttpApi::Status(const HttpRequest &request) const
     value["calibration"] = CalibrationJson::Snapshot(snapshot.calibration);
     Json measurements = Json::MakeArray();
     for (const auto &measurement : settings.measurements) {
-        measurements.array.push_back(MeasurementJson(measurement, snapshot.correction));
+        const auto channel =
+            std::find_if(snapshot.channels.begin(), snapshot.channels.end(), [&measurement](const auto &item) {
+                return item.id == measurement.channelId;
+            });
+        measurements.array.push_back(MeasurementJson(
+            measurement, channel == snapshot.channels.end() ? VnaCalibration::CalibrationPtr{} : channel->correction));
     }
     value["measurements"] = std::move(measurements);
     value["display"] = DisplayJson::State(snapshot.display, settings.measurements);
+    value["stimulusZoom"] = StimulusZoomJson::Status(snapshot.stimulusZoom);
+    value["activeChannelId"] = Json(snapshot.activeChannelId);
+    auto channels = Json::MakeArray();
+    for (const auto &channel : snapshot.channels) {
+        auto item = Json::MakeObject();
+        item["channelId"] = Json(channel.id);
+        item["name"] = Json(channel.name);
+        item["state"] = Json(CoreStateName(channel.core.state));
+        item["error"] = Json(channel.core.error);
+        item["acquisitionRevision"] = Json(std::to_string(channel.settings.acquisitionRevision));
+        item["runId"] = Json(std::to_string(channel.core.runId));
+        item["activeConfigValid"] = Json(
+            channel.core.state != VnaCore::CoreState::FAULTED && channel.core.state != VnaCore::CoreState::CLOSED &&
+            channel.core.configRevision != 0U && channel.core.configRevision == channel.settings.acquisitionRevision);
+        item["config"] = ConfigurationJson(channel.settings);
+        item["calibration"] = CalibrationJson::Snapshot(channel.calibration);
+        item["stimulusZoom"] = StimulusZoomJson::Status(channel.stimulusZoom);
+        channels.array.push_back(std::move(item));
+    }
+    value["channels"] = std::move(channels);
     value["control"] = ControlJson(snapshot, request);
     return response;
 }
@@ -324,17 +354,63 @@ HttpResponse HttpApi::Frame(const std::string &query) const
     const auto snapshot = service_.Snapshot();
     const auto options = ParseFrameQuery(query);
     const auto selected = FrameMeasurements(snapshot, options.selection);
+    unsigned target = options.channelId == 0U ? snapshot.activeChannelId : options.channelId;
+    if (options.channelId == 0U && !options.selection.empty() && !selected.empty() &&
+        std::all_of(selected.begin(), selected.end(), [&selected](const VnaService::Measurement &measurement) {
+            return measurement.channelId == selected.front().channelId;
+        })) {
+        target = selected.front().channelId;
+    }
+    const auto channel = std::find_if(snapshot.channels.begin(), snapshot.channels.end(), [target](const auto &item) {
+        return item.id == target;
+    });
+    if (channel == snapshot.channels.end()) {
+        throw std::invalid_argument("Frame channel does not exist");
+    }
+    if (options.channelId != 0U && !options.selection.empty() &&
+        std::any_of(selected.begin(), selected.end(), [target](const VnaService::Measurement &measurement) {
+            return measurement.channelId != target;
+        })) {
+        throw std::invalid_argument("Trace does not belong to the requested channel");
+    }
+    auto response = ChannelFrame(snapshot, *channel, selected, options.packed);
+    if (response.status != 200U || options.channelId != 0U || snapshot.channels.size() <= 1U) {
+        return response;
+    }
+    auto frames = Json::MakeArray();
+    for (const auto &item : snapshot.channels) {
+        auto encoded = ChannelFrame(snapshot, item, selected, options.packed);
+        if (encoded.status != 200U) {
+            return encoded;
+        }
+        frames.array.push_back(std::move(encoded.json));
+    }
+    response.json["channelFrames"] = std::move(frames);
+    return response;
+}
+
+HttpResponse HttpApi::ChannelFrame(const VnaService::InstrumentSnapshot &snapshot,
+    const VnaService::InstrumentChannelSnapshot &channel, const std::vector<VnaService::Measurement> &selection,
+    bool packed)
+{
+    std::vector<VnaService::Measurement> selected;
+    for (const auto &measurement : selection) {
+        if (measurement.channelId == channel.id) {
+            selected.push_back(measurement);
+        }
+    }
     HttpResponse response;
     Json &value = response.json = Json::MakeObject();
+    value["channelId"] = Json(channel.id);
     value["displayRevision"] = Json(std::to_string(snapshot.display.revision));
-    value["calibrationRevision"] = Json(std::to_string(snapshot.calibration.revision));
-    if (!snapshot.core.frame) {
+    value["calibrationRevision"] = Json(std::to_string(channel.calibration.revision));
+    if (!channel.core.frame) {
         value["available"] = Json(false);
         value["current"] = Json(false);
         value["reason"] = Json("No completed frame");
         return response;
     }
-    const auto &frame = *snapshot.core.frame;
+    const auto &frame = *channel.core.frame;
     const std::size_t count = frame.plan.frequencyHz.size();
     if (count == 0U) {
         return HttpError(409, "no_physical_axis", "Frame does not have a verified physical frequency axis");
@@ -348,10 +424,10 @@ HttpResponse HttpApi::Frame(const std::string &query) const
         indexes.push_back(index);
     }
     value["available"] = Json(true);
-    value["current"] = Json(!snapshot.finitePending && snapshot.core.state != VnaCore::CoreState::FAULTED &&
-                            snapshot.core.state != VnaCore::CoreState::CLOSED &&
-                            frame.configRevision == snapshot.settings.acquisitionRevision &&
-                            frame.configRevision == snapshot.core.configRevision && frame.runId == snapshot.core.runId);
+    value["current"] = Json(!channel.finitePending && channel.core.state != VnaCore::CoreState::FAULTED &&
+                            channel.core.state != VnaCore::CoreState::CLOSED && frame.channelId == channel.id &&
+                            frame.configRevision == channel.settings.acquisitionRevision &&
+                            frame.configRevision == channel.core.configRevision && frame.runId == channel.core.runId);
     value["channelId"] = Json(frame.channelId);
     value["runId"] = Json(std::to_string(frame.runId));
     value["revision"] = Json(std::to_string(frame.configRevision));
@@ -360,13 +436,13 @@ HttpResponse HttpApi::Frame(const std::string &query) const
     value["originalPointCount"] = Json(static_cast<unsigned>(count));
     value["displayPointCount"] = Json(static_cast<unsigned>(count));
     value["decimated"] = Json(false);
-    AppendFrameAxis(value, frame, indexes, options.packed);
+    AppendFrameAxis(value, frame, indexes, packed);
     Json traces = Json::MakeArray();
     for (std::size_t begin = 0U; begin < selected.size(); begin += CALCULATION_BATCH_SIZE) {
         const auto end = (std::min)(selected.size(), begin + CALCULATION_BATCH_SIZE);
         const std::vector<VnaService::Measurement> batch(selected.begin() + begin, selected.begin() + end);
         const auto results =
-            VnaMeasurement::MeasurementProcessor::CalculateMany(frame, batch, snapshot.correction.get());
+            VnaMeasurement::MeasurementProcessor::CalculateMany(frame, batch, channel.correction.get());
         for (std::size_t offset = 0U; offset < batch.size(); ++offset) {
             const auto &measurement = batch[offset];
             const auto presentation = std::find_if(snapshot.display.traces.begin(), snapshot.display.traces.end(),
@@ -374,8 +450,7 @@ HttpResponse HttpApi::Frame(const std::string &query) const
                     return item.name == measurement.name;
                 });
             if (presentation != snapshot.display.traces.end()) {
-                traces.array.push_back(
-                    TraceJson(frame, measurement, *presentation, indexes, results[offset], options.packed));
+                traces.array.push_back(TraceJson(frame, measurement, *presentation, indexes, results[offset], packed));
             }
         }
     }
@@ -507,7 +582,9 @@ HttpResponse HttpApi::Write(const HttpRequest &request, const Json &body)
 HttpResponse HttpApi::Route(const HttpRequest &request)
 {
     Poll();  // 即使处于两次事件循环之间，也处理租约过期。
-    if ((request.path == "/api/v1/display" || request.path.find("/api/v1/measurement-actions/") == 0U) &&
+    if ((request.path == "/api/v1/display" || request.path == "/api/v1/sweep-control" ||
+            request.path == "/api/v1/channels" || request.path == "/api/v1/stimulus-zoom" ||
+            request.path.find("/api/v1/measurement-actions/") == 0U) &&
         request.method != "POST") {
         return HttpError(405, "method_not_allowed", "Instrument display actions require POST");
     }
@@ -519,21 +596,34 @@ HttpResponse HttpApi::Route(const HttpRequest &request)
             return Frame(request.query);
         }
         if (request.path == "/api/v1/calibration") {
+            std::string remaining;
+            const auto channelId = QueryChannel(request.query, remaining);
+            if (!remaining.empty()) {
+                throw std::invalid_argument("Unknown calibration query field");
+            }
             HttpResponse response;
-            response.json = CalibrationJson::Snapshot(service_.Calibration());
+            response.json = CalibrationJson::Snapshot(service_.Calibration(channelId));
             return response;
         }
         if (request.path == "/api/v1/calibration/preview") {
-            const auto query = CalibrationPreviewJson::ParseQuery(request.query);
+            std::string remaining;
+            const auto channelId = QueryChannel(request.query, remaining);
+            const auto query = CalibrationPreviewJson::ParseQuery(remaining);
             HttpResponse response;
-            response.json = CalibrationPreviewJson::Encode(service_.CalibrationPreview(query.sessionId, query.stepId));
+            response.json =
+                CalibrationPreviewJson::Encode(service_.CalibrationPreview(query.sessionId, query.stepId, channelId));
             return response;
         }
         const std::string calibrationPrefix = "/api/v1/calibration/sets/";
         if (request.path.find(calibrationPrefix) == 0U) {
+            std::string remaining;
+            const auto channelId = QueryChannel(request.query, remaining);
+            if (!remaining.empty()) {
+                throw std::invalid_argument("Unknown calibration set query field");
+            }
             Json id = Json::MakeObject();
             id["id"] = Json(request.path.substr(calibrationPrefix.size()));
-            const auto set = service_.FindCalibrationSet(DisplayJson::Revision(id, "id"));
+            const auto set = service_.FindCalibrationSet(DisplayJson::Revision(id, "id"), channelId);
             if (!set) {
                 return HttpError(404, "calibration_not_found", "Calibration set does not exist");
             }
@@ -621,10 +711,12 @@ Json HttpApi::ConfigurationJson(const VnaService::InstrumentSettings &settings)
     config["stopHz"] = Json(settings.stopHz);
     config["points"] = Json(settings.points);
     config["ifBandwidthHz"] = Json(settings.ifBandwidthHz);
+    config["powerDbm"] = Json(settings.powerDbm);
     config["triggerSource"] = Json(settings.triggerSource == VnaService::TriggerSource::IMMEDIATE ? "IMM" : "MAN");
     config["sweepMode"] = Json(settings.sweepMode == VnaService::SweepMode::HOLD     ? "HOLD"
                                : settings.sweepMode == VnaService::SweepMode::SINGLE ? "SING"
                                                                                      : "CONT");
+    config["selectedSweepMode"] = Json(settings.selectedSweepMode == VnaService::SweepMode::SINGLE ? "SING" : "CONT");
     return config;
 }
 
@@ -693,10 +785,13 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
     auto &operationValue = result.operation;
     if (request.path == "/api/v1/config" && request.method == "POST") {
         return StartConfigurationWrite(body, id);
+    } else if (request.path == "/api/v1/channels" && request.method == "POST") {
+        return StartChannelWrite(body, id);
     } else if (request.path == "/api/v1/calibration" && request.method == "POST") {
+        const auto channelId = Channel(body);
         const auto expected = Revision(body);
         const auto change = CalibrationJson::Change(body);
-        const auto snapshot = service_.Calibration();
+        const auto snapshot = service_.Calibration(channelId);
         const bool cancelCurrent = change.kind == VnaService::CalibrationChangeKind::CANCEL &&
                                    change.sessionId == snapshot.sessionId && snapshot.collecting &&
                                    expected <= snapshot.revision;
@@ -704,9 +799,11 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
             result.response = HttpError(409, "revision_conflict", "Calibration revision changed");
             return result;
         }
-        result.operation = service_.ApplyCalibration(change, expected, id);
+        result.operation = service_.ApplyCalibration(change, expected, id, channelId);
     } else if (request.path == "/api/v1/display" && request.method == "POST") {
         return StartDisplayWrite(body, id);
+    } else if (request.path == "/api/v1/stimulus-zoom" && request.method == "POST") {
+        return StartStimulusZoomWrite(body, id);
     } else if ((request.path == "/api/v1/measurement-actions/clone" ||
                    request.path == "/api/v1/measurement-actions/add" ||
                    request.path == "/api/v1/measurement-actions/all-sparameters" ||
@@ -714,8 +811,10 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
                request.method == "POST") {
         operationValue = TraceActionAdapter::Execute(service_, request.path, body, id);
     } else if (request.path == "/api/v1/operations" && request.method == "POST") {
-        Allowed(body, {"requestId", "action"});
+        Allowed(body, {"requestId", "action", "channelId"});
         operationValue = StartAction(body, id);
+    } else if (request.path == "/api/v1/sweep-control" && request.method == "POST") {
+        operationValue = StartSweepControl(body, id);
     } else if (request.path == "/api/v1/measurements" && request.method == "POST") {
         return StartDefinitionWrite(body, id);
     } else if (request.path.find("/api/v1/measurements/") == 0U &&
@@ -731,30 +830,116 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
 
 HttpApi::HttpWriteResult HttpApi::StartConfigurationWrite(const Json &body, const std::string &id)
 {
-    Allowed(
-        body, {"requestId", "expectedRevision", "startHz", "stopHz", "centerHz", "spanHz", "points", "ifBandwidthHz"});
+    Allowed(body, {"requestId", "expectedRevision", "startHz", "stopHz", "centerHz", "spanHz", "points",
+                      "ifBandwidthHz", "powerDbm", "channelId"});
+    const auto channelId = Channel(body);
     HttpWriteResult result;
     const auto expected = Revision(body);
     if (expected != service_.Settings().revision) {
         result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
         return result;
     }
-    result.operation = service_.ApplyConfiguration(ConfigurationPatch(body), expected, id);
+    result.operation = service_.ApplyConfiguration(ConfigurationPatch(body), expected, id, channelId);
+    result.admitted = true;
+    return result;
+}
+
+unsigned HttpApi::Channel(const Json &body, bool required) const
+{
+    if (body.Find("channelId") == nullptr && !required) {
+        return service_.ActiveChannelId();
+    }
+    const auto channelId = PositiveInteger(body, "channelId", (std::numeric_limits<unsigned>::max)());
+    if (!service_.HasChannel(channelId)) {
+        throw std::invalid_argument("Channel does not exist");
+    }
+    return channelId;
+}
+
+unsigned HttpApi::QueryChannel(const std::string &query, std::string &remaining) const
+{
+    unsigned channelId = service_.ActiveChannelId();
+    bool found = false;
+    remaining.clear();
+    for (std::size_t begin = 0U; begin < query.size();) {
+        const auto end = query.find('&', begin);
+        const auto field = query.substr(begin, end == std::string::npos ? end : end - begin);
+        if (field.empty()) {
+            throw std::invalid_argument("Empty calibration query field");
+        }
+        if (field.find("channelId=") == 0U) {
+            if (found) {
+                throw std::invalid_argument("Duplicate channelId query");
+            }
+            found = true;
+            channelId = ParseFrameQuery(field).channelId;
+        } else {
+            remaining += (remaining.empty() ? "" : "&") + field;
+        }
+        if (end == std::string::npos) {
+            break;
+        }
+        begin = end + 1U;
+        if (begin == query.size()) {
+            throw std::invalid_argument("Empty calibration query field");
+        }
+    }
+    if (!service_.HasChannel(channelId)) {
+        throw std::invalid_argument("Channel does not exist");
+    }
+    return channelId;
+}
+
+HttpApi::HttpWriteResult HttpApi::StartChannelWrite(const Json &body, const std::string &id)
+{
+    const auto action = Text(body, "action");
+    Allowed(body, action == "new" || action == "copy" ? std::vector<std::string>{"requestId", "action", "channelId",
+                                                            "newDiagram", "expectedRevision", "expectedDisplayRevision"}
+                                                      : std::vector<std::string>{"requestId", "action", "channelId",
+                                                            "expectedRevision", "expectedDisplayRevision"});
+    HttpWriteResult result;
+    const auto expected = Revision(body);
+    const auto expectedDisplay = DisplayJson::Revision(body, "expectedDisplayRevision");
+    if (expected != service_.Settings().revision || expectedDisplay != service_.Display().revision) {
+        result.response = HttpError(409, "revision_conflict", "Channel configuration or display revision changed");
+        return result;
+    }
+    if (action == "new" || action == "copy") {
+        if (action == "new" && body.Find("channelId") != nullptr) {
+            throw std::invalid_argument("New channel numbers are assigned by the instrument");
+        }
+        VnaService::ChannelCreationOptions options;
+        options.copyChannel = action == "copy";
+        options.sourceChannelId = options.copyChannel ? Channel(body) : 0U;
+        if (const auto *value = body.Find("newDiagram")) {
+            if (value->type != Json::Type::BOOLEAN) {
+                throw std::invalid_argument("newDiagram must be a boolean");
+            }
+            options.newDiagram = value->boolean;
+        }
+        result.operation = service_.CreateChannel(options, expected, expectedDisplay, id);
+    } else if (action == "select") {
+        result.operation = service_.SelectChannel(Channel(body, true), expectedDisplay, id);
+    } else if (action == "delete") {
+        result.operation = service_.DeleteChannel(Channel(body, true), expected, expectedDisplay, id);
+    } else {
+        throw std::invalid_argument("Unknown channel action");
+    }
     result.admitted = true;
     return result;
 }
 
 HttpApi::HttpWriteResult HttpApi::StartDefinitionWrite(const Json &body, const std::string &id)
 {
-    Allowed(body,
-        {"requestId", "expectedRevision", "name", "parameter", "kind", "receiverKind", "receiverPort", "sourcePort"});
+    Allowed(body, {"requestId", "expectedRevision", "name", "parameter", "kind", "receiverKind", "receiverPort",
+                      "sourcePort", "channelId"});
     HttpWriteResult result;
     const auto expected = Revision(body);
     if (expected != service_.Settings().revision) {
         result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
         return result;
     }
-    result.operation = service_.DefineMeasurement(MeasurementDefinition(body), expected, id);
+    result.operation = service_.DefineMeasurement(MeasurementDefinition(body), expected, id, Channel(body));
     result.admitted = true;
     return result;
 }
@@ -765,8 +950,8 @@ HttpApi::HttpWriteResult HttpApi::StartMeasurementWrite(
     HttpWriteResult result;
     const bool update = request.method == "PUT";
     Allowed(body, update ? std::vector<std::string>{"requestId", "expectedRevision", "parameter", "kind",
-                               "receiverKind", "receiverPort", "sourcePort"}
-                         : std::vector<std::string>{"requestId", "expectedRevision"});
+                               "receiverKind", "receiverPort", "sourcePort", "channelId"}
+                         : std::vector<std::string>{"requestId", "expectedRevision", "channelId"});
     const auto expected = Revision(body);
     if (expected != service_.Settings().revision) {
         result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
@@ -776,6 +961,11 @@ HttpApi::HttpWriteResult HttpApi::StartMeasurementWrite(
     if (!SafeName(name)) {
         throw std::runtime_error("Invalid measurement name");
     }
+    if (body.Find("channelId") != nullptr && service_.MeasurementChannel(name) != Channel(body)) {
+        result.response =
+            HttpError(409, "channel_owner_conflict", "Measurement does not belong to the requested channel");
+        return result;
+    }
     if (update) {
         if (!body.Find("parameter")) {
             Text(body, "kind");
@@ -783,9 +973,11 @@ HttpApi::HttpWriteResult HttpApi::StartMeasurementWrite(
         // 名称只取自路径，正文不能把更新变成重命名或新增测量。
         Json definition = body;
         definition["name"] = Json(name);
-        result.operation = service_.UpdateMeasurement(MeasurementDefinition(definition), expected, id);
+        result.operation = service_.UpdateMeasurement(
+            MeasurementDefinition(definition), expected, id, body.Find("channelId") == nullptr ? 0U : Channel(body));
     } else {
-        result.operation = service_.DeleteMeasurement(name, expected, id);
+        result.operation =
+            service_.DeleteMeasurement(name, expected, id, body.Find("channelId") == nullptr ? 0U : Channel(body));
     }
     result.admitted = true;
     return result;
@@ -817,6 +1009,10 @@ VnaService::ConfigPatch HttpApi::ConfigurationPatch(const Json &body)
     if (body.Find("ifBandwidthHz")) {
         patch.hasIfBandwidthHz = true;
         patch.ifBandwidthHz = Numeric(body, "ifBandwidthHz");
+    }
+    if (body.Find("powerDbm")) {
+        patch.hasPowerDbm = true;
+        patch.powerDbm = Numeric(body, "powerDbm");
     }
     return patch;
 }
@@ -864,20 +1060,90 @@ HttpApi::HttpWriteResult HttpApi::StartDisplayWrite(const Json &body, const std:
     return result;
 }
 
+HttpApi::HttpWriteResult HttpApi::StartStimulusZoomWrite(const Json &body, const std::string &id)
+{
+    HttpWriteResult result;
+    const auto change = StimulusZoomJson::Change(body);
+    const auto expected = DisplayJson::Revision(body, "expectedRevision");
+    const auto expectedDisplay = DisplayJson::Revision(body, "expectedDisplayRevision");
+    const auto channelId = body.Find("channelId") != nullptr || change.traceName.empty()
+                               ? Channel(body)
+                               : service_.MeasurementChannel(change.traceName);
+    if (channelId == 0U) {
+        throw std::invalid_argument("Stimulus zoom trace does not exist");
+    }
+    if (!change.traceName.empty() && service_.MeasurementChannel(change.traceName) != channelId) {
+        result.response =
+            HttpError(409, "channel_owner_conflict", "Stimulus zoom trace does not belong to the requested channel");
+        return result;
+    }
+    const auto snapshot = service_.Snapshot(channelId);
+    if (expected != snapshot.settings.revision) {
+        result.response = HttpError(409, "revision_conflict", "Configuration revision changed");
+        return result;
+    }
+    if (expectedDisplay != snapshot.display.revision) {
+        result.response = HttpError(409, "display_revision_conflict", "Display revision changed");
+        return result;
+    }
+    result.operation = service_.ApplyStimulusZoom(change, expected, expectedDisplay, id, channelId);
+    result.admitted = true;
+    return result;
+}
+
 VnaService::Operation HttpApi::StartAction(const Json &body, const std::string &id)
 {
     const std::string action = Text(body, "action");
+    const auto channelId = Channel(body);
     if (action == "single") {
-        return service_.RunSingle(id);
+        return service_.RunSingle(id, channelId);
     } else if (action == "continuous") {
-        return service_.RunContinuous(id);
+        return service_.RunContinuous(id, channelId);
     } else if (action == "hold") {
-        return service_.SetSweepMode(VnaService::SweepMode::HOLD, id);
+        return service_.SetSweepMode(VnaService::SweepMode::HOLD, id, channelId);
     } else if (action == "trigger") {
-        return service_.Trigger(id);
+        return service_.Trigger(id, channelId);
     } else {
         throw std::runtime_error("Unknown operation action");
     }
+}
+
+VnaService::Operation HttpApi::StartSweepControl(const Json &body, const std::string &id)
+{
+    const auto action = Text(body, "action");
+    const auto channelId = Channel(body);
+    if (action == "mode") {
+        Allowed(body, {"requestId", "action", "mode", "channelId"});
+        const auto mode = Text(body, "mode");
+        if (mode != "CONT" && mode != "SING") {
+            throw std::runtime_error("Sweep mode must be CONT or SING");
+        }
+        return service_.SelectSweepMode(
+            mode == "CONT" ? VnaService::SweepMode::CONTINUOUS : VnaService::SweepMode::SINGLE, id, channelId);
+    }
+    if (action == "source") {
+        Allowed(body, {"requestId", "action", "source", "channelId"});
+        const auto source = Text(body, "source");
+        if (source != "IMM" && source != "MAN") {
+            throw std::runtime_error("Trigger source must be IMM or MAN");
+        }
+        return service_.SelectTriggerSource(
+            source == "IMM" ? VnaService::TriggerSource::IMMEDIATE : VnaService::TriggerSource::MANUAL, id, channelId);
+    }
+    Allowed(body, {"requestId", "action", "channelId"});
+    if (action == "start") {
+        return service_.StartSweep(id, channelId);
+    }
+    if (action == "stop") {
+        return service_.StopSweep(id, channelId);
+    }
+    if (action == "trigger") {
+        return service_.Trigger(id, channelId);
+    }
+    if (action == "single") {
+        return service_.RunSelectedSingle(id, channelId);
+    }
+    throw std::runtime_error("Unknown sweep control action");
 }
 
 bool HttpApi::RetryResponse(const HttpSession &session, const HttpWriteIdentity &request, HttpResponse &response) const
