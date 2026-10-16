@@ -94,6 +94,9 @@ CalibrationError SolveDirection(const Complex &measuredReflection, const Complex
 
 bool CalibrationData::Covers(unsigned receiverPort, unsigned sourcePort) const noexcept
 {
+    if (method == CalibrationMethod::FOUR_PORT) {
+        return receiverPort >= 1U && receiverPort <= 4U && sourcePort >= 1U && sourcePort <= 4U;
+    }
     if (method == CalibrationMethod::ONE_PORT) {
         return receiverPort == port1 && sourcePort == port1;
     }
@@ -240,6 +243,79 @@ CalibrationError CorrectTwoPort(
         const auto error = Divide(corrected[index], denominator, scale, *destinations[index]);
         if (error != CalibrationError::NONE) {
             return error;
+        }
+    }
+    output = candidate;
+    return CalibrationError::NONE;
+}
+
+CalibrationError CorrectFourPort(
+    const FourPortNetwork &measured, const FourPortTerms &terms, FourPortNetwork &output) noexcept
+{
+    // 040D80 的良态矩阵行为：A=(M-offset)/tracking，B=I+match⊙A，S=A*inverse(B)。
+    // 生产合同沿用有限数和相对 1e-12 奇异拒绝，不复刻原核钳位后继续输出。
+    constexpr std::size_t ORDER = 4U;
+    std::array<std::array<Complex, ORDER * 2U>, ORDER> augmented{};
+    FourPortNetwork normalized{};
+    double scale = 0.0;
+    for (std::size_t row = 0U; row < ORDER; ++row) {
+        for (std::size_t column = 0U; column < ORDER; ++column) {
+            const auto index = row * ORDER + column;
+            const auto &cell = terms[index];
+            if (!IsFinite(measured[index]) || !IsFinite(cell.offset) || !IsFinite(cell.match) ||
+                !IsFinite(cell.tracking)) {
+                return CalibrationError::INVALID_INPUT;
+            }
+            const auto error = Divide(measured[index] - cell.offset, cell.tracking, 1.0, normalized[index]);
+            if (error != CalibrationError::NONE) {
+                return error;
+            }
+            augmented[row][column] = cell.match * normalized[index] + (row == column ? 1.0 : 0.0);
+            if (!IsFinite(augmented[row][column])) {
+                return CalibrationError::NONFINITE_RESULT;
+            }
+            scale = std::max(scale, std::abs(augmented[row][column]));
+        }
+        augmented[row][ORDER + row] = 1.0;
+    }
+    for (std::size_t column = 0U; column < ORDER; ++column) {
+        std::size_t pivotRow = column;
+        for (std::size_t row = column + 1U; row < ORDER; ++row) {
+            if (std::abs(augmented[row][column]) > std::abs(augmented[pivotRow][column])) {
+                pivotRow = row;
+            }
+        }
+        std::swap(augmented[column], augmented[pivotRow]);
+        const auto pivot = augmented[column][column];
+        for (auto &value : augmented[column]) {
+            const auto error = Divide(value, pivot, scale, value);
+            if (error != CalibrationError::NONE) {
+                return error;
+            }
+        }
+        for (std::size_t row = 0U; row < ORDER; ++row) {
+            if (row == column) {
+                continue;
+            }
+            const auto factor = augmented[row][column];
+            for (std::size_t item = 0U; item < ORDER * 2U; ++item) {
+                augmented[row][item] -= factor * augmented[column][item];
+                if (!IsFinite(augmented[row][item])) {
+                    return CalibrationError::NONFINITE_RESULT;
+                }
+            }
+        }
+    }
+    FourPortNetwork candidate{};
+    for (std::size_t row = 0U; row < ORDER; ++row) {
+        for (std::size_t column = 0U; column < ORDER; ++column) {
+            auto &value = candidate[row * ORDER + column];
+            for (std::size_t item = 0U; item < ORDER; ++item) {
+                value += normalized[row * ORDER + item] * augmented[item][ORDER + column];
+            }
+            if (!IsFinite(value)) {
+                return CalibrationError::NONFINITE_RESULT;
+            }
         }
     }
     output = candidate;

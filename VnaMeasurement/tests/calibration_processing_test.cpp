@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "../../VnaCalibration/tests/four_port_golden.h"
 #include "vna_core/frame_layout.h"
 #include "vna_measurement/measurement_processor.h"
 
@@ -226,6 +227,109 @@ void TestCalibrationShapeAxisAndPointErrors()
         !batch[0U].available && batch[1U].available && !batch[1U].calibrated, "批处理非法模型错误污染 raw 接收波合同");
 }
 
+VnaCore::MeasurementFrame FourPortFrame()
+{
+    auto frame = Frame();
+    frame.plan.sourcePorts = {4U, 2U, 1U, 3U};
+    frame.ports.clear();
+    for (unsigned source : {3U, 1U, 4U, 2U}) {
+        VnaCore::PortFrame port;
+        port.sourcePort = source;
+        port.iq.resize(3U * VnaCore::IQ_VALUES_PER_POINT);
+        const Complex reference(source + 1.0, -0.5 * source);
+        for (std::size_t point = 0U; point < 3U; ++point) {
+            for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+                SetWave(port, point, receiver, 'a', {99.0, -88.0});
+                SetWave(port, point, receiver, 'b',
+                    reference * FourPortGolden::MEASURED[(receiver - 1U) * 4U + source - 1U]);
+            }
+            SetWave(port, point, source, 'a', reference);
+        }
+        frame.ports.push_back(std::move(port));
+    }
+    return frame;
+}
+
+CalibrationData FourPort(const VnaCore::MeasurementFrame &frame)
+{
+    CalibrationData calibration;
+    calibration.method = CalibrationMethod::FOUR_PORT;
+    calibration.port1 = 1U;
+    calibration.port2 = 4U;
+    calibration.frequencyHz = frame.plan.frequencyHz;
+    calibration.fourPortTerms.assign(3U, FourPortGolden::TERMS);
+    return calibration;
+}
+
+void TestFourPortUsesJointPhysicalMatrix()
+{
+    auto frame = FourPortFrame();
+    const auto original = frame.ports;
+    const auto calibration = FourPort(frame);
+    std::vector<Measurement> requested;
+    for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+        for (unsigned source = 1U; source <= 4U; ++source) {
+            requested.push_back(Parameter("S" + std::to_string(receiver) + std::to_string(source)));
+        }
+    }
+    const auto batch = MeasurementProcessor::CalculateMany(frame, requested, &calibration);
+    Require(batch.size() == 16U, "四口批量校正丢失参数");
+    for (std::size_t index = 0U; index < batch.size(); ++index) {
+        Require(batch[index].available && batch[index].calibrated, "四口联合校正未生效");
+        for (const auto &point : batch[index].points) {
+            Near(point, FourPortGolden::CORRECTED[index]);
+        }
+        const auto single = MeasurementProcessor::Calculate(frame, requested[index], &calibration);
+        Near(single.points.front(), FourPortGolden::CORRECTED[index]);
+        const auto raw = MeasurementProcessor::Calculate(frame, requested[index]);
+        Near(raw.points.front(), FourPortGolden::MEASURED[index]);
+    }
+    auto mixed = MeasurementProcessor::CalculateMany(
+        frame, {Parameter("S44"), Parameter("b1,1"), Parameter("S12"), Parameter("S44")}, &calibration);
+    Require(mixed[0U].calibrated && !mixed[1U].calibrated && mixed[2U].calibrated, "四口批量污染原始接收波");
+    mixed[0U].points[0U].real = 99.0;
+    Near(mixed[3U].points[0U], FourPortGolden::CORRECTED[15U]);
+    for (std::size_t index = 0U; index < frame.ports.size(); ++index) {
+        Require(frame.ports[index].iq == original[index].iq, "四口校正改写了原始 IQ");
+    }
+}
+
+void TestFourPortErrorsInvalidateWholeFrequency()
+{
+    auto frame = FourPortFrame();
+    auto calibration = FourPort(frame);
+    SetWave(frame.ports[2U], 1U, 4U, 'a', {});
+    auto batch = MeasurementProcessor::CalculateMany(
+        frame, {Parameter("S11"), Parameter("S23"), Parameter("S44")}, &calibration);
+    for (const auto &trace : batch) {
+        Require(trace.available && trace.calibrated && trace.points[0U].valid && !trace.points[1U].valid &&
+                    trace.points[1U].error == PointError::REFERENCE_TOO_SMALL && trace.points[2U].valid,
+            "其它源参考损坏未使四口整频点无效");
+    }
+    frame = FourPortFrame();
+    SetWave(frame.ports[2U], 2U, 3U, 'b', {std::numeric_limits<double>::quiet_NaN(), 0.0});
+    const auto nan = MeasurementProcessor::Calculate(frame, Parameter("S11"), &calibration);
+    Require(nan.points[0U].valid && nan.points[2U].error == PointError::INVALID_SAMPLE,
+        "四口联合校正忽略非请求参数中的坏采样");
+    calibration.fourPortTerms[0U][15U].tracking = 0.0;
+    const auto singular = MeasurementProcessor::Calculate(frame, Parameter("S12"), &calibration);
+    Require(singular.points[0U].error == PointError::CALIBRATION_SINGULAR && singular.points[1U].valid,
+        "四口奇异系数没有逐点拒绝并保留好点");
+    frame = FourPortFrame();
+    frame.ports.pop_back();
+    frame.plan.sourcePorts = {1U, 3U, 4U};
+    Require(!MeasurementProcessor::Calculate(frame, Parameter("S11"), &calibration).available,
+        "四口缺源被静默降级成单条校正");
+    frame = FourPortFrame();
+    calibration = FourPort(frame);
+    calibration.fourPortTerms.pop_back();
+    Require(!MeasurementProcessor::Calculate(frame, Parameter("S11"), &calibration).available, "四口系数点数未校验");
+    calibration = FourPort(frame);
+    calibration.port2 = 3U;
+    Require(
+        !MeasurementProcessor::Calculate(frame, Parameter("S11"), &calibration).available, "四口物理范围元数据未校验");
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -234,6 +338,8 @@ int main()
         TestOnePortRawAndUncovered();
         TestPairUsesCompleteFrameAndPhysicalPorts();
         TestCalibrationShapeAxisAndPointErrors();
+        TestFourPortUsesJointPhysicalMatrix();
+        TestFourPortErrorsInvalidateWholeFrequency();
         std::cout << "校准测量接入：单端口、双向完整帧、物理端口、原始数据和异常合同通过\n";
         return 0;
     } catch (const std::exception &error) {

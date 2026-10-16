@@ -180,6 +180,10 @@ TraceResult MeasurementProcessor::Calculate(const VnaCore::MeasurementFrame &fra
             auto pair = Detail::CalculatePair(frame, *calibration);
             return std::move(pair[Detail::PairIndex(measurement, *calibration)]);
         }
+        if (calibration->method == VnaCalibration::CalibrationMethod::FOUR_PORT) {
+            auto matrix = Detail::CalculateFourPort(frame, *calibration);
+            return std::move(matrix[(measurement.receiverPort - 1U) * 4U + measurement.sourcePort - 1U]);
+        }
     }
     const auto *port = FindSource(frame, measurement.sourcePort);
     result.points.reserve(frame.plan.frequencyRaw.size());
@@ -205,11 +209,20 @@ std::vector<TraceResult> MeasurementProcessor::CalculateMany(const VnaCore::Meas
     std::vector<TraceResult> results;
     results.reserve(measurements.size());
     std::array<TraceResult, 4U> pair;
+    std::array<TraceResult, 16U> matrix;
     bool pairReady = false;
+    bool matrixReady = false;
     for (const auto &measurement : measurements) {
-        if (calibration != nullptr && calibration->method == VnaCalibration::CalibrationMethod::TWO_PORT &&
-            measurement.kind == MeasurementKind::S_PARAMETER && measurement.IsSupported() &&
-            calibration->Covers(measurement.receiverPort, measurement.sourcePort)) {
+        if (calibration != nullptr && calibration->method == VnaCalibration::CalibrationMethod::FOUR_PORT &&
+            measurement.kind == MeasurementKind::S_PARAMETER && measurement.IsSupported()) {
+            if (!matrixReady) {
+                matrix = Detail::CalculateFourPort(frame, *calibration);
+                matrixReady = true;
+            }
+            results.push_back(matrix[(measurement.receiverPort - 1U) * 4U + measurement.sourcePort - 1U]);
+        } else if (calibration != nullptr && calibration->method == VnaCalibration::CalibrationMethod::TWO_PORT &&
+                   measurement.kind == MeasurementKind::S_PARAMETER && measurement.IsSupported() &&
+                   calibration->Covers(measurement.receiverPort, measurement.sourcePort)) {
             if (!pairReady) {
                 pair = Detail::CalculatePair(frame, *calibration);
                 pairReady = true;

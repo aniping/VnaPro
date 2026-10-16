@@ -19,6 +19,9 @@ std::size_t PairIndex(const Measurement &measurement, const VnaCalibration::Cali
 std::array<TraceResult, 4U> CalculatePair(
     const VnaCore::MeasurementFrame &frame, const VnaCalibration::CalibrationData &calibration);
 
+std::array<TraceResult, 16U> CalculateFourPort(
+    const VnaCore::MeasurementFrame &frame, const VnaCalibration::CalibrationData &calibration);
+
 TraceResult ApplyCalibration(const VnaCore::MeasurementFrame &frame, const Measurement &measurement,
     const VnaCalibration::CalibrationData &calibration, TraceResult uncalibrated);
 

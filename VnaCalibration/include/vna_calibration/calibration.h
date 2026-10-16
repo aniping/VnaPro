@@ -23,7 +23,8 @@ enum class CalibrationError {
 
 enum class CalibrationMethod {
     ONE_PORT,
-    TWO_PORT
+    TWO_PORT,
+    FOUR_PORT
 };
 
 struct OnePortTerms final {
@@ -53,7 +54,17 @@ struct TwoPortNetwork final {
     Complex s12;
 };
 
-// 同一不可变系数快照；ONE_PORT 仅填 onePortTerms，TWO_PORT 仅填 twoPortTerms。
+// 四口表按接收端行、激励源列排列；对角为 D/S/R，非对角为 X/L/F。
+struct ErrorTerms final {
+    Complex offset;
+    Complex match;
+    Complex tracking;
+};
+
+using FourPortTerms = std::array<ErrorTerms, 16U>;
+using FourPortNetwork = std::array<Complex, 16U>;
+
+// 同一不可变系数快照；仅填所选模型对应的逐频系数数组。
 struct CalibrationData final {
     CalibrationMethod method = CalibrationMethod::ONE_PORT;
     unsigned port1 = 1U;
@@ -61,6 +72,7 @@ struct CalibrationData final {
     std::vector<double> frequencyHz;
     std::vector<OnePortTerms> onePortTerms;
     std::vector<TwoPortTerms> twoPortTerms;
+    std::vector<FourPortTerms> fourPortTerms;
 
     bool Covers(unsigned receiverPort, unsigned sourcePort) const noexcept;
 };
@@ -81,6 +93,10 @@ CalibrationError CorrectOnePort(const Complex &measured, const OnePortTerms &ter
 // 四个原始比值必须来自同一完整帧的同频点，不支持独立单条传输校正。
 CalibrationError CorrectTwoPort(
     const TwoPortNetwork &measured, const TwoPortTerms &terms, TwoPortNetwork &output) noexcept;
+
+// 联合求逆全部四口，不能以六个独立二口校正拼接；失败时不改变输出。
+CalibrationError CorrectFourPort(
+    const FourPortNetwork &measured, const FourPortTerms &terms, FourPortNetwork &output) noexcept;
 
 }  // 命名空间 VnaCalibration
 

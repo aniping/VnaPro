@@ -32,9 +32,14 @@ std::string Validate(const VnaCore::MeasurementFrame &frame, const VnaCalibratio
         }
     }
     if ((calibration.method == VnaCalibration::CalibrationMethod::ONE_PORT &&
-            (calibration.onePortTerms.size() != points || !calibration.twoPortTerms.empty())) ||
+            (calibration.onePortTerms.size() != points || !calibration.twoPortTerms.empty() ||
+                !calibration.fourPortTerms.empty())) ||
         (calibration.method == VnaCalibration::CalibrationMethod::TWO_PORT &&
-            (calibration.twoPortTerms.size() != points || !calibration.onePortTerms.empty()))) {
+            (calibration.twoPortTerms.size() != points || !calibration.onePortTerms.empty() ||
+                !calibration.fourPortTerms.empty())) ||
+        (calibration.method == VnaCalibration::CalibrationMethod::FOUR_PORT &&
+            (calibration.fourPortTerms.size() != points || !calibration.onePortTerms.empty() ||
+                !calibration.twoPortTerms.empty()))) {
         return "calibration coefficient shape does not match the frame";
     }
     return {};
@@ -77,9 +82,10 @@ TraceResult Ratio(const VnaCore::MeasurementFrame &frame, unsigned receiver, uns
     return MeasurementProcessor::Calculate(frame, measurement);
 }
 
-std::array<TraceResult, 4U> UnavailablePair(const std::string &error)
+template <std::size_t COUNT>
+std::array<TraceResult, COUNT> Unavailable(const std::string &error)
 {
-    std::array<TraceResult, 4U> results;
+    std::array<TraceResult, COUNT> results;
     for (auto &result : results) {
         result.error = error;
     }
@@ -91,14 +97,17 @@ std::array<TraceResult, 4U> UnavailablePair(const std::string &error)
 std::string ValidateCalibrationMetadata(const VnaCalibration::CalibrationData &calibration)
 {
     if (calibration.method != VnaCalibration::CalibrationMethod::ONE_PORT &&
-        calibration.method != VnaCalibration::CalibrationMethod::TWO_PORT) {
+        calibration.method != VnaCalibration::CalibrationMethod::TWO_PORT &&
+        calibration.method != VnaCalibration::CalibrationMethod::FOUR_PORT) {
         return "calibration method is not supported";
     }
     if (calibration.port1 == 0U || calibration.port1 > VnaCore::PHYSICAL_PORT_COUNT ||
         (calibration.method == VnaCalibration::CalibrationMethod::ONE_PORT && calibration.port2 != 0U) ||
         (calibration.method == VnaCalibration::CalibrationMethod::TWO_PORT &&
             (calibration.port2 == 0U || calibration.port2 > VnaCore::PHYSICAL_PORT_COUNT ||
-                calibration.port1 == calibration.port2))) {
+                calibration.port1 == calibration.port2)) ||
+        (calibration.method == VnaCalibration::CalibrationMethod::FOUR_PORT &&
+            (calibration.port1 != 1U || calibration.port2 != 4U))) {
         return "calibration contains invalid physical ports";
     }
     return {};
@@ -115,7 +124,7 @@ std::array<TraceResult, 4U> CalculatePair(
 {
     const auto error = Validate(frame, calibration);
     if (!error.empty()) {
-        return UnavailablePair(error);
+        return Unavailable<4U>(error);
     }
     const auto first = calibration.port1;
     const auto second = calibration.port2;
@@ -123,7 +132,7 @@ std::array<TraceResult, 4U> CalculatePair(
         Ratio(frame, second, second), Ratio(frame, first, second)};
     for (const auto &trace : results) {
         if (!trace.available) {
-            return UnavailablePair(trace.error);
+            return Unavailable<4U>(trace.error);
         }
     }
     for (auto &trace : results) {
@@ -159,6 +168,47 @@ std::array<TraceResult, 4U> CalculatePair(
     return results;
 }
 
+std::array<TraceResult, 16U> CalculateFourPort(
+    const VnaCore::MeasurementFrame &frame, const VnaCalibration::CalibrationData &calibration)
+{
+    const auto error = Validate(frame, calibration);
+    if (!error.empty()) {
+        return Unavailable<16U>(error);
+    }
+    std::array<TraceResult, 16U> results;
+    for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+        for (unsigned source = 1U; source <= 4U; ++source) {
+            auto &trace = results[(receiver - 1U) * 4U + source - 1U];
+            trace = Ratio(frame, receiver, source);
+            if (!trace.available) {
+                return Unavailable<16U>(trace.error);
+            }
+            trace.calibrated = true;
+        }
+    }
+    for (std::size_t point = 0U; point < frame.plan.frequencyRaw.size(); ++point) {
+        VnaCalibration::FourPortNetwork measured{};
+        ComplexPoint invalid;
+        bool valid = true;
+        for (std::size_t index = 0U; index < results.size(); ++index) {
+            if (!results[index].points[point].valid) {
+                invalid = results[index].points[point];
+                valid = false;
+                break;
+            }
+            measured[index] = Value(results[index].points[point]);
+        }
+        VnaCalibration::FourPortNetwork corrected{};
+        const auto correctionError =
+            valid ? VnaCalibration::CorrectFourPort(measured, calibration.fourPortTerms[point], corrected)
+                  : VnaCalibration::CalibrationError::INVALID_INPUT;
+        for (std::size_t index = 0U; index < results.size(); ++index) {
+            results[index].points[point] = valid ? Corrected(correctionError, corrected[index]) : invalid;
+        }
+    }
+    return results;
+}
+
 TraceResult ApplyCalibration(const VnaCore::MeasurementFrame &frame, const Measurement &measurement,
     const VnaCalibration::CalibrationData &calibration, TraceResult uncalibrated)
 {
@@ -174,6 +224,10 @@ TraceResult ApplyCalibration(const VnaCore::MeasurementFrame &frame, const Measu
     if (calibration.method == VnaCalibration::CalibrationMethod::TWO_PORT) {
         auto pair = CalculatePair(frame, calibration);
         return std::move(pair[PairIndex(measurement, calibration)]);
+    }
+    if (calibration.method == VnaCalibration::CalibrationMethod::FOUR_PORT) {
+        auto matrix = CalculateFourPort(frame, calibration);
+        return std::move(matrix[(measurement.receiverPort - 1U) * 4U + measurement.sourcePort - 1U]);
     }
     uncalibrated.calibrated = true;
     for (std::size_t index = 0U; index < uncalibrated.points.size(); ++index) {
