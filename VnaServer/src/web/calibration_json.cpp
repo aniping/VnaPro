@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "vna_service/instrument_profile.h"
+#include "web/calibration_applicability_json.h"
 #include "web/calibration_file_json.h"
 #include "web/calibration_json_fields.h"
 #include "web/display_json.h"
@@ -144,6 +145,15 @@ void CollectionChange(const Json &body, const std::string &action, VnaService::C
     }
 }
 
+VnaService::CalibrationChangeKind SavedSetKind(const std::string &action)
+{
+    using Kind = VnaService::CalibrationChangeKind;
+    if (action == "delete") {
+        return Kind::DELETE_SET;
+    }
+    return action == "activate" ? Kind::ACTIVATE : Kind::SELECT;
+}
+
 }  // 命名空间 CalibrationJsonDetail
 
 using namespace CalibrationJsonDetail;
@@ -162,6 +172,8 @@ Json CalibrationJson::Snapshot(const VnaService::CalibrationSnapshot &snapshot)
     value["selectedSetId"] = Json(std::to_string(snapshot.selectedSetId));
     value["enabled"] = Json(snapshot.enabled);
     value["compatible"] = Json(snapshot.compatible);
+    value["effective"] = Json(snapshot.effective);
+    value["applicability"] = EncodeCalibrationApplicability(snapshot.applicability);
     value["reason"] = Json(snapshot.reason);
     value["error"] = Json(snapshot.error);
     Json steps = Json::MakeArray();
@@ -179,19 +191,7 @@ Json CalibrationJson::Snapshot(const VnaService::CalibrationSnapshot &snapshot)
     value["steps"] = std::move(steps);
     Json sets = Json::MakeArray();
     for (const auto &set : snapshot.sets) {
-        Json item = Json::MakeObject();
-        item["id"] = Json(std::to_string(set.id));
-        item["name"] = Json(set.name);
-        item["method"] = Json(MethodName(set.method));
-        item["port1"] = Json(set.port1);
-        item["port2"] = Json(set.port2);
-        item["compatible"] = Json(set.compatible);
-        item["includeIsolation"] = Json(set.includeIsolation);
-        item["startHz"] = Json(set.startHz);
-        item["stopHz"] = Json(set.stopHz);
-        item["points"] = Json(set.points);
-        item["ifBandwidthHz"] = Json(set.ifBandwidthHz);
-        sets.array.push_back(std::move(item));
+        sets.array.push_back(EncodeCalibrationSetSummary(set));
     }
     value["sets"] = std::move(sets);
     return value;
@@ -211,9 +211,9 @@ VnaService::CalibrationChange CalibrationJson::Change(const Json &body)
         allowed.push_back("enabled");
         change.kind = Kind::ENABLE;
         change.enabled = Field(body, "enabled", Json::Type::BOOLEAN).boolean;
-    } else if (action == "select" || action == "delete") {
+    } else if (action == "select" || action == "delete" || action == "activate") {
         allowed.push_back("setId");
-        change.kind = action == "select" ? Kind::SELECT : Kind::DELETE_SET;
+        change.kind = SavedSetKind(action);
         change.setId = DisplayJson::Revision(body, "setId");
     } else if (action == "importFile") {
         allowed.insert(allowed.end(), {"format", "encoding", "content"});

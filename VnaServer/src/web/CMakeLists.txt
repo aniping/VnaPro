@@ -5,6 +5,7 @@ add_library(vna_web STATIC
     http_calibration_file.cpp
     display_json.cpp
     calibration_json.cpp
+    calibration_applicability_json.cpp
     calibration_binary.cpp
     calibration_binary_layout.cpp
     calibration_csv.cpp
@@ -30,6 +31,13 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(vna_calibration_applicability_protocol_tests
+        tests/calibration_applicability_protocol_test.cpp tests/calibration_protocol_test_support.cpp
+        ${PROJECT_SOURCE_DIR}/VnaService/tests/calibration_plan_test_support.cpp)
+    target_link_libraries(vna_calibration_applicability_protocol_tests PRIVATE vna_web vna_service_test_support)
+    target_compile_options(vna_calibration_applicability_protocol_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME calibration_applicability_protocol COMMAND vna_calibration_applicability_protocol_tests)
+    set_tests_properties(calibration_applicability_protocol PROPERTIES TIMEOUT 30)
     foreach(CALIBRATION_FORMAT binary csv file_json)
         add_executable(vna_calibration_${CALIBRATION_FORMAT}_tests tests/calibration_${CALIBRATION_FORMAT}_test.cpp)
         target_link_libraries(vna_calibration_${CALIBRATION_FORMAT}_tests PRIVATE vna_web)
