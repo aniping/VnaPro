@@ -53,7 +53,12 @@ const emit = defineEmits<{
         复制活动迹线；拖到图窗后选择新迹线参数。Trace Config 管理迹线。
       </li>
       <li>
-        Sweep → Sweep Control：Single 采一帧；Continuous 连续采集；Hold 停止。
+        Sweep → Sweep Control：改选 Continuous 启用连续运行；Single 在当前完整帧结束后停止。
+        Start Sweep 按当前模式启动新周期。工具栏 Restart Sweep 保留模式与触发源。
+      </li>
+      <li>
+        Sweep → Trigger In：运行中切到 Manual 后，直接点 Manual Trigger 采一帧。
+        Manual Trigger 只产生触发事件；Single 的新周期由 Sweep Control 中的 Start Sweep 启动。
       </li>
       <li>点击图内迹线条，Format / Scale / Marker 只调整该迹线显示。</li>
       <li>Cal → Start Cal：选择端口、确认理想 50 Ω 校准件，逐项采集标准后 Apply。Use Cal 启停并管理校准集。</li>
