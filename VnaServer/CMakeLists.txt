@@ -81,6 +81,10 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/ScpiTcpIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim>)
     set_tests_properties(scpi_tcp_integration PROPERTIES TIMEOUT 45)
+    add_test(NAME vnb_scpi_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/VnbScpiIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn10_drv_sim>)
+    set_tests_properties(vnb_scpi_integration PROPERTIES TIMEOUT 120)
     add_executable(vna_network_shutdown_tests tests/network_shutdown_test.cpp tests/client.cpp
         src/scpi_tcp_server.cpp src/scpi_connection.cpp)
     target_include_directories(vna_network_shutdown_tests PRIVATE src)
