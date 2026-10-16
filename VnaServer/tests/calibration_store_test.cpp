@@ -19,7 +19,9 @@
 #include <unistd.h>
 #endif
 
+#include "calibration_cache.h"
 #include "calibration_store.h"
+#include "vna_service/calibration_workspace.h"
 #include "vna_service/instrument_profile.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
@@ -301,20 +303,152 @@ void FailedManifestPublishKeepsOldPool(const std::string &directory)
 #endif
 }
 
+std::string CachePath(const std::string &directory, const std::string &file)
+{
+    return directory + "/compact-cache/" + file.substr(0U, file.size() - 5U) + ".bin";
+}
+
+void CompactCacheFallbackAndAuthority(const std::string &directory)
+{
+    CalibrationStore store(directory);
+    std::vector<CalibrationSetPtr> sets;
+    std::uint64_t selected = 0U;
+    std::string error;
+    Require(store.Load(1U, sets, selected, error), error);
+    const auto manifest = Read(directory + "/channel-1.json");
+    const auto rows = VnaWeb::ParseJson(manifest).Find("sets")->array;
+    const auto file = rows.front().Find("file")->string;
+    const auto path = CachePath(directory, file);
+    const auto valid = Read(path);
+    const auto source = Read(directory + "/" + file);
+    const auto expected = sets.front()->data->onePortTerms.front().directivity;
+    std::string version = valid;
+    version[8U] ^= 1;
+    std::string binding = valid;
+    binding[24U] ^= 1;
+    std::string checksum = valid;
+    checksum.back() ^= 1;
+    for (const auto &bad : {version, binding, checksum, valid.substr(0U, valid.size() / 2U), valid + "x"}) {
+        Write(path, bad);
+        CalibrationStore restarted(directory);
+        Require(restarted.Load(1U, sets, selected, error) && error.empty() && Read(path) == valid &&
+                    sets.front()->data->onePortTerms.front().directivity == expected,
+            "invalid or obsolete caches must rebuild losslessly from the original JSON without failing restore");
+    }
+    Remove(path);
+    Require(store.Load(1U, sets, selected, error) && Read(path) == valid, "missing cache must rebuild at startup");
+    Remove(path);
+    Require(store.Save(1U, sets, selected, error) && !std::ifstream(Native(path).c_str(), std::ios::binary) &&
+                Read(directory + "/channel-1.json") == manifest && Read(directory + "/" + file) == source,
+        "selection-only Save must neither read nor rebuild even a missing cache or rewrite source coefficients");
+    CalibrationStore cold(directory);
+    Require(cold.Save(1U, sets, selected, error) && error.empty() &&
+                !std::ifstream(Native(path).c_str(), std::ios::binary) &&
+                Read(directory + "/channel-1.json") == manifest && Read(directory + "/" + file) == source,
+        "selection-only cold Save must not rebuild derived cache before the authoritative commit");
+    Require(store.Load(1U, sets, selected, error), error);
+    const auto retained = sets.front();
+    const auto retainedSelection = selected;
+    std::string damaged = source;
+    damaged[damaged.size() / 2U] ^= 1;
+    Write(directory + "/" + file, damaged);
+    Require(!store.Load(1U, sets, selected, error) && sets.front() == retained && selected == retainedSelection &&
+                Read(path) == valid,
+        "a valid cache cannot conceal same-length damage to the authoritative JSON or mutate caller outputs");
+    Write(directory + "/" + file, source);
+    Remove(directory + "/" + file);
+    Require(!store.Load(1U, sets, selected, error) && sets.front() == retained && selected == retainedSelection,
+        "a valid cache cannot replace a missing authoritative JSON");
+    Write(directory + "/" + file, source);
+    Write(directory + "/compact-cache/channel-1-cache-1-1-1.tmp", "abandoned local temporary");
+    const auto foreign = directory + "/compact-cache/channel-2-cache-1-1-1.tmp";
+    Write(foreign, "another channel may still be writing");
+    Require(store.Load(1U, sets, selected, error) && Read(foreign) == "another channel may still be writing" &&
+                !std::ifstream(Native(directory + "/compact-cache/channel-1-cache-1-1-1.tmp").c_str()),
+        "cache cleanup must remove only this channel's temporaries");
+    Remove(foreign);
+}
+
+void CacheWriteFailureAndGenerationChanges(const std::string &directory)
+{
+    const auto folder = directory + "/compact-cache";
+    Rename(folder, folder + "-saved");
+    Write(folder, "cache unavailable; authoritative directory remains writable");
+    CalibrationStore store(directory);
+    std::vector<CalibrationSetPtr> sets;
+    std::uint64_t selected = 0U;
+    std::string error;
+    Require(store.Load(2U, sets, selected, error) && error.empty(),
+        "unreadable/unwritable cache directory must not fail a valid JSON restore");
+    const auto replacement = Set(7U, true);
+    Require(store.Save(2U, {replacement}, 7U, error) && error.empty(),
+        "cache creation failure must not fail an authoritative new-generation commit");
+    Require(store.Load(2U, sets, selected, error) && selected == 7U && sets.size() == 1U, error);
+    Remove(folder);
+    Rename(folder + "-saved", folder);
+    Require(store.Load(2U, sets, selected, error), error);
+    const auto before = VnaWeb::ParseJson(Read(directory + "/channel-2.json"));
+    const auto oldFile = before.Find("sets")->array.front().Find("file")->string;
+    auto changed = std::make_shared<VnaService::CalibrationSet>(*replacement);
+    auto data = std::make_shared<VnaCalibration::CalibrationData>(*changed->data);
+    data->fourPortTerms.front()[15U].tracking += VnaCalibration::Complex{0.125, -0.03125};
+    changed->data = data;
+    Require(store.Save(2U, {changed}, 7U, error), error);
+    const auto updated = VnaWeb::ParseJson(Read(directory + "/channel-2.json"));
+    const auto newFile = updated.Find("sets")->array.front().Find("file")->string;
+    Require(newFile != oldFile && !std::ifstream(Native(CachePath(directory, oldFile)).c_str()) &&
+                std::ifstream(Native(CachePath(directory, newFile)).c_str()),
+        "same-id coefficient replacement must create a matching new cache and retire the old generation");
+    Require(store.Load(2U, sets, selected, error) &&
+                sets.front()->data->fourPortTerms.front()[15U].tracking == data->fourPortTerms.front()[15U].tracking,
+        "new-generation cache must retain the changed actual coefficients");
+    Require(store.Save(2U, {}, 0U, error) && !std::ifstream(Native(CachePath(directory, newFile)).c_str()),
+        "deleting a set must retire its derived cache");
+    Require(store.Save(2U, {replacement}, 7U, error), error);
+}
+
+void CachedDataStillRequiresSemanticValidation(const std::string &directory)
+{
+    CalibrationStore store(directory);
+    auto invalid = std::make_shared<VnaService::CalibrationSet>(*Set(1U, false));
+    auto data = std::make_shared<VnaCalibration::CalibrationData>(*invalid->data);
+    data->onePortTerms.front().reflectionTracking = {};
+    invalid->data = data;
+    std::string error;
+    // Store accepts structurally valid data; the service owns profile and correction validation.
+    Require(store.Save(3U, {invalid}, 1U, error), error);
+    for (unsigned attempt = 0U; attempt < 2U; ++attempt) {
+        CalibrationStore restarted(directory);
+        std::vector<CalibrationSetPtr> restored;
+        std::uint64_t selected = 0U;
+        Require(restarted.Load(3U, restored, selected, error), error);
+        VnaService::CalibrationWorkspace workspace;
+        VnaService::InstrumentProfile profile;
+        profile.maxFrequencyHz = 40000000000.0;
+        Require(!workspace.RestoreSaved(restored, selected, profile, error) && workspace.SavedSets().empty(),
+            "even a valid matching cache must not bypass the original full coefficient validation at restore");
+    }
+    Require(store.Save(3U, {Set(1U, false)}, 1U, error), error);
+}
+
 void Cleanup(const std::string &directory)
 {
     for (unsigned channel : {1U, 2U, 3U}) {
         const auto base = directory + "/channel-" + std::to_string(channel);
         const auto manifest = VnaWeb::ParseJson(Read(base + ".json"));
         for (const auto &entry : manifest.Find("sets")->array) {
-            Remove(directory + "/" + entry.Find("file")->string);
+            const auto file = entry.Find("file")->string;
+            Remove(directory + "/" + file);
+            Remove(directory + "/compact-cache/" + file.substr(0U, file.size() - 5U) + ".bin");
         }
         Remove(base + ".json");
         Remove(base + ".lock");
     }
 #ifdef _WIN32
+    Require(RemoveDirectoryW(Native(directory + "/compact-cache").c_str()) != 0, "Cannot remove cache directory");
     Require(RemoveDirectoryW(Native(directory).c_str()) != 0, "Cannot remove test directory");
 #else
+    Require(rmdir((directory + "/compact-cache").c_str()) == 0, "Cannot remove cache directory");
     Require(rmdir(directory.c_str()) == 0, "Cannot remove test directory");
 #endif
 }
@@ -333,6 +467,9 @@ int main(int argc, char **argv)
         FailedWriteKeepsManifest(directory);
         FailedManifestPublishKeepsOldPool(directory);
         CorruptionIsNotAnEmptyPool(directory);
+        CompactCacheFallbackAndAuthority(directory);
+        CacheWriteFailureAndGenerationChanges(directory);
+        CachedDataStillRequiresSemanticValidation(directory);
         Cleanup(directory);
         std::cout << "PASS calibration store restart, immutable files, conflicts, atomic failures and corruption\n";
         return 0;

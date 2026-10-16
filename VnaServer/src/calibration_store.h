@@ -13,6 +13,7 @@
 namespace VnaServer {
 
 // 每通道以原子 manifest 发布不可变 JSON 集；不启用校正、不替代服务的系数/设备适用性验证。
+// compact-cache 为可丢弃的派生数据；Load 先核验源摘要，Save 在权威提交后生成新集缓存。
 // 同实例 Load/Save 由内部互斥锁串行；跨实例使用通道文件锁和 manifest 指纹拒绝陈旧写入。
 class CalibrationStore final {
 public:
@@ -35,7 +36,7 @@ private:
 
     using Entries = std::map<std::uint64_t, Entry>;
     Entries Read(unsigned channelId, std::vector<VnaService::CalibrationSetPtr> &sets, std::uint64_t &selectedId,
-        std::string &manifestDigest);
+        std::string &manifestDigest, bool rebuildCache = true);
     std::string directory_;
     std::map<unsigned, Entries> cache_;
     std::map<unsigned, std::string> manifests_;

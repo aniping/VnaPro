@@ -16,6 +16,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "calibration_cache.h"
+
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -32,6 +34,7 @@
 #include <unistd.h>
 #endif
 
+#include "vna_log/logger.h"
 #include "web/calibration_json.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
@@ -245,7 +248,7 @@ void Remove(const std::string &path)
 #endif
 }
 
-void WriteNew(const std::string &path, const std::string &text)
+void WriteNew(const std::string &path, const std::string &text, bool durable = true)
 {
 #ifdef _WIN32
     const int descriptor =
@@ -269,13 +272,15 @@ void WriteNew(const std::string &path, const std::string &text)
     if (std::fwrite(text.data(), 1U, text.size(), file) != text.size() || std::fflush(file) != 0) {
         IoError("Cannot write calibration file", path);
     }
+    if (durable) {
 #ifdef _WIN32
-    const int flushed = _commit(descriptor);
+        const int flushed = _commit(descriptor);
 #else
-    const int flushed = fsync(descriptor);
+        const int flushed = fsync(descriptor);
 #endif
-    if (flushed != 0) {
-        IoError("Cannot flush calibration file", path);
+        if (flushed != 0) {
+            IoError("Cannot flush calibration file", path);
+        }
     }
     owned.release();
     if (std::fclose(file) != 0) {
@@ -372,6 +377,83 @@ void Clean(const std::string &directory, unsigned channelId, const std::set<std:
             (InternalFile(file, prefix + "-set-", ".json") || InternalFile(file, prefix + "-manifest-", ".tmp"))) {
             Remove(directory + "/" + file);
         }
+    }
+}
+
+std::string CacheFile(const std::string &jsonFile)
+{
+    return jsonFile.substr(0U, jsonFile.size() - 5U) + ".bin";
+}
+
+bool ReadCache(const std::string &directory, const std::string &jsonFile, const std::string &digest,
+    std::size_t sourceBytes, VnaService::CalibrationSetPtr &set) noexcept
+{
+    try {
+        std::string bytes;
+        return ReadFile(directory + "/compact-cache/" + CacheFile(jsonFile), CalibrationCache::BYTE_LIMIT, bytes) &&
+               CalibrationCache::Decode(bytes, digest, sourceBytes, set);
+    } catch (const std::exception &) {
+        return false;
+    }
+}
+
+bool WriteCache(const std::string &directory, const std::string &jsonFile, const std::string &digest,
+    std::size_t sourceBytes, const VnaService::CalibrationSet &set, std::string &warning) noexcept
+{
+    std::string temporary;
+    try {
+        const auto bytes = CalibrationCache::Encode(set, digest, sourceBytes);
+        const auto folder = directory + "/compact-cache";
+        EnsureDirectory(folder);
+        temporary = folder + "/" + jsonFile.substr(0U, jsonFile.find("-set-")) + "-cache-" + Unique() + ".tmp";
+        WriteNew(temporary, bytes, false);
+        const auto destination = folder + "/" + CacheFile(jsonFile);
+#ifdef _WIN32
+        if (!MoveFileExW(WindowsPath(temporary).c_str(), WindowsPath(destination).c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            throw std::runtime_error("Cannot replace compact calibration cache");
+        }
+#else
+        if (std::rename(temporary.c_str(), destination.c_str()) != 0) {
+            IoError("Cannot replace compact calibration cache", destination);
+        }
+#endif
+        return true;
+    } catch (const std::exception &failure) {
+        try {
+            if (warning.empty()) {
+                warning = failure.what();
+            }
+        } catch (...) {
+        }
+        if (!temporary.empty()) {
+            try {
+                Remove(temporary);
+            } catch (const std::exception &) {
+            }
+        }
+    } catch (...) {
+    }
+    return false;
+}
+
+void CleanCache(const std::string &directory, unsigned channelId, const std::set<std::string> &keep) noexcept
+{
+    try {
+        const auto folder = directory + "/compact-cache";
+        if (!Directory(folder)) {
+            return;
+        }
+        const auto prefix = Prefix(channelId);
+        for (const auto &file : Files(folder)) {
+            const bool temporary = InternalFile(file, prefix + "-cache-", ".tmp");
+            const bool orphan = InternalFile(file, prefix + "-set-", ".bin") &&
+                                keep.count(file.substr(0U, file.size() - 4U) + ".json") == 0U;
+            if (temporary || orphan) {
+                Remove(folder + "/" + file);
+            }
+        }
+    } catch (const std::exception &failure) {
+        VnaLog::Warn(VnaLog::Module::SERVER, "紧凑校准缓存清理失败，channel={}，error={}", channelId, failure.what());
     }
 }
 
@@ -558,7 +640,7 @@ CalibrationStore::CalibrationStore(std::string directory) : directory_(std::move
 }
 
 CalibrationStore::Entries CalibrationStore::Read(unsigned channelId, std::vector<VnaService::CalibrationSetPtr> &sets,
-    std::uint64_t &selectedId, std::string &manifestDigest)
+    std::uint64_t &selectedId, std::string &manifestDigest, bool rebuildCache)
 {
     const auto prefix = Prefix(channelId);
     std::string text;
@@ -586,6 +668,10 @@ CalibrationStore::Entries CalibrationStore::Read(unsigned channelId, std::vector
     }
     Entries entries;
     std::size_t diskBytes = 0U;
+    std::size_t cacheHits = 0U;
+    std::size_t rebuilt = 0U;
+    std::size_t cacheFailures = 0U;
+    std::string cacheWarning;
     for (const auto &row : rows) {
         const auto id = Identifier(Field(row, "id", Json::Type::STRING));
         const auto file = Field(row, "file", Json::Type::STRING).string;
@@ -601,17 +687,36 @@ CalibrationStore::Entries CalibrationStore::Read(unsigned channelId, std::vector
             throw std::runtime_error("Calibration pool exceeds its serialized disk budget");
         }
         diskBytes += text.size();
-        auto document = VnaWeb::ParseJson(text, VnaWeb::CALIBRATION_JSON_NODE_LIMIT);
-        auto set = Decode(document);
+        VnaService::CalibrationSetPtr set;
+        const bool hit = ReadCache(directory_, file, digest, text.size(), set) && set->id == id;
+        if (hit) {
+            ++cacheHits;
+        } else {
+            auto document = VnaWeb::ParseJson(text, VnaWeb::CALIBRATION_JSON_NODE_LIMIT);
+            set = Decode(document);
+        }
         if (set->id != id) {
             throw std::invalid_argument("Calibration manifest and document identifiers differ");
         }
         entries.emplace(id, Entry{set, file, digest, text.size()});
-        sets.push_back(std::move(set));
+        sets.push_back(set);
         CheckPool(sets, 0U);
+        if (!hit && rebuildCache) {
+            if (WriteCache(directory_, file, digest, text.size(), *set, cacheWarning)) {
+                ++rebuilt;
+            } else {
+                ++cacheFailures;
+            }
+        }
     }
     CheckPool(sets, selectedId);
     manifestDigest = fingerprint;
+    VnaLog::Info(VnaLog::Module::SERVER, "紧凑校准缓存，channel={}，hit={}，miss={}，rebuilt={}，writeFailed={}",
+        channelId, cacheHits, rows.size() - cacheHits, rebuilt, cacheFailures);
+    if (cacheFailures != 0U) {
+        VnaLog::Warn(VnaLog::Module::SERVER, "校准 JSON 恢复成功，缓存写入失败不影响恢复，channel={}，error={}",
+            channelId, cacheWarning);
+    }
     return entries;
 }
 
@@ -632,6 +737,7 @@ bool CalibrationStore::Load(
             keep.insert(entry.second.file);
         }
         Clean(directory_, channelId, keep);
+        CleanCache(directory_, channelId, keep);
         cache_[channelId] = std::move(entries);
         manifests_[channelId] = std::move(fingerprint);
         sets = std::move(restored);
@@ -660,7 +766,7 @@ bool CalibrationStore::Save(unsigned channelId, const std::vector<VnaService::Ca
             std::vector<VnaService::CalibrationSetPtr> previous;
             std::uint64_t selected = 0U;
             std::string fingerprint;
-            auto entries = Read(channelId, previous, selected, fingerprint);
+            auto entries = Read(channelId, previous, selected, fingerprint, false);
             manifests_[channelId] = std::move(fingerprint);
             cache_[channelId] = std::move(entries);
         }
@@ -700,6 +806,11 @@ bool CalibrationStore::Save(unsigned channelId, const std::vector<VnaService::Ca
         Entries entries;
         std::set<std::string> keep;
         std::size_t diskBytes = 0U;
+        bool changedFiles = sets.size() != cache_.at(channelId).size();
+        std::array<std::uint64_t, SET_LIMIT> changedIds{};
+        std::size_t changedCount = 0U;
+        std::size_t cacheFailures = 0U;
+        std::string cacheWarning;
         for (const auto &set : sets) {
             Entry entry;
             const auto previous = cache_[channelId].find(set->id);
@@ -710,6 +821,7 @@ bool CalibrationStore::Save(unsigned channelId, const std::vector<VnaService::Ca
                 }
                 entry.set = set;
             } else {
+                changedFiles = true;
                 auto document = VnaWeb::CalibrationJson::Export(*set);
                 static_cast<void>(Decode(document));
                 VnaWeb::JsonEncoder encoder(std::move(document), VnaWeb::CALIBRATION_JSON_BYTE_LIMIT);
@@ -720,6 +832,7 @@ bool CalibrationStore::Save(unsigned channelId, const std::vector<VnaService::Ca
                     text.size()};
                 created.push_back(directory_ + "/" + entry.file);
                 WriteNew(created.back(), text);
+                changedIds[changedCount++] = set->id;
             }
             if (entry.bytes > DISK_BYTE_LIMIT - diskBytes) {
                 throw std::runtime_error("Calibration pool exceeds its serialized disk budget");
@@ -749,6 +862,21 @@ bool CalibrationStore::Save(unsigned channelId, const std::vector<VnaService::Ca
             if (error.empty()) {
                 error = "Calibration manifest committed; orphan cleanup failed and will be retried";
             }
+        }
+        if (changedFiles) {
+            CleanCache(directory_, channelId, keep);
+        }
+        // 派生缓存不得在权威 manifest 发布前占用本次提交所需空间。
+        // 已加载实例的热选择保存不读取、生成或枚举缓存文件。
+        for (std::size_t index = 0U; index < changedCount; ++index) {
+            const auto &entry = cache_.at(channelId).at(changedIds[index]);
+            if (!WriteCache(directory_, entry.file, entry.digest, entry.bytes, *entry.set, cacheWarning)) {
+                ++cacheFailures;
+            }
+        }
+        if (cacheFailures != 0U) {
+            VnaLog::Warn(VnaLog::Module::SERVER, "校准 manifest 已提交，缓存写入失败不影响提交，channel={}，error={}",
+                channelId, cacheWarning);
         }
         return true;
     } catch (const std::exception &failure) {
