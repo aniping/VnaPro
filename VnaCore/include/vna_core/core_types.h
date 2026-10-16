@@ -32,6 +32,7 @@ struct CommandResult final {
     std::uint64_t runId = 0U;
     std::uint64_t configRevision = 0U;
     std::uint64_t frameSeq = 0U;
+    unsigned channelId = 1U;
 };
 
 using Ticket = std::shared_future<CommandResult>;
@@ -43,6 +44,7 @@ struct CoreView final {
     FramePtr frame;
     std::string error;
     std::string deviceIdn;
+    unsigned channelId = 1U;
 };
 
 }  // 命名空间 VnaCore

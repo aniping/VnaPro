@@ -84,6 +84,11 @@ if(BUILD_TESTING)
     add_test(NAME core_identity_boundaries COMMAND vna_core_identity_boundary_tests)
     set_tests_properties(core_identity_boundaries PROPERTIES TIMEOUT 20)
 
+    add_executable(vna_core_multichannel_tests tests/multichannel_test.cpp)
+    target_link_libraries(vna_core_multichannel_tests PRIVATE vna_core_test_support)
+    add_test(NAME core_multichannel COMMAND vna_core_multichannel_tests)
+    set_tests_properties(core_multichannel PROPERTIES TIMEOUT 20)
+
     add_executable(vna_core_native_tests tests/native_integration_test.cpp)
     target_link_libraries(vna_core_native_tests PRIVATE vna_core)
     if(TARGET tdc1vn08_drv_sim)

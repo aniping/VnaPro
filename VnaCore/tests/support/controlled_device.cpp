@@ -19,6 +19,7 @@ void ControlledDevice::ApplyPlan(const VnaCore::SweepPlan &plan)
     std::lock_guard<std::mutex> lock(mutex_);
     RecordThread();
     ++applyPlanCalls_;
+    std::this_thread::sleep_for(applyDelay_);
     if (failPrepare_) {
         failPrepare_ = false;
         throw VnaCore::Detail::PlanPreparationError();
@@ -28,6 +29,7 @@ void ControlledDevice::ApplyPlan(const VnaCore::SweepPlan &plan)
         failApply_ = false;
         throw std::runtime_error("controlled partial configuration failure");
     }
+    planEvents_.emplace_back(false, plan);
 }
 
 void ControlledDevice::EnableRf()
@@ -40,6 +42,12 @@ void ControlledDevice::EnableRf()
 
 std::vector<VnaCore::PortFrame> ControlledDevice::AcquireSweep(const VnaCore::SweepPlan &plan)
 {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        Require(SamePlan(plan, applied_), "whole sweep did not use the physically applied plan");
+        planEvents_.emplace_back(true, plan);
+        cv_.notify_all();
+    }
     std::vector<VnaCore::PortFrame> ports;
     for (const auto source : plan.sourcePorts) {
         VnaCore::PortFrame port;

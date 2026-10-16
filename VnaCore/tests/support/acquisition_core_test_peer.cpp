@@ -16,11 +16,14 @@ void AcquisitionCoreTestPeer::SeedCounters(
     // 票据完成后，工作线程只会在此锁下检查状态并等待命令；禁止后台连续采集。
     std::lock_guard<std::mutex> guard(core.queueMutex_);
     Require(core.queue_.empty() && !core.closing_, "边界注入要求队列为空且核心尚未关闭");
-    Require(core.state_ != VnaCore::CoreState::RUNNING || core.mode_ == VnaCore::RunMode::MANUAL,
-        "禁止在后台连续采集时注入计数器边界");
-    core.runId_ = runId;
-    core.revision_ = revision;
-    core.frameSeq_ = frameSeq;
+    auto &channel = core.channels_.at(1U);
+    for (const auto &entry : core.channels_) {
+        Require(entry.second.state != VnaCore::CoreState::RUNNING || entry.second.mode == VnaCore::RunMode::MANUAL,
+            "禁止在后台连续采集时注入计数器边界");
+    }
+    channel.runId = runId;
+    channel.revision = revision;
+    channel.frameSeq = frameSeq;
     core.PublishView();
 }
 

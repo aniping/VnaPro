@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "concurrency_assertions.h"
@@ -59,6 +60,7 @@ public:
     bool failApply_ = false;
     bool failPrepare_ = false;
     bool failShutdown_ = false;
+    std::chrono::milliseconds applyDelay_{0};
     std::size_t failAcquireAt_ = 0U;
     std::size_t shortAcquireAt_ = 0U;
     bool omitLastSource_ = false;
@@ -72,6 +74,8 @@ public:
     bool wrongThread_ = false;
     bool shutdownCalled_ = false;
     VnaCore::SweepPlan applied_;
+    // 按设备真实调用顺序记录计划和完整帧采集，供多通道调度验证。
+    std::vector<std::pair<bool, VnaCore::SweepPlan>> planEvents_;
 
 private:
     std::vector<double> AcquirePort(const VnaCore::SweepPlan &plan, std::uint32_t source);

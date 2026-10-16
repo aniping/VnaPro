@@ -15,6 +15,8 @@ namespace VnaCore {
 namespace Detail {
 enum class CoreCommandKind {
     INITIALIZE,
+    CREATE_CHANNEL,
+    REMOVE_CHANNEL,
     CONFIGURE,
     START,
     TRIGGER,
@@ -30,6 +32,7 @@ struct CoreCommand final {
     std::uint64_t runId = 0U;
     std::uint64_t revision = 0U;
     std::promise<CommandResult> promise;
+    unsigned channelId = 1U;
 };
 
 }  // 命名空间 Detail
