@@ -19,6 +19,7 @@ import CalibrationSofttool from './components/softtools/CalibrationSofttool.vue'
 import CalibrationWorkflow from './components/softtools/CalibrationWorkflow.vue'
 import CalibrationAcquisition from './components/softtools/CalibrationAcquisition.vue'
 import { calibrationSummary } from './domain/calibration'
+import { applicabilityWarnings, calibrationStateLabel, calibrationTone } from './domain/calibrationApplicability'
 import { isCircularFormat, MAX_DIAGRAMS, MAX_TRACES } from './domain/presentation'
 import SystemSofttool from './components/softtools/SystemSofttool.vue'
 import DisplaySofttool from './components/softtools/DisplaySofttool.vue'
@@ -88,7 +89,9 @@ const canEditDisplay = computed(() => canWriteDisplay.value && !calibrationAcqui
 const canContinueReferenceDrag = computed(() =>
   canContinueDisplayGesture.value && !calibrationAcquisitionVisible.value,
 )
-const calibrationLabel = computed(() => calibrationSummary(status.value?.calibration))
+const calibrationLabel = computed(() => [calibrationSummary(status.value?.calibration), status.value?.calibration?.reason, ...applicabilityWarnings(status.value?.calibration?.applicability)].filter(Boolean).join(' · '))
+const calibrationState = computed(() => `${calibrationStateLabel(status.value?.calibration)}${status.value?.calibration?.applicability?.warnings.includes('ifbwChanged') ? ' · IFBW 变化' : ''}`)
+const calibrationStateTone = computed(() => calibrationTone(status.value?.calibration))
 const canvasStyle = ref({ left: '0px', top: '0px', transform: 'scale(1)' })
 const busy = computed(() =>
   Boolean(
@@ -659,6 +662,8 @@ onBeforeUnmount(() => {
               :can-calibrate="canCalibrate"
               :busy="busy"
               :command="instrument.calibrate"
+              :operation="pendingOperation"
+              :operation-error="error"
               :export-set="instrument.exportCalibration"
               @start="calibrationWorkflowOpen = true"
             />
@@ -722,6 +727,8 @@ onBeforeUnmount(() => {
           :run-id="frame?.runId ?? status?.runId ?? null"
           :revision="frame?.revision ?? status?.acquisitionRevision ?? null"
           :calibration-label="calibrationLabel"
+          :calibration-state="calibrationState"
+          :calibration-tone="calibrationStateTone"
           :notice="
             pendingOperation
               ? `${pendingOperation.label} · ${pendingOperation.readingBack ? 'Readback' : 'Pending'}`

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { nextTick, reactive, type VNode } from 'vue'
 import type { CalibrationSnapshot } from '../src/api/calibrationTypes'
-import { findElements, sfcHarness } from './sfcHarness'
+import { findComponent, findElements, sfcHarness } from './sfcHarness'
 
 function pool(count = 205): CalibrationSnapshot {
   return {
@@ -44,8 +44,14 @@ function element(harness: Harness, id: string) {
   return node
 }
 
+function clickNode(node: VNode) {
+  let stopped = 0
+  ;(node.props!.onClick as (event: { stopPropagation(): void }) => void)({ stopPropagation() { stopped++ } })
+  return stopped
+}
+
 function click(harness: Harness, id: string) {
-  return (element(harness, id).props!.onClick as () => void)()
+  return clickNode(element(harness, id))
 }
 
 test('205 long names stay intact while search and compatibility filtering only browse local summaries', async (context) => {
@@ -58,7 +64,7 @@ test('205 long names stay intact while search and compatibility filtering only b
   assert.equal(elements(harness, 'calibration-set-row').length, 205)
   const last = elements(harness, 'calibration-set-select').find((node) => node.props?.['data-set-id'] === '205')!
   assert.ok(text(last).includes(props.calibration.sets[204]!.name), 'the full stored name must reach the table')
-  ;(last.props!.onClick as () => void)()
+  assert.equal(clickNode(last), 1, 'the name button stops bubbling so its row cannot select twice')
   assert.deepEqual(harness.emitted, [['update:selectedId', '205']])
   props.selectedId = '205'
 
@@ -139,8 +145,11 @@ test('read-only users can browse and export while writes remain guarded at the e
   click(harness, 'calibration-export')
   click(harness, 'calibration-export-csv')
   const candidate = elements(harness, 'calibration-set-select').find((node) => node.props?.['data-set-id'] === '3')!
-  ;(candidate.props!.onClick as () => void)()
-  assert.deepEqual(harness.emitted, [['export', 'binary'], ['export', 'csv'], ['update:selectedId', '3']])
+  clickNode(candidate)
+  // A click bubbling from a frequency or metadata cell uses the same row browsing action.
+  const row = elements(harness, 'calibration-set-row').find((node) => node.props?.['data-set-id'] === '4')!
+  clickNode(row)
+  assert.deepEqual(harness.emitted, [['export', 'binary'], ['export', 'csv'], ['update:selectedId', '3'], ['update:selectedId', '4']])
 })
 
 test('busy submissions cannot close the dialog, change candidate, export or repeat an apply', async (context) => {
@@ -153,7 +162,8 @@ test('busy submissions cannot close the dialog, change candidate, export or repe
     click(harness, id)
   }
   const candidate = elements(harness, 'calibration-set-select')[0]!
-  ;(candidate.props!.onClick as () => void)()
+  clickNode(candidate)
+  clickNode(elements(harness, 'calibration-set-row')[0]!)
   assert.deepEqual(harness.emitted, [])
   props.busy = false
   await nextTick()
@@ -216,4 +226,45 @@ test('deleting requires a fresh explicit confirmation and invalidates stale sele
   await nextTick()
   click(harness, 'calibration-confirm-delete')
   assert.deepEqual(harness.emitted, [['remove']])
+})
+
+test('condition details are visible without a toggle and stay visible while browsing or changing channels', async (context) => {
+  const props = managerProps()
+  const harness = await sfcHarness('src/components/softtools/CalibrationSetManager.vue', props, {})
+  context.after(harness.dispose)
+  assert.equal(elements(harness, 'calibration-details-toggle').length, 0)
+  assert.ok(element(harness, 'calibration-condition-details'))
+  assert.ok(findComponent(harness.render(), 'CalibrationApplicabilityDetails'))
+  assert.match(text(element(harness, 'calibration-selected-summary')), /TOSM.*P1.*P4.*尚未应用到 Ch1/)
+  props.selectedId = '3'
+  await nextTick()
+  assert.equal((findComponent(harness.render(), 'CalibrationApplicabilityDetails')!.props!.set as { id: string }).id, '3')
+  assert.ok(element(harness, 'calibration-list-scroll'))
+  assert.deepEqual(harness.emitted, [], 'reading conditions must not select or activate a set')
+  props.channelId = 2
+  await nextTick()
+  assert.equal(elements(harness, 'calibration-details-toggle').length, 0)
+  assert.ok(element(harness, 'calibration-condition-details'))
+  assert.ok(findComponent(harness.render(), 'CalibrationApplicabilityDetails'))
+  assert.deepEqual(harness.emitted, [], 'changing the displayed channel must not apply a calibration')
+})
+
+test('current correction warnings and operation errors stay visible with another candidate and permanent conditions', async (context) => {
+  const props = managerProps()
+  props.calibration.applicability = {
+    applicable: true, prepared: true, frequencyMode: 'interpolated', reasonCode: 'none', reason: '',
+    sourcePoints: 800, targetPoints: 801, exactPoints: 2, interpolatedPoints: 799,
+    targetStartHz: 10e6, targetStopHz: 40e9, targetIfBandwidthHz: 100,
+    targetMinPowerDbm: 0, targetMaxPowerDbm: 0, warnings: ['ifbwChanged', 'interpolation'],
+  }
+  props.error = '应用失败，原校准集保持不变。'
+  const harness = await sfcHarness('src/components/softtools/CalibrationSetManager.vue', props, {})
+  context.after(harness.dispose)
+  assert.ok(findComponent(harness.render(), 'CalibrationApplicabilityDetails'))
+  assert.ok(element(harness, 'calibration-condition-details'))
+  assert.equal(elements(harness, 'calibration-details-toggle').length, 0)
+  assert.match(text(element(harness, 'calibration-current-warning')), /IFBW.*原带宽.*插值校正精度需验证/)
+  assert.match(text(harness.render()), /应用失败，原校准集保持不变/)
+  assert.equal(element(harness, 'calibration-apply').props!.disabled, false)
+  assert.match(text(element(harness, 'calibration-selected-name')), /CableTest 002/)
 })

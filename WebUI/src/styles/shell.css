@@ -48,6 +48,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .instrument-menu button:hover { border-color: #6a838f; background: #4b626f; }
 .status-message { flex: 1 1 auto; min-width: 0; color: #bbcbd3; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .status-message.error { color: #ffc5c2; }
+.status-calibration { flex: 0 1 310px; min-width: 135px; padding-inline: 8px; border-inline-start: 1px solid #677d88; color: var(--color-muted); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.status-calibration.success { color: var(--color-success); }
+.status-calibration.warning { color: var(--color-warning); }
 .status-metadata { display: flex; flex: 0 0 auto; gap: 8px; color: #b4c6cf; font-family: var(--font-data); font-size: 10px; }
 .status-channel { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; white-space: nowrap; }
 .status-channel i { width: 6px; height: 6px; border-radius: 50%; background: #cf9b4f; }

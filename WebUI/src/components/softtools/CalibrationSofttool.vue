@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import type { InstrumentStatus } from '../../api/types'
+import type { InstrumentStatus, PendingOperation } from '../../api/types'
 import type { CalibrationCommand, CalibrationFileFormat } from '../../api/calibrationTypes'
 import { calibrationFileBlob, decodeCalibrationFile, readCalibrationFile } from '../../api/calibrationFiles'
 import { calibrationMethodLabel, calibrationPorts, selectedCalibrationSet } from '../../domain/calibration'
+import { applicabilityMapping, applicabilityRemedy, applicabilityWarnings, calibrationCanApply, calibrationEffective, calibrationStateLabel, calibrationTone } from '../../domain/calibrationApplicability'
 import { frequencyText } from '../../plot/formatting'
 import CalibrationSetManager from './CalibrationSetManager.vue'
 
@@ -12,15 +13,27 @@ const props = defineProps<{
   status: InstrumentStatus | null
   canCalibrate: boolean
   busy: boolean
+  operation?: PendingOperation | null
+  operationError?: string | null
   command: (command: CalibrationCommand) => Promise<InstrumentStatus | null>
   exportSet: (setId: string, format?: CalibrationFileFormat) => Promise<Record<string, unknown>>
 }>()
 const emit = defineEmits<{ start: [] }>()
 const calibration = computed(() => props.status?.calibration)
-const active = computed(() => Boolean(calibration.value?.enabled && calibration.value.compatible))
+const active = computed(() => calibrationEffective(calibration.value))
+const warnings = computed(() => applicabilityWarnings(calibration.value?.applicability))
 const currentSet = computed(() => selectedCalibrationSet(calibration.value))
 const selected = ref(calibration.value?.selectedSetId ?? '')
 const working = ref(false)
+const workPhase = ref<'command' | 'activate' | 'readFile' | 'export'>('command')
+const busyText = computed(() => {
+  if (workPhase.value === 'readFile') return '正在读取并检查校准文件…'
+  if (workPhase.value === 'export') return '正在导出校准文件…'
+  if (props.operation?.kind === 'calibration') return props.operation.readingBack
+    ? '设备已完成，正在读回并确认校准状态…'
+    : workPhase.value === 'activate' ? '正在准备校准系数并应用到通道，等待设备完成…' : '正在等待设备完成校准操作…'
+  return workPhase.value === 'activate' ? '正在提交应用并启用校准集请求…' : '正在提交校准操作请求…'
+})
 const error = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const managerEntry = ref<HTMLButtonElement | null>(null)
@@ -46,7 +59,7 @@ function closeManager() {
 }
 
 function applySelected() {
-  if (selectedSet.value?.compatible) return act({ action: 'select', setId: selected.value })
+  if (calibrationCanApply(selectedSet.value)) return act({ action: 'activate', setId: selected.value })
 }
 
 function deleteSelected() {
@@ -56,13 +69,14 @@ function deleteSelected() {
 async function act(command: CalibrationCommand) {
   if (disposed || managerDisabled.value) return
   working.value = true
+  workPhase.value = command.action === 'activate' ? 'activate' : 'command'
   error.value = ''
   const channelId = props.status?.activeChannelId
   try {
     const result = await props.command(command)
     if (disposed || props.status?.activeChannelId !== channelId) return
-    if (!result) error.value = '操作未完成，请检查仪器状态栏中的原因。'
-    else if (command.action === 'select') selected.value = result.calibration?.selectedSetId ?? ''
+    if (!result) error.value = props.operationError || '操作未完成，请检查仪器状态栏中的原因。'
+    else if (command.action === 'activate' || command.action === 'select') selected.value = result.calibration?.selectedSetId ?? ''
   } catch (failure) {
     if (!disposed && props.status?.activeChannelId === channelId)
       error.value = failure instanceof Error ? failure.message : '操作失败，请检查仪器状态后重试。'
@@ -74,6 +88,7 @@ async function exportSelected(format: CalibrationFileFormat = 'binary') {
   const setId = selected.value
   const channelId = props.status?.activeChannelId
   working.value = true
+  workPhase.value = 'export'
   error.value = ''
   try {
     const data = await props.exportSet(setId, format)
@@ -100,6 +115,7 @@ async function importSelected(event: Event) {
   if (disposed || !file || managerDisabled.value) return
   const channelId = props.status?.activeChannelId
   working.value = true
+  workPhase.value = 'readFile'
   error.value = ''
   try {
     const command = await readCalibrationFile(file)
@@ -118,9 +134,11 @@ async function importSelected(event: Event) {
     <div class="softtool-readout" data-testid="current-calibration-set" aria-label="Current channel calibration">
       <span>Current Cal Set · Ch{{ status?.activeChannelId ?? 1 }}</span>
       <strong>{{ currentSet?.name ?? 'No calibration data' }}</strong>
-      <span class="calibration-state" :class="{ 'is-active': active }">{{ active ? 'User Cal On' : 'Cal Off' }}<template v-if="currentSet"> · {{ calibrationMethodLabel(currentSet.method) }} · {{ calibrationPorts(currentSet.method, currentSet.port1, currentSet.port2) }}</template></span>
+      <span class="calibration-state" :class="[calibrationTone(calibration), { 'is-active': active }]" data-testid="calibration-correction-state">{{ calibrationStateLabel(calibration) }}<template v-if="currentSet"> · {{ calibrationMethodLabel(currentSet.method) }} · {{ calibrationPorts(currentSet.method, currentSet.port1, currentSet.port2) }}</template></span>
     </div>
-    <p v-if="calibration?.reason && !active" class="softtool-note" :class="{ warning: !calibration.compatible }">{{ calibration.reason }}</p>
+    <p v-if="calibration?.reason && !active" class="softtool-note" :class="{ warning: !calibration.compatible }">{{ calibration.reason }} {{ applicabilityRemedy(calibration.applicability) }}</p>
+    <p v-if="active && calibration?.applicability" class="softtool-note" data-testid="calibration-active-mapping">{{ applicabilityMapping(calibration.applicability) }}</p>
+    <p v-for="warning in warnings" :key="warning" class="softtool-note warning" data-testid="calibration-active-warning">{{ warning }}</p>
     <div class="softtool-divider" />
     <template v-if="mode === 'cal'">
       <h2 class="softtool-section-title">Calibration</h2>
@@ -154,10 +172,12 @@ async function importSelected(event: Event) {
       v-if="managerOpen"
       v-model:selected-id="selected"
       :calibration="calibration"
+      :config="status?.config"
       :channel-id="status?.activeChannelId ?? 1"
       :disabled="managerDisabled"
       :busy="working"
       :error="error"
+      :busy-text="busyText"
       @apply="applySelected"
       @remove="deleteSelected"
       @export="exportSelected"
@@ -170,4 +190,5 @@ async function importSelected(event: Event) {
 <style scoped>
 .calibration-file { display: none; }
 .calibration-state.is-active { color: var(--color-success); }
+.calibration-state.warning { color: var(--color-warning); }
 </style>
