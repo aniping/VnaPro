@@ -11,6 +11,8 @@
 #include <string>
 
 #include "calibration_golden.h"
+#include "four_port_golden.h"
+#include "four_port_mechanical_golden.h"
 
 namespace {
 
@@ -166,6 +168,116 @@ void TestInvalidInputsDoNotCommitOutput()
     RequireNetwork(networkOutput, sentinelNetwork);
 }
 
+void TestFourPortOriginalMatrixAndPairwiseDifference()
+{
+    FourPortNetwork output{};
+    Require(CorrectFourPort(FourPortGolden::MEASURED, FourPortGolden::TERMS, output) == CalibrationError::NONE,
+        "原四口非对称黄金向量被拒绝");
+    for (std::size_t index = 0U; index < output.size(); ++index) {
+        RequireNear(output[index], FourPortGolden::CORRECTED[index]);
+    }
+    const auto &cells = FourPortGolden::TERMS;
+    const TwoPortTerms pairTerms = {{cells[0U].offset, cells[0U].match, cells[0U].tracking},
+        {cells[5U].offset, cells[5U].match, cells[5U].tracking},
+        {cells[4U].offset, cells[4U].match, cells[4U].tracking},
+        {cells[1U].offset, cells[1U].match, cells[1U].tracking}};
+    const auto &measured = FourPortGolden::MEASURED;
+    TwoPortNetwork pair;
+    Require(CorrectTwoPort({measured[0U], measured[4U], measured[5U], measured[1U]}, pairTerms, pair) ==
+                    CalibrationError::NONE &&
+                std::abs(pair.s21 - output[4U]) > 1e-3,
+        "四口联合校正必须与独立二口拼接存在可检出的区别");
+    CalibrationData data;
+    data.method = CalibrationMethod::FOUR_PORT;
+    data.port1 = 1U;
+    data.port2 = 4U;
+    for (unsigned receiver = 1U; receiver <= 4U; ++receiver) {
+        for (unsigned source = 1U; source <= 4U; ++source) {
+            Require(data.Covers(receiver, source), "四口模型漏覆盖有效 S 参数");
+        }
+    }
+    Require(!data.Covers(0U, 1U) && !data.Covers(1U, 5U), "四口模型覆盖了不存在的物理端口");
+}
+
+void TestFourPortMechanicalSolveAndApplication()
+{
+    std::array<OnePortTerms, 4U> reflections{};
+    FourPortTerms solved{};
+    for (const auto &sample : FourPortMechanicalGolden::REFLECTION) {
+        auto &terms = reflections[sample.port];
+        Require(SolveThreeStandards(sample.measured, sample.standards, terms) == CalibrationError::NONE,
+            "原机械非理想 OSL 黄金输入被拒绝");
+        solved[sample.port * 4U + sample.port] = {terms.directivity, terms.sourceMatch, terms.reflectionTracking};
+    }
+    for (const auto &sample : FourPortMechanicalGolden::THRU) {
+        const auto &raw = sample.raw;
+        const TwoPortNetwork measured{raw[1U], raw[2U], raw[4U], raw[5U]};
+        const TwoPortNetwork defined{0.0, sample.transmission, 0.0, sample.transmission};
+        Require(std::abs(sample.transmission - Complex{1.0, 0.0}) > 1e-3 && std::abs(raw[6U] - raw[7U]) > 1e-5,
+            "机械黄金夹具必须保留非单位直通与方向不同的非零隔离");
+        TwoPortTerms pair;
+        Require(SolveKnownThru(measured, defined, reflections[sample.first], reflections[sample.second], raw[6U],
+                    raw[7U], pair) == CalibrationError::NONE,
+            "原机械 Defined Thru 黄金输入被拒绝");
+        const auto &forward = pair.forwardTransmission;
+        const auto &reverse = pair.reverseTransmission;
+        solved[sample.second * 4U + sample.first] = {
+            forward.isolation, forward.loadMatch, forward.transmissionTracking};
+        solved[sample.first * 4U + sample.second] = {
+            reverse.isolation, reverse.loadMatch, reverse.transmissionTracking};
+    }
+    for (std::size_t cell = 0U; cell < solved.size(); ++cell) {
+        const auto &expected = FourPortMechanicalGolden::EXPECTED[cell];
+        RequireNear(solved[cell].offset, expected.offset);
+        RequireNear(solved[cell].match, expected.match);
+        RequireNear(solved[cell].tracking, expected.tracking);
+    }
+    for (const auto &dut : FourPortMechanicalGolden::DUT) {
+        FourPortNetwork corrected{};
+        Require(CorrectFourPort(dut.measured, solved, corrected) == CalibrationError::NONE,
+            "机械求解所得完整48项未能联合校正独立DUT");
+        for (std::size_t cell = 0U; cell < corrected.size(); ++cell) {
+            RequireNear(corrected[cell], dut.corrected[cell]);
+        }
+    }
+}
+
+void TestFourPortFailureAndAliasing()
+{
+    FourPortTerms identity{};
+    for (auto &cell : identity) {
+        cell.tracking = 1.0;
+    }
+    auto measured = FourPortGolden::MEASURED;
+    measured[0U] = {1e200, -1e200};
+    const auto original = measured;
+    Require(CorrectFourPort(measured, identity, measured) == CalibrationError::NONE && measured == original,
+        "四口恒等校正未支持原地和有限大幅值");
+    FourPortNetwork sentinel;
+    sentinel.fill({9.0, 8.0});
+    auto output = sentinel;
+    auto invalid = identity;
+    invalid[8U].tracking = 0.0;
+    Require(CorrectFourPort(measured, invalid, output) == CalibrationError::SINGULAR && output == sentinel,
+        "四口零跟踪没有原子拒绝");
+    invalid = identity;
+    invalid[12U].match = {std::numeric_limits<double>::quiet_NaN(), 0.0};
+    Require(CorrectFourPort(measured, invalid, output) == CalibrationError::INVALID_INPUT && output == sentinel,
+        "四口非有限系数没有原子拒绝");
+    measured = {};
+    measured[0U] = -1.0;
+    invalid = identity;
+    invalid[0U].match = 1.0;
+    Require(CorrectFourPort(measured, invalid, output) == CalibrationError::SINGULAR && output == sentinel,
+        "四口不可逆联合矩阵没有原子拒绝");
+    measured[0U] = -1.0 + 5e-13;
+    Require(CorrectFourPort(measured, invalid, output) == CalibrationError::SINGULAR && output == sentinel,
+        "四口近奇异矩阵没有按产品相对门槛拒绝");
+    measured[0U] = std::numeric_limits<double>::infinity();
+    Require(CorrectFourPort(measured, identity, output) == CalibrationError::INVALID_INPUT && output == sentinel,
+        "四口非有限原始测量没有原子拒绝");
+}
+
 }  // 匿名命名空间
 
 int main()
@@ -176,6 +288,9 @@ int main()
         TestIdentityAndCoverage();
         TestTrackingBoundaryAndLargeFiniteIdentity();
         TestInvalidInputsDoNotCommitOutput();
+        TestFourPortOriginalMatrixAndPairwiseDifference();
+        TestFourPortMechanicalSolveAndApplication();
+        TestFourPortFailureAndAliasing();
         std::cout << "20 组原指令黄金向量及独立 OSL、恒等、异常合同通过\n";
         return 0;
     } catch (const std::exception &error) {
