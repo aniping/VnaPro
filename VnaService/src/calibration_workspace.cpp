@@ -179,6 +179,7 @@ bool CalibrationWorkspace::RestoreSaved(std::vector<CalibrationSetPtr> sets, std
     nextSetId_ = maximumId + 1U;
     enabled_ = false;
     error_.clear();
+    RefreshPrepared();
     ++revision_;
     return true;
 }
@@ -227,60 +228,6 @@ CalibrationPreviewResult CalibrationWorkspace::Preview(std::uint64_t sessionId, 
     result.trace.available = true;
     result.available = true;
     return result;
-}
-
-CalibrationSnapshot CalibrationWorkspace::Snapshot(const std::string &identity, const VnaCore::SweepPlan &plan) const
-{
-    CalibrationSnapshot result;
-    result.revision = revision_;
-    result.collecting = collecting_;
-    result.capturePending = capturePending_;
-    result.sessionId = collecting_ ? session_.id : 0U;
-    result.method = method_;
-    result.port1 = port1_;
-    result.port2 = port2_;
-    result.includeIsolation = includeIsolation_;
-    for (const auto &sample : samples_) {
-        result.steps.push_back(sample.step);
-    }
-    result.selectedSetId = selectedSetId_;
-    result.enabled = enabled_;
-    result.error = error_;
-    const auto selected = Find(selectedSetId_);
-    if (!collecting_ && selected) {
-        result.method = selected->data->method;
-        result.port1 = selected->data->port1;
-        result.port2 = selected->data->port2;
-        result.includeIsolation = selected->includeIsolation;
-    }
-    result.compatible = selected && Compatible(*selected, identity, plan);
-    result.reason = !selected            ? "No calibration set selected"
-                    : !result.compatible ? "Calibration stimulus or device identity does not match"
-                    : !enabled_          ? "Correction is disabled"
-                                         : "Correction is enabled";
-    for (const auto &set : sets_) {
-        CalibrationSetSummary summary;
-        summary.id = set->id;
-        summary.name = set->name;
-        summary.method = set->data->method;
-        summary.port1 = set->data->port1;
-        summary.port2 = set->data->port2;
-        summary.includeIsolation = set->includeIsolation;
-        summary.compatible = Compatible(*set, identity, plan);
-        summary.startHz = set->data->frequencyHz.front();
-        summary.stopHz = set->data->frequencyHz.back();
-        summary.points = static_cast<unsigned>(set->data->frequencyHz.size());
-        summary.ifBandwidthHz = set->ifBandwidthHz;
-        result.sets.push_back(std::move(summary));
-    }
-    return result;
-}
-
-VnaCalibration::CalibrationPtr CalibrationWorkspace::Correction(
-    const std::string &identity, const VnaCore::SweepPlan &plan) const
-{
-    const auto set = Find(selectedSetId_);
-    return enabled_ && set && Compatible(*set, identity, plan) ? set->data : VnaCalibration::CalibrationPtr{};
 }
 
 void CalibrationWorkspace::ExtendPlan(VnaCore::SweepPlan &plan) const
@@ -621,6 +568,7 @@ bool CalibrationWorkspace::Complete(const std::string &name, std::string &error)
     samples_.clear();
     session_ = {};
     error_.clear();
+    RefreshPrepared();
     ++revision_;
     return true;
 }
@@ -650,6 +598,7 @@ bool CalibrationWorkspace::ApplySaved(
     if (!UpdateSaved(change, profile, error)) {
         return false;
     }
+    RefreshPrepared();
     error_.clear();
     ++revision_;
     return true;

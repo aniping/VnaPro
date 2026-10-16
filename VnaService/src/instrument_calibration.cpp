@@ -55,6 +55,7 @@ bool InstrumentService::RestoreCalibration(
         error = "Instrument calibration pool exceeds 1 GiB";
         return false;
     }
+    candidate.PrepareForPlan(Identity(), activePlan_);
     calibration_ = std::move(candidate);
     return true;
 }
@@ -99,7 +100,12 @@ CalibrationSnapshot InstrumentService::Calibration(unsigned channelId) const
     if (!profileReady_ || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
         view.configRevision != settings_.acquisitionRevision) {
         result.compatible = false;
+        result.effective = false;
+        result.applicability.applicable = false;
+        result.applicability.prepared = false;
+        result.applicability.reasonCode = CalibrationApplicabilityReason::CONFIGURATION_NOT_READY;
         result.reason = "No valid committed acquisition configuration";
+        result.applicability.reason = result.reason;
     }
     return result;
 }
@@ -220,10 +226,14 @@ bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
         FailCalibration(error, Detail::DATA_OUT_OF_RANGE_ERROR);
         return false;
     }
-    if (change.kind == CalibrationChangeKind::ACTIVATE &&
-        !task.calibrationCandidate.Snapshot(Identity(), activePlan_).compatible) {
+    if (change.kind != CalibrationChangeKind::CAPTURE) {
+        task.calibrationCandidate.PrepareForPlan(Identity(), activePlan_);
+    }
+    if ((change.kind == CalibrationChangeKind::ACTIVATE ||
+            (change.kind == CalibrationChangeKind::ENABLE && change.enabled)) &&
+        !task.calibrationCandidate.Correction(Identity(), activePlan_)) {
         FailCalibration(
-            "Calibration set does not match the current stimulus or device", Detail::SETTINGS_CONFLICT_ERROR);
+            task.calibrationCandidate.Snapshot(Identity(), activePlan_).reason, Detail::SETTINGS_CONFLICT_ERROR);
         return false;
     }
     std::size_t calibrationBytes = task.calibrationCandidate.StorageBytes();

@@ -9,9 +9,9 @@ from pathlib import Path
 
 from CalibrationIntegrationTest import action
 from CalibrationScpiFixture import four_port_fixture
-from vnb_calibration_file import decode_calibration, download_bytes, file_fields
 from GoldenIqIntegrationTest import listening_server
 from server_startup import isolated_server
+from vnb_calibration_file import decode_calibration, download_bytes, file_fields
 from WebHttpIntegrationTest import HttpClient, accepted, wait_no_owner, wait_operation
 
 PARAMETERS = [
@@ -216,7 +216,12 @@ def import_calibration(http, name):
     }
     token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
     try:
-        body = action(http, "importFile", "vnb-import-calset-" + str(points), **file_fields(document))
+        body = action(
+            http,
+            "importFile",
+            "vnb-import-calset-" + str(points),
+            **file_fields(document),
+        )
         wait_operation(http, accepted(http, "calibration", body, token), token)
         return http.status()["calibration"]["sets"][-1]["id"]
     finally:
@@ -238,9 +243,18 @@ def calibration_roundtrip(client, http, raw, set_id):
     assert client.query("SENS1:CORR:CSET:ACT?") == selected
     no_error(client)
     command(client, "SENS1:SWE:POIN 18")
+    command(client, f"SENS1:CORR:CSET:ACT '{CALSET_NAME}',0")
+    assert client.query("SENS1:CORR:STAT?") == "1"
+    assert (
+        http.status()["calibration"]["applicability"]["frequencyMode"] == "interpolated"
+    )
+    command(client, "SENS1:SWE:POIN 9")
+    assert client.query("SENS1:CORR:STAT?") == "1"
+    assert http.status()["calibration"]["applicability"]["frequencyMode"] == "subset"
+    command(client, "SENS1:FREQ:STOP 101MHz")
     client.write(f"SENS1:CORR:CSET:ACT '{CALSET_NAME}',0")
     assert not client.query("SYST:ERR?").startswith("0,"), (
-        "不匹配刺激的校准集必须拒绝激活"
+        "超出原校准频段必须拒绝激活，不能外推"
     )
     assert client.query("SENS1:CORR:STAT?") == "0"
     no_error(client)
@@ -277,10 +291,14 @@ def four_port_roundtrip(ports, http):
     document, expected = four_port_fixture(http, frame, raw, FOUR_PORT_CALSET_NAME)
     token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
     try:
-        body = action(http, "importFile", "four-port-explicit-fixture", **file_fields(document))
+        body = action(
+            http, "importFile", "four-port-explicit-fixture", **file_fields(document)
+        )
         wait_operation(http, accepted(http, "calibration", body, token), token)
         set_id = http.status()["calibration"]["sets"][-1]["id"]
-        exported = decode_calibration(download_bytes(http.request("GET", "/api/v1/calibration/sets/" + set_id)))
+        exported = decode_calibration(
+            download_bytes(http.request("GET", "/api/v1/calibration/sets/" + set_id))
+        )
         assert (
             exported["method"] == "fourPort"
             and exported["fourPortTerms"] == document["fourPortTerms"]

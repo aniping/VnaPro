@@ -5,6 +5,8 @@ add_library(vna_service STATIC
     src/instrument_zoom.cpp
     src/instrument_channels.cpp
     src/calibration_workspace.cpp
+    src/calibration_workspace_cache.cpp
+    src/calibration_workspace_state.cpp
     src/calibration_applicability.cpp
     src/calibration_preparation.cpp
     src/calibration_coefficient_slots.cpp

@@ -5,6 +5,7 @@
 #ifndef VNAPRO_VNA_SERVICE_CALIBRATION_WORKSPACE_H
 #define VNAPRO_VNA_SERVICE_CALIBRATION_WORKSPACE_H
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,9 @@
 #include "vna_service/instrument_profile.h"
 
 namespace VnaService {
+namespace Detail {
+struct CalibrationPlanCache;
+}
 
 // 单执行线程校准工作区，不执行设备 I/O；候选复制后可原子提交。
 class CalibrationWorkspace final {
@@ -23,6 +27,8 @@ public:
     bool Collecting() const noexcept;
     bool SessionMatches(std::uint64_t id) const noexcept;
     bool SessionCompatible(const std::string &identity, const VnaCore::SweepPlan &plan) const noexcept;
+    // 事务提交前准备实际轴；只读快照及帧计算绝不隐式插值或读取文件。
+    void PrepareForPlan(const std::string &identity, const VnaCore::SweepPlan &plan);
     CalibrationSnapshot Snapshot(const std::string &identity, const VnaCore::SweepPlan &plan) const;
     VnaCalibration::CalibrationPtr Correction(const std::string &identity, const VnaCore::SweepPlan &plan) const;
     CalibrationSetPtr Find(std::uint64_t id) const;
@@ -52,6 +58,8 @@ private:
         std::vector<VnaCalibration::TwoPortNetwork> network;
     };
 
+    CalibrationSnapshot CollectionSnapshot() const;
+    void RefreshPrepared();
     bool CanRevise(std::string &error) const;
     void InitializeSession(
         const CalibrationChange &change, const std::string &identity, const VnaCore::SweepPlan &plan);
@@ -81,6 +89,7 @@ private:
     std::vector<CalibrationSetPtr> sets_;
     std::size_t storageBytes_ = 0U;
     std::uint64_t selectedSetId_ = 0U;
+    std::shared_ptr<const Detail::CalibrationPlanCache> planCache_;
 };
 
 }  // 命名空间 VnaService

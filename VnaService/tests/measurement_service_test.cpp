@@ -373,6 +373,23 @@ void BatchDataPreservesTraceOrderAndRejectsPartialResults()
     Require(!stale.ok && stale.values.empty(), "批量读取不能使用旧物理版本");
 }
 
+void CheckChangedStimulusCalibration(Fixture &fixture)
+{
+    auto &service = fixture.service;
+    Require(Finish(fixture, service.SetIfBandwidthHz(10000.0)).ok && Finish(fixture, service.RunSingle("SCPI")).ok,
+        "准备中频带宽变化的新完整帧");
+    Require(service.MeasurementData(std::vector<unsigned>{1U}, true).ok &&
+                !service.Calibration().applicability.warnings.empty(),
+        "中频带宽变化允许校正并保留条件变化警告");
+    Require(Finish(fixture, service.SetPowerDbm(-3.0)).ok && Finish(fixture, service.RunSingle("SCPI")).ok,
+        "准备功率不兼容的新完整帧");
+    const auto incompatible = service.MeasurementData(std::vector<unsigned>{1U}, true);
+    Require(!incompatible.ok && incompatible.values.empty(), "新完整帧仍不能使用不兼容的旧校准");
+    const auto stored = service.Calibration().sets.size();
+    Require(Finish(fixture, service.ResetMeasurements()).ok && service.Calibration().sets.size() == stored,
+        "复位保留存储的校准集");
+}
+
 void BatchSDataRequiresCompleteActiveCalibration()
 {
     Fixture fixture;
@@ -420,13 +437,7 @@ void BatchSDataRequiresCompleteActiveCalibration()
         "关闭校正后严格 SDATA 必须拒绝");
     change.enabled = true;
     Require(Finish(fixture, service.ApplyCalibration(change)).ok, "重新启用已选校准");
-    Require(Finish(fixture, service.SetIfBandwidthHz(10000.0)).ok && Finish(fixture, service.RunSingle("SCPI")).ok,
-        "准备刺激不兼容的新完整帧");
-    const auto incompatible = service.MeasurementData(std::vector<unsigned>{1U}, true);
-    Require(!incompatible.ok && incompatible.values.empty(), "新完整帧仍不能使用不兼容的旧校准");
-    const auto stored = service.Calibration().sets.size();
-    Require(Finish(fixture, service.ResetMeasurements()).ok && service.Calibration().sets.size() == stored,
-        "复位保留存储的校准集");
+    CheckChangedStimulusCalibration(fixture);
 }
 
 void DeleteAllAndResetCommitAtRealStopBoundary()

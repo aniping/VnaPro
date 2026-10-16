@@ -468,20 +468,18 @@ void SingularSessionPreservesCompletedSet()
         "failed solve keeps previous immutable active set");
 }
 
-void SetPoolImportAndStimulusCompatibility()
+void CheckChangedBandwidth(Fixture &fixture, const VnaService::CalibrationSetPtr &saved)
 {
-    Fixture fixture;
-    Begin(fixture);
-    CaptureOsl(fixture, FIRST_PORT);
-    Complete(fixture);
-    const auto saved = fixture.service.FindCalibrationSet(fixture.service.Calibration().selectedSetId);
     VnaService::ConfigPatch patch;
     patch.hasIfBandwidthHz = true;
     patch.ifBandwidthHz = 10000.0;
     Require(Finish(fixture, fixture.service.ApplyConfiguration(patch, fixture.service.Settings().revision, "TEST")).ok,
         "change physical stimulus");
-    Require(!fixture.service.Calibration().compatible && !fixture.service.Snapshot().correction,
-        "changed IF bandwidth cannot use old coefficients");
+    const auto changed = fixture.service.Calibration();
+    Require(changed.compatible && changed.effective && fixture.service.Snapshot().correction &&
+                changed.applicability.warnings ==
+                    std::vector<VnaService::CalibrationWarning>{VnaService::CalibrationWarning::IF_BANDWIDTH_CHANGED},
+        "changed IF bandwidth preserves correction with a persistent condition warning");
     const auto summary = fixture.service.Calibration().sets.front();
     Require(summary.startHz == saved->data->frequencyHz.front() && summary.stopHz == saved->data->frequencyHz.back() &&
                 summary.points == saved->data->frequencyHz.size() && summary.ifBandwidthHz == saved->ifBandwidthHz &&
@@ -492,6 +490,16 @@ void SetPoolImportAndStimulusCompatibility()
         "restore physical stimulus");
     Require(fixture.service.Calibration().compatible && fixture.service.Snapshot().correction,
         "same stimulus restores compatibility despite different acquisition revision");
+}
+
+void SetPoolImportAndStimulusCompatibility()
+{
+    Fixture fixture;
+    Begin(fixture);
+    CaptureOsl(fixture, FIRST_PORT);
+    Complete(fixture);
+    const auto saved = fixture.service.FindCalibrationSet(fixture.service.Calibration().selectedSetId);
+    CheckChangedBandwidth(fixture, saved);
     CalibrationChange import;
     import.kind = CalibrationChangeKind::IMPORT_SET;
     import.importedSet = saved;

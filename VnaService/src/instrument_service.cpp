@@ -552,6 +552,8 @@ bool InstrumentService::PrepareConfiguration(Detail::ServiceTask &task)
     }
     task.plan = MakePlan(task.candidate, profile_, contextChannelId_);
     calibration_.ExtendPlan(task.plan);
+    task.calibrationCandidate = calibration_;
+    task.calibrationCandidate.PrepareForPlan(Identity(), task.plan);
     if (!PrepareDisplayConfiguration(task)) {
         return false;
     }
@@ -564,6 +566,7 @@ void InstrumentService::CommitConfiguration(Detail::ServiceTask &task)
     InvalidateZoomHistory(task);
     task.displayCandidate.BindAcquisitionRevision(task.candidate.acquisitionRevision, &task.channelTraceNames);
     settings_ = std::move(task.candidate);
+    calibration_ = std::move(task.calibrationCandidate);
     CommitLogicalRevision(settings_.revision);
     display_ = std::move(task.displayCandidate);
     if (activeTarget && ChannelTraceNames(contextChannelId_).empty()) {
@@ -851,6 +854,7 @@ bool InstrumentService::BootstrapProfile(std::string &error)
     display_ = std::move(initialDisplay);
     RememberSelection();
     profileReady_ = true;
+    calibration_.PrepareForPlan(Identity(), activePlan_);
     VnaLog::Info(
         VnaLog::Module::SERVICE, "仪器配置已就绪，revision={}，points={}", settings_.revision, settings_.points);
     return true;

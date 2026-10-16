@@ -3,6 +3,7 @@
  */
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -113,21 +114,16 @@ void NamedActivationUsesRealCorrection()
     Require(Command(engine, "SENS1:CORR?") == "1\n", "Legacy id activation must also enable correction");
 }
 
-void RejectedActivationIsAtomic()
+void ImportActivationCandidates(VnaServiceTest::Fixture &fixture, VnaScpi::ScpiEngine &engine)
 {
-    VnaServiceTest::Fixture fixture(Profile());
-    VnaScpi::ScpiEngine engine(fixture.service);
-    Require(Command(engine, "SENS1:CORR:CSET:ACT?") == "\"0\"\n", "No selected set has the zero id readback");
-    Require(Import(fixture.service, Set(fixture.service, "Real")), "Compatible set import failed");
-    Command(engine, "SENS1:CORR:CSET:ACT 'Real',0;*OPC?");
     auto mismatched = Set(fixture.service, "Different axis");
     auto data = std::make_shared<VnaCalibration::CalibrationData>(*mismatched->data);
-    data->frequencyHz[1U] += 1.0;
+    data->frequencyHz.front() += 1.0;
     mismatched->data = data;
     Require(Import(fixture.service, mismatched), "Valid set on another axis should remain catalogued");
     auto fewerPoints = Set(fixture.service, "Different points");
     data = std::make_shared<VnaCalibration::CalibrationData>(*fewerPoints->data);
-    data->frequencyHz.erase(data->frequencyHz.begin() + 1);
+    data->frequencyHz.erase(data->frequencyHz.begin());
     data->onePortTerms.pop_back();
     fewerPoints->powerDbm.pop_back();
     fewerPoints->data = data;
@@ -135,6 +131,11 @@ void RejectedActivationIsAtomic()
     auto bandwidth = Set(fixture.service, "Different IFBW");
     bandwidth->ifBandwidthHz = 100.0;
     Require(Import(fixture.service, bandwidth), "Valid set with another IFBW should remain catalogued");
+    Command(engine, "SENS1:CORR:CSET:ACT 'Different IFBW',0;*OPC?");
+    Require(Command(engine, "SYST:ERR?").find("0,") == 0U && fixture.service.Calibration().effective &&
+                !fixture.service.Calibration().applicability.warnings.empty(),
+        "IFBW mismatch may activate with a persistent condition warning");
+    Command(engine, "SENS1:CORR:CSET:ACT 'Real',0;*OPC?");
     auto power = Set(fixture.service, "Different power");
     power->powerDbm.front() = -1.0;
     Require(Import(fixture.service, power), "Valid set with another power should remain catalogued");
@@ -144,12 +145,43 @@ void RejectedActivationIsAtomic()
     Require(Import(fixture.service, Set(fixture.service, "Duplicate")) &&
                 Import(fixture.service, Set(fixture.service, "Duplicate")),
         "Existing storage permits duplicate names");
+}
+
+void CheckInvalidImportAndNewAxis(
+    VnaServiceTest::Fixture &fixture, VnaScpi::ScpiEngine &engine, std::uint64_t selectedSetId)
+{
+    auto invalid = Set(fixture.service, "Invalid coefficients");
+    auto data = std::make_shared<VnaCalibration::CalibrationData>(*invalid->data);
+    data->onePortTerms.front().reflectionTracking = {};
+    invalid->data = data;
+    Require(!Import(fixture.service, invalid), "Invalid coefficients must never become an activatable set");
+    auto invalidPort = Set(fixture.service, "Invalid port");
+    data = std::make_shared<VnaCalibration::CalibrationData>(*invalidPort->data);
+    data->port1 = 5U;
+    invalidPort->data = data;
+    Require(!Import(fixture.service, invalidPort), "Nonexistent physical ports must never become an activatable set");
+    Require(Command(engine, "*CLS;:SENS1:SWE:POIN 5;:SENS1:CORR:CSET:ACT 'Real',0;*OPC?") == "+1\n" &&
+                Command(engine, "SYST:ERR?").find("0,") == 0U && fixture.service.Settings().points == 5U &&
+                fixture.service.Calibration().selectedSetId == selectedSetId &&
+                fixture.service.Calibration().effective &&
+                fixture.service.Calibration().applicability.frequencyMode ==
+                    VnaService::CalibrationFrequencyMode::INTERPOLATED,
+        "FIFO activation must prepare the newly committed axis and preserve the current stimulus");
+}
+
+void RejectedActivationIsAtomic()
+{
+    VnaServiceTest::Fixture fixture(Profile());
+    VnaScpi::ScpiEngine engine(fixture.service);
+    Require(Command(engine, "SENS1:CORR:CSET:ACT?") == "\"0\"\n", "No selected set has the zero id readback");
+    Require(Import(fixture.service, Set(fixture.service, "Real")), "Compatible set import failed");
+    Command(engine, "SENS1:CORR:CSET:ACT 'Real',0;*OPC?");
+    ImportActivationCandidates(fixture, engine);
     const auto before = fixture.service.Calibration();
     const auto settings = fixture.service.Settings();
     const std::vector<std::pair<std::string, std::string>> rejected = {{"'Missing',0", "-222,"}, {"'real',0", "-222,"},
-        {"'Different axis',0", "-221,"}, {"'Different points',0", "-221,"}, {"'Different IFBW',0", "-221,"},
-        {"'Different power',0", "-221,"}, {"'Different device',0", "-221,"}, {"'Duplicate',0", "-222,"},
-        {"'Real',1", "-224,"}, {"'Real',0,0", "-108,"}};
+        {"'Different axis',0", "-221,"}, {"'Different points',0", "-221,"}, {"'Different power',0", "-221,"},
+        {"'Different device',0", "-221,"}, {"'Duplicate',0", "-222,"}, {"'Real',1", "-224,"}, {"'Real',0,0", "-108,"}};
     for (const auto &item : rejected) {
         Require(Command(engine, "SENS1:CORR:CSET:ACT " + item.first + ";*OPC?") == "+1\n",
             "A rejected activation still terminates its completion barrier");
@@ -160,21 +192,7 @@ void RejectedActivationIsAtomic()
                     fixture.service.Settings().acquisitionRevision == settings.acquisitionRevision,
             "Rejected activation must preserve calibration selection and physical configuration");
     }
-    auto invalid = Set(fixture.service, "Invalid coefficients");
-    data = std::make_shared<VnaCalibration::CalibrationData>(*invalid->data);
-    data->onePortTerms.front().reflectionTracking = {};
-    invalid->data = data;
-    Require(!Import(fixture.service, invalid), "Invalid coefficients must never become an activatable set");
-    auto invalidPort = Set(fixture.service, "Invalid port");
-    data = std::make_shared<VnaCalibration::CalibrationData>(*invalidPort->data);
-    data->port1 = 5U;
-    invalidPort->data = data;
-    Require(!Import(fixture.service, invalidPort), "Nonexistent physical ports must never become an activatable set");
-    Require(Command(engine, "*CLS;:SENS1:SWE:POIN 5;:SENS1:CORR:CSET:ACT 'Real',0;*OPC?") == "+1\n" &&
-                Command(engine, "SYST:ERR?").find("-221,") == 0U && fixture.service.Settings().points == 5U &&
-                fixture.service.Calibration().selectedSetId == before.selectedSetId &&
-                !fixture.service.Calibration().compatible,
-        "FIFO activation must validate the newly committed plan and never restore the calibration stimulus");
+    CheckInvalidImportAndNewAxis(fixture, engine, before.selectedSetId);
 }
 }  // 匿名命名空间
 

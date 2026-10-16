@@ -329,6 +329,7 @@ bool InstrumentService::PrepareChannelCreation(Detail::ServiceTask &task)
     }
     task.plan = MakeChannelPlan(task.candidate, task.targetChannelId);
     task.calibrationCandidate.ExtendPlan(task.plan);
+    task.calibrationCandidate.PrepareForPlan(Identity(), task.plan);
     task.displayCandidate = display_;
     auto result = task.displayCandidate.Reconcile(task.candidate.measurements);
     unsigned diagram = task.newDiagram ? 0U : display_.State().selectedDiagram;

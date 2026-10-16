@@ -85,8 +85,10 @@ void ServiceImportValidatesPowerAndCompatibility()
     plan.frequencyHz = saved.data->frequencyHz;
     plan.ifBandwidthRaw = 1000U;
     plan.powerDbm = saved.powerDbm;
+    workspace.PrepareForPlan(saved.deviceIdentity, plan);
     Require(workspace.Snapshot(saved.deviceIdentity, plan).sets.front().compatible, "Same dBm axis is compatible");
     plan.powerDbm[1U] += 0.125;
+    workspace.PrepareForPlan(saved.deviceIdentity, plan);
     Require(!workspace.Snapshot(saved.deviceIdentity, plan).sets.front().compatible,
         "A fractional physical power change invalidates calibration");
 }
