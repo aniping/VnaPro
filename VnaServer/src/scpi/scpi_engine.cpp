@@ -63,6 +63,9 @@ bool ScpiEngine::HasPending() const noexcept
 
 void ScpiEngine::RecordCommandError(const ParsedCommand &command, int code, const std::string &text)
 {
+    if (diagnosticCommandActive_) {
+        diagnostics_.Fail(code, text.c_str(), encodingDiagnostic_ != 0U ? "encoding" : "command");
+    }
     if (control_) {
         service_.RecordError(code, text);
     } else {
@@ -107,11 +110,17 @@ void ScpiEngine::BeginEncoding(VnaService::DataResult data, const ParsedCommand 
         RecordCommandError(command, DATA_CORRUPT_OR_STALE, data.error);
         return;
     }
+    diagnostics_.Values(data.values.size());
     if (!connected_) {
+        diagnostics_.Hold("encoding");
+        diagnostics_.Cancel(diagnostics_.Current(), "Disconnected before response encoding");
         return;
     }
     if (!encoder_.Begin(std::move(data.values), format_, byteOrder_)) {
         RecordCommandError(command, DATA_CORRUPT_OR_STALE, "Empty, invalid or oversized numeric data");
+    } else {
+        diagnostics_.Hold("encoding");
+        encodingDiagnostic_ = diagnostics_.Current();
     }
 }
 
@@ -120,16 +129,24 @@ void ScpiEngine::EncodeBatch()
     if (!encoder_.Pending()) {
         return;
     }
+    diagnosticCommandActive_ = true;
     if (!encoder_.Poll()) {
+        diagnostics_.Fail(INPUT_BUFFER_OVERRUN, "Array exceeds software output budget", "encoding");
         RecordCommandError(ParsedCommand{}, INPUT_BUFFER_OVERRUN, "Array exceeds software output budget");
         messages_.front().queryFailed = true;
+        encodingDiagnostic_ = 0U;
     } else if (!encoder_.Pending()) {
-        AppendResponse(encoder_.TakeOutput());
+        const auto output = encoder_.TakeOutput();
+        AppendResponse(output);
+        diagnostics_.Release(encodingDiagnostic_, output.size());
+        encodingDiagnostic_ = 0U;
     }
+    diagnosticCommandActive_ = false;
 }
 
 void ScpiEngine::SetOperation(VnaService::Operation operation, bool asynchronous)
 {
+    diagnostics_.AddOperation(operation);
     if (!asynchronous) {
         sequential_ = std::move(operation);
     }
@@ -176,6 +193,10 @@ bool ScpiEngine::QueryNumeric(const ParsedCommand &command, double current, doub
 void ScpiEngine::Dispatch(const ParsedCommand &original)
 {
     auto command = RouteChannelCommand(original);
+    const bool activeChannel =
+        command.channelId == 0U && (command.path.find("TRIG") == 0U || command.path.find("INIT") == 0U);
+    diagnostics_.Begin(messages_.front().diagnosticId, messages_.front().position, command,
+        activeChannel ? service_.ActiveChannelId() : command.channelId);
     if (command.errorCode != 0) {
         RecordCommandError(command, command.errorCode, command.error);
         return;
@@ -346,6 +367,11 @@ void ScpiEngine::DispatchOperationComplete(const ParsedCommand &command)
     }
     if (command.query) {
         barrier_ = service_.PendingOperations();
+        diagnostics_.Hold("barrier");
+        barrierDiagnostic_ = diagnostics_.Current();
+        for (const auto &operation : barrier_) {
+            diagnostics_.AddOperation(operation, true);
+        }
         waiting_ = true;
         waitingQuery_ = true;
     } else {
@@ -356,8 +382,14 @@ void ScpiEngine::DispatchOperationComplete(const ParsedCommand &command)
         ScpiOpcWatch watch;
         watch.operations = service_.PendingOperations();
         watch.generation = service_.StatusGeneration();
+        diagnostics_.Hold("barrier");
+        watch.diagnostic = diagnostics_.Current();
+        for (const auto &operation : watch.operations) {
+            diagnostics_.AddOperation(operation, true);
+        }
         if (AllReady(watch.operations)) {
             service_.MarkOperationComplete();
+            diagnostics_.Release(watch.diagnostic);
         } else {
             watches_.push_back(std::move(watch));
         }
@@ -368,6 +400,11 @@ void ScpiEngine::DispatchWait(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
         barrier_ = service_.PendingOperations();
+        diagnostics_.Hold("barrier");
+        barrierDiagnostic_ = diagnostics_.Current();
+        for (const auto &operation : barrier_) {
+            diagnostics_.AddOperation(operation, true);
+        }
         waiting_ = true;
         waitingQuery_ = false;
     }
@@ -803,6 +840,7 @@ void ScpiEngine::Poll()
         service_.Poll();
     }
     PollOperationWatches();
+    diagnostics_.Poll();
     if (!PollBarrier()) {
         return;
     }
@@ -821,9 +859,11 @@ void ScpiEngine::PollOperationWatches()
 {
     for (auto watch = watches_.begin(); watch != watches_.end();) {
         if (watch->generation != service_.StatusGeneration()) {
+            diagnostics_.Cancel(watch->diagnostic, "OPC event cancelled by status generation");
             watch = watches_.erase(watch);
         } else if (AllReady(watch->operations)) {
             service_.MarkOperationComplete();
+            diagnostics_.Release(watch->diagnostic);
             watch = watches_.erase(watch);
         } else {
             ++watch;
@@ -844,8 +884,12 @@ bool ScpiEngine::PollBarrier()
             return false;
         }
         if (waitingQuery_) {
+            diagnosticCommandActive_ = true;
             AppendResponse("+1");
+            diagnosticCommandActive_ = false;
         }
+        diagnostics_.Release(barrierDiagnostic_);
+        barrierDiagnostic_ = 0U;
         waiting_ = false;
         barrier_.clear();
     }
@@ -871,7 +915,10 @@ void ScpiEngine::PollMessages()
         }
         const ParsedCommand command = ParseCommand(message.units[message.position], message.parent);
         ++message.position;
+        diagnosticCommandActive_ = true;
         Dispatch(command);
+        diagnosticCommandActive_ = false;
+        diagnostics_.EndDispatch();
         if (sequential_.valid() || waiting_ || encoder_.Pending()) {
             break;
         }
@@ -894,15 +941,22 @@ ScpiEngine::~ScpiEngine() noexcept
 
 bool ScpiEngine::SubmitLine(const std::string &line)
 {
+    const auto diagnosticId = diagnostics_.Received(line, control_);
     if (!connected_ || messages_.size() >= MESSAGE_QUEUE_LIMIT || line.size() > LINE_BUDGET) {
+        diagnostics_.RejectProgram(diagnosticId, line, INPUT_BUFFER_OVERRUN,
+            !connected_                 ? "Connection is disconnected"
+            : line.size() > LINE_BUDGET ? "Program message exceeds input byte budget"
+                                        : "Program message queue is full");
         return false;
     }
     if (Trim(line).empty()) {
         return true;
     }
     ScpiMessage message;
+    message.diagnosticId = diagnosticId;
     message.units = SplitProgram(line);
     if (message.units.size() > PROGRAM_UNIT_LIMIT) {
+        diagnostics_.RejectProgram(diagnosticId, line, INPUT_BUFFER_OVERRUN, "Program message exceeds unit budget");
         return false;
     }
     if (!control_ && !ObserverMessageAllowed(message)) {
@@ -928,6 +982,11 @@ bool ScpiEngine::HasControl() const noexcept
     return control_;
 }
 
+std::uint64_t ScpiEngine::ConnectionId() const noexcept
+{
+    return diagnostics_.ConnectionId();
+}
+
 const VnaService::InstrumentError &ScpiEngine::LocalError() const noexcept
 {
     return localError_;
@@ -936,7 +995,9 @@ const VnaService::InstrumentError &ScpiEngine::LocalError() const noexcept
 bool ScpiEngine::ObserverMessageAllowed(const ScpiMessage &message)
 {
     std::vector<std::string> parent;
+    std::size_t ordinal = 0U;
     for (const auto &unit : message.units) {
+        ++ordinal;
         const auto command = ParseCommand(unit, parent);
         if (!IsObserverQuery(command)) {
             const bool destructive = !command.query || command.path == "*ESR" || command.path == "SYST:ERR" ||
@@ -947,6 +1008,17 @@ bool ScpiEngine::ObserverMessageAllowed(const ScpiMessage &message)
                 command.errorCode != 0
                     ? command.error
                     : (destructive ? "Observer connection cannot change instrument state" : "Undefined header"));
+            if (diagnostics_.Enabled()) {
+                try {
+                    const auto routed = RouteChannelCommand(command);
+                    diagnostics_.Reject(message.diagnosticId, ordinal, routed, code,
+                        command.errorCode != 0 ? command.error.c_str()
+                        : destructive          ? "Observer connection cannot change instrument state"
+                                               : "Undefined header");
+                } catch (...) {
+                    // 拒绝原因记录失败不能改变既有整行拒绝与本地错误语义。
+                }
+            }
             return false;
         }
     }
@@ -964,6 +1036,8 @@ void ScpiEngine::Disconnect() noexcept
     output_.clear();
     outputBytes_ = 0;
     encoder_.Clear();
+    diagnostics_.Cancel(encodingDiagnostic_, "Connection disconnected during response encoding");
+    encodingDiagnostic_ = 0U;
     for (auto &message : messages_) {
         message.response.clear();
     }

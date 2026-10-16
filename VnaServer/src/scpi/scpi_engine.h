@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "scpi/parsed_command.h"
+#include "scpi/scpi_diagnostics.h"
 #include "scpi/scpi_numeric_encoder.h"
 #include "vna_service/instrument_service.h"
 
@@ -36,6 +37,8 @@ public:
     bool HasPending() const noexcept;
     // 报告本连接是否持有服务控制权。
     bool HasControl() const noexcept;
+    // 连接层与引擎诊断共用的稳定关联编号，不代表控制授权。
+    std::uint64_t ConnectionId() const noexcept;
     // 观察连接的最近错误仅保存在本连接，不改变仪器的全局 SCPI 错误队列。
     const VnaService::InstrumentError &LocalError() const noexcept;
     // 设置 SCPI 消息可用状态位时，也计入传输层的待发送字节。
@@ -53,12 +56,14 @@ private:
         std::size_t position = 0;
         std::string response;
         bool queryFailed = false;
+        std::uint64_t diagnosticId = 0U;
     };
 
     // 每个 OPC 监视项仅跟踪其程序单元之前已接收的操作。
     struct ScpiOpcWatch final {
         std::vector<VnaService::Operation> operations;
         unsigned generation = 0;
+        ScpiDiagnostics::Token diagnostic = 0U;
     };
 
     void RecordCommandError(const ParsedCommand &command, int code, const std::string &text);
@@ -119,6 +124,10 @@ private:
     NumericFormat format_ = NumericFormat::ASCII;
     ByteOrder byteOrder_ = ByteOrder::NORMAL;
     NumericEncoder encoder_;
+    ScpiDiagnostics diagnostics_;
+    bool diagnosticCommandActive_ = false;
+    ScpiDiagnostics::Token encodingDiagnostic_ = 0U;
+    ScpiDiagnostics::Token barrierDiagnostic_ = 0U;
 };
 
 }  // 命名空间 VnaScpi
