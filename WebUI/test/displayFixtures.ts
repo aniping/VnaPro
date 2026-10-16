@@ -215,6 +215,7 @@ export function instrumentStatus(
       ifBandwidthHz: 1000,
       triggerSource: 'IMM',
       sweepMode: 'HOLD',
+      selectedSweepMode: 'CONT',
     },
     measurements: catalog,
     display: displaySnapshot(catalog),

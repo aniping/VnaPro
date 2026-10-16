@@ -2,6 +2,7 @@ import type {
   AcceptedOperation,
   AcquiredFrame,
   ClaimResponse,
+  ChannelStatus,
   CoreState,
   FrameResponse,
   InstrumentCapabilities,
@@ -33,6 +34,7 @@ function measurement(value: unknown): Measurement {
   if (!name || name.length > 128) invalid('measurement.name')
   const result: Measurement = {
     name,
+    ...(item.channelId === undefined ? {} : { channelId: integer(item.channelId, 'measurement.channelId', 1, 65535) }),
     kind: choice(item.kind, 'measurement.kind', ['receiver', 'sParameter']),
     receiverKind: choice(item.receiverKind, 'measurement.receiverKind', [
       'a',
@@ -71,6 +73,44 @@ function measurement(value: unknown): Measurement {
   return result
 }
 
+function decodeChannel(value: unknown, capabilities: InstrumentCapabilities): ChannelStatus {
+  const item = object(value, 'channel')
+  const config = object(item.config, 'channel.config')
+  const startHz = number(config.startHz, 'channel.startHz', capabilities.minFrequencyHz, capabilities.maxFrequencyHz)
+  const stopHz = number(config.stopHz, 'channel.stopHz', capabilities.minFrequencyHz, capabilities.maxFrequencyHz)
+  if (startHz > stopHz) invalid('channel frequency range')
+  let stimulusZoom
+  if (item.stimulusZoom !== undefined) {
+    const zoom = object(item.stimulusZoom, 'channel.stimulusZoom')
+    stimulusZoom = {
+      available: flag(zoom.available, 'channel.stimulusZoom.available'),
+      canZoomOut: flag(zoom.canZoomOut, 'channel.stimulusZoom.canZoomOut'),
+      reason: text(zoom.reason, 'channel.stimulusZoom.reason'),
+      depth: integer(zoom.depth, 'channel.stimulusZoom.depth', 0, 16),
+    }
+  }
+  return {
+    channelId: integer(item.channelId, 'channel.channelId', 1, 65535),
+    name: text(item.name, 'channel.name'),
+    state: choice<CoreState>(item.state, 'channel.state', ['Uninitialized', 'Ready', 'Running', 'Faulted', 'Closed']),
+    error: text(item.error, 'channel.error'),
+    acquisitionRevision: identity(item.acquisitionRevision, 'channel.acquisitionRevision'),
+    runId: identity(item.runId, 'channel.runId'),
+    activeConfigValid: flag(item.activeConfigValid, 'channel.activeConfigValid'),
+    config: {
+      startHz, stopHz,
+      points: integer(config.points, 'channel.points', capabilities.minSweepPoints, capabilities.maxSweepPoints),
+      ifBandwidthHz: number(config.ifBandwidthHz, 'channel.ifBandwidthHz', 10),
+      ...(config.powerDbm === undefined ? {} : { powerDbm: number(config.powerDbm, 'channel.powerDbm', -120, 100) }),
+      triggerSource: choice(config.triggerSource, 'channel.triggerSource', ['IMM', 'MAN']),
+      sweepMode: choice(config.sweepMode, 'channel.sweepMode', ['HOLD', 'SING', 'CONT']),
+      ...(config.selectedSweepMode === undefined ? {} : { selectedSweepMode: choice<'SING' | 'CONT'>(config.selectedSweepMode, 'channel.selectedSweepMode', ['SING', 'CONT']) }),
+    },
+    ...(stimulusZoom === undefined ? {} : { stimulusZoom }),
+    ...(item.calibration === undefined ? {} : { calibration: decodeCalibration(item.calibration, capabilities.portCount) }),
+  }
+}
+
 export function decodeStatus(value: unknown): InstrumentStatus {
   const item = object(value, 'status')
   const config = object(item.config, 'config')
@@ -101,10 +141,14 @@ export function decodeStatus(value: unknown): InstrumentStatus {
       2,
       10001,
     ),
+    ...(limits.minPowerDbm === undefined ? {} : { minPowerDbm: number(limits.minPowerDbm, 'capabilities.minPowerDbm') }),
+    ...(limits.maxPowerDbm === undefined ? {} : { maxPowerDbm: number(limits.maxPowerDbm, 'capabilities.maxPowerDbm') }),
   }
   if (
     capabilities.minFrequencyHz > capabilities.maxFrequencyHz ||
-    capabilities.minSweepPoints > capabilities.maxSweepPoints
+    capabilities.minSweepPoints > capabilities.maxSweepPoints ||
+    ((capabilities.minPowerDbm !== undefined || capabilities.maxPowerDbm !== undefined) &&
+      (capabilities.minPowerDbm === undefined || capabilities.maxPowerDbm === undefined || capabilities.minPowerDbm > capabilities.maxPowerDbm))
   )
     invalid('capabilities bounds')
   const startHz = number(
@@ -134,7 +178,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
     )
   )
     invalid('measurement port capability')
-  return {
+  const result: InstrumentStatus = {
     identity: text(item.identity, 'identity'),
     backend: text(item.backend, 'backend'),
     state: choice<CoreState>(item.state, 'state', [
@@ -154,6 +198,17 @@ export function decodeStatus(value: unknown): InstrumentStatus {
     runId: identity(item.runId, 'runId'),
     activeConfigValid: flag(item.activeConfigValid, 'activeConfigValid'),
     capabilities,
+    ...(item.activeChannelId === undefined ? {} : { activeChannelId: integer(item.activeChannelId, 'activeChannelId', 1, 65535) }),
+    ...(item.channels === undefined ? {} : { channels: array(item.channels, 'channels', 16).map((channel) => decodeChannel(channel, capabilities)) }),
+    ...(item.stimulusZoom === undefined ? {} : (() => {
+      const zoom = object(item.stimulusZoom, 'stimulusZoom')
+      return { stimulusZoom: {
+        available: flag(zoom.available, 'stimulusZoom.available'),
+        canZoomOut: flag(zoom.canZoomOut, 'stimulusZoom.canZoomOut'),
+        reason: text(zoom.reason, 'stimulusZoom.reason'),
+        depth: integer(zoom.depth, 'stimulusZoom.depth', 0, 16),
+      } }
+    })()),
     config: {
       startHz,
       stopHz,
@@ -164,6 +219,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
         capabilities.maxSweepPoints,
       ),
       ifBandwidthHz: number(config.ifBandwidthHz, 'config.ifBandwidthHz', 10),
+      ...(config.powerDbm === undefined ? {} : { powerDbm: number(config.powerDbm, 'config.powerDbm', -120, 100) }),
       triggerSource: choice(config.triggerSource, 'config.triggerSource', [
         'IMM',
         'MAN',
@@ -173,6 +229,9 @@ export function decodeStatus(value: unknown): InstrumentStatus {
         'SING',
         'CONT',
       ]),
+      ...(config.selectedSweepMode === undefined ? {} : {
+        selectedSweepMode: choice<'SING' | 'CONT'>(config.selectedSweepMode, 'config.selectedSweepMode', ['SING', 'CONT']),
+      }),
     },
     measurements,
     display: decodeDisplay(item.display, measurements),
@@ -189,6 +248,13 @@ export function decodeStatus(value: unknown): InstrumentStatus {
       readOnlyReason: text(control.readOnlyReason, 'control.readOnlyReason'),
     },
   }
+  if (result.channels) {
+    const ids = new Set(result.channels.map((channel) => channel.channelId))
+    if (!ids.size || ids.size !== result.channels.length ||
+      !ids.has(result.activeChannelId ?? 1) ||
+      measurements.some((entry) => !ids.has(entry.channelId ?? 1))) invalid('channel membership')
+  }
+  return result
 }
 
 function trace(value: unknown, count: number): ReceiverTrace {
@@ -222,7 +288,7 @@ function trace(value: unknown, count: number): ReceiverTrace {
   }
 }
 
-export function decodeFrame(value: unknown): FrameResponse {
+function decodeFrameEntry(value: unknown): FrameResponse {
   const item = object(value, 'frame')
   if (!flag(item.available, 'frame.available')) {
     if (flag(item.current, 'frame.current'))
@@ -231,6 +297,7 @@ export function decodeFrame(value: unknown): FrameResponse {
       available: false,
       current: false,
       reason: text(item.reason, 'frame.reason'),
+      ...(item.channelId === undefined ? {} : { channelId: integer(item.channelId, 'frame.channelId', 1, 65535) }),
     }
   }
   const count = integer(
@@ -296,6 +363,20 @@ export function decodeFrame(value: unknown): FrameResponse {
   )
     invalid('frame.sampleIndexes')
   return result
+}
+
+export function decodeFrame(value: unknown): FrameResponse {
+  const item = object(value, 'frame')
+  const result = decodeFrameEntry(item)
+  if (item.channelFrames === undefined) return result
+  const channelFrames = array(item.channelFrames, 'frame.channelFrames', 16).map(decodeFrameEntry)
+  const ids = new Set(channelFrames.map((frame) => frame.channelId))
+  const names = channelFrames.flatMap((frame) => frame.available ? frame.traces.map((trace) => trace.name) : [])
+  if (!ids.size || ids.has(undefined) || ids.size !== channelFrames.length || names.length > MAX_TRACES || new Set(names).size !== names.length ||
+    channelFrames.reduce((sum, frame) => sum + (frame.available ? frame.displayPointCount * frame.traces.length : 0), 0) > FRAME_SAMPLE_BUDGET ||
+    channelFrames.some((frame) => frame.available && frame.traces.some((trace) => (trace.channelId ?? frame.channelId) !== frame.channelId)))
+    invalid('frame channel membership')
+  return { ...result, channelFrames }
 }
 
 export function decodeClaim(value: unknown): ClaimResponse {

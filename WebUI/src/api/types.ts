@@ -15,12 +15,43 @@ import type { TraceDropPosition } from '../domain/diagramLayout'
 export type CoreState =
   'Uninitialized' | 'Ready' | 'Running' | 'Faulted' | 'Closed'
 export type RunAction = 'single' | 'continuous' | 'hold' | 'trigger'
+/** 改选 CONT 即运行，SING 停止等待启动；source 保留运行意图，start 保留模式与触发源。 */
+export type SweepControlCommand =
+  | { action: 'mode'; mode: 'CONT' | 'SING' }
+  | { action: 'source'; source: 'IMM' | 'MAN' }
+  | { action: 'start' | 'stop' | 'trigger' | 'single' }
+
+export type ChannelCommand =
+  | { action: 'new' | 'copy'; channelId?: number; newDiagram?: boolean }
+  | { action: 'select' | 'delete'; channelId: number }
+
+export type StimulusZoomCommand =
+  | { action: 'apply'; traceName: string; startHz: number; stopHz: number; min: number; max: number }
+  | { action: 'out' }
+
+export interface StimulusZoomState {
+  available: boolean
+  canZoomOut: boolean
+  reason: string
+  depth: number
+}
+
+export interface StimulusZoomSelection {
+  traceName: string
+  startHz: number
+  stopHz: number
+  min: number
+  max: number
+  revision: string
+  displayRevision: string
+}
 
 export interface SweepConfiguration {
   startHz: number
   stopHz: number
   points: number
   ifBandwidthHz: number
+  powerDbm?: number
 }
 
 export interface SweepPatch {
@@ -30,10 +61,13 @@ export interface SweepPatch {
   spanHz?: number
   points?: number
   ifBandwidthHz?: number
+  powerDbm?: number
 }
 
 export interface Measurement {
   name: string
+  /** 旧服务未提供时按 Ch1 处理；新服务中所属通道不可由图窗推断。 */
+  channelId?: number
   kind: 'receiver' | 'sParameter'
   receiverKind: 'a' | 'b'
   receiverPort: number
@@ -110,7 +144,7 @@ export type DisplayCommand =
       traceName: string
       perDivision?: number
       referenceLevel?: number
-      referencePosition: number
+      referencePosition?: number
     }
   | { action: 'autoscale'; traceName: string; acquisitionRevision: string }
   | { action: 'smithRadius'; traceName: string; radius: number }
@@ -182,6 +216,8 @@ export interface InstrumentCapabilities {
   maxFrequencyHz: number
   minSweepPoints: number
   maxSweepPoints: number
+  minPowerDbm?: number
+  maxPowerDbm?: number
 }
 
 export interface InstrumentStatus {
@@ -197,9 +233,14 @@ export interface InstrumentStatus {
   runId: string
   activeConfigValid: boolean
   capabilities: InstrumentCapabilities
+  activeChannelId?: number
+  channels?: ChannelStatus[]
+  stimulusZoom?: StimulusZoomState
   config: SweepConfiguration & {
     triggerSource: 'IMM' | 'MAN'
     sweepMode: 'HOLD' | 'SING' | 'CONT'
+    /** 持久模式选择；旧服务缺省时不能从运行态猜测。 */
+    selectedSweepMode?: 'SING' | 'CONT'
   }
   measurements: Measurement[]
   display: DisplaySnapshot
@@ -212,6 +253,20 @@ export interface InstrumentStatus {
     leaseRemainingMs: number
     readOnlyReason: string
   }
+}
+
+/** 独立采集上下文；测量目录和图窗目录仍由整台仪器统一管理。 */
+export interface ChannelStatus {
+  channelId: number
+  name: string
+  state: CoreState
+  error: string
+  acquisitionRevision: string
+  runId: string
+  activeConfigValid: boolean
+  config: InstrumentStatus['config']
+  calibration?: CalibrationSnapshot
+  stimulusZoom?: StimulusZoomState
 }
 
 export interface ReceiverTrace extends Measurement {
@@ -241,12 +296,16 @@ export interface AcquiredFrame {
   frequencyHz: number[]
   sampleIndexes: number[]
   traces: ReceiverTrace[]
+  /** 顶层仍是活动通道的兼容别名；各通道使用自己的完整频率轴和版本。 */
+  channelFrames?: FrameResponse[]
 }
 
 export interface UnavailableFrame {
   available: false
   current: false
   reason: string
+  channelId?: number
+  channelFrames?: FrameResponse[]
 }
 
 export type FrameResponse = AcquiredFrame | UnavailableFrame

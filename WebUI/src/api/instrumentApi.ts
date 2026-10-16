@@ -8,11 +8,14 @@ import {
 import type {
   AcceptedOperation,
   ClaimResponse,
+  ChannelCommand,
   FrameResponse,
   InstrumentStatus,
   MeasurementCandidate,
   OperationSnapshot,
   RunAction,
+  SweepControlCommand,
+  StimulusZoomCommand,
   SweepPatch,
   DisplayCommand,
   TraceDestination,
@@ -103,8 +106,12 @@ export interface InstrumentGateway {
   configure(
     candidate: SweepPatch,
     expectedRevision: string,
+    channelId?: number,
   ): Promise<AcceptedOperation>
   operate(action: RunAction): Promise<AcceptedOperation>
+  sweepControl?(command: SweepControlCommand, channelId?: number): Promise<AcceptedOperation>
+  stimulusZoom?(command: StimulusZoomCommand, expectedRevision: string, expectedDisplayRevision: string, channelId?: number): Promise<AcceptedOperation>
+  channel?(command: ChannelCommand, expectedRevision: string, expectedDisplayRevision: string): Promise<AcceptedOperation>
   operation(id: string, ownerSessionId: string): Promise<OperationSnapshot>
   addMeasurement(
     candidate: MeasurementCandidate,
@@ -143,10 +150,10 @@ export interface InstrumentGateway {
     expectedDisplayRevision: string,
   ): Promise<AcceptedOperation>
   abortRequests(): void
-  calibration?(command: CalibrationCommand, expectedRevision: string): Promise<AcceptedOperation>
+  calibration?(command: CalibrationCommand, expectedRevision: string, channelId?: number): Promise<AcceptedOperation>
   calibrationStatus?(): Promise<CalibrationSnapshot>
-  exportCalibration?(setId: string): Promise<Record<string, unknown>>
-  calibrationPreview?(sessionId: string, stepId: string): Promise<CalibrationPreviewResponse>
+  exportCalibration?(setId: string, channelId?: number): Promise<Record<string, unknown>>
+  calibrationPreview?(sessionId: string, stepId: string, channelId?: number): Promise<CalibrationPreviewResponse>
 }
 
 /** 仅负责 JSON 传输；设备操作的完成状态和控制权由服务端管理。 */
@@ -341,18 +348,18 @@ export class InstrumentApi implements InstrumentGateway {
   status(): Promise<InstrumentStatus> {
     return this.request('/status', decodeStatus)
   }
-  calibrationStatus(): Promise<CalibrationSnapshot> {
-    return this.request('/calibration', decodeCalibration)
+  calibrationStatus(channelId?: number): Promise<CalibrationSnapshot> {
+    return this.request(`/calibration${channelId === undefined ? '' : `?channelId=${channelId}`}`, decodeCalibration)
   }
-  calibration(command: CalibrationCommand, expectedRevision: string): Promise<AcceptedOperation> {
+  calibration(command: CalibrationCommand, expectedRevision: string, channelId?: number): Promise<AcceptedOperation> {
     return this.request('/calibration', decodeAccepted, 'POST',
-      { ...command, expectedRevision, requestId: requestId() }, this.token, 202)
+      { ...command, ...(channelId === undefined ? {} : { channelId }), expectedRevision, requestId: requestId() }, this.token, 202)
   }
-  exportCalibration(setId: string): Promise<Record<string, unknown>> {
-    return this.request(`/calibration/sets/${encodeURIComponent(setId)}`, decodeCalibrationExport)
+  exportCalibration(setId: string, channelId?: number): Promise<Record<string, unknown>> {
+    return this.request(`/calibration/sets/${encodeURIComponent(setId)}${channelId === undefined ? '' : `?channelId=${channelId}`}`, decodeCalibrationExport)
   }
-  calibrationPreview(sessionId: string, stepId: string): Promise<CalibrationPreviewResponse> {
-    return this.request(`/calibration/preview?sessionId=${encodeURIComponent(sessionId)}&stepId=${encodeURIComponent(stepId)}`, decodeCalibrationPreview)
+  calibrationPreview(sessionId: string, stepId: string, channelId?: number): Promise<CalibrationPreviewResponse> {
+    return this.request(`/calibration/preview?sessionId=${encodeURIComponent(sessionId)}&stepId=${encodeURIComponent(stepId)}${channelId === undefined ? '' : `&channelId=${channelId}`}`, decodeCalibrationPreview)
   }
   frame(names?: readonly string[]): Promise<FrameResponse> {
     const query =
@@ -405,6 +412,7 @@ export class InstrumentApi implements InstrumentGateway {
   configure(
     candidate: SweepPatch,
     expectedRevision: string,
+    channelId?: number,
   ): Promise<AcceptedOperation> {
     const fields = [
       'startHz',
@@ -413,6 +421,7 @@ export class InstrumentApi implements InstrumentGateway {
       'spanHz',
       'points',
       'ifBandwidthHz',
+      'powerDbm',
     ] as const
     const patch = Object.fromEntries(
       fields
@@ -423,7 +432,7 @@ export class InstrumentApi implements InstrumentGateway {
       '/config',
       decodeAccepted,
       'POST',
-      { ...patch, expectedRevision, requestId: requestId() },
+      { ...patch, ...(channelId === undefined ? {} : { channelId }), expectedRevision, requestId: requestId() },
       this.token,
       202,
     )
@@ -438,6 +447,27 @@ export class InstrumentApi implements InstrumentGateway {
       this.token,
       202,
     )
+  }
+
+  sweepControl(command: SweepControlCommand, channelId?: number): Promise<AcceptedOperation> {
+    return this.request(
+      '/sweep-control',
+      decodeAccepted,
+      'POST',
+      { ...command, ...(channelId === undefined ? {} : { channelId }), requestId: requestId() },
+      this.token,
+      202,
+    )
+  }
+
+  stimulusZoom(command: StimulusZoomCommand, expectedRevision: string, expectedDisplayRevision: string, channelId?: number): Promise<AcceptedOperation> {
+    return this.request('/stimulus-zoom', decodeAccepted, 'POST',
+      { ...command, ...(channelId === undefined ? {} : { channelId }), expectedRevision, expectedDisplayRevision, requestId: requestId() }, this.token, 202)
+  }
+
+  channel(command: ChannelCommand, expectedRevision: string, expectedDisplayRevision: string): Promise<AcceptedOperation> {
+    return this.request('/channels', decodeAccepted, 'POST',
+      { ...command, expectedRevision, expectedDisplayRevision, requestId: requestId() }, this.token, 202)
   }
 
   operation(id: string, ownerSessionId: string): Promise<OperationSnapshot> {
