@@ -20,8 +20,8 @@ const opening = props.status
       displayRevision: props.status.display.revision,
       portCount: props.status.capabilities.portCount,
       name: props.activeTraceName,
-      measurements: props.status.measurements.length,
-      diagrams: props.status.display.diagrams.length,
+      channelId: props.status.activeChannelId ?? 1,
+      measurements: props.status.measurements.filter((trace) => (trace.channelId ?? 1) === (props.status?.activeChannelId ?? 1)).length,
     }
   : null
 const working = ref(false)
@@ -39,12 +39,13 @@ const current = computed(() =>
     opening.revision === props.status.revision &&
     opening.displayRevision === props.status.display.revision &&
     opening.portCount === props.status.capabilities.portCount &&
-    opening.name === props.activeTraceName,
+    opening.name === props.activeTraceName &&
+    opening.channelId === (props.status?.activeChannelId ?? 1),
   ),
 )
 const message = computed(() =>
   opening
-    ? `将删除当前通道的 ${opening.measurements} 条旧测量定义及 ${opening.diagrams} 个图窗，并创建 ${opening.portCount ** 2} 条 S 参数迹线及图窗，按 ${opening.portCount}×${opening.portCount} 排列。扫描设置保持不变。是否继续？`
+    ? `将替换当前通道 Ch${opening.channelId} 的 ${opening.measurements} 条旧测量定义，并创建 ${opening.portCount ** 2} 条 S 参数迹线及图窗，按 ${opening.portCount}×${opening.portCount} 排列。保留其他通道，扫描设置保持不变。是否继续？`
     : '尚未读取仪器状态，请关闭后重试。',
 )
 const visibleError = computed(

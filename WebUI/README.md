@@ -105,7 +105,7 @@ flowchart TB
 
 测量目录、显示集合和显式图窗均最多 128 项，这是项目资源预算，不是 ZNB 最大容量。Diagram 菜单 Add Trace 使用 `/api/v1/measurement-actions/add` 添加默认 S21/dB Mag 迹线；单端口时为 S11。工具栏 Trc+ 单击复制活动迹线；将 Trc+ 或 Trace Config 的 Add Trace 拖入图窗，打开 New Trace 参数矩阵，点击参数后以同一个 add 事务提交 `parameter`、目标图窗、落区 `position` 和打开时的双 CAS。中心落区加入现有图窗；上下左右落区分别水平或垂直二分目标图窗，新迹线位于选定方向。C++ 统一命名、创建、显示和选中，关闭弹框不写设备。Add Trace + Diagram 在同一后端事务中创建新图窗和默认迹线。Trace Config 的 Add Trace 使用 `/api/v1/measurement-actions/clone` 复制活动定义及显示设置；编号由后端选取最小空闲 `Trc<n>`，新增不会替换之前的迹线。图窗右键动作携带目标 `diagram`，不通过浏览器连续发两次写请求实现组合操作。
 
-拖动已有迹线标题使用独立移动令牌，在上述五个落区间改变显示归属；不创建或复制测量、格式和标记。起拖时冻结 `displayRevision`，拖放过程中图窗编号或显示配置发生变化时拒绝旧手势。C++ 保存分割结构并下发归一化区域，浏览器只映射像素；移动或删除产生的空源图窗合并到兄弟区域并映射重编号。显式重新排列、Overlay All、Split All 和 All S-Parameters 清除自定义分割，恢复自动或矩阵网格；最大化保留原分割结构。拖放继续遵循控制租约、校准采集、Busy 和容量限制。
+拖动已有迹线标题使用独立移动令牌，在上述五个落区间改变显示归属；不创建或复制测量、格式和标记。起拖时冻结 `displayRevision`，拖放过程中图窗编号或显示配置发生变化时拒绝旧手势。C++ 保存分割结构并下发归一化区域，浏览器只映射像素；标题拖放或测量删除产生的空源图窗合并到兄弟区域并映射重编号。显式重新排列、Overlay All、Split All 和 All S-Parameters 清除自定义分割，恢复自动或矩阵网格；最大化保留原分割结构。拖放继续遵循控制租约、校准采集、Busy 和容量限制。
 
 标题活动色为 `#0D75BF`，非活动色和普通按钮为 `#4B5F6C`；选中硬键用 `#008FF5`，选中页签底色用 `#323F48`，角色独立且悬停不覆盖选中色。这些颜色取自官方 Getting Started v70 第 37 页无损原图，并非跨固件 RGB 协议规范。
 
@@ -133,6 +133,24 @@ Scale 和 Marker 输入按活动迹线、活动标记编号及已应用显示设
 
 工具栏和 Scale 面板的 Autoscale 发送一次后端操作，并附 `acquisitionRevision`；后端使用完整原始帧计算并提交刻度。随后噪声帧不会改变已保存范围。格式值、无穷/未定义状态和 Smith 半径适配由后端提供，前端不执行复数幅度、相位、阻抗换算或频点吸附。极小范围的 `Δ` 仅是坐标标签显示方式。
 
+## 图形缩放、刺激缩放、纵向平移与垃圾箱
+
+工具栏 Zoom area 开启图形框选，在直角坐标图内拖出矩形即可同时放大显示的 X/Y 区域；Zoom 1:1 一次恢复该图窗原图。重复框选以当前视口为基础继续放大，通道行额外显示 Zoom 频段，原始 Start/Stop 仍代表真实采集范围。图形缩放不改变扫频、点数、已保存刻度或任何样本，不需要写控制权，旁观窗口也可使用。视口仅临时保存在当前浏览器的各图窗中，另一页面及刷新不共享；连续帧更新保留视口，外部配置、格式、刻度或布局变化则安全清除。图形缩放内的纵向拖动只移动本地视口，不提交 Ref Value；先按 Zoom 1:1 返回原图，才能进行下述 Stimulus Zoom。Overview 与数值视口编辑尚未实现，本次不增加相应占位入口。显示矩形、额外 Zoom 行及 Reset 的依据为 [ZNB User Manual v74 第 61–62 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=61)；逐浏览器临时状态及清除规则是项目范围，不宣称已实现原机远程 Zoom 命令。
+
+`Stimulus → Zoom Stimulus` 提供 Zoom In / Zoom Out。点击 Zoom In 后，在活动直角坐标图内拖出矩形，松手同时提交选定的真实扫频频段与该迹线纵轴范围；扫描点数、IFBW、触发源及运行模式保持。再次点击 Zoom In 或按 Esc 取消框选。圆图、CW 零跨度、只读、校准采集、待处理操作或旧帧状态不允许框选，并显示原因。当前入口沿用本项目要求的 Stimulus 分类；ZNB v74 的对应功能位于 Trace → Scale → Zoom，不能把二者说成同一版本菜单的逐项复刻。
+
+Zoom Out 恢复上一次成功刺激缩放前的频段及目标迹线刻度，服务保存最多 16 层历史；这是项目恢复规则，未核实为 ZNB 的缩小算法。它不回滚 Marker、测量目录或活动选择。若之后另行修改频段、目标测量定义、格式或刻度，旧历史不能覆盖这些修改，Zoom Out 会禁用并说明原因；切换活动迹线或改 Marker 不会单独使历史失效。频段未变、只缩放纵轴时保留当前采集帧，不重新配置或触发采集。频段改变时，CONT 等待新完整帧，Manual 保持布防并等待手动触发，不把旧频轴数据标成当前曲线。旧服务未提供 `status.stimulusZoom` 时禁用此功能，提示升级服务。
+
+原图未开启框选时，在活动直角坐标图内上下拖动可平移当前迹线：改变 Ref Value，保持 Scale/Div 和 Ref Pos，因此参考三角与网格位置固定、纵轴标签随之改变。它与拖右侧参考三角调整 Ref Pos 是两个独立操作；两种手势均不改测量样本及 Marker 频点。图内平移按每格的 1/100 量化绝对参考坐标，清除 Autoscale 等来源的长小数；Log Mag 在对数坐标中量化。这是项目精度，用户提供的实机视频只确认有限小数显示，不能据此断言原机采用相同步长。手势冻结起点几何和显示版本，跨过 3 CSS px 后预览，松手仅提交一次 `scale.referenceLevel`；Esc、指针取消、几何变化、版本变化或失去权限取消未提交动作。Marker 符号和参考三角仍优先响应自身手势；平移不会兼做 Marker 定位。
+
+垃圾箱单击删除当前迹线；拖放则根据起拖对象执行：迹线标题删除该命名迹线（可以不是活动迹线），单个 Marker 符号关闭该编号，Marker 信息字段关闭该迹线的全部 Marker，图窗右上角 `▼ 图号` 把手删除该图窗及其所属测量定义。Marker 关闭保留坐标与属性，重新开启可恢复。最后一条迹线、最后一个图窗受保护；最后迹线上的 Marker 仍可关闭。拖放冻结对象身份及版本，旧版本、失去控制权或 Busy 时拒绝，不先切换活动对象；Marker 拖至垃圾箱时只发送关闭动作，不再发送频率移动。删除空图窗后的布局及编号由 C++ 统一读回。Undo 尚未实现，工具栏继续禁用，不能据原机支持撤销宣称本项目可恢复已删除测量。
+
+单个 Marker 沿线拖动继续调整频点。纵向拖离时，扣除抓取文字或三角边缘的偏移，需同时达到 3 CSS px 实际移动、12 CSS px 纵向位移和 12 CSS px 离线距离，才进入脱离状态；纯横向移频经过陡边、未移动的单击不会误脱离。脱离后符号跟随鼠标，可移出图窗，进入可用垃圾箱时高亮落点；松手仅关闭起拖的那个编号。脱离后落在空白处、垃圾箱不可用或按 Esc、指针取消、失权、版本及几何变化时，恢复原标记且不改频点。阈值及无效落点取消是项目规则，原机已核实的是“纵向拖离单 Marker 后拖入 Delete”，见[官方手册第 56 页](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=56)。读数信息框的提示明确其整组关闭语义，避免与单个符号混淆。
+
+空闲绘图区使用普通箭头，按住平移时显示抓取状态，框选时显示十字；Marker 和参考三角保留各自的操作光标。手册第 50 页允许在 diagram 内拖动平移，未限定只能命中曲线，因此当前保留图内平移，不将“曲线附近起拖”冒称为原机规则。
+
+交互证据与项目取舍见[图窗点击与拖动核对](../docs/research/ZNB8图窗点击交互核对.md)和[迹线与标记行为核对](../docs/research/ZNB8迹线与标记行为核对.md)。
+
 ## 校准操作与状态
 
 Cal → Start Cal → Start (Manual)… 打开两步设置弹框：Ports and Type、Connectors and Cal Kits。蓝色端口块选择实际物理端口，类型矩阵只允许单端口 Refl OSM 和双端口 TOSM；其余类型禁用。第二步按端口列展示只读的 Ideal 50 Ω 标准模型，机械 Connector/Gender、导入 Cal Kit、Sliding Match 尚未实现，不能据这些界面位置推断能力。双端口可选 Isolation，未测隔离时明确假定串扰为零。
@@ -153,16 +171,30 @@ Use Cal 显示 User Cal Active、实际端口覆盖、不适用原因及 Cal Man
 
 基准画布为 1280 × 800。工具栏高 42 px，底部菜单状态栏高 32 px；主区 848 px、软工具 272 px、右侧两列硬键 160 px。软工具的标签列在右侧，宽 70 px，文字横排。视口改变时整体等比缩放；按 Esc 收起软工具，主区扩大到 1120 px，点击硬键重新打开。
 
-新服务启动后已有活动迹线 `Trc1 / S21`，使用仪器配置的完整频段、默认 201 点；单端口配置使用 S11。无已恢复状态的新服务器默认自动启动 CONT；`instrument.sweep.defaultSweepMode` 可设为 HOLD，此时等待 Single sweep 或 Continuous 才获得曲线。服务领域初始化仍为 HOLD，服务器在监听前应用配置的启动模式。浏览器刷新读取已有设备目录和配置，不重新创建 RAW a1,1，也不覆盖其他客户端已选择的测量。
+新服务启动后已有活动迹线 `Trc1 / S21`，使用仪器配置的完整频段、默认 201 点；单端口配置使用 S11。无已恢复状态的新服务器默认自动启动 CONT；`instrument.sweep.defaultSweepMode` 可设为 HOLD，此时 Start Sweep 或工具栏 Restart Sweep 按当前模式与触发源启动，改变模式为 Continuous 也会启用连续运行。服务领域初始化仍为 HOLD，服务器在监听前应用配置的启动模式。浏览器刷新读取已有设备目录和配置，不重新创建 RAW a1,1，也不覆盖其他客户端已选择的测量。
 
 1. 在 Setup 或底栏取得控制权；若 SCPI 或另一页面持权，本页可只读查看。
 2. 在 CONT 或 HOLD 下设置通道采集参数：Start/Stop/Center/Span 硬键打开 `Stimulus → Stimulus` 的频率设置；`Channel → Sweep → Sweep Params` 设置 `Number of Points`；`Channel → Power / Bw / Avg → Bandwidth` 设置 `IF Bandwidth`，软工具标题为 `Pwr Bw Avg`。每页保留独立输入草稿，Apply 只发送本页字段并等待后端完成及读回，切换菜单或帧轮询不会清除尚未应用的草稿。允许 Start = Stop，或把 Span 设为 0，进行 CW 定频采样；返回频轴允许同一频率重复。
-3. Meas 的 S-Params 页保留 S11/S12/S21/S22 四个快捷按钮，点击上方参数编号按钮（例如 21）打开 S-Parameters 矩阵弹框：四端口 4×4 共 16 按钮，二端口 2×2 共 4 按钮。点击参数即提交，成功读回后关闭，取消不修改。选择修改活动迹线的测量量，不创建新名称或图窗；All S-Params 先弹出删除确认：Yes 在 C++ 一次替换全部旧定义和图窗，四端口建立 16 条迹线 / 4×4 图窗、二端口 4 条 / 2×2；No / X / Esc 不写设备。扫频与触发配置保持，新迹线对角反射使用 Smith、其余传输使用 dB Mag，圆图半径为 1、矩形默认 −90…10 dB，Marker 关闭。Sij 在激励源 j 的同帧波量上计算 `bi/aj`，例如 S34 使用源 4 的 `b3/a4`，不能颠倒接收端与源端。Wave 页提供六个标准两端口波量快捷选择；More Wave Quantities 可按仪器能力指定完整 a/b 接收与源端口。二端口不提供 S33/S44 等选项，HTTP/SCPI 绕过界面的越界请求仍由 C++ 拒绝。CONT 中可以直接切换测量量；已有计划覆盖时复算同一完整帧，缺少源或接收机时由后台在完整帧边界更新计划，保持 CONT 和 runId。菜单依据见[四端口原机核对](../docs/research/ZNB8四端口S参数菜单核对.md)。
-4. Sweep 硬键默认打开 `Sweep Params`；在 `Sweep Control` 页签中，Single sweep 采一帧并进入 HOLD，Continuous 连续采集，Hold 等待当前完整帧收尾。`Trigger` 页签和 Trigger 硬键显示触发源及 Manual trigger；仅在实际 MAN 触发并已 armed 时允许手动触发。
+3. Meas 的 S-Params 页保留 S11/S12/S21/S22 四个快捷按钮，点击上方参数编号按钮（例如 21）打开 S-Parameters 矩阵弹框：四端口 4×4 共 16 按钮，二端口 2×2 共 4 按钮。点击参数即提交，成功读回后关闭，取消不修改。选择修改活动迹线的测量量，不创建新名称或图窗；All S-Params 先弹出删除确认：Yes 在 C++ 一次替换当前通道的旧定义和图窗，保留其他通道，四端口建立 16 条迹线 / 4×4 图窗、二端口 4 条 / 2×2；No / X / Esc 不写设备。扫频与触发配置保持，新迹线对角反射使用 Smith、其余传输使用 dB Mag，圆图半径为 1、矩形默认 −90…10 dB，Marker 关闭。Sij 在激励源 j 的同帧波量上计算 `bi/aj`，例如 S34 使用源 4 的 `b3/a4`，不能颠倒接收端与源端。Wave 页提供六个标准两端口波量快捷选择；More Wave Quantities 可按仪器能力指定完整 a/b 接收与源端口。二端口不提供 S33/S44 等选项，HTTP/SCPI 绕过界面的越界请求仍由 C++ 拒绝。CONT 中可以直接切换测量量；已有计划覆盖时复算同一完整帧，缺少源或接收机时由后台在完整帧边界更新计划，保持 CONT 和 runId。菜单依据见[四端口原机核对](../docs/research/ZNB8四端口S参数菜单核对.md)。
+4. Sweep 硬键默认打开 `Sweep Params`；`Sweep Control` 按 ZNB v74 静态菜单保留 Continuous / Single、Sweeps 和 Start Sweep。改选 Continuous 即启用连续运行，保留触发源：Free Run 自动采集，Manual 等待手动触发；改选 Single 在当前完整帧结束后停止，新周期由 Start Sweep 启动。所选模式在单次完成后仍保留。`Trigger In` 提供 Free Run / Manual、Manual Trigger 及触发设置，不额外放置启动或停止按钮。Continuous 正在 Free Run 时，选 Manual 后即可逐次点击 Manual Trigger，每次一帧并继续等待；切回 Free Run 恢复自动扫描。Manual/Single 完成一帧后 HOLD，新周期仍需启动；运行中的 Manual/Single 切为 Free Run 会自动完成一帧后 HOLD，停止时切源则不取数。重复选择当前值不重启。工具栏 Restart Sweep 按当前模式和触发源重启周期，不改成 Single。所有结果以服务端完成后的状态读回为准；静态原图能确认的菜单与手册没有明确的运行态细节分列于[核对记录](../docs/research/ZNB8点数与中频带宽菜单核对.md#sweep-control-显示与当前控制语义)，不将项目实现策略称为已经逐状态验证的 ZNB 实机行为。
 5. 点击可见曲线或上方迹线标题选择当前迹线；点击空白区只激活图窗及其上次活动迹线，不启用或移动 Marker。Format、Scale、Marker 改变后端共享显示设置。Trace Config 管理测量目录和共享 Display 集合，Add Trace 由后端复制并命名，Delete 删除定义；全部仪器写动作要求控制权，CONT 中仍可执行。另一观察窗口及 SCPI 能读取相同状态。`Marker → Markers` 用 Mkr 1～10 选择/启用普通标记，Add Marker 新增下一空闲成员，On 单独关闭当前标记，All Off 关闭活动迹线全部标记。点击图上符号或右上角读数行只选择所属迹线和活动 Marker，保留坐标；从 Marker 符号开始拖动才提交位置变化。
 6. 在 File/Print、Tools 或工具栏导出当前显示的 CSV。
 
 点数与 IF 带宽菜单位置依据 [ZNB8 官方手册核对](../docs/research/ZNB8点数与中频带宽菜单核对.md)。本项目保留 Apply / Reload 作为草稿提交与重读交互，这组按钮并非原机软工具的复刻。CONT 下配置修改由后端在完整帧边界执行，并复核控制权及版本；功率、数字 IF 滤波器和平均尚未实现，不提供可操作的占位控件。
+
+Sweep 与 Trigger 中未实现的控件置灰并说明原因：Sweeps 多次扫描计数、Restart Manager 的活动/全部通道重启范围、批量通道运行控制、Sweep Controller 的 Sweep Info 窗口、External 外部触发、Multiple 触发及 Trigger Manager 的分序列配置、Point 逐点触发、Trigger Delay 和 Pipelining 的测量数据流水线尚未实现。当前可分别设置各通道；每次手动触发采集目标通道的一份完整逻辑帧。工具栏 Restart 明确重启活动通道，保留该通道的模式与触发源。
+
+### 独立通道与功率
+
+Channel Config → Channels 提供 Active Channel、New Channel、Copy Channel、两者的 + Diagram 入口及 Delete Channel。New 使用默认扫描设置和一条默认迹线；Copy 复制源通道的设置、已保存校准、全部迹线及 Marker，副本重新实际采集，不复制旧帧充数。+ Diagram 放入新图，否则放入活动图。本项目预算为同时 16 通道、128 条迹线；至少保留一个通道。工具栏 New Ch+Tr 使用默认设置；复制已有频段应使用 Copy Channel + Diagram。
+
+复现宽频段与局部频段并存：先在 Ch1 配置原频段，选择 Copy Channel + Diagram，保持新 Ch2 活动，再到 Stimulus → Zoom Stimulus 框选。Ch1 的频段、采集身份、缓存与校准保持独立，Zoom Out 只恢复当前通道的历史。选择迹线自动选择所属通道。底部按图窗包含的每个通道显示独立 Start/Stop、点数、Pwr 和 Bw；同属活动通道的信息行均高亮。混通道叠加时，每条曲线、命中判断和 Marker 都使用自身频率轴及点数。
+
+Stimulus 的 Power 字段及 Power 页、Pwr Bw Avg → Power 可设置当前通道 Channel Base Power；提交负数和小数 dBm，范围采用驱动已确认的 −120…100 dBm。服务把值填入真实逐点功率计划，切通道也切换对应硬件设置。改变功率可能使原校准不兼容，原因由服务返回；逐端口功率偏移未实现。切换通道会重载本页草稿，已受理请求仍绑定原通道。设备只有一套采集资源，多个运行通道按完整帧轮转，互不修改设置，不表示同时发射。
+
+迹线标题使用内容宽度和 2 px 间距排列，字段留白收紧；Scale/Div 与 Ref 按当前每格约 1% 的十进制分辨率格式化，例如框选得到的 1.5122124 dB/div 显示为 1.51 dB/div，0.5 dB/div 下的 −25.9996247 显示为 −26 dB。这里只处理设置读数的显示，原始浮点值、Marker 读数和导出精度保持。
+
+CSV 按活动通道导出其当前可见迹线，使用该通道真实频率轴，文件名含通道号；不把不同通道的数组强拼成同一根频率轴。空通道可在 Channel Config 选择、配置或删除，Add Trace 为其创建默认迹线；空通道复制暂时禁用。
 
 图窗采用 10 × 10 网格，网格铺满绘图区，仅留 1 px 边线；纵轴数值和单位叠在网格内，普通刻度使用 `#4b5f6c`，如 `10dB` 不增加数值与单位之间的空格。频率 Start/Stop 显示在基准 20 px 黑色通道行，`Bw` 使用实际 IFBW，扫频点数使用真实配置或当前帧；不填充未实现的 Pwr。基准 18 px 迹线条紧凑排列，如 `Trc1 S21 dB Mag 10 dB/ Ref 0 dB`，当前迹线选中呈 `#0d75bf` 蓝底。图内文字使用 Tahoma/Arial 近似参考截图，未确认原机字体。每条可见迹线保留自己的参考虚线与右侧同色向左三角；当前坐标所对应迹线的 Ref 虚线及对齐刻度用浅色 `#dbe2e6` 强调，其他叠加迹线的参考虚线使用自己的颜色。普通标记使用带编号的小填充三角；图内或 Info Table 按已启用成员显示读数，使用实心 `#323f48` 背景，整行跟随迹线色，圆点指示活动标记。频率以工程单位显示六位小数，对应的实际采样索引不变，高精度提示仍可读取。靠近顶部时三角反向、文字移到下方；频率端点处目标向内收，尖点仍对应真实采样位置，单击不会跳频。
 
@@ -196,7 +228,7 @@ CSV 使用 schema 4，记录采集、目录、显示版本、抽取信息及后�
 
 ## 验证与界面依据
 
-直角坐标图中，可上下拖动右侧与迹线同色的参考电平三角形调整 `Ref Pos`（底部 0、顶部 10，允许小数）。参考值和每格跨度保持不变，迹线、参考线、刻度标签及 Marker 图形同步移动；测量数据和 Marker 频点不变。手势按屏幕帧合并本地预览，不重新转换投影数组，松手仅提交一次参考位置及开始拖动时的显示版本，由 C++ 验证并保存；冲突或失败恢复后端刻度。Esc、指针取消、捕获丢失、窗口几何变化或失去权限会取消未提交的拖动。普通单击只选择所属迹线；隐藏迹线及 Smith / Polar / Inv Smith 不提供此把手。图内空白和普通网格线仍只用于选择，不提供平移。行为依据为 [ZNB User Manual v74 第 57 页表 3-6](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=57)及[第 443 页 Ref Pos](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=443)。
+直角坐标图中，可上下拖动右侧与迹线同色的参考电平三角形调整 `Ref Pos`（底部 0、顶部 10，允许小数）。参考值和每格跨度保持不变，迹线、参考线、刻度标签及 Marker 图形同步移动；测量数据和 Marker 频点不变。手势按屏幕帧合并本地预览，不重新转换投影数组，松手仅提交一次参考位置及开始拖动时的显示版本，由 C++ 验证并保存；冲突或失败恢复后端刻度。Esc、指针取消、捕获丢失、窗口几何变化或失去权限会取消未提交的拖动。普通单击只选择所属迹线；隐藏迹线及 Smith / Polar / Inv Smith 不提供此把手。普通单击仍只做选择；原图内直接拖动按本节之前的 Ref Value 规则平移，图形缩放内只移动本地视口。行为依据为 [ZNB User Manual v74 第 57 页表 3-6](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=57)及[第 443 页 Ref Pos](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9163_01/ZNB_UserManual_en_74.pdf#page=443)。
 
 校准标准预览按会话、步骤、校准版本和保存的 run/frame 字段变化读取，同值状态对象的周期读回不重新清图或发起预览 GET。收集期间只轮询状态、操作结果及所选标准预览，暂停隐藏 DUT 完整矩阵的重复下载；完成或取消后恢复正常帧轮询。Apply 和正常 Cancel 由服务恢复进入前的 Trigger Source/Sweep Mode，前端等权威操作读回，不自行写一组恢复命令；故障取消保持 HOLD。
 

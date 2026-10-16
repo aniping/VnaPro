@@ -6,7 +6,7 @@ import type {
   TracePresentation,
 } from '../../domain/presentation'
 import { isCircularFormat } from '../../domain/presentation'
-import { FORMAT_INFO, numberText, scaleValue } from '../../plot/formatting'
+import { FORMAT_INFO, numberText, scaleValue, scaleSettingNumber, scaleSettingText } from '../../plot/formatting'
 import { measurementState } from '../../domain/measurements'
 import { beginTraceDrag } from './traceDrag'
 import type { TraceTitleSections } from '../../plot/titleLayout'
@@ -28,6 +28,7 @@ const props = defineProps<{
   canEditDisplay: boolean
   /** 起拖时冻结版本，避免拖放过程中图窗重编号后移动至错误目标。 */
   displayRevision?: string
+  revision?: string
   sections?: TraceTitleSections
 }>()
 const emit = defineEmits<{
@@ -38,7 +39,7 @@ const emit = defineEmits<{
 function startDrag(event: DragEvent): void {
   beginTraceDrag(
     event,
-    { name: props.measurement.name, displayRevision: props.displayRevision ?? '' },
+    { name: props.measurement.name, displayRevision: props.displayRevision ?? '', revision: props.revision },
     props.canEditDisplay,
   )
 }
@@ -52,8 +53,8 @@ function divisionText(
     (scaleCoordinate(scale.max, format) - scaleCoordinate(scale.min, format)) /
     10
   return format === 'logMagnitude'
-    ? `${numberText(division, 5)} dec`
-    : scaleValue(division, format, 5, measurement)
+    ? `${scaleSettingNumber(division, division)} dec`
+    : scaleSettingText(division, division, format, measurement)
 }
 
 function circularDescription(
@@ -108,7 +109,7 @@ function circularDescription(
       }}</span>
       <template v-if="isCircularFormat(presentation.format)">
         <span class="trace-reference"
-          >Ref {{ smithRadius.toPrecision(4) }} U</span
+          >Ref {{ numberText(smithRadius, 4) }} U</span
         >
       </template>
       <template v-else>
@@ -118,10 +119,10 @@ function circularDescription(
         <span class="trace-reference"
           >Ref
           {{
-            scaleValue(
+            scaleSettingText(
               referenceLevel(scale, presentation.format),
+              (scaleCoordinate(scale.max, presentation.format) - scaleCoordinate(scale.min, presentation.format)) / 10,
               presentation.format,
-              9,
               measurement,
             )
           }}</span
@@ -184,7 +185,7 @@ function circularDescription(
   display: flex;
   align-items: center;
   align-self: stretch;
-  padding: 0 4px;
+  padding: 0 3px;
   font-weight: 400;
   flex-shrink: 0;
   box-sizing: border-box;
@@ -202,7 +203,7 @@ function circularDescription(
 
 .trace-format {
   width: var(--trace-format-width, auto);
-  padding: 0 4px;
+  padding: 0 2px;
   box-sizing: border-box;
   color: inherit;
   font-weight: 400;
@@ -212,7 +213,7 @@ function circularDescription(
 .trace-scale,
 .trace-reference,
 .trace-state {
-  padding-right: 4px;
+  padding-right: 2px;
   color: inherit;
 }
 

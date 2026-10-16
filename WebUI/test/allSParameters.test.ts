@@ -230,7 +230,8 @@ test('整组确认冻结打开时上下文，等待后端读回期间禁止重�
   try {
     const before = JSON.stringify(props.status)
     const opened = confirmation(view)
-    assert.match(opened.message, /删除.*测量定义.*图窗/)
+    assert.match(opened.message, /替换当前通道.*测量定义.*图窗/)
+    assert.match(opened.message, /保留其他通道/)
     assert.match(opened.message, /16.*4×4/)
     assert.match(opened.message, /扫描设置保持/)
     const pending = opened.onConfirm()

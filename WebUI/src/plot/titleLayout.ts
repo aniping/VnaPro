@@ -26,7 +26,7 @@ export interface TraceTitleSections {
   state: boolean
 }
 
-const TITLE_COLUMN_GAP = 4
+const TITLE_COLUMN_GAP = 2
 
 /** 完整字段优先减少列数，整个图窗仍放不下一条标题时才整项隐藏。 */
 export function measuredTraceTitleLayout(

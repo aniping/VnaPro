@@ -170,3 +170,16 @@ export function scaleValue(
 ): string {
   return `${numberText(value, significantDigits)} ${measurementFormatInfo(format, measurement).shortUnit}`
 }
+
+/** 刻度设置按每格约 1% 的十进制分辨率显示，避免暴露自动缩放的浮点尾数。 */
+export function scaleSettingNumber(value: number, perDivision: number): string {
+  if (!Number.isFinite(value) || !(perDivision > 0) || !Number.isFinite(perDivision)) return numberText(value, 5)
+  const resolution = 10 ** Math.floor(Math.log10(perDivision / 100))
+  const rounded = Math.round(value / resolution) * resolution
+  return numberText(Number.isFinite(rounded) ? rounded : value, 12)
+}
+
+export function scaleSettingText(value: number, perDivision: number, format: DisplayFormat, measurement?: Measurement): string {
+  return format === 'logMagnitude' ? scaleValue(value, format, 5, measurement)
+    : `${scaleSettingNumber(value, perDivision)} ${measurementFormatInfo(format, measurement).shortUnit}`
+}

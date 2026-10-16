@@ -94,7 +94,7 @@ async function diagram(count: 1 | 2) {
 }
 
 for (const count of [1, 2] as const) {
-  test(`${count} 条迹线的真实图窗模板应用像素槽宽，剩余区域留空`, async () => {
+  test(`${count} 条迹线使用内容宽度排列，标题不被最长标题或剩余区域拉宽`, async () => {
     const { harness, props, before, layout } = await diagram(count)
     try {
       const list = findElements(harness.render(), (node) =>
@@ -104,8 +104,8 @@ for (const count of [1, 2] as const) {
       const style = list.props!.style as TraceListStyle
       assert.equal(
         style.gridTemplateColumns,
-        `repeat(${layout.columns}, ${layout.slotWidth}px)`,
-        '标题背景应使用生产布局的像素槽宽，不能用 1fr 拉满图窗',
+        `repeat(${layout.columns}, max-content)`,
+        '列数使用最宽标题预算，实际列宽使用各列内容，不能补齐额外尾部空白',
       )
       assert.equal(style['--trace-name-width'], `${layout.nameWidth}px`)
       assert.equal(style['--trace-chip-width'], `${layout.chipWidth}px`)

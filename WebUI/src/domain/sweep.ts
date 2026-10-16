@@ -7,4 +7,5 @@ export function sweepWithinCapabilities(value: SweepConfiguration, limits: Instr
     && value.startHz <= value.stopHz && Number.isInteger(value.points)
     && value.points >= limits.minSweepPoints && value.points <= limits.maxSweepPoints
     && value.ifBandwidthHz >= 10
+    && (value.powerDbm === undefined || (Number.isFinite(value.powerDbm) && value.powerDbm >= (limits.minPowerDbm ?? -120) && value.powerDbm <= (limits.maxPowerDbm ?? 100)))
 }

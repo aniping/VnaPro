@@ -139,11 +139,11 @@ test('hidden sections return when the diagram has enough room', () => {
     title('Trc17', '0.5 dB/', 'Ref -25.5 dB'),
   ]
   const narrow = measuredTraceTitleLayout(160, titles, measure)
-  const wide = measuredTraceTitleLayout(900, titles, measure)
-  const fourSlots = measuredTraceTitleLayout(904, titles, measure)
+  const wide = measuredTraceTitleLayout(896, titles, measure)
+  const fourSlots = measuredTraceTitleLayout(898, titles, measure)
 
   assert.equal(narrow.sections.reference, false)
-  // 四个自然槽及三个间隔共需 904px，900px 只能容纳三列。
+  // 四个自然槽及三个 2px 间隔共需 898px，896px 只能容纳三列。
   assert.equal(wide.columns, 3)
   assert.deepEqual(wide.sections, allSections)
   assert.equal(fourSlots.columns, 4)
