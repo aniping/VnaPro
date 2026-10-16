@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <map>
 #include <sstream>
 
@@ -113,7 +114,7 @@ std::string Keyword(std::string token)
         {"DISPLAY", "DISP"}, {"WINDOW", "WIND"}, {"TRACE", "TRAC"}, {"SCALE", "SCAL"}, {"PDIVISION", "PDIV"},
         {"RLEVEL", "RLEV"}, {"RPOSITION", "RPOS"}, {"MARKER", "MARK"}, {"STATE", "STAT"}, {"DISCRETE", "DISC"},
         {"CORRECTION", "CORR"}, {"COLLECTION", "COLL"}, {"COLLECT", "COLL"}, {"METHOD", "METH"}, {"ACQUIRE", "ACQ"},
-        {"ABORT", "ABOR"}, {"ACTIVE", "ACT"}};
+        {"ABORT", "ABOR"}, {"ACTIVE", "ACT"}, {"POWER", "POW"}, {"LEVEL", "LEV"}, {"AMPLITUDE", "AMPL"}};
     const auto found = names.find(token);
     if (found != names.end()) {
         token = found->second;
@@ -213,6 +214,38 @@ ParsedCommand ParseCommand(const std::string &unit, std::vector<std::string> &pa
         }
     }
     return command;
+}
+
+ParsedCommand RouteChannelCommand(const ParsedCommand &command)
+{
+    auto routed = command;
+    if (routed.errorCode != 0 || routed.channelId != 0U) {
+        return routed;
+    }
+    const auto separator = routed.path.find(':');
+    const auto root = routed.path.substr(0U, separator);
+    for (const std::string prefix : {"SENS", "CALC", "INIT", "SOUR"}) {
+        if (root.compare(0U, prefix.size(), prefix) != 0) {
+            continue;
+        }
+        const auto suffix = root.substr(prefix.size());
+        if (suffix.empty() && prefix == "SOUR") {
+            routed.channelId = 1U;
+            routed.path = "SOUR1" + (separator == std::string::npos ? "" : routed.path.substr(separator));
+            return routed;
+        }
+        if (suffix.empty() || suffix.find_first_not_of("0123456789") != std::string::npos) {
+            return routed;
+        }
+        if (!Integer(suffix, routed.channelId, (std::numeric_limits<unsigned>::max)()) || routed.channelId == 0U) {
+            routed.errorCode = DATA_OUT_OF_RANGE;
+            routed.error = "Channel suffix must be a supported positive integer";
+            return routed;
+        }
+        routed.path = prefix + "1" + (separator == std::string::npos ? "" : routed.path.substr(separator));
+        return routed;
+    }
+    return routed;
 }
 
 bool Numeric(const std::string &text, double &value, bool frequencyUnits)

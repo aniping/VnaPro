@@ -17,6 +17,7 @@
 #include "scpi/scpi_display_adapter.h"
 #include "scpi/scpi_parser.h"
 #include "scpi/scpi_query_policy.h"
+#include "vna_core/sweep_plan.h"
 #include "vna_service/instrument_service.h"
 
 namespace VnaScpi {
@@ -185,11 +186,19 @@ bool ScpiEngine::QueryNumeric(const ParsedCommand &command, double current, doub
     return false;
 }
 
-void ScpiEngine::Dispatch(const ParsedCommand &command)
+void ScpiEngine::Dispatch(const ParsedCommand &original)
 {
+    auto command = RouteChannelCommand(original);
     if (command.errorCode != 0) {
         RecordCommandError(command, command.errorCode, command.error);
         return;
+    }
+    if (command.channelId != 0U && !service_.HasChannel(command.channelId)) {
+        RecordCommandError(command, DATA_OUT_OF_RANGE, "Channel does not exist");
+        return;
+    }
+    if (command.channelId == 0U && (command.path.find("TRIG") == 0U || command.path.find("INIT") == 0U)) {
+        command.channelId = service_.ActiveChannelId();
     }
     if (DispatchCommon(command) || DispatchSweep(command)) {
         return;
@@ -277,6 +286,12 @@ bool ScpiEngine::DispatchSweep(const ParsedCommand &command)
     }
     if (path == "SENS1:SWE:TYPE") {
         DispatchSweepType(command);
+        return true;
+    }
+    if (path == "SOUR1:POW" || path == "SOUR1:POW:LEV" || path == "SOUR1:POW:IMM" || path == "SOUR1:POW:AMPL" ||
+        path == "SOUR1:POW:LEV:IMM" || path == "SOUR1:POW:LEV:AMPL" || path == "SOUR1:POW:IMM:AMPL" ||
+        path == "SOUR1:POW:LEV:IMM:AMPL") {
+        DispatchPower(command);
         return true;
     }
     if (path == "TRIG:SOUR" || path == "TRIG:SEQ:SOUR" || path == "INIT:CONT" || path == "INIT1:CONT") {
@@ -428,7 +443,7 @@ void ScpiEngine::DispatchErrorCount(const ParsedCommand &command)
 void ScpiEngine::DispatchFrequency(const ParsedCommand &command)
 {
     const std::string &path = command.path;
-    const auto &settings = service_.Settings();
+    const auto &settings = service_.Settings(command.channelId);
     const auto &profile = service_.Profile();
     const bool start = path == "SENS1:FREQ:STAR";
     if (command.query) {
@@ -438,13 +453,14 @@ void ScpiEngine::DispatchFrequency(const ParsedCommand &command)
     }
     double value = 0;
     if (NumericArgument(command, value, profile.minFrequencyHz, profile.maxFrequencyHz, true)) {
-        SetOperation(start ? service_.SetStartHz(value) : service_.SetStopHz(value));
+        SetOperation(start ? service_.SetStartHz(value, 0U, command.channelId)
+                           : service_.SetStopHz(value, 0U, command.channelId));
     }
 }
 
 void ScpiEngine::DispatchPoints(const ParsedCommand &command)
 {
-    const auto &settings = service_.Settings();
+    const auto &settings = service_.Settings(command.channelId);
     if (command.query) {
         if (command.arguments.empty()) {
             AppendResponse(std::to_string(settings.points));
@@ -465,25 +481,25 @@ void ScpiEngine::DispatchPoints(const ParsedCommand &command)
         RecordCommandError(command, DATA_OUT_OF_RANGE, "Point count outside 2..10001");
         return;
     }
-    SetOperation(service_.SetPoints(static_cast<unsigned>(value)));
+    SetOperation(service_.SetPoints(static_cast<unsigned>(value), 0U, command.channelId));
 }
 
 void ScpiEngine::DispatchBandwidth(const ParsedCommand &command)
 {
-    const auto &settings = service_.Settings();
+    const auto &settings = service_.Settings(command.channelId);
     if (command.query) {
         QueryNumeric(command, settings.ifBandwidthHz, IF_BANDWIDTH_MINIMUM_HZ, IF_BANDWIDTH_MAXIMUM_HZ);
         return;
     }
     double value = 0;
     if (NumericArgument(command, value, IF_BANDWIDTH_MINIMUM_HZ, IF_BANDWIDTH_MAXIMUM_HZ, true)) {
-        SetOperation(service_.SetIfBandwidthHz(value));
+        SetOperation(service_.SetIfBandwidthHz(value, 0U, command.channelId));
     }
 }
 
 void ScpiEngine::DispatchSweepType(const ParsedCommand &command)
 {
-    const auto &settings = service_.Settings();
+    const auto &settings = service_.Settings(command.channelId);
     if (command.query) {
         if (CheckArguments(command, 0)) {
             AppendResponse("LIN");
@@ -497,10 +513,26 @@ void ScpiEngine::DispatchSweepType(const ParsedCommand &command)
     }
 }
 
+void ScpiEngine::DispatchPower(const ParsedCommand &command)
+{
+    if (command.query) {
+        QueryNumeric(
+            command, service_.Settings(command.channelId).powerDbm, VnaCore::MIN_POWER_DBM, VnaCore::MAX_POWER_DBM);
+        return;
+    }
+    double value = 0.0;
+    if (NumericArgument(command, value, VnaCore::MIN_POWER_DBM, VnaCore::MAX_POWER_DBM, false)) {
+        VnaService::ConfigPatch patch;
+        patch.hasPowerDbm = true;
+        patch.powerDbm = value;
+        SetOperation(service_.ApplyConfiguration(patch, 0U, "SCPI", command.channelId));
+    }
+}
+
 void ScpiEngine::DispatchTriggerSource(const ParsedCommand &command)
 {
     const std::string &path = command.path;
-    const auto &settings = service_.Settings();
+    const auto &settings = service_.Settings(command.channelId);
     const bool boolean = path.find("INIT") == 0U;
     if (command.query) {
         if (CheckArguments(command, 0)) {
@@ -528,15 +560,15 @@ void ScpiEngine::DispatchTriggerSource(const ParsedCommand &command)
     }
     const bool asynchronous =
         source == VnaService::TriggerSource::IMMEDIATE && settings.sweepMode == VnaService::SweepMode::SINGLE;
-    SetOperation(service_.SetTriggerSource(source), asynchronous);
+    SetOperation(service_.SetTriggerSource(source, "SCPI", command.channelId), asynchronous);
 }
 
 void ScpiEngine::DispatchTriggerScope(const ParsedCommand &command)
 {
-    const auto &settings = service_.Settings();
+    const auto &settings = service_.Settings(command.channelId);
     if (command.query) {
         if (CheckArguments(command, 0)) {
-            AppendResponse(settings.currentTriggerScope ? "CURR" : "ALL");
+            AppendResponse(settings.currentTriggerScope || service_.Snapshot().channels.size() > 1U ? "CURR" : "ALL");
         }
         return;
     }
@@ -545,9 +577,13 @@ void ScpiEngine::DispatchTriggerScope(const ParsedCommand &command)
     }
     const std::string value = Upper(command.arguments.front());
     if (value == "ALL") {
-        service_.SetCurrentTriggerScope(false);
+        if (service_.Snapshot().channels.size() > 1U) {
+            RecordCommandError(command, SETTINGS_CONFLICT, "All-channel trigger scope is not implemented");
+        } else {
+            service_.SetCurrentTriggerScope(false, command.channelId);
+        }
     } else if (Matches(value, "CURR", "CURRENT")) {
-        service_.SetCurrentTriggerScope(true);
+        service_.SetCurrentTriggerScope(true, command.channelId);
     } else {
         RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported trigger scope");
     }
@@ -555,7 +591,7 @@ void ScpiEngine::DispatchTriggerScope(const ParsedCommand &command)
 
 void ScpiEngine::DispatchSweepMode(const ParsedCommand &command)
 {
-    const auto &settings = service_.Settings();
+    const auto &settings = service_.Settings(command.channelId);
     if (command.query) {
         if (CheckArguments(command, 0)) {
             AppendResponse(settings.sweepMode == VnaService::SweepMode::HOLD
@@ -579,14 +615,14 @@ void ScpiEngine::DispatchSweepMode(const ParsedCommand &command)
         RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Unsupported sweep mode");
         return;
     }
-    SetOperation(service_.SetSweepMode(mode),
+    SetOperation(service_.SetSweepMode(mode, "SCPI", command.channelId),
         mode == VnaService::SweepMode::SINGLE && settings.triggerSource == VnaService::TriggerSource::IMMEDIATE);
 }
 
 void ScpiEngine::DispatchInitiate(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
-        SetOperation(service_.Trigger(), true);
+        SetOperation(service_.Trigger("SCPI", command.channelId), true);
     }
 }
 
@@ -610,12 +646,12 @@ void ScpiEngine::DispatchDefineMeasurement(const ParsedCommand &command)
             command, ILLEGAL_PARAMETER_VALUE, "Supported parameters are Sij (i,j=1..4) and aN,P/bN,P (N,P=1..4)");
         return;
     }
-    SetOperation(service_.DefineMeasurement(measurement));
+    SetOperation(service_.DefineMeasurement(measurement, 0U, "SCPI", command.channelId));
 }
 
 void ScpiEngine::DispatchMeasurementCatalog(const ParsedCommand &command)
 {
-    const auto &settings = service_.Settings();
+    const auto &settings = service_.Settings(command.channelId);
     if (command.arguments.size() > 1U) {
         RecordCommandError(command, PARAMETER_NOT_ALLOWED, "Too many parameters");
         return;
@@ -630,6 +666,9 @@ void ScpiEngine::DispatchMeasurementCatalog(const ParsedCommand &command)
     }
     std::string catalog;
     for (const auto &measurement : settings.measurements) {
+        if (measurement.channelId != command.channelId) {
+            continue;
+        }
         if (!catalog.empty()) {
             catalog += ',';
         }
@@ -650,7 +689,7 @@ void ScpiEngine::DispatchDeleteMeasurement(const ParsedCommand &command)
         RecordCommandError(command, DATA_TYPE_ERROR, "Measurement name requires a string");
         return;
     }
-    SetOperation(service_.DeleteMeasurement(name));
+    SetOperation(service_.DeleteMeasurement(name, 0U, "SCPI", command.channelId));
 }
 
 void ScpiEngine::DispatchDataFormat(const ParsedCommand &command)
@@ -680,7 +719,7 @@ void ScpiEngine::DispatchDataFormat(const ParsedCommand &command)
 void ScpiEngine::DispatchStimulusAxis(const ParsedCommand &command)
 {
     if (CheckArguments(command, 0)) {
-        BeginEncoding(service_.StimulusAxis(), command);
+        BeginEncoding(service_.StimulusAxis(command.channelId), command);
     }
 }
 
@@ -694,7 +733,7 @@ void ScpiEngine::DispatchMeasurementData(const ParsedCommand &command)
         RecordCommandError(command, ILLEGAL_PARAMETER_VALUE, "Only RDATA and SDATA are implemented");
         return;
     }
-    BeginEncoding(service_.MeasurementData(kind == "SDATA"), command);
+    BeginEncoding(service_.MeasurementData(kind == "SDATA", command.channelId), command);
 }
 
 void ScpiEngine::Poll()

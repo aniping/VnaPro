@@ -5,6 +5,7 @@
 
 #include <string>
 
+#include "scpi/scpi_parser.h"
 #include "vna_display/display_workspace.h"
 #include "vna_display/marker_collection.h"
 
@@ -95,8 +96,9 @@ bool MarkerQuery(const std::string &path) noexcept
 
 }  // 匿名命名空间
 
-bool IsObserverQuery(const ParsedCommand &command) noexcept
+bool IsObserverQuery(const ParsedCommand &original)
 {
+    const auto command = RouteChannelCommand(original);
     if (!command.query || command.errorCode != 0) {
         return false;
     }
@@ -105,7 +107,8 @@ bool IsObserverQuery(const ParsedCommand &command) noexcept
         "SENS1:SWE:TYPE", "TRIG:SOUR", "TRIG:SEQ:SOUR", "TRIG:SCOP", "TRIG:SEQ:SCOP", "INIT:CONT", "INIT1:CONT",
         "SENS1:SWE:MODE", "CALC1:PAR:SEL", "CALC1:PAR:CAT:EXT", "FORM", "FORM:DATA", "SENS1:X", "SENS1:X:VAL",
         "CALC1:DATA", "CALC1:FORM", "SENS1:CORR", "SENS1:CORR:STAT", "SENS1:CORR:COLL:STAT", "SENS1:CORR:CSET:CAT",
-        "SENS1:CORR:CSET:ACT"};
+        "SENS1:CORR:CSET:ACT", "SOUR1:POW", "SOUR1:POW:LEV", "SOUR1:POW:IMM", "SOUR1:POW:AMPL", "SOUR1:POW:LEV:IMM",
+        "SOUR1:POW:LEV:AMPL", "SOUR1:POW:IMM:AMPL", "SOUR1:POW:LEV:IMM:AMPL"};
     for (const auto *path : paths) {
         if (command.path == path) {
             return true;

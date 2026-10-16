@@ -14,6 +14,8 @@ struct ParsedCommand final {
     bool query = false;
     int errorCode = 0;
     std::string error;
+    // 路由时冻结通道后缀；零表示原有无后缀的活动通道命令。
+    unsigned channelId = 0U;
 };
 }  // 命名空间 VnaScpi
 

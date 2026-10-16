@@ -212,7 +212,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Selection(const ParsedCommand &command) co
         return result;
     }
     if (command.query) {
-        result.response = Quote(service_.Display().selectedMeasurement);
+        result.response = Quote(service_.SelectedMeasurement(command.channelId));
         return result;
     }
     VnaDisplay::DisplayChange change;
@@ -220,7 +220,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Selection(const ParsedCommand &command) co
     if (!StringArgument(command.arguments.front(), change.name)) {
         return Failure(DATA_TYPE_ERROR, "Measurement name requires a string");
     }
-    result.operation = service_.ApplyDisplay(std::move(change));
+    result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 
@@ -232,7 +232,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Format(const ParsedCommand &command) const
     }
     if (command.query) {
         const auto &state = service_.Display();
-        const auto *trace = Presentation(state, state.selectedMeasurement);
+        const auto *trace = Presentation(state, service_.SelectedMeasurement(command.channelId));
         if (trace == nullptr) {
             return Failure(SETTINGS_CONFLICT, "No measurement selected");
         }
@@ -248,7 +248,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Format(const ParsedCommand &command) const
     if (!FormatArgument(command.arguments.front(), change.format)) {
         return Failure(ILLEGAL_PARAMETER_VALUE, "Display format is outside the supported PNA subset");
     }
-    result.operation = service_.ApplyDisplay(std::move(change));
+    result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 
@@ -268,7 +268,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Marker(const ParsedCommand &command, unsig
         return result;
     }
     const auto &state = service_.Display();
-    const auto *trace = Presentation(state, state.selectedMeasurement);
+    const auto *trace = Presentation(state, service_.SelectedMeasurement(command.channelId));
     if (trace == nullptr) {
         return Failure(SETTINGS_CONFLICT, "No measurement selected");
     }
@@ -289,7 +289,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Marker(const ParsedCommand &command, unsig
     change.marker.enabled = value;
     change.marker.hasInterpolation = leaf == "DISC";
     change.marker.interpolate = !value;
-    result.operation = service_.ApplyDisplay(std::move(change));
+    result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 
@@ -305,7 +305,7 @@ ScpiDisplayResult ScpiDisplayAdapter::AllMarkersOff(const ParsedCommand &command
     VnaDisplay::DisplayChange change;
     change.kind = VnaDisplay::DisplayChangeKind::MARKER;
     change.marker.action = VnaDisplay::MarkerAction::ALL_OFF;
-    result.operation = service_.ApplyDisplay(std::move(change));
+    result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 
@@ -360,16 +360,16 @@ ScpiDisplayResult ScpiDisplayAdapter::SetMarkerFrequency(
     const auto parameter = Upper(command.arguments.front());
     double frequency = 0.0;
     if (parameter == "MIN" || parameter == "MINIMUM") {
-        frequency = service_.Settings().startHz;
+        frequency = service_.Settings(command.channelId).startHz;
     } else if (parameter == "MAX" || parameter == "MAXIMUM") {
-        frequency = service_.Settings().stopHz;
+        frequency = service_.Settings(command.channelId).stopHz;
     } else if (!Numeric(command.arguments.front(), frequency, true)) {
         return Failure(DATA_TYPE_ERROR, "Marker frequency requires a finite value in Hz");
     }
     change.marker.hasFrequency = true;
     change.marker.frequencyHz = frequency;
     auto result = Handled();
-    result.operation = service_.ApplyDisplay(std::move(change));
+    result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 
@@ -426,7 +426,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Window(
         change.kind = VnaDisplay::DisplayChangeKind::LAYOUT;
         change.layout = size == "MAX" ? VnaDisplay::LayoutMode::MAXIMIZED : VnaDisplay::LayoutMode::GRID;
     }
-    result.operation = service_.ApplyDisplay(std::move(change));
+    result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 
@@ -462,7 +462,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Trace(
         if (!StringArgument(command.arguments.front(), change.name)) {
             return Failure(DATA_TYPE_ERROR, "Measurement name requires a string");
         }
-        result.operation = service_.ApplyDisplay(std::move(change));
+        result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
         return result;
     }
     const auto *name = VnaDisplay::DiagramCollection::NameAtSlot(*window, slot);
@@ -479,7 +479,7 @@ ScpiDisplayResult ScpiDisplayAdapter::Trace(
     if (leaf == "DEL") {
         change.kind = VnaDisplay::DisplayChangeKind::DISPLAYED;
         change.enabled = false;
-        result.operation = service_.ApplyDisplay(std::move(change));
+        result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
         return result;
     }
     return SetTrace(command, *trace, std::move(change), leaf);
@@ -522,7 +522,7 @@ ScpiDisplayResult ScpiDisplayAdapter::SetTrace(const ParsedCommand &command, con
     } else {
         return SetScale(command, trace, std::move(change), leaf);
     }
-    result.operation = service_.ApplyDisplay(std::move(change));
+    result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 
@@ -551,7 +551,7 @@ ScpiDisplayResult ScpiDisplayAdapter::SetScale(const ParsedCommand &command, con
         change.scale.referencePosition = value;
     }
     auto result = Handled();
-    result.operation = service_.ApplyDisplay(std::move(change));
+    result.operation = service_.ApplyDisplay(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 

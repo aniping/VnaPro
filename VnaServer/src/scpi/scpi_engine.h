@@ -83,6 +83,7 @@ private:
     void DispatchFrequency(const ParsedCommand &command);
     void DispatchPoints(const ParsedCommand &command);
     void DispatchBandwidth(const ParsedCommand &command);
+    void DispatchPower(const ParsedCommand &command);
     void DispatchSweepType(const ParsedCommand &command);
     void DispatchTriggerSource(const ParsedCommand &command);
     void DispatchTriggerScope(const ParsedCommand &command);

@@ -5,6 +5,12 @@ target_compile_features(vna_scpi PUBLIC cxx_std_14)
 target_compile_options(vna_scpi PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)
+    add_executable(vna_scpi_channel_tests tests/channel_scpi_test.cpp)
+    target_link_libraries(vna_scpi_channel_tests PRIVATE vna_scpi vna_service_test_support)
+    target_compile_options(vna_scpi_channel_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME service_scpi_channels COMMAND vna_scpi_channel_tests)
+    set_tests_properties(service_scpi_channels PROPERTIES TIMEOUT 20)
+
     add_executable(vna_scpi_parser_tests tests/scpi_parser_test.cpp)
     target_link_libraries(vna_scpi_parser_tests PRIVATE vna_scpi)
     target_compile_options(vna_scpi_parser_tests PRIVATE -Wall -Wextra -Wpedantic)

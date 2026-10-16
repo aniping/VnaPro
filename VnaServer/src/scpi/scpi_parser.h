@@ -13,6 +13,8 @@ namespace VnaScpi {
 std::vector<std::string> SplitProgram(const std::string &input);
 // 更新相对命令头的父路径；语法错误通过解析结果返回。
 ParsedCommand ParseCommand(const std::string &unit, std::vector<std::string> &parent);
+// 保留原解析路径与相对命令父路径，将通道后缀单独冻结到协议分派副本。
+ParsedCommand RouteChannelCommand(const ParsedCommand &command);
 // 转换命令头字符，避免向 ctype 函数传入负值的 char。
 std::string Upper(std::string value);
 // 去除协议空白字符，保留内嵌 NUL 字节供后续校验。

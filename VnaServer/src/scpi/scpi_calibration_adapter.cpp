@@ -118,14 +118,14 @@ ScpiCalibrationResult ScpiCalibrationAdapter::Execute(const ParsedCommand &comma
             auto result = Handled();
             if (command.query) {
                 Count(command, 0U, 0U);
-                const auto snapshot = service_.Calibration();
+                const auto snapshot = service_.Calibration(command.channelId);
                 result.response = snapshot.enabled && snapshot.compatible ? "1" : "0";
             } else {
                 Count(command, 1U, 1U);
                 VnaService::CalibrationChange change;
                 change.kind = VnaService::CalibrationChangeKind::ENABLE;
                 change.enabled = Boolean(command.arguments.front());
-                result.operation = service_.ApplyCalibration(std::move(change));
+                result.operation = service_.ApplyCalibration(std::move(change), 0U, "SCPI", command.channelId);
             }
             return result;
         }
@@ -148,7 +148,7 @@ ScpiCalibrationResult ScpiCalibrationAdapter::Execute(const ParsedCommand &comma
 
 ScpiCalibrationResult ScpiCalibrationAdapter::Collection(const ParsedCommand &command) const
 {
-    const auto snapshot = service_.Calibration();
+    const auto snapshot = service_.Calibration(command.channelId);
     if (command.path == "SENS1:CORR:COLL:STAT" && command.query) {
         Count(command, 0U, 0U);
         auto result = Handled();
@@ -206,13 +206,13 @@ ScpiCalibrationResult ScpiCalibrationAdapter::Collection(const ParsedCommand &co
         return {};
     }
     auto result = Handled();
-    result.operation = service_.ApplyCalibration(std::move(change));
+    result.operation = service_.ApplyCalibration(std::move(change), 0U, "SCPI", command.channelId);
     return result;
 }
 
 ScpiCalibrationResult ScpiCalibrationAdapter::Sets(const ParsedCommand &command) const
 {
-    const auto snapshot = service_.Calibration();
+    const auto snapshot = service_.Calibration(command.channelId);
     if (command.path == "SENS1:CORR:CSET:CAT" && command.query) {
         Count(command, 0U, 0U);
         auto result = Handled();
@@ -240,7 +240,7 @@ ScpiCalibrationResult ScpiCalibrationAdapter::Sets(const ParsedCommand &command)
                                                             : VnaService::CalibrationChangeKind::DELETE_SET;
         change.setId = Identifier(command.arguments[0]);
         auto result = Handled();
-        result.operation = service_.ApplyCalibration(std::move(change));
+        result.operation = service_.ApplyCalibration(std::move(change), 0U, "SCPI", command.channelId);
         return result;
     }
     return {};
