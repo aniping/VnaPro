@@ -17,6 +17,12 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from CalibrationIntegrationTest import action
+from CalibrationPersistenceFixture import COUNT, POINTS, coefficients, document, set_name
+from CalibrationFileIntegrationSupport import check_binary_manifest, file_roundtrips, pool, renew
+
+# 仅测试夹具的当前二进制合同；不是产品的旧文件兼容入口。
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from vnb_calibration_file import decode_calibration, download_bytes, file_fields
 from server_startup import isolated_server, listening_port
 from VnbScpiIntegrationTest import (
     PARAMETERS,
@@ -29,58 +35,8 @@ from VnbScpiIntegrationTest import (
 )
 from WebHttpIntegrationTest import HttpClient, wait_no_owner
 
-COUNT = 204
-POINTS = 800
 STORE_DIRECTORY = "calibration"
 MANIFEST_NAME = "channel-1.json"
-
-
-def set_name(index):
-    return f"CableTest software pool {index + 1:03d} / four-port TOSM"
-
-
-def coefficients(set_index, point, cell):
-    """各集、频点和矩阵格均可区分；非零匹配只置于对角，便于独立核算。"""
-    offset = complex(
-        (set_index + 1) * 0.00001 + (cell + 1) * 0.0003 + point * 0.0000007,
-        -(cell + 1) * 0.0002 - point * 0.0000003,
-    )
-    tracking = complex(
-        1.3 + set_index * 0.001 + cell * 0.013 + point * 0.00001,
-        0.02 + cell * 0.0004 + set_index * 0.00001 + point * 0.0000001,
-    )
-    match = (
-        complex(0.01 + set_index * 0.0001, -0.002 + point * 0.00000001)
-        if cell % 5 == 0
-        else 0j
-    )
-    return offset, match, tracking
-
-
-def document(identity, axis, index):
-    rows = []
-    for point in range(len(axis)):
-        row = []
-        for cell in range(16):
-            for value in coefficients(index, point, cell):
-                row.extend((value.real, value.imag))
-        rows.append(row)
-    return {
-        "schema": 3,
-        "id": "0",
-        "name": set_name(index),
-        "deviceIdentity": identity,
-        "method": "fourPort",
-        "port1": 1,
-        "port2": 4,
-        "includeIsolation": True,
-        "ifBandwidthHz": 1000,
-        "frequencyHz": axis,
-        "powerDbm": [0.0] * len(axis),
-        "onePortTerms": [],
-        "twoPortTerms": [],
-        "fourPortTerms": rows,
-    }
 
 
 @contextmanager
@@ -209,17 +165,6 @@ def write_request(http, method, path, request_id, body=None, token=None, expecte
         ) from failure
 
 
-def renew(http, token):
-    claim = http.request("POST", "/api/v1/control/claim", {"sessionId": token}, token)
-    assert claim["sessionId"] == token and claim["hasControl"], claim
-
-
-def pool(http):
-    return [
-        (entry["id"], entry["name"]) for entry in http.status()["calibration"]["sets"]
-    ]
-
-
 def catalog(client):
     entries = next(csv.reader([client.query("SENS1:CORR:CSET:CAT?")]))
     if entries == [""]:
@@ -277,7 +222,7 @@ def corrected(client, http, index, raw, frame, set_id):
 
 
 def check_export(http, identity, axis, index, set_id):
-    exported = http.request("GET", "/api/v1/calibration/sets/" + set_id)
+    exported = decode_calibration(download_bytes(http.request("GET", "/api/v1/calibration/sets/" + set_id)))
     expected = document(identity, axis, index)
     expected["id"] = set_id
     assert exported == expected, "重启前后导出的 800×96 系数必须逐值相同"
@@ -300,10 +245,10 @@ def import_pool(http, identity, axis):
             mutate(
                 http,
                 token,
-                "import",
+                "importFile",
                 "pool-import-" + str(index),
                 history_stats=history_stats,
-                data=document(identity, axis, index),
+                **file_fields(document(identity, axis, index)),
             )
             if (index + 1) % 32 == 0 or index + 1 == COUNT:
                 print(
@@ -325,7 +270,7 @@ def import_pool(http, identity, axis):
         http.request("POST", "/api/v1/control/release", {}, token)
 
 
-def capacity_and_restart(bundle):
+def populate_and_check(bundle):
     with running(bundle) as ports:
         http, client = HttpClient(ports["http"]), Client(ports["scpi"])
         try:
@@ -334,6 +279,7 @@ def capacity_and_restart(bundle):
         finally:
             client.close()
         original = import_pool(http, identity, frame["frequencyHz"])
+        check_binary_manifest(bundle, [item[0] for item in original], STORE_DIRECTORY, MANIFEST_NAME)
         wait_no_owner(http)
         client = Client(ports["scpi"])
         try:
@@ -351,11 +297,17 @@ def capacity_and_restart(bundle):
             corrected(client, http, COUNT - 1, raw, frame, original[-1][0])
         finally:
             client.close()
+    return original, identity
+
+
+def capacity_and_restart(bundle):
+    original, identity = populate_and_check(bundle)
     print("Restarting the same directory with all 204 calibration sets", flush=True)
     with running(bundle) as ports:
         http, client = HttpClient(ports["http"]), Client(ports["scpi"])
         try:
             assert pool(http) == original and catalog(client) == original
+            check_binary_manifest(bundle, [item[0] for item in original], STORE_DIRECTORY, MANIFEST_NAME)
             restored = http.status()["calibration"]
             assert (
                 not restored["enabled"] and restored["selectedSetId"] == original[-1][0]
@@ -371,6 +323,7 @@ def capacity_and_restart(bundle):
             assert catalog(client) == original[1:]
         finally:
             client.close()
+        file_roundtrips(http, original[-1][0], mutate)
     with running(bundle) as ports:
         http, client = HttpClient(ports["http"]), Client(ports["scpi"])
         try:
@@ -403,72 +356,83 @@ def reject_corrupt_startup(bundle):
     ), result.stdout[-4000:]
 
 
+def prepare_fault_pool(ports):
+    http, client = HttpClient(ports["http"]), Client(ports["scpi"])
+    try:
+        raw, frame = prepare(client, http, 3)
+        identity = http.status()["identity"]
+    finally:
+        client.close()
+    wait_no_owner(http)
+    token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
+    try:
+        mutate(
+            http,
+            token,
+            "importFile",
+            "fault-original",
+            **file_fields(document(identity, frame["frequencyHz"], 0)),
+        )
+    finally:
+        http.request("POST", "/api/v1/control/release", {}, token)
+    wait_no_owner(http)
+    client = Client(ports["scpi"])
+    try:
+        original = catalog(client)
+        corrected(client, http, 0, raw, frame, original[0][0])
+    finally:
+        client.close()
+    wait_no_owner(http)
+    file_roundtrips(http, original[0][0], mutate)
+    return http, original, raw, frame, identity
+
+
+def fail_saves(bundle, http, original, frame, identity):
+    base = bundle.executable.parent.resolve()
+    store = (base / STORE_DIRECTORY).resolve()
+    backup = base / "calibration-save-failure-backup"
+    # 所有移动都严格限定于本次独立测试目录，保留原始文件作恢复依据。
+    assert store.parent == backup.parent == base and not store.is_symlink()
+    manifest_bytes = (store / MANIFEST_NAME).read_bytes()
+    store.rename(backup)
+    store.write_text("force a real filesystem save failure", encoding="utf-8")
+    token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
+    before = http.status()["calibration"]
+    try:
+        mutate(
+            http,
+            token,
+            "importFile",
+            "fault-failed-import",
+            succeed=False,
+            **file_fields(document(identity, frame["frequencyHz"], 1)),
+        )
+        mutate(
+            http,
+            token,
+            "delete",
+            "fault-failed-delete",
+            succeed=False,
+            setId=original[0][0],
+        )
+        after = http.status()["calibration"]
+        assert pool(http) == original
+        for field in ("selectedSetId", "enabled", "compatible"):
+            assert after[field] == before[field], field
+        assert (backup / MANIFEST_NAME).read_bytes() == manifest_bytes, (
+            "保存失败不得改坏旧 manifest"
+        )
+    finally:
+        http.request("POST", "/api/v1/control/release", {}, token)
+        store.unlink()
+        backup.rename(store)
+    return manifest_bytes
+
+
 def fault_cases(bundle):
     with running(bundle) as ports:
-        http, client = HttpClient(ports["http"]), Client(ports["scpi"])
-        try:
-            raw, frame = prepare(client, http, 3)
-            identity = http.status()["identity"]
-        finally:
-            client.close()
-        wait_no_owner(http)
-        token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
-        try:
-            mutate(
-                http,
-                token,
-                "import",
-                "fault-original",
-                data=document(identity, frame["frequencyHz"], 0),
-            )
-        finally:
-            http.request("POST", "/api/v1/control/release", {}, token)
-        wait_no_owner(http)
-        client = Client(ports["scpi"])
-        try:
-            original = catalog(client)
-            corrected(client, http, 0, raw, frame, original[0][0])
-        finally:
-            client.close()
-        wait_no_owner(http)
-        base = bundle.executable.parent.resolve()
-        store = (base / STORE_DIRECTORY).resolve()
-        backup = base / "calibration-save-failure-backup"
-        # 所有移动都严格限定于本次独立测试目录，保留原始文件作恢复依据。
-        assert store.parent == backup.parent == base and not store.is_symlink()
-        manifest_bytes = (store / MANIFEST_NAME).read_bytes()
-        store.rename(backup)
-        store.write_text("force a real filesystem save failure", encoding="utf-8")
-        token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
-        before = http.status()["calibration"]
-        try:
-            mutate(
-                http,
-                token,
-                "import",
-                "fault-failed-import",
-                succeed=False,
-                data=document(identity, frame["frequencyHz"], 1),
-            )
-            mutate(
-                http,
-                token,
-                "delete",
-                "fault-failed-delete",
-                succeed=False,
-                setId=original[0][0],
-            )
-            after = http.status()["calibration"]
-            assert pool(http) == original
-            for field in ("selectedSetId", "enabled", "compatible"):
-                assert after[field] == before[field], field
-            assert (backup / MANIFEST_NAME).read_bytes() == manifest_bytes, (
-                "保存失败不得改坏旧 manifest"
-            )
-        finally:
-            http.request("POST", "/api/v1/control/release", {}, token)
-            store.unlink()
-            backup.rename(store)
+        http, original, raw, frame, identity = prepare_fault_pool(ports)
+        manifest_bytes = fail_saves(bundle, http, original, frame, identity)
         wait_no_owner(http)
         client = Client(ports["scpi"])
         try:
@@ -491,7 +455,10 @@ def fault_cases(bundle):
     reference = json.loads(manifest_bytes)["sets"][0]["file"]
     payload = (manifest.parent / reference).resolve()
     assert payload.parent == manifest.parent.resolve(), "存储引用必须位于当前测试池"
-    payload.write_text('{"schema":3,"tampered":true}', encoding="utf-8")
+    damaged = bytearray(payload.read_bytes())
+    assert payload.suffix == ".vcal" and damaged.startswith(b"VNBCAL02")
+    damaged[-1] ^= 1
+    payload.write_bytes(damaged)
     reject_corrupt_startup(bundle)
     print(
         "Persistence fault paths passed: real save failure rollback and corrupt store startup rejection",
@@ -501,21 +468,24 @@ def fault_cases(bundle):
 
 def main():
     assert len(sys.argv) in (3, 4), (
-        "usage: CalibrationPersistenceIntegrationTest.py <server> <VN10 simulator> [--faults-only]"
+        "usage: CalibrationPersistenceIntegrationTest.py <server> <VN10 simulator> "
+        "[--faults-only]"
     )
-    assert len(sys.argv) != 4 or sys.argv[3] == "--faults-only"
+    mode = sys.argv[3] if len(sys.argv) == 4 else "all"
+    assert mode in ("all", "--faults-only")
     environment = dict(os.environ, VNAPRO_SIM_MODE="golden", VNAPRO_SIM_SEED="42")
     config = Path(__file__).with_name("golden_test.yml")
     started = time.monotonic()
-    if len(sys.argv) == 3:
+    if mode == "all":
         with isolated_server(
             sys.argv[1], sys.argv[2], environment, config=config, board="tdc1vn10"
         ) as bundle:
             capacity_and_restart(bundle)
-    with isolated_server(
-        sys.argv[1], sys.argv[2], environment, config=config, board="tdc1vn10"
-    ) as bundle:
-        fault_cases(bundle)
+    if mode in ("all", "--faults-only"):
+        with isolated_server(
+            sys.argv[1], sys.argv[2], environment, config=config, board="tdc1vn10"
+        ) as bundle:
+            fault_cases(bundle)
     print(
         f"Calibration persistence integration passed in {time.monotonic() - started:.2f}s",
         flush=True,

@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 
 from CalibrationIntegrationTest import action
+from CalibrationScpiFixture import four_port_fixture
+from vnb_calibration_file import decode_calibration, download_bytes, file_fields
 from GoldenIqIntegrationTest import listening_server
 from server_startup import isolated_server
 from WebHttpIntegrationTest import HttpClient, accepted, wait_no_owner, wait_operation
@@ -199,7 +201,6 @@ def import_calibration(http, name):
     frame = http.frame([PARAMETERS[0][0]])
     points = len(frame["frequencyHz"])
     document = {
-        "schema": 2,
         "id": "0",
         "name": name,
         "deviceIdentity": http.status()["identity"],
@@ -215,7 +216,7 @@ def import_calibration(http, name):
     }
     token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
     try:
-        body = action(http, "import", "vnb-import-calset-" + str(points), data=document)
+        body = action(http, "importFile", "vnb-import-calset-" + str(points), **file_fields(document))
         wait_operation(http, accepted(http, "calibration", body, token), token)
         return http.status()["calibration"]["sets"][-1]["id"]
     finally:
@@ -273,41 +274,15 @@ def four_port_roundtrip(ports, http):
         client.close()
     wait_no_owner(http)
     frame = http.frame([PARAMETERS[0][0]])
-    row = []
-    expected = []
-    for index, values in enumerate(raw):
-        offset = complex(0.001 * (index + 1), -0.0005 * index)
-        tracking = complex(1.2 + 0.04 * index, 0.01)
-        row.extend([offset.real, offset.imag, 0.0, 0.0, tracking.real, tracking.imag])
-        for point in range(17):
-            corrected = (
-                complex(*values[point * 2 : point * 2 + 2]) - offset
-            ) / tracking
-            expected.extend((corrected.real, corrected.imag))
-    document = {
-        "schema": 3,
-        "id": "0",
-        "name": FOUR_PORT_CALSET_NAME,
-        "deviceIdentity": http.status()["identity"],
-        "ifBandwidthHz": 1000,
-        "includeIsolation": True,
-        "method": "fourPort",
-        "port1": 1,
-        "port2": 4,
-        "frequencyHz": frame["frequencyHz"],
-        "powerDbm": [0.0] * 17,
-        "onePortTerms": [],
-        "twoPortTerms": [],
-        "fourPortTerms": [row] * 17,
-    }
+    document, expected = four_port_fixture(http, frame, raw, FOUR_PORT_CALSET_NAME)
     token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
     try:
-        body = action(http, "import", "four-port-explicit-fixture", data=document)
+        body = action(http, "importFile", "four-port-explicit-fixture", **file_fields(document))
         wait_operation(http, accepted(http, "calibration", body, token), token)
         set_id = http.status()["calibration"]["sets"][-1]["id"]
-        exported = http.request("GET", "/api/v1/calibration/sets/" + set_id)
+        exported = decode_calibration(download_bytes(http.request("GET", "/api/v1/calibration/sets/" + set_id)))
         assert (
-            exported["schema"] == 3
+            exported["method"] == "fourPort"
             and exported["fourPortTerms"] == document["fourPortTerms"]
         )
     finally:

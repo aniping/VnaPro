@@ -21,11 +21,13 @@ def copy_pool(source, destination):
     manifest = source / "channel-1.json"
     baseline = manifest.read_bytes()
     document = json.loads(baseline)
+    if document.get("version") != 2:
+        raise ValueError("只支持 version 2 二进制校准池；旧文件保持原样")
     destination.mkdir()
     for entry in document["sets"]:
         filename = entry["file"]
         original = (source / filename).resolve()
-        if original.parent != source or Path(filename).name != filename:
+        if original.parent != source or Path(filename).name != filename or not filename.endswith(".vcal"):
             raise ValueError("校准文件引用必须位于源池目录")
         shutil.copyfile(original, destination / filename)
     if manifest.read_bytes() != baseline:
