@@ -14,6 +14,7 @@
 #include "vna_calibration/calibration.h"
 #include "vna_measurement/measurement.h"
 #include "vna_measurement/trace_result.h"
+#include "vna_service/calibration_applicability.h"
 
 namespace VnaService {
 
@@ -91,6 +92,10 @@ struct CalibrationSetSummary final {
     double stopHz = 0.0;
     unsigned points = 0U;
     double ifBandwidthHz = 0.0;
+    double powerMinDbm = 0.0;
+    double powerMaxDbm = 0.0;
+    std::string deviceIdentity;
+    CalibrationApplicability applicability;
 };
 
 struct CalibrationSnapshot final {
@@ -106,6 +111,8 @@ struct CalibrationSnapshot final {
     std::uint64_t selectedSetId = 0U;
     bool enabled = false;
     bool compatible = false;
+    bool effective = false;
+    CalibrationApplicability applicability;
     std::string reason;
     std::string error;
     std::vector<CalibrationSetSummary> sets;
