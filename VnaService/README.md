@@ -10,7 +10,7 @@
 
 `IsSimulator()` 返回已冻结的驱动类别。配置就绪后，模拟服务按配置端口数返回 `VnaPro,NativeSimulator,<n>PORT,1.0`；真实服务原样返回核心缓存的设备身份，不伪装为模拟器。配置未就绪时统一返回 `VnaPro,UnverifiedBackend,0,1.0`。
 
-Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器随后按 `instrument.sweep.defaultSweepMode` 应用启动缺省：默认 CONT 自动连续扫描，也可显式 HOLD；监听前排空该启动操作并释放内部控制权。当前尚未持久化跨进程状态，启动缺省不等同于厂商 Preset。浏览器连接与服务单元夹具均不触发此启动流程。
+Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器先恢复 Ch1 校准池及选择、保持校正关闭，再按 `instrument.sweep.defaultSweepMode` 应用启动缺省：默认 CONT 自动连续扫描，也可显式 HOLD；监听前排空该启动操作并释放内部控制权。扫描设置与测量目录仍使用启动默认，启动缺省不等同于厂商 Preset。浏览器连接与服务单元夹具均不触发此启动流程。
 
 运行期间，服务、引擎和状态寄存器都在同一个 executor 调用。`ScpiEngine(service)` 自动尝试取得独占控制权，`HasControl()` 表示是否成功。`SubmitLine()` 接受不含 LF 的完整程序消息；返回 true 表示整条消息已受理，不能据此认为设备操作已经完成。
 
@@ -69,7 +69,7 @@ SING 或手动 Trigger 的有限任务尚未完成时，目录写请求仍可受
 
 `CALC:PAR:SEL` 选择测量，不隐式显示隐藏项。`DISP:WIND<w>[:STAT]`、`SIZE`、`CAT?`、`TRAC<t>:FEED/DEL/SEL/STAT` 与 Y Scale 操作映射到共享图窗域；w/t 预算均为 1～128，局部槽身份支持稀疏编号并独立于 Trc 名称，删除槽不压缩其他槽号。CAT 返回局部槽号，FEED/DEL 只写且不删除测量定义；窗口 OFF 保护最后一个图窗。只读观察连接可查询所有已登记窗口状态、目录、尺度。CALC:FORM 增加官方 SWR、UPHase、GDELay、POLar；Web 特有格式没有自创 SCPI 名称。命令表及官方依据见[服务设计](../docs/网分服务与远程控制设计.md#42-首期实现命令)。
 
-SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC 响应前通道进入 HOLD。MAN+CONT 等待 INIT；INIT:CONT OFF 选择手动源，不等同 HOLD。忙时 INIT、中止 ABOR、复位 RST、外触发、组数及二进制格式尚未开放；机械 OSL/SOLT 校准范围见下节。
+SING 的内部路径是手动 Start、一次完整 Trigger、Stop 屏障；OPC 响应前通道进入 HOLD。MAN+CONT 等待 INIT；`INIT:CONT OFF` 选择 Single 并经过 Stop 屏障进入 HOLD，即使此前已选 Single 也会停止。`*RST` 逐通道恢复默认测量、刺激及 HOLD/IMMEDIATE，保留校准集，并恢复默认全局显示和一个图窗。支持 ASCii,0 和 REAL,64（NORM/SWAP）；忙时 INIT、中止 ABOR、外触发及组数尚未开放；机械校准范围见下节。
 
 Web 扫描控制另外保存 `selectedSweepMode`（CONT/SING，默认 CONT），与报告当前运行状态的 `sweepMode`（CONT/SING/HOLD）分开。`/api/v1/sweep-control` 改选 CONT 时通过服务 FIFO 安全切换到连续运行，保留当前触发源；IMM 自动扫描，MAN 直接布防。改选 SING 时经过当前完整帧 Stop 屏障后保持 HOLD，等待显式 start。source 变化保留队首执行时的运行或停止意图：正在运行或布防时，经过完整帧 Stop 屏障后以新源重启；已停止时只提交源选择。运行中的 IMM/Continuous 切到 MAN 后直接等待 Trigger，无需另一次 start；MAN/Single 切到 IMM 后完成一帧并 HOLD。重复选择当前值不停止或重启。start 保留扫描模式与触发源，供 Sweep Control 和工具栏 Restart Sweep 共用；stop 保留选择，兼容 single 动作在同一事务中选 Single 并启动。IMM/Single 完成后 HOLD，MAN/Single 等显式 Trigger 完成一帧后 HOLD，MAN/Continuous 每次 Trigger 后继续布防。Trigger 不会自动启动已停止的周期。停止和有限任务终结均保留所选模式。新动作按控制者及授权代次串行执行，不携带物理参数草稿的 expectedRevision；异步完成与状态读回沿用原 HTTP 操作记录。原机静态菜单、命令依据及尚未确认的 GUI 状态差异见[核对记录](../docs/research/ZNB8点数与中频带宽菜单核对.md#sweep-control-显示与当前控制语义)。
 
@@ -89,7 +89,11 @@ Core 保留单个物理设备和 worker，在完整帧边界为可运行通道�
 
 刺激轴从已提交物理配置生成，不要求先扫描。RDATA 必须来自当前有效 acquisitionRevision 和 run 的完整帧；纯目录更新可即时重新计算已有 IQ，物理计划更新后的旧帧、有限扫描未终结、故障或非有限数据都报告错误，不返回伪造全零曲线。连续扫描下多条独立查询可能跨帧；同轮读取需要单次完成/HOLD 后保持配置和触发不变。
 
-软件预算：单消息 16 KiB/128 单元，待分派消息 32，服务操作队列 32，pending OPC watches 32，仪器错误 FIFO 32，输出 1 MiB。超预算明确拒绝或记录正式错误；没有项目自定义命令。
+`MeasurementData(selection, calibrated, channelId)` 按目标通道测量定义顺序解析从 1 开始的序号，一次冻结同一完整帧和校正系数，逐迹线排列每条曲线的 N 对 Re/Im。序号、帧版本、所有迹线及全部采样点校验通过后才返回数组，失败不交付部分结果，也不修改当前选择。此批量入口在 `calibrated=true` 时严格要求已启用、刺激兼容且覆盖每个请求 S 参数的校准；缺失、关闭或仅覆盖部分端口均拒绝，不回退原始数据。现有单迹线入口的未校准行为保持兼容；当前一/二端口模型不能提供完整四端口校准矩阵。
+
+`DeleteAllMeasurements(owner, channelId)` 在一个服务 FIFO 事务中清理目标通道的测量、显示引用及选择，其他通道保持。`ResetMeasurements(owner, channelId)` 先准备默认配置和显示，再等待当前完整帧停止、真实下发默认物理计划，最后提交默认 S21（单端口 S11）、默认刺激/功率及 HOLD/IMMEDIATE。默认名称优先 Trc1，其他通道占用时使用首个空闲 Trc 编号；校准集存储保留。候选准备失败不改变运行；设备下发失败报告错误并保持停止状态，不回报复位成功。
+
+软件预算：单消息 16 KiB/128 单元，待分派消息 32，服务操作队列 32，pending OPC watches 32，仪器错误 FIFO 32，输出 8 MiB。超预算明确拒绝或记录正式错误；四口校准及批量读取扩展见[校准使用说明](../docs/校准接入与使用.md)。
 
 ## 验证
 
@@ -123,7 +127,7 @@ CAPTURE 先完成旧运行的 Stop，再以新 run ID 启动 MANUAL、触发完�
 
 校准集有效性比较设备身份、精确 Hz 轴、IFBW、逐点 double dBm 功率；名称、图窗、格式和采集版本不参与物理指纹。功率必须有限且处于 −120～100 dBm，直接服务导入同样校验，不依赖协议入口；负数与小数变化也会使旧集不适用。集摘要中的 startHz、stopHz、points、ifBandwidthHz 始终取自该集冻结的刺激，方便管理器解释当前不兼容原因，不以当前仪器设置覆盖。刺激变化后保留集并显示 incompatible，`correction` 为空；恢复完全相同刺激可重新兼容。Faulted、Closed 或绕过服务的计划版本变化也不能提供当前校正上下文。`MeasurementData(true)` 默认读取可用校正结果，`MeasurementData(false)` 始终读取未校正归一化值；非比值 a/b 波量不应用误差校正。
 
-新 session 不替换已完成集；只有全部标准可用且每个频点求解成功，FINISH 才以不可变数据一次发布、选中并启用新集。内存池上限16，支持 ENABLE/SELECT/DELETE_SET/IMPORT_SET 与只读 `FindCalibrationSet(id)` 导出。导入在受理入队时冻结名称、刺激和系数，队首再次检查端口能力、有限系数、轴、IFBW、功率、形状和容量；调用者保留的可变别名不能改变已受理内容。跨进程恢复通过用户导出/导入 schema 2，功率以 `powerDbm` 数字数组保存，ID 仍是十进制字符串。旧 schema 1 只兼容每项精确字符串 `"0"` 的原功率轴；任意非零旧编码拒绝并要求重新校准。服务不自动写全局配置或用户文件。
+新 session 不替换已完成集；只有全部标准可用且每个频点求解成功，FINISH 才以不可变数据一次发布、选中并启用新集。支持 ENABLE/SELECT/DELETE_SET/IMPORT_SET 与只读 `FindCalibrationSet(id)` 导出，容量及服务端恢复合同见下文。导入在受理入队时冻结名称、刺激和系数，队首再次检查端口能力、有限系数、轴、IFBW、功率、形状和容量；调用者保留的可变别名不能改变已受理内容。用户导出/导入使用一/二口 schema 2、四口 schema 3，功率以 `powerDbm` 数字数组保存，ID 仍是十进制字符串。旧 schema 1 只兼容每项精确字符串 `"0"` 的原功率轴；任意非零旧编码拒绝并要求重新校准。
 
 校准有独立 revision；非 SCPI 请求严格使用 CAS，SCPI revision=0 保持既有省略版本惯例。取消复用 FIFO：已接受扫描先停止，再清除相同 session；同 session 的 CANCEL 允许其 expected revision 落后于先前 capture 提交，以免扫描过程中发出的取消因正常完成而变旧。session ID 仍必须准确，旧 session 请求不能取消新 session。采集故障后仍允许取消 session，故障不因此恢复。
 
@@ -131,4 +135,8 @@ CAPTURE 先完成旧运行的 Stop，再以新 run ID 启动 MANUAL、触发完�
 
 现有 VN08/VN10 模拟驱动生成固定 DUT，未提供实际换接 OPEN/SHORT/LOAD 的模型。点击向导不会凭空替换其原始测量；不换件得到重复标准时求解拒绝奇异数据。功能验收使用按源区分的受控 `DeviceSession`，独立前向误差模型生成标准和 DUT，经过真实 core/service 采集链；它不改变产品模拟器原生 ABI。
 
-`service_calibration` 覆盖新扫描身份、任意2/4端口 SOLT、实测隔离、仅一条迹线时的反向源需求、原始读取与校正开关、已有校正时标准采集绕过校正、排队配置/RUN拒绝、取消屏障、奇异求解保留旧集、16集池和非有限导入拒绝、刺激恢复兼容及硬件故障拒绝旧帧。
+`service_calibration` 覆盖新扫描身份、任意两端口 SOLT、实测隔离、仅一条迹线时的反向源需求、原始读取与校正开关、已有校正时标准采集绕过校正、排队配置/RUN拒绝、取消屏障、奇异求解保留旧集、非有限导入拒绝、刺激恢复兼容及硬件故障拒绝旧帧。`service_calibration_storage` 验证 256 集容量、逐通道与全局字节预算、恢复原子性及失败保旧池。
+
+完整四口使用 `FOUR_PORT`（固定 P1～P4）：每口 O/S/M 加全部六对理想 THRU，共 18 步；开启逐对隔离时 24 步。每频点发布 receiver-major 的 16 格误差表，交由数学模块一次 4×4 联合校正。`service_four_port_calibration` 以独立前向模型生成标准与另一个稠密 DUT，核对全部误差项和 16S，并验证失败保旧集。四口导出/导入 schema 3，一/二口继续 schema 2。
+
+每通道最多 256 集、512 MiB 保存数据，所有通道合计最多 1 GiB；这是系数及元数据的逻辑预算，不是进程 RSS 限制，解析、求解和恢复存在临时副本。`RestoreCalibration` 只供无控制者、无任务的启动阶段使用，保留 ID、名称、系数与选择并关闭校正。安装异步 `CalibrationSaveHandler` 后，完成、导入、删除、选择或激活必须等待回调成功再提交 workspace，失败保留原池及选择。HTTP operation 和 SCPI OPC 包含此屏障；仅启停校正与采集会话不落盘。当前服务器仅为 Ch1 保存和恢复，其他逻辑通道维持内存行为。存储格式及部署边界见[校准使用说明](../docs/校准接入与使用.md)。

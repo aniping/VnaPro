@@ -2,6 +2,7 @@
  * Copyright (c) 2026 Huawei Device Co., Ltd.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -328,6 +329,214 @@ void MeasurementUpdatesRevalidateQueuedRevision()
         "旧版本排队请求不能覆盖已经提交的定义");
 }
 
+void BatchDataPreservesTraceOrderAndRejectsPartialResults()
+{
+    Fixture fixture;
+    Prepare(fixture);
+    fixture.device->SetSamples(KnownSamples());
+    for (unsigned receiver = 1U; receiver <= 2U; ++receiver) {
+        for (unsigned source = 1U; source <= 2U; ++source) {
+            Require(Finish(fixture, fixture.service.DefineMeasurement(SParameter(
+                                        "S" + std::to_string(receiver) + std::to_string(source), receiver, source)))
+                        .ok,
+                "按 S11/S12/S21/S22 顺序定义测量");
+        }
+    }
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "完成批量读取的完整双源帧");
+    const auto frame = fixture.core.ReadView().frame;
+    const auto selected = fixture.service.SelectedMeasurement();
+    const auto result = fixture.service.MeasurementData({4U, 1U, 3U, 2U}, false);
+    Require(result.ok && result.values.size() == 24U, "批量返回四条不同测量而非复制选中迹线");
+    const double real[] = {0.125, 0.5, 0.25, 0.25};
+    const double imag[] = {-0.25, 0.25, -0.5, 0.125};
+    for (unsigned trace = 0U; trace < 4U; ++trace) {
+        for (unsigned point = 0U; point < TEST_POINT_COUNT; ++point) {
+            const auto offset = (trace * TEST_POINT_COUNT + point) * 2U;
+            Near(result.values[offset], real[trace]);
+            Near(result.values[offset + 1U], imag[trace]);
+        }
+    }
+    Require(fixture.core.ReadView().frame == frame && fixture.service.SelectedMeasurement() == selected,
+        "批量读取不重采集、不修改选择或完整帧");
+    for (const auto &selection : std::vector<std::vector<unsigned>>{{}, {0U}, {1U, 5U}}) {
+        const auto invalid = fixture.service.MeasurementData(selection, false);
+        Require(!invalid.ok && invalid.values.empty(), "非法测量序号拒绝整个批次");
+    }
+    auto samples = KnownSamples();
+    samples[2U] = std::numeric_limits<double>::quiet_NaN();
+    fixture.device->SetSamples(samples);
+    Require(Finish(fixture, fixture.service.RunSingle("SCPI")).ok, "完成一条有效一条坏数据的批次");
+    const auto invalid = fixture.service.MeasurementData({3U, 1U}, false);
+    Require(!invalid.ok && invalid.values.empty(), "后续迹线含坏点时不能泄露前面有效迹线");
+    Require(Finish(fixture, fixture.service.SetStopHz(110000000.0)).ok, "改变批量数据物理版本");
+    const auto stale = fixture.service.MeasurementData({1U, 2U}, false);
+    Require(!stale.ok && stale.values.empty(), "批量读取不能使用旧物理版本");
+}
+
+void BatchSDataRequiresCompleteActiveCalibration()
+{
+    Fixture fixture;
+    Prepare(fixture);
+    auto &service = fixture.service;
+    fixture.device->SetSamples(KnownSamples());
+    Require(Finish(fixture, service.DefineMeasurement(SParameter("Reflection", 1U))).ok &&
+                Finish(fixture, service.DefineMeasurement(SParameter("Transmission", 2U))).ok &&
+                Finish(fixture, service.RunSingle("SCPI")).ok,
+        "准备有独立复比值的校正批量测试");
+    Require(!service.MeasurementData(std::vector<unsigned>{1U}, true).ok && service.MeasurementData(true).ok,
+        "严格批量 SDATA 拒绝缺失校准，旧单迹线合同保留原始数据");
+    const auto snapshot = service.Snapshot();
+    auto data = std::make_shared<VnaCalibration::CalibrationData>();
+    data->frequencyHz = snapshot.core.frame->plan.frequencyHz;
+    const VnaCalibration::OnePortTerms terms = {{0.1, 0.0}, {0.0, 0.0}, {0.5, 0.0}};
+    data->onePortTerms.assign(TEST_POINT_COUNT, terms);
+    auto set = std::make_shared<VnaService::CalibrationSet>();
+    set->name = "KnownOnePort";
+    set->deviceIdentity = service.Identity();
+    set->ifBandwidthHz = snapshot.settings.ifBandwidthHz;
+    set->powerDbm = snapshot.core.frame->plan.powerDbm;
+    set->data = data;
+    VnaService::CalibrationChange change;
+    change.kind = VnaService::CalibrationChangeKind::IMPORT_SET;
+    change.importedSet = set;
+    Require(Finish(fixture, service.ApplyCalibration(change)).ok, "导入非单位的独立已知校准系数");
+    change = {};
+    change.kind = VnaService::CalibrationChangeKind::ACTIVATE;
+    change.name = set->name;
+    Require(Finish(fixture, service.ApplyCalibration(change)).ok, "激活已导入校准");
+    const auto corrected = service.MeasurementData(std::vector<unsigned>{1U}, true);
+    Require(corrected.ok && corrected.values.size() == 6U, "完全覆盖的 SDATA 可读取");
+    for (unsigned point = 0U; point < TEST_POINT_COUNT; ++point) {
+        Near(corrected.values[point * 2U], 0.8);
+        Near(corrected.values[point * 2U + 1U], 0.5);
+    }
+    const auto partial = service.MeasurementData({1U, 2U}, true);
+    Require(!partial.ok && partial.values.empty(), "一端口系数不能把未覆盖的传输量作为校准数据返回");
+    change = {};
+    change.kind = VnaService::CalibrationChangeKind::ENABLE;
+    change.enabled = false;
+    Require(Finish(fixture, service.ApplyCalibration(change)).ok &&
+                !service.MeasurementData(std::vector<unsigned>{1U}, true).ok,
+        "关闭校正后严格 SDATA 必须拒绝");
+    change.enabled = true;
+    Require(Finish(fixture, service.ApplyCalibration(change)).ok, "重新启用已选校准");
+    Require(Finish(fixture, service.SetIfBandwidthHz(10000.0)).ok && Finish(fixture, service.RunSingle("SCPI")).ok,
+        "准备刺激不兼容的新完整帧");
+    const auto incompatible = service.MeasurementData(std::vector<unsigned>{1U}, true);
+    Require(!incompatible.ok && incompatible.values.empty(), "新完整帧仍不能使用不兼容的旧校准");
+    const auto stored = service.Calibration().sets.size();
+    Require(Finish(fixture, service.ResetMeasurements()).ok && service.Calibration().sets.size() == stored,
+        "复位保留存储的校准集");
+}
+
+void DeleteAllAndResetCommitAtRealStopBoundary()
+{
+    Fixture fixture;
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl(), "取得目录批量事务控制权");
+    Require(Finish(fixture, service.SetPoints(3U)).ok &&
+                Finish(fixture, service.DefineMeasurement(SParameter("Other", 1U))).ok,
+        "准备多个测量定义");
+    const auto revision = service.Settings().revision;
+    Require(!Finish(fixture, service.DeleteAllMeasurements("OTHER")).ok && service.Settings().revision == revision &&
+                service.Settings().measurements.size() == 2U,
+        "无控制权的整组删除保持目录不变");
+    Require(Finish(fixture, service.DeleteAllMeasurements()).ok && service.Settings().measurements.empty() &&
+                service.Display().traces.empty() && service.SelectedMeasurement().empty() &&
+                service.Settings().revision == revision + 1U,
+        "整组删除在一个逻辑版本中清理测量、显示与选择");
+    Require(Finish(fixture, service.ResetMeasurements()).ok, "空目录可以恢复默认测量和物理配置");
+    VnaDisplay::DisplayChange format;
+    format.kind = VnaDisplay::DisplayChangeKind::FORMAT;
+    format.name = "Trc1";
+    format.format = VnaDisplay::DisplayFormat::REAL;
+    Require(Finish(fixture, service.ApplyDisplay(format)).ok, "修改默认迹线显示格式");
+    Require(Finish(fixture, service.SetPoints(3U)).ok && Finish(fixture, service.RunContinuous("SCPI")).ok,
+        "复位前运行自定义连续采集");
+    fixture.device->Arm();
+    const auto deadline = std::chrono::steady_clock::now() + TEST_TIMEOUT;
+    while (!fixture.device->HasEntered()) {
+        Require(std::chrono::steady_clock::now() < deadline, "等待连续帧进入关卡超时");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const auto before = service.Snapshot();
+    const auto reset = service.ResetMeasurements();
+    service.Poll();
+    Require(reset.wait_for(std::chrono::seconds(0)) != std::future_status::ready &&
+                service.Settings().revision == before.settings.revision && service.Settings().points == 3U,
+        "旧完整帧结束前复位不能提前提交或回报完成");
+    fixture.device->Release();
+    Require(Finish(fixture, reset).ok, "复位等待真实停止和配置完成");
+    const auto after = service.Snapshot();
+    Require(after.core.state == VnaCore::CoreState::READY && after.settings.sweepMode == VnaService::SweepMode::HOLD &&
+                after.settings.triggerSource == VnaService::TriggerSource::IMMEDIATE &&
+                after.settings.points == service.Profile().defaultPoints &&
+                after.settings.startHz == service.Profile().defaultStartHz &&
+                after.settings.stopHz == service.Profile().defaultStopHz &&
+                after.settings.ifBandwidthHz == service.Profile().defaultIfBandwidthHz &&
+                after.settings.powerDbm == service.Profile().defaultPowerDbm &&
+                after.settings.measurements.size() == 1U && after.settings.measurements.front().name == "Trc1" &&
+                after.settings.measurements.front().Parameter() == "S21" &&
+                service.Display().traces.front().format == VnaDisplay::DisplayFormat::DB &&
+                service.Display().displayedNames == std::vector<std::string>{"Trc1"} && !service.MeasurementData().ok,
+        "复位真正停止、恢复默认刺激/目录/显示，并拒绝旧物理版本数据");
+}
+
+void BatchCatalogAndDeleteAllStayWithinChannel()
+{
+    Fixture fixture;
+    auto &service = fixture.service;
+    Require(service.TryAcquireControl() && Finish(fixture, service.SetPoints(TEST_POINT_COUNT)).ok, "准备独立通道目录");
+    fixture.device->SetSamples(KnownSamples());
+    VnaService::ChannelCreationOptions options;
+    options.sourceChannelId = 1U;
+    options.copyChannel = true;
+    Require(
+        Finish(fixture, service.CreateChannel(options, service.Settings().revision, service.Display().revision, "SCPI"))
+            .ok,
+        "复制独立通道");
+    const auto second = service.ActiveChannelId();
+    const auto secondName = service.SelectedMeasurement(second);
+    Require(second != 1U &&
+                Finish(fixture, service.UpdateMeasurement(SParameter(secondName, 2U, 2U), 0U, "SCPI", second)).ok &&
+                Finish(fixture, service.RunSingle("SCPI", second)).ok,
+        "第二通道的首项改为 S22 并完成采集");
+    const auto batch = service.MeasurementData(std::vector<unsigned>{1U}, false, second);
+    Require(batch.ok && batch.values.size() == 6U, "序号 1 必须解析目标通道目录");
+    Near(batch.values.front(), 0.125);
+    Near(batch.values[1U], -0.25);
+    const auto frame = service.ChannelSnapshot(second).core.frame;
+    Require(Finish(fixture, service.DeleteAllMeasurements("SCPI", 1U)).ok &&
+                service.ChannelSnapshot(1U).settings.measurements.empty() &&
+                service.ChannelSnapshot(second).settings.measurements.size() == 1U &&
+                service.ChannelSnapshot(second).core.frame == frame &&
+                service.SelectedMeasurement(second) == secondName &&
+                service.MeasurementData(std::vector<unsigned>{1U}, false, second).values == batch.values,
+        "整组删除只能修改目标通道，不删除别通道目录、选择或数据");
+    VnaDisplay::DisplayChange format;
+    format.kind = VnaDisplay::DisplayChangeKind::FORMAT;
+    format.name = secondName;
+    format.format = VnaDisplay::DisplayFormat::REAL;
+    Require(Finish(fixture, service.ApplyDisplay(format)).ok, "设置其他通道独立显示格式");
+    VnaDisplay::DisplayChange layout;
+    layout.kind = VnaDisplay::DisplayChangeKind::LAYOUT;
+    layout.layout = VnaDisplay::LayoutMode::MAXIMIZED;
+    Require(Finish(fixture, service.ApplyDisplay(layout)).ok, "设置跨通道全局显示方式");
+    const auto reset = Finish(fixture, service.ResetMeasurements("SCPI", 1U));
+    Require(reset.ok, "普通单通道复位失败：" + reset.message);
+    Require(service.ChannelSnapshot(second).core.frame == frame &&
+                service.ChannelSnapshot(second).settings.measurements.front().name == secondName,
+        "普通单通道复位不得影响其他通道采集及目录");
+    Require(service.Display().layout == VnaDisplay::LayoutMode::MAXIMIZED,
+        "普通单通道复位创建默认图窗时不得退出全局最大化模式");
+    const auto presentation = std::find_if(service.Display().traces.begin(), service.Display().traces.end(),
+        [&secondName](const VnaDisplay::TracePresentation &trace) {
+            return trace.name == secondName;
+        });
+    Require(presentation != service.Display().traces.end() && presentation->format == VnaDisplay::DisplayFormat::REAL,
+        "普通单通道复位保留其他通道迹线显示设置");
+}
+
 void Run(const std::string &name, void (*test)(), unsigned &failed)
 {
     try {
@@ -353,5 +562,9 @@ int main()
     Run("原位更新原子拒绝", RejectedMeasurementUpdatesAreAtomic, failed);
     Run("满目录原位更新", FullCatalogSupportsInPlaceUpdates, failed);
     Run("原位更新队列版本竞争", MeasurementUpdatesRevalidateQueuedRevision, failed);
+    Run("批量数据顺序和整批校验", BatchDataPreservesTraceOrderAndRejectsPartialResults, failed);
+    Run("批量 SDATA 严格校准覆盖", BatchSDataRequiresCompleteActiveCalibration, failed);
+    Run("整组删除与真实停止后复位", DeleteAllAndResetCommitAtRealStopBoundary, failed);
+    Run("批量序号与整组删除的通道边界", BatchCatalogAndDeleteAllStayWithinChannel, failed);
     return failed == 0U ? 0 : 1;
 }
