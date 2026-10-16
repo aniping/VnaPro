@@ -2,11 +2,13 @@
  * Copyright (c) 2026 Huawei Device Co., Ltd.
  */
 
+#include <cfenv>
 #include <chrono>
 #include <cmath>
 #include <functional>
 #include <iostream>
 #include <locale>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -476,34 +478,69 @@ void JsonNumberStreamReuse()
     }
 }
 
+void CheckNumberCompatibility(const std::string &token)
+{
+    std::istringstream baseline(token);
+    baseline.imbue(std::locale::classic());
+    double expected = 0.0;
+    baseline >> expected;
+    const bool expectedAccepted = !baseline.fail() && baseline.eof() && std::isfinite(expected);
+    Json actual;
+    bool accepted = false;
+    try {
+        actual = VnaWeb::ParseJson(token);
+        accepted = true;
+    } catch (const std::runtime_error &) {
+    }
+    Require(accepted == expectedAccepted, "JSON boundary acceptance preserves stream semantics: " + token);
+    if (accepted) {
+        Require(actual.type == Json::Type::NUMBER && actual.number == expected &&
+                    std::signbit(actual.number) == std::signbit(expected),
+            "JSON boundary value and zero sign preserve stream semantics: " + token);
+    }
+}
+
 void JsonNumberBoundaryCompatibility()
 {
     ScopedCommaLocale locale;
-    std::string input;
-    VnaWeb::JsonParser parser(input);
     for (const std::string token : {"1.7976931348623157e308", "-1.7976931348623157e308", "1.7976931348623159e308",
              "2.2250738585072014e-308", "2.225073858507201e-308", "4.9406564584124654e-324", "-4.9406564584124654e-324",
-             "1e-400", "-1e-400", "1e400", "-1e400", "0e999999999", "1", "-0"}) {
-        // Preserve the previous per-number classic stream semantics, including platform underflow behavior.
-        std::istringstream baseline(token);
-        baseline.imbue(std::locale::classic());
-        double expected = 0.0;
-        baseline >> expected;
-        const bool expectedAccepted = !baseline.fail() && baseline.eof() && std::isfinite(expected);
-        input = token;
-        Json actual;
-        bool accepted = false;
-        try {
-            actual = parser.Parse();
-            accepted = true;
-        } catch (const std::runtime_error &) {
+             "1e-400", "-1e-400", "1e400", "-1e400", "0e999999999", "1", "-0",
+             "3.166338562921711625857999285172825103424373299966255096425790206770411e-310",
+             "-2.29652892184641754489269627148249438342304762894026871e-323"}) {
+        CheckNumberCompatibility(token);
+    }
+}
+
+void JsonNumberRoundingCompatibility()
+{
+    struct RoundingGuard final {
+        int previous = std::fegetround();
+
+        ~RoundingGuard()
+        {
+            std::fesetround(previous);
         }
-        Require(accepted == expectedAccepted, "JSON boundary acceptance preserves stream semantics: " + token);
-        if (accepted) {
-            Require(actual.type == Json::Type::NUMBER && actual.number == expected &&
-                        std::signbit(actual.number) == std::signbit(expected),
-                "JSON boundary value and zero sign preserve stream semantics: " + token);
+    } guard;
+
+    ScopedCommaLocale locale;
+    for (const int rounding : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+        if (std::fesetround(rounding) != 0) {
+            continue;
         }
+        std::mt19937_64 random(20261016U);
+        for (unsigned index = 0U; index < 1000U; ++index) {
+            const std::string token = (index % 2U == 0U ? "-" : "") + std::to_string(1U + random() % 9U) + "." +
+                                      std::to_string(random()) + std::to_string(random()) + "e" +
+                                      std::to_string(static_cast<int>(random() % 850U) - 425);
+            CheckNumberCompatibility(token);
+        }
+        for (const std::string boundary :
+            {"1.7976931348623157e308", "1.7976931348623159e308", "2.2250738585072014e-308", "2.225073858507201e-308",
+                "4.9406564584124654e-324", "-4.9406564584124654e-324", "1e-400", "-1e-400", "0e999999999", "-0"}) {
+            CheckNumberCompatibility(boundary);
+        }
+        CheckNumberCompatibility("1.00000000000000011102230246251565404236316680908203125");
     }
 }
 
@@ -591,7 +628,8 @@ int main()
         {"long-operation-retention", LongOperationRetention},
         {"invalid-points-remain-explicit", InvalidPointsRemainExplicit},
         {"json-number-stream-reuse", JsonNumberStreamReuse},
-        {"json-number-boundary-compatibility", JsonNumberBoundaryCompatibility}, {"json-and-endpoint", JsonAndEndpoint},
+        {"json-number-boundary-compatibility", JsonNumberBoundaryCompatibility},
+        {"json-number-rounding-compatibility", JsonNumberRoundingCompatibility}, {"json-and-endpoint", JsonAndEndpoint},
         {"ratio-metadata-invalid-reference", RatioMetadataAndInvalidReference}};
     unsigned failures = 0;
     for (const auto &test : tests) {

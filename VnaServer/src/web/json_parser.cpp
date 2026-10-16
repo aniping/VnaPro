@@ -4,12 +4,54 @@
 
 #include "web/json_parser.h"
 
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
+#include <limits>
 #include <locale>
 #include <stdexcept>
 
+#ifdef _WIN32
+#include <locale.h>
+#endif
+
 namespace VnaWeb {
 namespace {
+#ifdef _WIN32
+struct NumberLocale final {
+    _locale_t value = _create_locale(LC_NUMERIC, "C");
+
+    ~NumberLocale()
+    {
+        if (value != nullptr) {
+            _free_locale(value);
+        }
+    }
+};
+#endif
+
+bool TryConvertNumber(const std::string &token, double &value)
+{
+#ifdef _WIN32
+    // 独立且只读的 C locale 不改变其他线程的地区设置。
+    static const NumberLocale locale;
+    if (locale.value == nullptr) {
+        return false;
+    }
+    char *end = nullptr;
+    errno = 0;
+    value = _strtod_l(token.c_str(), &end, locale.value);
+    const int conversionError = errno;
+    // 部分 CRT 对非正规数未报告 ERANGE，舍入也可能不同；交回原经典流保证兼容。
+    return conversionError == 0 && end == token.c_str() + token.size() && std::isfinite(value) &&
+           (value == 0.0 || std::abs(value) >= std::numeric_limits<double>::min());
+#else
+    (void)token;
+    (void)value;
+    return false;
+#endif
+}
+
 constexpr unsigned UTF8_ASCII_LIMIT = 0x80U;
 constexpr unsigned UTF8_TWO_BYTE_LIMIT = 0x800U;
 constexpr unsigned UTF8_THREE_BYTE_LIMIT = 0x10000U;
@@ -209,8 +251,12 @@ Json JsonParser::Value(unsigned depth)
             return Object(depth);
         case '[':
             return Array(depth);
-        default:
+        case 'n':
+        case 't':
+        case 'f':
             break;
+        default:
+            return Number();
     }
     for (const auto &keyword : {std::string("null"), std::string("true"), std::string("false")}) {
         if (text_.compare(position_, keyword.size(), keyword) == 0) {
@@ -298,12 +344,15 @@ Json JsonParser::Number()
         }
         Digits();
     }
-    numberConverter_.clear();
-    numberConverter_.str(text_.substr(begin, position_ - begin));
+    const std::string token = text_.substr(begin, position_ - begin);
     double parsed = 0.0;
-    numberConverter_ >> parsed;
-    if (numberConverter_.fail() || !numberConverter_.eof() || !std::isfinite(parsed)) {
-        throw std::runtime_error("JSON number is not finite");
+    if (!TryConvertNumber(token, parsed)) {
+        numberConverter_.clear();
+        numberConverter_.str(token);
+        numberConverter_ >> parsed;
+        if (numberConverter_.fail() || !numberConverter_.eof() || !std::isfinite(parsed)) {
+            throw std::runtime_error("JSON number is not finite");
+        }
     }
     return Json(parsed);
 }
