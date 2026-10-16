@@ -264,9 +264,11 @@ public:
     // 原生删除图窗时连续重编号；SCPI 删除显示窗口不删除测量定义。
     DisplayResult RemoveDiagram(unsigned diagram, bool renumber);
     // 按候选真实刺激轴协调标记；轴未改变时保留合法离散下标，否则按保存的频率重新吸附。
-    DisplayResult ReconcileAxis(const std::vector<double> &frequencyHz, bool preserveSampleIndexes);
+    DisplayResult ReconcileAxis(const std::vector<double> &frequencyHz, bool preserveSampleIndexes,
+        const std::vector<std::string> *traceNames = nullptr);
     // 核心成功提交后，仅绑定已验证下标的隐藏版本，不改变显示版本或可见设置。
-    void BindAcquisitionRevision(std::uint64_t acquisitionRevision) noexcept;
+    void BindAcquisitionRevision(
+        std::uint64_t acquisitionRevision, const std::vector<std::string> *traceNames = nullptr) noexcept;
     // 校验和计算均在候选副本中完成，失败不改变任何已应用设置。
     DisplayResult Apply(const DisplayChange &change, const std::vector<VnaMeasurement::Measurement> &catalog,
         const FrameContext &frame);

@@ -16,6 +16,8 @@ enum class MeasurementKind {
 
 struct Measurement final {
     std::string name;
+    // 名称在仪器内全局唯一；零仅表示受理输入时采用当前通道。
+    unsigned channelId = 0U;
     MeasurementKind kind = MeasurementKind::RECEIVER;
     char receiverKind = 'a';
     unsigned receiverPort = 1U;

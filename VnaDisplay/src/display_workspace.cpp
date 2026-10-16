@@ -506,21 +506,31 @@ DisplayResult DisplayWorkspace::RemoveDiagram(unsigned diagram, bool renumber)
     return result.ok ? Commit(std::move(candidate)) : result;
 }
 
-DisplayResult DisplayWorkspace::ReconcileAxis(const std::vector<double> &frequencyHz, bool preserveSampleIndexes)
+DisplayResult DisplayWorkspace::ReconcileAxis(
+    const std::vector<double> &frequencyHz, bool preserveSampleIndexes, const std::vector<std::string> *traceNames)
 {
     if (!Detail::MarkerResolver::ValidAxis(frequencyHz)) {
         return Failure("Marker reconciliation requires a valid physical frequency axis");
     }
     DisplayState candidate = state_;
     for (auto &trace : candidate.traces) {
+        if (traceNames != nullptr &&
+            std::find(traceNames->begin(), traceNames->end(), trace.name) == traceNames->end()) {
+            continue;
+        }
         trace.markers.ReconcileAxis(frequencyHz, preserveSampleIndexes);
     }
     return Commit(std::move(candidate));
 }
 
-void DisplayWorkspace::BindAcquisitionRevision(std::uint64_t acquisitionRevision) noexcept
+void DisplayWorkspace::BindAcquisitionRevision(
+    std::uint64_t acquisitionRevision, const std::vector<std::string> *traceNames) noexcept
 {
     for (auto &trace : state_.traces) {
+        if (traceNames != nullptr &&
+            std::find(traceNames->begin(), traceNames->end(), trace.name) == traceNames->end()) {
+            continue;
+        }
         trace.markers.BindAcquisitionRevision(acquisitionRevision);
     }
 }
