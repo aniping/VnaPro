@@ -3,6 +3,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -12,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "vna_core/frame_layout.h"
 #include "vna_service/calibration_workspace.h"
 
 namespace {
@@ -72,6 +74,30 @@ bool Import(CalibrationWorkspace &workspace, const CalibrationSetPtr &set, std::
     change.kind = CalibrationChangeKind::IMPORT_SET;
     change.importedSet = set;
     return workspace.ApplySaved(change, VnaService::InstrumentProfile{}, error);
+}
+
+VnaCore::MeasurementFrame StandardFrame(const VnaCore::SweepPlan &plan, const VnaCalibration::TwoPortNetwork &network)
+{
+    VnaCore::MeasurementFrame frame;
+    frame.plan = plan;
+    for (const auto sourcePort : plan.sourcePorts) {
+        VnaCore::PortFrame source;
+        source.sourcePort = sourcePort;
+        source.iq.assign(plan.frequencyHz.size() * VnaCore::IQ_VALUES_PER_POINT, 0.0);
+        for (std::size_t point = 0U; point < plan.frequencyHz.size(); ++point) {
+            const auto offset = point * VnaCore::IQ_VALUES_PER_POINT;
+            const auto first = sourcePort == 1U ? network.s11 : network.s12;
+            const auto second = sourcePort == 1U ? network.s21 : network.s22;
+            source.iq[offset] = 1.0;
+            source.iq[offset + 2U] = first.real();
+            source.iq[offset + 3U] = first.imag();
+            source.iq[offset + 4U] = 1.0;
+            source.iq[offset + 6U] = second.real();
+            source.iq[offset + 7U] = second.imag();
+        }
+        frame.ports.push_back(std::move(source));
+    }
+    return frame;
 }
 
 void Real204SetsAndStableRestore()
@@ -227,6 +253,175 @@ void DuplicateNamesAliasesAndIdExhaustion()
         "a restored maximum ID must not wrap when the next ID is exhausted");
 }
 
+void ActivationUsesFrozenCoefficientsAndRetainsProfileChecks()
+{
+    auto input = Set(0U, 3U);
+    auto callerData = std::make_shared<VnaCalibration::CalibrationData>(*input->data);
+    input->data = callerData;
+    CalibrationWorkspace workspace;
+    std::string error;
+    Require(Import(workspace, input, error), error);
+    const auto stored = workspace.Find(1U);
+    const auto originalTracking = stored->data->fourPortTerms[0U][0U].tracking;
+    const auto originalBytes = workspace.StorageBytes();
+    callerData->fourPortTerms[0U][0U].tracking = {};
+    callerData->frequencyHz[0U] = -1.0;
+    input->powerDbm[0U] = std::numeric_limits<double>::quiet_NaN();
+    input->name = "Changed caller metadata";
+    CalibrationChange activate;
+    activate.kind = CalibrationChangeKind::ACTIVATE;
+    activate.name = stored->name;
+    for (unsigned attempt = 0U; attempt < 3U; ++attempt) {
+        Require(workspace.ApplySaved(activate, VnaService::InstrumentProfile{}, error) &&
+                    workspace.SelectedSetId() == 1U && workspace.Find(1U) == stored &&
+                    stored->data->fourPortTerms[0U][0U].tracking == originalTracking &&
+                    workspace.StorageBytes() == originalBytes,
+            "repeated activation uses the validated frozen data and never caller aliases or replacement coefficients");
+    }
+    const auto revision = workspace.Revision();
+    auto narrow = VnaService::InstrumentProfile{};
+    narrow.portCount = 2U;
+    Require(!workspace.ApplySaved(activate, narrow, error) && workspace.Revision() == revision &&
+                workspace.SelectedSetId() == 1U,
+        "activation must still reject a four-port set for a narrower port profile without changing selection");
+    narrow = {};
+    narrow.minFrequencyHz = stored->data->frequencyHz.front() + 1.0;
+    Require(!workspace.ApplySaved(activate, narrow, error) && workspace.Revision() == revision,
+        "activation must still check the current profile minimum frequency");
+    narrow = {};
+    narrow.maxFrequencyHz = stored->data->frequencyHz.back() - 1.0;
+    Require(!workspace.ApplySaved(activate, narrow, error) && workspace.Revision() == revision,
+        "activation must still check the current profile maximum frequency");
+    CalibrationWorkspace copied = workspace;
+    Require(copied.ApplySaved(activate, VnaService::InstrumentProfile{}, error) && copied.Find(1U) == stored,
+        "transaction candidates may share immutable validated coefficient ownership");
+    auto invalid = Set(1U, 3U);
+    auto invalidData = std::make_shared<VnaCalibration::CalibrationData>(*invalid->data);
+    invalidData->fourPortTerms[1U][7U].tracking = {};
+    invalid->data = invalidData;
+    Require(
+        !Import(workspace, invalid, error) && workspace.Revision() == revision && workspace.SavedSets().size() == 1U,
+        "full coefficient validation remains mandatory when importing into the trusted pool");
+    CalibrationWorkspace restored;
+    Require(!restored.RestoreSaved({invalid}, invalid->id, VnaService::InstrumentProfile{}, error) &&
+                restored.SavedSets().empty() && restored.Revision() == 1U,
+        "restoring a persisted zero tracking coefficient must still reject the entire pool atomically");
+}
+
+void DirectWorkspaceCompletionStillRequiresValidActivationMetadata()
+{
+    CalibrationWorkspace workspace;
+    VnaCore::SweepPlan plan;
+    plan.frequencyHz = {10000000.0, 10001000.0};
+    plan.frequencyRaw = {10000000U, 10001000U};
+    plan.powerDbm = {0.0, 0.0};
+    plan.ifBandwidthRaw = 123U;
+    plan.receiverMask = 1U;
+    plan.sourcePorts = {1U};
+    CalibrationChange begin;
+    std::string error;
+    Require(workspace.Begin(begin, IDENTITY, plan, VnaService::InstrumentProfile{}, error), error);
+    const std::vector<std::pair<std::string, double>> standards{{"open-1", 1.0}, {"short-1", -1.0}, {"load-1", 0.0}};
+    for (const auto &standard : standards) {
+        VnaCalibration::TwoPortNetwork network;
+        network.s11 = standard.second;
+        Require(workspace.Capture(standard.first, StandardFrame(plan, network), error), error);
+    }
+    Require(workspace.Complete("Direct workspace", error), error);
+    CalibrationChange activate;
+    activate.kind = CalibrationChangeKind::ACTIVATE;
+    activate.setId = 1U;
+    const auto revision = workspace.Revision();
+    Require(!workspace.ApplySaved(activate, VnaService::InstrumentProfile{}, error) &&
+                workspace.Revision() == revision && error.find("IF bandwidth") != std::string::npos,
+        "internally solved coefficients do not bypass the original unsupported-metadata activation rejection");
+}
+
+void ProveSolverCorrectionOverflow(const std::array<VnaCalibration::Complex, 3U> &defined,
+    const std::array<VnaCalibration::Complex, 3U> &measured, const VnaCalibration::TwoPortNetwork &thru)
+{
+    using VnaCalibration::CalibrationError;
+    using VnaCalibration::Complex;
+    VnaCalibration::OnePortTerms extreme;
+    Complex corrected;
+    Require(VnaCalibration::SolveThreeStandards(measured, defined, extreme) == CalibrationError::NONE &&
+                std::isfinite(extreme.reflectionTracking.real()) && std::isfinite(extreme.reflectionTracking.imag()) &&
+                !std::isfinite(std::abs(extreme.reflectionTracking)) &&
+                VnaCalibration::CorrectOnePort(extreme.directivity, extreme, corrected) != CalibrationError::NONE,
+        "one-port counterexample solves finite components but its correction scale overflows");
+    VnaCalibration::OnePortTerms ideal;
+    ideal.reflectionTracking = 1.0;
+    VnaCalibration::TwoPortNetwork definition;
+    definition.s21 = definition.s12 = 1.0;
+    VnaCalibration::TwoPortTerms coupled;
+    VnaCalibration::TwoPortNetwork correctedPair;
+    Require(VnaCalibration::SolveKnownThru(thru, definition, ideal, ideal, {}, {}, coupled) == CalibrationError::NONE &&
+                VnaCalibration::CorrectTwoPort({}, coupled, correctedPair) != CalibrationError::NONE,
+        "two-port counterexample solves but its coupled load-match product overflows during correction");
+}
+
+void RejectUnusableCompletionAtomically(bool twoPort, const std::array<VnaCalibration::Complex, 3U> &defined,
+    const std::array<VnaCalibration::Complex, 3U> &measured, const VnaCalibration::TwoPortNetwork &thru)
+{
+    CalibrationWorkspace workspace;
+    std::string error;
+    Require(Import(workspace, Set(0U, 2U), error), error);
+    CalibrationChange activate;
+    activate.kind = CalibrationChangeKind::ACTIVATE;
+    activate.setId = 1U;
+    Require(workspace.ApplySaved(activate, VnaService::InstrumentProfile{}, error), error);
+    const auto retained = workspace.Find(1U);
+    VnaCore::SweepPlan plan;
+    plan.frequencyHz = {10000000.0, 10001000.0};
+    plan.frequencyRaw = {10000000U, 10001000U};
+    plan.powerDbm = {0.0, 0.0};
+    plan.ifBandwidthRaw = 1000U;
+    plan.receiverMask = twoPort ? 3U : 1U;
+    plan.sourcePorts = twoPort ? std::vector<std::uint32_t>{1U, 2U} : std::vector<std::uint32_t>{1U};
+    CalibrationChange begin;
+    begin.method = twoPort ? VnaCalibration::CalibrationMethod::TWO_PORT : VnaCalibration::CalibrationMethod::ONE_PORT;
+    begin.port2 = twoPort ? 2U : 0U;
+    Require(workspace.Begin(begin, IDENTITY, plan, VnaService::InstrumentProfile{}, error), error);
+    const auto session = workspace.Snapshot(IDENTITY, plan).sessionId;
+    const std::array<const char *, 3U> kinds{{"open-", "short-", "load-"}};
+    for (unsigned port = 1U; port <= (twoPort ? 2U : 1U); ++port) {
+        for (unsigned standard = 0U; standard < 3U; ++standard) {
+            VnaCalibration::TwoPortNetwork network;
+            const auto reflection = twoPort ? defined[standard] : measured[standard];
+            (port == 1U ? network.s11 : network.s22) = reflection;
+            Require(workspace.Capture(
+                        std::string(kinds[standard]) + std::to_string(port), StandardFrame(plan, network), error),
+                error);
+        }
+    }
+    if (twoPort) {
+        Require(workspace.Capture("thru-1-2", StandardFrame(plan, thru), error), error);
+    }
+    const auto before = workspace.Snapshot(IDENTITY, plan);
+    const auto bytes = workspace.StorageBytes();
+    Require(!workspace.Complete("Must not publish", error) && error.find("coefficient") != std::string::npos &&
+                workspace.Revision() == before.revision && workspace.Collecting() && workspace.SelectedSetId() == 1U &&
+                workspace.Find(1U) == retained && workspace.SavedSets().size() == 1U &&
+                workspace.StorageBytes() == bytes,
+        "completion validates actual correction once before publishing, retaining the old pool and recapturable "
+        "session");
+    Require(workspace.Cancel(session, error) && Import(workspace, Set(1U, 2U), error) && workspace.Find(2U),
+        "failed coefficient validation does not consume a stored ID");
+}
+
+void SolvedButUnusableCoefficientsCannotEnterThePool()
+{
+    using VnaCalibration::Complex;
+    const std::array<Complex, 3U> defined{{1.0, -1.0, 0.0}};
+    const std::array<Complex, 3U> measured{{0.1, -0.1, Complex{4e153, 2e153}}};
+    VnaCalibration::TwoPortNetwork thru;
+    thru.s11 = thru.s22 = 1e200;
+    thru.s21 = thru.s12 = 1.0;
+    ProveSolverCorrectionOverflow(defined, measured, thru);
+    RejectUnusableCompletionAtomically(false, defined, measured, thru);
+    RejectUnusableCompletionAtomically(true, defined, measured, thru);
+}
+
 void Run(const char *name, void (*test)(), unsigned &failed)
 {
     try {
@@ -246,5 +441,11 @@ int main()
     Run("byte-budget restore preflight and mixed production capacity", ByteBudgetRejectsRestoreBeforeCopy, failed);
     Run("count limit and transactional restore validation", CountLimitAndRestoreValidation, failed);
     Run("duplicate names, aliases and ID exhaustion", DuplicateNamesAliasesAndIdExhaustion, failed);
+    Run("activation uses immutable validated data and rechecks current profile",
+        ActivationUsesFrozenCoefficientsAndRetainsProfileChecks, failed);
+    Run("direct workspace completion retains activation metadata rejection",
+        DirectWorkspaceCompletionStillRequiresValidActivationMetadata, failed);
+    Run("solved but unusable coefficients cannot be published", SolvedButUnusableCoefficientsCannotEnterThePool,
+        failed);
     return failed == 0U ? 0 : 1;
 }

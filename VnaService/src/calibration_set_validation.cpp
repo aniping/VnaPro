@@ -96,29 +96,37 @@ bool ValidateStimulus(const CalibrationSet &set, const InstrumentProfile &profil
     return true;
 }
 
+bool ValidCoefficientShape(const VnaCalibration::CalibrationData &data)
+{
+    const auto count = data.frequencyHz.size();
+    if (data.method == VnaCalibration::CalibrationMethod::ONE_PORT) {
+        return data.onePortTerms.size() == count && data.twoPortTerms.empty() && data.fourPortTerms.empty();
+    }
+    if (data.method == VnaCalibration::CalibrationMethod::FOUR_PORT) {
+        return data.fourPortTerms.size() == count && data.onePortTerms.empty() && data.twoPortTerms.empty();
+    }
+    return data.twoPortTerms.size() == count && data.onePortTerms.empty() && data.fourPortTerms.empty();
+}
+
 bool ValidCoefficients(const CalibrationSet &set)
 {
     const auto &data = *set.data;
-    const auto count = data.frequencyHz.size();
     if (data.method == VnaCalibration::CalibrationMethod::ONE_PORT) {
-        return data.onePortTerms.size() == count && data.twoPortTerms.empty() && data.fourPortTerms.empty() &&
-               std::all_of(
-                   data.onePortTerms.begin(), data.onePortTerms.end(), [](const VnaCalibration::OnePortTerms &terms) {
-                       return ValidTerms(terms);
-                   });
+        return std::all_of(
+            data.onePortTerms.begin(), data.onePortTerms.end(), [](const VnaCalibration::OnePortTerms &terms) {
+                return ValidTerms(terms);
+            });
     }
     if (data.method == VnaCalibration::CalibrationMethod::FOUR_PORT) {
-        return data.fourPortTerms.size() == count && data.onePortTerms.empty() && data.twoPortTerms.empty() &&
-               std::all_of(data.fourPortTerms.begin(), data.fourPortTerms.end(),
-                   [&set](const VnaCalibration::FourPortTerms &terms) {
-                       return ValidTerms(terms, set.includeIsolation);
-                   });
+        return std::all_of(
+            data.fourPortTerms.begin(), data.fourPortTerms.end(), [&set](const VnaCalibration::FourPortTerms &terms) {
+                return ValidTerms(terms, set.includeIsolation);
+            });
     }
-    return data.twoPortTerms.size() == count && data.onePortTerms.empty() && data.fourPortTerms.empty() &&
-           std::all_of(
-               data.twoPortTerms.begin(), data.twoPortTerms.end(), [&set](const VnaCalibration::TwoPortTerms &terms) {
-                   return ValidTerms(terms, set.includeIsolation);
-               });
+    return std::all_of(
+        data.twoPortTerms.begin(), data.twoPortTerms.end(), [&set](const VnaCalibration::TwoPortTerms &terms) {
+            return ValidTerms(terms, set.includeIsolation);
+        });
 }
 }  // 匿名命名空间
 
@@ -172,7 +180,7 @@ bool CalibrationSetupValid(const CalibrationChange &change, const InstrumentProf
            !(change.method == VnaCalibration::CalibrationMethod::ONE_PORT && change.includeIsolation);
 }
 
-bool ValidateImportedCalibration(const CalibrationSet &set, const InstrumentProfile &profile, std::string &error)
+bool ValidateCalibrationMetadata(const CalibrationSet &set, const InstrumentProfile &profile, std::string &error)
 {
     if (!set.data || !CalibrationNameValid(set.name) || set.deviceIdentity.empty() ||
         set.deviceIdentity.size() > 512U) {
@@ -186,11 +194,25 @@ bool ValidateImportedCalibration(const CalibrationSet &set, const InstrumentProf
     if (!ValidateStimulus(set, profile, error)) {
         return false;
     }
-    if (!ValidCoefficients(set)) {
+    if (!ValidCoefficientShape(*set.data)) {
         error = "Calibration coefficient shape, values or isolation metadata are invalid";
         return false;
     }
     return true;
+}
+
+bool ValidateCalibrationCoefficients(const CalibrationSet &set, std::string &error)
+{
+    if (!set.data || !ValidCoefficientShape(*set.data) || !ValidCoefficients(set)) {
+        error = "Calibration coefficient shape, values or isolation metadata are invalid";
+        return false;
+    }
+    return true;
+}
+
+bool ValidateImportedCalibration(const CalibrationSet &set, const InstrumentProfile &profile, std::string &error)
+{
+    return ValidateCalibrationMetadata(set, profile, error) && ValidateCalibrationCoefficients(set, error);
 }
 }  // 命名空间 Detail
 }  // 命名空间 VnaService

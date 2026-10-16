@@ -16,6 +16,10 @@ bool CalibrationNameValid(const std::string &name);
 bool CalibrationPortsValid(
     VnaCalibration::CalibrationMethod method, unsigned first, unsigned second, unsigned count) noexcept;
 bool CalibrationSetupValid(const CalibrationChange &change, const InstrumentProfile &profile);
+// 已冻结校准集的元数据、数组形状与刺激约束；不重复遍历已验证的复数误差项。
+bool ValidateCalibrationMetadata(const CalibrationSet &set, const InstrumentProfile &profile, std::string &error);
+// 入池前执行一次完整系数校验，内部求解同样不能绕过实际校正函数的数值约束。
+bool ValidateCalibrationCoefficients(const CalibrationSet &set, std::string &error);
 bool ValidateImportedCalibration(const CalibrationSet &set, const InstrumentProfile &profile, std::string &error);
 // 含对象、目录槽及字符串/向量内容；超过预算时返回预算加一，避免 size_t 溢出。
 std::size_t CalibrationStorageBytes(const CalibrationSet &set) noexcept;

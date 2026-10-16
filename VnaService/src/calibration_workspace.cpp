@@ -600,6 +600,10 @@ bool CalibrationWorkspace::Complete(const std::string &name, std::string &error)
     set.id = nextSetId_;
     set.name = name.empty() ? (set.name.empty() ? "Cal" + std::to_string(set.id) : set.name) : name;
     set.data = std::make_shared<const VnaCalibration::CalibrationData>(std::move(data));
+    if (!Detail::ValidateCalibrationCoefficients(set, error)) {
+        error_ = error;
+        return false;
+    }
     const auto bytes = Detail::CalibrationStorageBytes(set);
     if (bytes > MAX_CALIBRATION_STORAGE_BYTES - storageBytes_) {
         error = "Calibration result exceeds the channel storage byte budget";
@@ -680,7 +684,8 @@ bool CalibrationWorkspace::UpdateSaved(
                     selected = set;
                 }
             }
-            if (!selected || !Detail::ValidateImportedCalibration(*selected, profile, error)) {
+            // 导入、恢复及内部求解均在入池前完整验证并冻结；激活仍核对形状及当前仪器约束。
+            if (!selected || !Detail::ValidateCalibrationMetadata(*selected, profile, error)) {
                 if (error.empty()) {
                     error = "Calibration set does not exist or is invalid";
                 }
