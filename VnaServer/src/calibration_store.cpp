@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "calibration_store_data.h"
+#include "calibration_store_files.h"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -43,6 +44,8 @@ namespace VnaServer {
 namespace {
 using CalibrationStoreData::CheckPool;
 using CalibrationStoreData::Same;
+using CalibrationStoreFiles::InternalFile;
+using CalibrationStoreFiles::NamedFile;
 using VnaWeb::Json;
 constexpr std::size_t SET_LIMIT = VnaService::MAX_CALIBRATION_SETS;
 constexpr std::size_t COEFFICIENT_BYTE_LIMIT = VnaService::MAX_CALIBRATION_STORAGE_BYTES;
@@ -360,17 +363,6 @@ std::vector<std::string> Files(const std::string &directory)
     return files;
 }
 
-bool InternalFile(const std::string &name, const std::string &prefix, const std::string &ending)
-{
-    if (name.size() <= prefix.size() + ending.size() || name.size() > 160U ||
-        name.compare(0U, prefix.size(), prefix) != 0 ||
-        name.compare(name.size() - ending.size(), ending.size(), ending) != 0) {
-        return false;
-    }
-    const auto body = name.substr(prefix.size(), name.size() - prefix.size() - ending.size());
-    return body.find_first_not_of("0123456789-") == std::string::npos;
-}
-
 void Clean(const std::string &directory, unsigned channelId, const std::set<std::string> &keep)
 {
     const auto prefix = Prefix(channelId);
@@ -426,7 +418,8 @@ std::string Digest(const std::string &text)
 bool HasCoefficients(const std::string &directory, const std::string &prefix)
 {
     for (const auto &file : Files(directory)) {
-        if (InternalFile(file, prefix + "-set-", ".json") || InternalFile(file, prefix + "-set-", ".vcal")) {
+        if (InternalFile(file, prefix + "-set-", ".json") || InternalFile(file, prefix + "-set-", ".vcal") ||
+            NamedFile(file)) {
             return true;
         }
     }
@@ -500,7 +493,8 @@ CalibrationStore::Entry CalibrationStore::ReadEntry(
     const auto id = Identifier(Field(row, "id", Json::Type::STRING));
     const auto file = Field(row, "file", Json::Type::STRING).string;
     const auto digest = Field(row, "digest", Json::Type::STRING).string;
-    if (row.object.size() != 3U || !InternalFile(file, prefix + "-set-" + std::to_string(id) + "-", ".vcal")) {
+    const bool internal = InternalFile(file, prefix + "-set-" + std::to_string(id) + "-", ".vcal");
+    if (row.object.size() != 3U || (!internal && !NamedFile(file))) {
         throw std::invalid_argument("Invalid calibration manifest identity or internal filename");
     }
     if (!ReadFile(directory_ + "/" + file, VnaWeb::CalibrationBinary::BYTE_LIMIT, text) || Digest(text) != digest) {
@@ -511,9 +505,7 @@ CalibrationStore::Entry CalibrationStore::ReadEntry(
     }
     diskBytes += text.size();
     const auto set = VnaWeb::CalibrationBinary::Decode(text);
-    if (!set || set->id != id) {
-        throw std::invalid_argument("Calibration manifest and document identifiers differ");
-    }
+    CalibrationStoreData::CheckDocumentIdentity(set, id, file, internal);
     return {set, file, digest, text.size()};
 }
 

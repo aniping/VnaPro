@@ -144,6 +144,17 @@ void CheckPool(const std::vector<VnaService::CalibrationSetPtr> &sets, std::uint
     }
 }
 
+void CheckDocumentIdentity(
+    const VnaService::CalibrationSetPtr &set, std::uint64_t id, const std::string &file, bool internal)
+{
+    if (!set || set->id != id) {
+        throw std::invalid_argument("Calibration manifest and document identifiers differ");
+    }
+    if (!internal && file != set->name + ".vcal") {
+        throw std::invalid_argument("Calibration named filename and document name differ");
+    }
+}
+
 bool Same(const VnaService::CalibrationSet &a, const VnaService::CalibrationSet &b)
 {
     if (&a == &b) {
