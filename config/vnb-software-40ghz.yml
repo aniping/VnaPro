@@ -1,0 +1,46 @@
+# 仅用于 VN10 simulator 软件端到端联调；不声明真实硬件具备 40 GHz 能力或测量精度。
+# 本配置不参与当前默认配置发布；使用时复制到隔离部署目录并命名为 vnapro.yml。
+server:
+  ip: 127.0.0.1
+  scpiPort: 55025
+  webPort: 58080
+  webEnabled: true
+  webRoot: WebUI
+  calibrationStore: calibration
+
+driver:
+  type: simulator
+  board: tdc1vn10
+  library: libtdc1vn10_drv_sim.dll
+  simulator:
+    mode: noise
+    seed: 42
+    noiseAmplitude: 0.002
+
+instrument:
+  portCount: 4
+  frequency:
+    minHz: 10000000
+    maxHz: 40000000000
+  sweep:
+    defaultStartHz: 10000000
+    defaultStopHz: 40000000000
+    defaultPoints: 800
+    defaultIfBandwidthHz: 1000
+    defaultPowerDbm: 0.0
+    defaultSweepMode: HOLD
+
+log:
+  level: INFO
+  pattern: '%Y-%m-%d %H:%M:%S.%e [%K] [%t] %n - %v'
+  console:
+    enabled: true
+  file:
+    enabled: true
+    path: logs/vnapro.log
+    maxSizeBytes: 10485760
+    maxFiles: 5
+    maxRecordBytes: 65536
+    rotateOnOpen: false
+  flush:
+    level: INFO
