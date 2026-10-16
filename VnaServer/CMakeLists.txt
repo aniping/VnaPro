@@ -2,9 +2,9 @@ include("${CMAKE_SOURCE_DIR}/cmake/yaml_cpp.cmake")
 add_subdirectory(src/network)
 add_subdirectory(src/scpi)
 add_subdirectory(src/web)
-add_library(vna_calibration_store STATIC src/calibration_store.cpp)
+add_library(vna_calibration_store STATIC src/calibration_store.cpp src/calibration_cache.cpp)
 target_include_directories(vna_calibration_store PUBLIC src)
-target_link_libraries(vna_calibration_store PUBLIC vna_web)
+target_link_libraries(vna_calibration_store PUBLIC vna_web PRIVATE vna_log)
 target_compile_options(vna_calibration_store PRIVATE -Wall -Wextra -Wpedantic)
 set(SERVER_CONFIG_SOURCES src/server_config_loader.cpp src/server_config_io.cpp src/yaml_config_reader.cpp
     src/server_startup_config_reader.cpp)
@@ -42,6 +42,10 @@ if(BUILD_TESTING)
     add_test(NAME calibration_store COMMAND vna_calibration_store_tests
         "${CMAKE_CURRENT_BINARY_DIR}/calibration-store-test")
     set_tests_properties(calibration_store PROPERTIES TIMEOUT 30)
+    add_executable(vna_calibration_cache_tests tests/calibration_cache_test.cpp)
+    target_link_libraries(vna_calibration_cache_tests PRIVATE vna_calibration_store)
+    add_test(NAME calibration_cache COMMAND vna_calibration_cache_tests)
+    set_tests_properties(calibration_cache PROPERTIES TIMEOUT 30)
     add_test(NAME calibration_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/CalibrationIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn10_drv_sim>)
