@@ -102,7 +102,8 @@ export interface InstrumentGateway {
   readonly sessionId: string
   status(): Promise<InstrumentStatus>
   frame(names?: readonly string[]): Promise<FrameResponse>
-  claim(): Promise<ClaimResponse>
+  /** 后台续租失败直接报告失权；只有显式获取允许重新申请令牌。 */
+  claim(renewOnly?: boolean): Promise<ClaimResponse>
   release(): Promise<void>
   configure(
     candidate: SweepPatch,
@@ -375,7 +376,7 @@ export class InstrumentApi implements InstrumentGateway {
     return this.request(`/frame${query}${encoding}`, decodeFrame)
   }
 
-  async claim(): Promise<ClaimResponse> {
+  async claim(renewOnly = false): Promise<ClaimResponse> {
     let result: ClaimResponse
     try {
       result = await this.request(
@@ -385,7 +386,7 @@ export class InstrumentApi implements InstrumentGateway {
         this.token ? { sessionId: this.token } : {},
       )
     } catch (error) {
-      if (!(error instanceof ApiError) || error.status !== 403 || !this.token)
+      if (renewOnly || !(error instanceof ApiError) || error.status !== 403 || !this.token)
         throw error
       // 控制租约令牌只由服务端签发；过期令牌不能在本地恢复。
       this.rememberSession('')

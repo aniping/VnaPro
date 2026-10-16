@@ -367,6 +367,195 @@ test('initial successful connection clears connecting notice and lease renewal p
   assert.equal(model.notice.value?.text, 'Preserve this operation warning')
 })
 
+test('a pending background renewal keeps valid lease write and calibration capabilities stable', async (context) => {
+  const api = Object.assign(new FakeGateway(), {
+    calibration: async () => ({ operationId: 'cal-op', state: 'pending' as const }),
+  })
+  api.current.calibration = {
+    revision: '5', collecting: false, capturePending: false, sessionId: '', method: 'onePort',
+    port1: 1, port2: 0, selectedSetId: '', enabled: false, compatible: false, reason: '', sets: [], steps: [],
+  }
+  let time = 1000
+  const model = await ready(api, { now: () => time })
+  context.after(() => model.stop())
+  const renewal = deferred<ClaimResponse>()
+  const entered = deferred<void>()
+  api.claim = () => { api.claims++; entered.resolve(); return renewal.promise }
+  time += 12000
+  const polling = model.refresh()
+  await entered.promise
+  try {
+    assert.equal(model.canWrite.value, true, 'same-token renewal must not temporarily revoke a valid lease')
+    assert.equal(model.canConfigure.value, true)
+    assert.equal(model.canCalibrate.value, true)
+    assert.equal(model.canEditDisplay.value, true)
+    assert.equal(model.canContinueDisplayGesture.value, true)
+    assert.equal(model.controlBusy.value, false, 'background renewal is not a foreground control transition')
+    assert.equal(await model.claim(), false, 'manual claim must not duplicate an in-flight renewal')
+    assert.equal(api.claims, 2)
+  } finally {
+    renewal.resolve({ sessionId: api.sessionId, hasControl: true, leaseSeconds: 30 })
+    await polling
+  }
+  assert.equal(model.canWrite.value, true)
+})
+
+test('an expired real API renewal closes permissions without anonymously reclaiming control', async (context) => {
+  const requests: { sessionId?: string }[] = []
+  const entered = deferred<void>()
+  const rejected = deferred<Response>()
+  const fallback = deferred<void>()
+  const recovery = deferred<Response>()
+  const granted = (sessionId: string) => new Response(JSON.stringify({ sessionId, hasControl: true, leaseSeconds: 30 }))
+  const expired = () => new Response(JSON.stringify({ error: { code: 'invalid_session', message: 'expired' } }), { status: 403 })
+  const api = new InstrumentApi({
+    storage: { getItem: () => 'original-token', setItem() {}, removeItem() {} },
+    fetch: async (_input, init) => {
+      requests.push(init?.body ? JSON.parse(String(init.body)) : {})
+      if (requests.length === 1) return granted('original-token')
+      if (requests.length === 2) { entered.resolve(); return rejected.promise }
+      if (requests.at(-1)?.sessionId) return expired()
+      fallback.resolve()
+      return recovery.promise
+    },
+  })
+  api.status = async () => snapshot()
+  api.frame = async () => ({ available: false, current: false, reason: 'No completed frame' })
+  let time = 1000
+  const model = useInstrument({ api, now: () => time, pollMs: 1e6 })
+  context.after(() => model.stop())
+  model.start()
+  await model.refresh()
+  time += 12000
+  const polling = model.refresh()
+  await entered.promise
+  assert.equal(model.canWrite.value, true, 'the existing lease stays usable while its renewal is undecided')
+  rejected.resolve(expired())
+  try {
+    await Promise.race([polling, fallback.promise])
+    assert.equal(requests.length, 2, 'background renewal must report expiry instead of starting anonymous recovery')
+    assert.equal(model.hasControl.value, false)
+    assert.equal(model.canWrite.value, false)
+    assert.equal(model.canConfigure.value, false)
+    assert.equal(model.canContinueDisplayGesture.value, false)
+    assert.equal(await model.configure(snapshot().config, '1'), null)
+    assert.equal(requests.length, 2, 'the closed gate cannot send a write using the expired token')
+    // 主动获取仍允许用服务端新令牌恢复；它属于有前台忙碌门禁的显式操作。
+    recovery.resolve(granted('replacement-token'))
+    assert.equal(await model.claim(), true)
+    assert.equal(api.sessionId, 'replacement-token')
+    assert.equal(requests.length, 4)
+    assert.deepEqual(requests[3], {})
+  } finally {
+    recovery.resolve(granted('replacement-token'))
+    await polling
+  }
+})
+
+test('a rejected renewal revokes permissions despite an earlier owned-control snapshot', async (context) => {
+  for (const code of [403, 409, 0]) {
+    await context.test(`renewal failure ${code}`, async (caseContext) => {
+      const api = new FakeGateway()
+      let time = 1000
+      const model = await ready(api, { now: () => time })
+      caseContext.after(() => model.stop())
+      api.claim = async () => { api.claims++; throw new ApiError('renewal rejected', code) }
+      time += 12000
+      await model.refresh()
+      assert.equal(model.status.value?.control.hasControl, true, 'the status read preceded the failed renewal')
+      assert.equal(model.hasControl.value, false)
+      assert.equal(model.canWrite.value, false)
+      assert.equal(model.canContinueDisplayGesture.value, false)
+      assert.equal(model.controlBusy.value, false)
+      assert.equal(model.connected.value, code !== 0)
+      await model.refresh()
+      assert.equal(api.claims, 2, 'a failed renewal must not repeat automatically from stale ownership')
+      assert.equal(model.canWrite.value, false)
+    })
+  }
+})
+
+test('release during a pending renewal closes permissions immediately and reaches the server after renewal', async (context) => {
+  const api = new FakeGateway()
+  let time = 1000
+  const model = await ready(api, { now: () => time })
+  context.after(() => model.stop())
+  const renewal = deferred<ClaimResponse>()
+  const entered = deferred<void>()
+  api.claim = () => { api.claims++; entered.resolve(); return renewal.promise }
+  let releases = 0
+  api.release = async () => { releases++ }
+  time += 12000
+  const polling = model.refresh()
+  await entered.promise
+  const releasing = model.release()
+  assert.equal(model.hasControl.value, false)
+  assert.equal(model.canWrite.value, false)
+  assert.equal(model.canContinueDisplayGesture.value, false)
+  assert.equal(model.controlBusy.value, true)
+  assert.equal(releases, 0, 'release must not be overtaken by a previously sent renewal')
+  assert.equal(await model.claim(), false)
+  renewal.resolve({ sessionId: api.sessionId, hasControl: true, leaseSeconds: 30 })
+  assert.equal(await releasing, true)
+  await polling
+  assert.equal(releases, 1)
+  assert.equal(model.controlBusy.value, false)
+  assert.equal(model.hasControl.value, false, 'late renewal success cannot restore released control')
+  time += 12000
+  await model.refresh()
+  assert.equal(api.claims, 2)
+  assert.equal(model.canWrite.value, false)
+})
+
+test('a configuration write can be accepted while the same valid lease is renewing', async (context) => {
+  const api = new FakeGateway()
+  let time = 1000
+  const model = await ready(api, { now: () => time })
+  context.after(() => model.stop())
+  const renewal = deferred<ClaimResponse>()
+  const entered = deferred<void>()
+  api.claim = () => { api.claims++; entered.resolve(); return renewal.promise }
+  let writes = 0
+  api.submitter = async () => { writes++; return { operationId: 'op-1', state: 'pending' } }
+  time += 12000
+  const polling = model.refresh()
+  await entered.promise
+  const configured = model.configure(api.current.config, '1')
+  await microtasks()
+  assert.equal(writes, 1)
+  assert.equal(model.pendingOperation.value?.kind, 'config')
+  assert.equal(model.pendingOperation.value?.ownerSessionId, 'original-token')
+  assert.equal(model.canWrite.value, false, 'the accepted write still closes the ordinary operation gate')
+  renewal.resolve({ sessionId: api.sessionId, hasControl: true, leaseSeconds: 30 })
+  await polling
+  api.operationLoader = async () => ({ operationId: 'op-1', state: 'completed', result: { ok: true, errorCode: 0, message: '' } })
+  await model.refresh()
+  assert.equal((await configured)?.revision, '1')
+  assert.equal(model.canWrite.value, true)
+})
+
+test('disposing during a background renewal ignores the late control acknowledgement', async (context) => {
+  const api = new FakeGateway()
+  let time = 1000
+  const model = await ready(api, { now: () => time })
+  context.after(() => model.stop())
+  const renewal = deferred<ClaimResponse>()
+  const entered = deferred<void>()
+  api.claim = () => { api.claims++; entered.resolve(); return renewal.promise }
+  time += 12000
+  const polling = model.refresh()
+  await entered.promise
+  model.stop()
+  renewal.resolve({ sessionId: api.sessionId, hasControl: true, leaseSeconds: 30 })
+  await polling
+  assert.equal(api.aborts, 1)
+  assert.equal(model.connected.value, false)
+  assert.equal(model.hasControl.value, false)
+  assert.equal(model.canWrite.value, false)
+  assert.equal(model.canContinueDisplayGesture.value, false)
+  assert.equal(model.controlBusy.value, false)
+})
+
 test('transport keeps uint64 identities as strings and rejects malformed receiver data', () => {
   const status = snapshot('18446744073709551615')
   status.runId = '9007199254740993'

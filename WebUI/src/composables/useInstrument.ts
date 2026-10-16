@@ -74,6 +74,8 @@ export function useInstrument(options: InstrumentOptions = {}) {
   let writeEpoch = 0
   let initialClaimAttempted = false
   let lastRenewed = 0
+  let claimRequest: ReturnType<InstrumentGateway['claim']> | null = null
+  let controlEpoch = 0
   let resolveOperation: ((value: InstrumentStatus | null) => void) | null = null
 
   function selectActiveFrame(id = status.value?.activeChannelId ?? 1): void {
@@ -126,7 +128,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const operationGateOpen = computed(
     () => operationGateReady.value && !controlBusy.value,
   )
-  // 续租只暂缓新写入，不撤销已经开始的本地显示手势；真实失权及仪器忙仍立即中止。
+  // 同一有效租约的后台续期不改变操作权限；真实失权及仪器忙仍立即中止显示手势。
   const canContinueDisplayGesture = computed(
     () => operationGateReady.value &&
       !['Faulted', 'Closed', 'Uninitialized'].includes(status.value?.state ?? 'Uninitialized'),
@@ -255,33 +257,42 @@ export function useInstrument(options: InstrumentOptions = {}) {
   }
 
   async function claim(automatic = false): Promise<boolean> {
-    if (controlBusy.value) return false
+    if (controlBusy.value || claimRequest) return false
     initialClaimAttempted = true
-    controlBusy.value = true
+    const renewOnly = automatic && hasControl.value
+    const foreground = !renewOnly
+    if (foreground) controlBusy.value = true
     const epoch = generation
+    const intent = controlEpoch
+    let request: ReturnType<InstrumentGateway['claim']> | null = null
     try {
-      await api.claim()
-      if (epoch !== generation) return false
+      request = api.claim(renewOnly)
+      claimRequest = request
+      await request
+      if (epoch !== generation || intent !== controlEpoch) return false
       lastRenewed = now()
       renewing.value = true
       error.value = null
       if (!automatic) notify('控制租约已取得，等待读回控制状态。', 'success')
       return true
     } catch (failure) {
-      if (epoch !== generation) return false
+      if (epoch !== generation || intent !== controlEpoch) return false
+      renewing.value = false
+      if (failure instanceof ApiError && failure.status === 0) connected.value = false
       const conflict =
         failure instanceof ApiError && [403, 409].includes(failure.status)
       notify(
         automatic && conflict
-          ? '另一客户端持有控制权，当前只读查看数据。'
+          ? '控制租约续期失败，当前只读查看数据。'
           : message(failure),
         conflict ? 'warning' : 'error',
       )
       return false
     } finally {
+      if (claimRequest === request) claimRequest = null
       if (epoch === generation) {
-        controlBusy.value = false
-        if (!polling) schedule(0)
+        if (foreground && intent === controlEpoch) controlBusy.value = false
+        if (!polling && !controlBusy.value) schedule(0)
       }
     }
   }
@@ -291,8 +302,12 @@ export function useInstrument(options: InstrumentOptions = {}) {
     controlBusy.value = true
     // 等待释放结果前先停止续期，防止较早发出的状态请求返回后重新占用控制租约。
     renewing.value = false
+    ++controlEpoch
     const epoch = generation
     try {
+      // 续租可能已在网络中；先让它结束再释放，避免晚到的续租重新取得服务器控制权。
+      await claimRequest?.catch(() => undefined)
+      if (epoch !== generation) return false
       await api.release()
       if (epoch !== generation) return false
       lastRenewed = 0

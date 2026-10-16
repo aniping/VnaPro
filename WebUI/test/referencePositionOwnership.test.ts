@@ -188,7 +188,7 @@ class RenewalGateway extends InstrumentApi {
   override async release() {}
 }
 
-test('自动续租只暂缓新写入，已有显示手势继续信号保持，真实忙碌、失控及释放会关闭信号', async () => {
+test('后台自动续租保持显示编辑和已有手势可用，真实忙碌、失控及释放立即关闭信号', async () => {
   const api = new RenewalGateway()
   let time = 1000
   const model = useInstrument({
@@ -209,8 +209,9 @@ test('自动续租只暂缓新写入，已有显示手势继续信号保持，�
     const renewing = model.refresh()
     await api.enteredClaim.promise
     assert.equal(api.claims, 2, 'must exercise the automatic renewal path')
-    assert.equal(model.controlBusy.value, true)
-    assert.equal(model.canEditDisplay.value, false)
+    // 同 token 续租只延长租约，不应短暂关闭显示编辑权限。
+    assert.equal(model.controlBusy.value, false)
+    assert.equal(model.canEditDisplay.value, true)
     assert.equal(model.canContinueDisplayGesture.value, true)
     api.pendingClaim.resolve({
       sessionId: 'test-token',
