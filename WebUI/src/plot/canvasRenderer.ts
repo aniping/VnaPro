@@ -63,6 +63,8 @@ export function markerPlacement(
 }
 export interface CanvasCurve {
   frequencyHz: readonly number[]
+  /** 叠加不同通道时，各自的扫频范围映射到同一图窗宽度。 */
+  range?: { min: number; max: number }
   values: readonly number[]
   scale: DisplayScale
   color: string
@@ -365,7 +367,7 @@ export function paintDiagram(
         continue
       }
       const x = screenX(
-        left + normalizedX(frequency, diagram.xMin, diagram.xMax) * width,
+        left + normalizedX(frequency, curve.range?.min ?? diagram.xMin, curve.range?.max ?? diagram.xMax) * width,
       )
       const y = screenY(
         top + normalizedY(value, curve.scale, curve.format) * height,

@@ -4,9 +4,12 @@ import type {
   AcquiredFrame,
   DiagramDefinition,
   FrameCondition,
+  FrameResponse,
+  ChannelStatus,
   Measurement,
   SweepConfiguration,
   TraceDestination,
+  StimulusZoomSelection,
 } from '../../api/types'
 import {
   diagramTraceColor,
@@ -24,18 +27,33 @@ import {
 } from '../../domain/markerReadouts'
 import type { MarkerMove } from '../../plot/markerDrag'
 import type { ReferencePositionMove } from '../../plot/referencePositionDrag'
+import type { TracePanMove } from '../../plot/plotGestures'
+import type { TrashIntent } from '../../domain/trashDrop'
 import type { TraceMoveRequest } from '../../domain/diagramLayout'
 import DiagramPane from './DiagramPane.vue'
 import InfoTable from './InfoTable.vue'
+import { frameForMeasurement, measurementChannel } from '../../domain/channels'
 
 const props = defineProps<{
   diagrams: DiagramDefinition[]
   frame: AcquiredFrame | null
+  channelFrames?: Record<number, FrameResponse>
+  channels?: ChannelStatus[]
+  activeChannelId?: number
+  connected?: boolean
   measurements: Measurement[]
   presentations: Record<string, TracePresentation>
   activeTraceName: string
   selectedDiagram?: number
   displayRevision?: string
+  revision?: string
+  zoomSelecting?: boolean
+  graphicalZoomSelecting?: boolean
+  graphicalZoomResets?: Record<number, number>
+  canZoom?: boolean
+  commitStimulusZoom?: (value: StimulusZoomSelection) => Promise<boolean>
+  commitTracePan?: (value: TracePanMove) => Promise<boolean>
+  commitTrash?: (value: TrashIntent) => Promise<boolean>
   canAddTrace?: boolean
   canAddDiagram?: boolean
   layout: LayoutMode
@@ -62,6 +80,9 @@ const emit = defineEmits<{
   newTrace: [destination: TraceDestination]
   moveTrace: [value: TraceMoveRequest]
   deleteDiagram: [diagram: number]
+  cancelZoom: []
+  cancelGraphicalZoom: []
+  graphicalZoomChanged: [value: { diagram: number; zoomed: boolean }]
   arrange: [value: { action: 'overlay' | 'split'; diagram: number }]
   relocateMarkerInfo: [
     value: {
@@ -102,10 +123,11 @@ const infoFields = computed(() =>
           )
             return []
           const color = diagramTraceColor(index, props.layout)
+          const sourceFrame = frameForMeasurement(measurement, props.channelFrames, props.frame)
           const markers = previewMarkerReadouts(
             markerReadouts(
-              props.frame,
-              props.frame?.traces.find((trace) => trace.name === name),
+              sourceFrame,
+              sourceFrame?.traces.find((trace) => trace.name === name),
               measurement,
               presentation,
               color,
@@ -167,6 +189,31 @@ function paneStyle(pane: DiagramDefinition) {
       }
     : undefined
 }
+function paneChannel(pane: DiagramDefinition) {
+  const measurement = props.measurements.find((item) => item.name === pane.primaryMeasurement)
+  return props.channels?.find((channel) => channel.channelId === measurementChannel(measurement))
+}
+function paneFrame(pane: DiagramDefinition) {
+  return frameForMeasurement(props.measurements.find((item) => item.name === pane.primaryMeasurement), props.channelFrames, props.frame)
+}
+function paneCondition(pane: DiagramDefinition): FrameCondition {
+  const channel = paneChannel(pane)
+  const source = paneFrame(pane)
+  if (!channel) return props.frameCondition
+  // 这里只比较已由工作区接收的快照；图窗不会自行轮询或重算测量数据。
+  if (props.connected === false) return { kind: 'disconnected', label: 'DISCONNECTED', detail: 'Retained frame · connection unavailable' }
+  if (channel.state === 'Faulted') return { kind: 'fault', label: 'FAULT', detail: channel.error }
+  if (!source) return { kind: 'empty', label: 'NO DATA', detail: 'Waiting for this channel data' }
+  if (source.revision !== channel.acquisitionRevision || !channel.activeConfigValid)
+    return { kind: 'stale', label: 'PREVIOUS CONFIG', detail: 'Waiting for this channel configuration' }
+  if ((props.displayRevision !== undefined && source.displayRevision !== props.displayRevision) ||
+    (props.revision !== undefined && source.measurementRevision !== props.revision) ||
+    (channel.calibration && source.calibrationRevision !== channel.calibration.revision))
+    return { kind: 'stale', label: 'PREVIOUS DISPLAY', detail: 'Waiting for this channel projection' }
+  if (source.runId !== channel.runId) return { kind: 'acquiring', label: 'PREVIOUS RUN', detail: 'Waiting for this channel run' }
+  return source.current ? { kind: 'current', label: 'CURRENT FRAME', detail: '' }
+    : { kind: 'stale', label: 'RETAINED FRAME', detail: 'Waiting for current channel data' }
+}
 </script>
 
 <template>
@@ -199,8 +246,20 @@ function paneStyle(pane: DiagramDefinition) {
         :number="pane.number"
         :style="paneStyle(pane)"
         :display-revision="displayRevision"
+        :revision="revision"
+        :zoom-selecting="zoomSelecting"
+        :graphical-zoom-selecting="graphicalZoomSelecting && pane.number === selectedDiagram"
+        :graphical-zoom-reset="graphicalZoomResets?.[pane.number] ?? 0"
+        :can-zoom="canZoom"
+        :commit-stimulus-zoom="commitStimulusZoom"
+        :commit-trace-pan="commitTracePan"
+        :commit-trash="commitTrash"
         :layout="layout"
-        :frame="frame"
+        :frame="paneFrame(pane)"
+        :channel-frames="channelFrames"
+        :channels="channels"
+        :active-channel-id="activeChannelId"
+        :connected="connected"
         :measurements="pane.measurements"
         :all-measurements="measurements"
         :presentations="presentations"
@@ -210,8 +269,8 @@ function paneStyle(pane: DiagramDefinition) {
         :can-add-diagram="canAddDiagram"
         :can-delete-diagram="diagrams.length > 1"
         :primary-trace-name="pane.primaryMeasurement"
-        :config="config"
-        :frame-condition="frameCondition"
+        :config="paneChannel(pane)?.config ?? config"
+        :frame-condition="paneCondition(pane)"
         :can-edit-display="canEditDisplay"
         :can-continue-reference-drag="canContinueReferenceDrag"
         :commit-marker="commitMarker"
@@ -230,6 +289,9 @@ function paneStyle(pane: DiagramDefinition) {
         @new-trace="emit('newTrace', $event)"
         @move-trace="emit('moveTrace', $event)"
         @delete-diagram="emit('deleteDiagram', $event)"
+        @cancel-zoom="emit('cancelZoom')"
+        @cancel-graphical-zoom="emit('cancelGraphicalZoom')"
+        @graphical-zoom-changed="emit('graphicalZoomChanged', $event)"
         @arrange="emit('arrange', $event)"
         @marker-preview="markerPreview = $event"
         @relocate-marker-info="emit('relocateMarkerInfo', $event)"
@@ -241,6 +303,7 @@ function paneStyle(pane: DiagramDefinition) {
       :position="infoSettings.position"
       :annotations="annotationSettings"
       :can-edit-display="canEditDisplay"
+      :display-revision="displayRevision"
       @select="emit('selectMarker', $event)"
       @relocate="emit('relocateMarkerInfo', $event)"
     />

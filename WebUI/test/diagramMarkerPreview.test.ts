@@ -476,14 +476,14 @@ test('dragging inactive M2 previews only M2 and submits its identity once withou
   const pane = await diagram({ multipleMarkers: true })
   try {
     pane.begin(2)
-    pane.moveTo(2)
+    const point = pane.moveTo(2)
     pane.paint()
     assert.equal(pane.readout()[0]!.result.frequencyHz, 10e6)
     assert.equal(pane.readout()[0]!.preview, false)
     assert.equal(pane.readout()[1]!.result.frequencyHz, 30e6)
     assert.equal(pane.readout()[1]!.preview, true)
     assert.equal(pane.commits.length, 0)
-    pane.bindings.endDrag(pane.pointer(699, 150, 'pointerup'))
+    pane.bindings.endDrag(pane.pointer(point.x, point.y, 'pointerup'))
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(pane.commits.length, 1)
     assert.equal(pane.commits[0]!.markerId, 2)
@@ -538,7 +538,8 @@ test('actual pointermove updates MarkerReadout XY and ghost in the same display 
   try {
     assert.equal(pane.readout()[0]!.result.frequencyHz, 10e6)
     pane.begin()
-    pane.bindings.dragMarker(pane.pointer(699, 150))
+    const point = pane.bindings.markerPreviewPoints('Reflect')[2]!
+    pane.bindings.dragMarker(pane.pointer(point.x, point.y))
     pane.paint()
     assert.ok(
       pane.bindings.dragPreview.value,
@@ -653,7 +654,7 @@ test('subsequent CONT frames do not replace the pixels or values of the current 
   const pane = await diagram()
   try {
     pane.begin()
-    pane.moveTo(2)
+    const point = pane.moveTo(2)
     pane.paint()
     pane.props.frame = {
       ...pane.props.frame,
@@ -669,7 +670,7 @@ test('subsequent CONT frames do not replace the pixels or values of the current 
       ],
     }
     await nextTick()
-    pane.bindings.dragMarker(pane.pointer(699, 150))
+    pane.bindings.dragMarker(pane.pointer(point.x, point.y))
     pane.paint()
     assert.equal(pane.readout()[0]!.result.value, -2)
     assert.equal(pane.readout()[0]!.result.frequencyHz, 30e6)
@@ -690,9 +691,9 @@ test('pointer release submits once and keeps its XY preview until completed read
   })
   try {
     pane.begin()
-    pane.moveTo(2)
+    const point = pane.moveTo(2)
     pane.paint()
-    pane.bindings.endDrag(pane.pointer(699, 150, 'pointerup'))
+    pane.bindings.endDrag(pane.pointer(point.x, point.y, 'pointerup'))
     assert.equal(pane.commits.length, 1)
     assert.equal(pane.readout()[0]!.result.frequencyHz, 30e6)
     assert.equal(pane.readout()[0]!.preview, true)
@@ -726,9 +727,9 @@ test('failed release restores the authoritative XY without saving the preview', 
   const pane = await diagram({ commit: async () => false })
   try {
     pane.begin()
-    pane.moveTo(2)
+    const point = pane.moveTo(2)
     pane.paint()
-    pane.bindings.endDrag(pane.pointer(699, 150, 'pointerup'))
+    pane.bindings.endDrag(pane.pointer(point.x, point.y, 'pointerup'))
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(pane.bindings.dragPreview.value, null)
     assert.equal(pane.readout()[0]!.result.frequencyHz, 10e6)

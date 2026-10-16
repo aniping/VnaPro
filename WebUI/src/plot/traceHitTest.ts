@@ -166,7 +166,7 @@ export function hitTestTrace(
             x:
               bounds.left +
               (rect.left +
-                normalizedX(frequency, input.xMin, input.xMax) * rect.width) *
+                normalizedX(frequency, curve.range?.min ?? input.xMin, curve.range?.max ?? input.xMax) * rect.width) *
                 scaleX,
             y:
               bounds.top +
