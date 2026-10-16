@@ -9,6 +9,7 @@ add_library(vna_web STATIC
     calibration_csv.cpp
     calibration_csv_reader.cpp
     calibration_csv_layout.cpp
+    calibration_file_json.cpp
     calibration_document_json.cpp
     calibration_preview_json.cpp
     trace_action_adapter.cpp
@@ -29,7 +30,7 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
-    foreach(CALIBRATION_FORMAT binary csv)
+    foreach(CALIBRATION_FORMAT binary csv file_json)
         add_executable(vna_calibration_${CALIBRATION_FORMAT}_tests tests/calibration_${CALIBRATION_FORMAT}_test.cpp)
         target_link_libraries(vna_calibration_${CALIBRATION_FORMAT}_tests PRIVATE vna_web)
         target_compile_options(vna_calibration_${CALIBRATION_FORMAT}_tests PRIVATE -Wall -Wextra -Wpedantic)
