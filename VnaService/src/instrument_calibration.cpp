@@ -3,6 +3,8 @@
  */
 
 #include <chrono>
+#include <exception>
+#include <stdexcept>
 #include <utility>
 
 #include "vna_service/instrument_service.h"
@@ -30,6 +32,40 @@ OperationResult CalibrationResult(bool ok, int code = 0, const std::string &mess
     return result;
 }
 }  // 匿名命名空间
+
+bool InstrumentService::RestoreCalibration(
+    std::vector<CalibrationSetPtr> sets, std::uint64_t selectedSetId, std::string &error, unsigned channelId)
+{
+    ContextScope scope(*this, channelId);
+    if (!scope.Valid() || !profileReady_ || !owner_.empty() || !tasks_.empty()) {
+        error = "Calibration restore requires a ready service without a controller or pending operations";
+        return false;
+    }
+    auto candidate = calibration_;
+    if (!candidate.RestoreSaved(std::move(sets), selectedSetId, profile_, error)) {
+        return false;
+    }
+    std::size_t bytes = candidate.StorageBytes();
+    for (const auto &channel : channels_) {
+        if (channel.first != contextChannelId_) {
+            bytes += channel.second.calibration.StorageBytes();
+        }
+    }
+    if (bytes > MAX_INSTRUMENT_CALIBRATION_STORAGE_BYTES) {
+        error = "Instrument calibration pool exceeds 1 GiB";
+        return false;
+    }
+    calibration_ = std::move(candidate);
+    return true;
+}
+
+void InstrumentService::SetCalibrationSaveHandler(CalibrationSaveHandler handler)
+{
+    if (!owner_.empty() || !tasks_.empty()) {
+        throw std::logic_error("Calibration persistence must be installed before accepting a controller");
+    }
+    calibrationSave_ = std::move(handler);
+}
 
 Operation InstrumentService::ApplyCalibration(
     CalibrationChange change, std::uint64_t expectedCalibrationRevision, const std::string &owner, unsigned channelId)
@@ -184,6 +220,22 @@ bool InstrumentService::PrepareCalibration(Detail::ServiceTask &task)
         FailCalibration(error, Detail::DATA_OUT_OF_RANGE_ERROR);
         return false;
     }
+    if (change.kind == CalibrationChangeKind::ACTIVATE &&
+        !task.calibrationCandidate.Snapshot(Identity(), activePlan_).compatible) {
+        FailCalibration(
+            "Calibration set does not match the current stimulus or device", Detail::SETTINGS_CONFLICT_ERROR);
+        return false;
+    }
+    std::size_t calibrationBytes = task.calibrationCandidate.StorageBytes();
+    for (const auto &channel : channels_) {
+        if (channel.first != contextChannelId_) {
+            calibrationBytes += channel.second.calibration.StorageBytes();
+        }
+    }
+    if (change.kind != CalibrationChangeKind::CAPTURE && calibrationBytes > MAX_INSTRUMENT_CALIBRATION_STORAGE_BYTES) {
+        FailCalibration("Instrument calibration pool exceeds 1 GiB", Detail::DATA_OUT_OF_RANGE_ERROR);
+        return false;
+    }
     task.plan = activePlan_;
     if (change.kind == CalibrationChangeKind::CAPTURE) {
         calibration_.ExtendPlan(task.plan);
@@ -215,6 +267,9 @@ void InstrumentService::ContinueCalibration(Detail::ServiceTask &task)
         task.stage = Detail::ServiceTaskStage::WAITING_START;
         return;
     }
+    if (!BeginCalibrationSave(task)) {
+        return;
+    }
     if (RequiresHold(task.calibrationChange.kind)) {
         settings_.sweepMode = SweepMode::HOLD;
     }
@@ -237,8 +292,50 @@ void InstrumentService::ContinueCalibration(Detail::ServiceTask &task)
     Finish(CalibrationResult(true));
 }
 
+bool InstrumentService::BeginCalibrationSave(Detail::ServiceTask &task)
+{
+    const auto kind = task.calibrationChange.kind;
+    if (!calibrationSave_ || task.calibrationSaved || kind == CalibrationChangeKind::BEGIN ||
+        kind == CalibrationChangeKind::CANCEL || kind == CalibrationChangeKind::ENABLE) {
+        return true;
+    }
+    try {
+        task.calibrationSave = calibrationSave_(
+            contextChannelId_, task.calibrationCandidate.SavedSets(), task.calibrationCandidate.SelectedSetId());
+        if (!task.calibrationSave.valid()) {
+            FailCalibration("Calibration persistence returned an invalid completion", Detail::DEVICE_SPECIFIC_ERROR);
+            return false;
+        }
+        task.stage = Detail::ServiceTaskStage::WAITING_CALIBRATION_SAVE;
+    } catch (const std::exception &error) {
+        FailCalibration(std::string("Calibration persistence failed: ") + error.what(), Detail::DEVICE_SPECIFIC_ERROR);
+    }
+    return false;
+}
+
 void InstrumentService::PollCalibration(Detail::ServiceTask &task)
 {
+    if (task.stage == Detail::ServiceTaskStage::WAITING_CALIBRATION_SAVE) {
+        if (task.calibrationSave.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            return;
+        }
+        try {
+            const auto result = task.calibrationSave.get();
+            if (!result.ok) {
+                FailCalibration("Calibration persistence failed: " + result.message, Detail::DEVICE_SPECIFIC_ERROR);
+                return;
+            }
+        } catch (const std::exception &error) {
+            FailCalibration(
+                std::string("Calibration persistence failed: ") + error.what(), Detail::DEVICE_SPECIFIC_ERROR);
+            return;
+        }
+        task.calibrationSave = {};
+        task.calibrationSaved = true;
+        task.stage = Detail::ServiceTaskStage::READY_TO_START;
+        ContinueCalibration(task);
+        return;
+    }
     if (task.calibrationResuming) {
         PollMode(task);
         return;

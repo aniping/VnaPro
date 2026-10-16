@@ -48,6 +48,17 @@ bool InstrumentService::PrepareDisplayConfiguration(Detail::ServiceTask &task)
 {
     // 显示候选预先验证；核心成功后以无失败的移动同时提交目录与显示。
     task.displayCandidate = display_;
+    if (task.resetInstrumentDisplay) {
+        VnaDisplay::DisplayState defaults;
+        defaults.revision = display_.State().revision;
+        for (const auto &measurement : task.candidate.measurements) {
+            defaults.displayedNames.push_back(measurement.name);
+        }
+        if (!defaults.displayedNames.empty()) {
+            defaults.selectedMeasurement = defaults.displayedNames.front();
+        }
+        task.displayCandidate = VnaDisplay::DisplayWorkspace(std::move(defaults));
+    }
     VnaDisplay::DisplayResult result;
     result.ok = true;
     if ((task.selectNewMeasurement || task.selectClonedMeasurement || task.deletedDiagram != 0U ||
@@ -120,8 +131,35 @@ bool InstrumentService::PrepareDisplayConfiguration(Detail::ServiceTask &task)
     if (result.ok && task.deletedDiagram != 0U) {
         result = task.displayCandidate.RemoveDiagram(task.deletedDiagram, true);
     }
+    if (result.ok && task.kind == Detail::ServiceTaskKind::RESET && !task.resetInstrumentDisplay) {
+        auto others = task.candidate.measurements;
+        others.erase(std::remove_if(others.begin(), others.end(),
+                         [this](const Measurement &measurement) {
+                             return measurement.channelId == contextChannelId_;
+                         }),
+            others.end());
+        result = task.displayCandidate.Reconcile(others);
+    }
     if (result.ok) {
         result = task.displayCandidate.Reconcile(task.candidate.measurements);
+    }
+    if (result.ok && task.kind == Detail::ServiceTaskKind::RESET && !task.resetInstrumentDisplay) {
+        unsigned emptyDiagram = 0U;
+        for (const auto &diagram : task.displayCandidate.State().diagrams) {
+            if (diagram.measurementNames.empty()) {
+                emptyDiagram = diagram.number;
+                break;
+            }
+        }
+        result = task.displayCandidate.AddPresentation(
+            task.channelTraceNames.front(), task.candidate.measurements, emptyDiagram, emptyDiagram == 0U);
+        if (result.ok) {
+            // 新增图窗默认切到 GRID；通道复位仍保留仪器原有的全局显示模式。
+            VnaDisplay::DisplayChange layout;
+            layout.kind = VnaDisplay::DisplayChangeKind::LAYOUT;
+            layout.layout = display_.State().layout;
+            result = task.displayCandidate.Apply(layout, task.candidate.measurements, {});
+        }
     }
     // 改变测量量时采用该量的默认格式；仅改变显示格式不触碰采集需求。
     for (const auto &measurement : task.candidate.measurements) {

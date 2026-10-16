@@ -48,6 +48,7 @@ struct ChannelCreationOptions final {
 // 引用的核心必须比服务存活更久；协议状态不随客户端断开而销毁。
 class InstrumentService final {
 public:
+    using CalibrationSaveHandler = std::function<Operation(unsigned, std::vector<CalibrationSetPtr>, std::uint64_t)>;
     // 绑定生命周期覆盖本服务的核心；后续调用统一由服务执行线程完成。
     explicit InstrumentService(
         VnaCore::AcquisitionCore &core, InstrumentProfile profile = InstrumentProfile{}, bool simulator = true);
@@ -61,6 +62,11 @@ public:
 
     // 仅在启动时调用的阻塞操作；核心就绪后准备仪器配置，通过 error 返回失败信息。
     bool BootstrapProfile(std::string &error);
+    // 只在监听前、无控制者和待处理操作时恢复已验证的池；恢复后不自动启用。
+    bool RestoreCalibration(
+        std::vector<CalibrationSetPtr> sets, std::uint64_t selectedSetId, std::string &error, unsigned channelId = 1U);
+    // 保存由外部适配器异步执行；future 成功前不提交校准候选或完成 OPC。
+    void SetCalibrationSaveHandler(CalibrationSaveHandler handler);
     // 推进一个待完成的状态迁移，不阻塞等待设备 I/O。
     void Poll();
     // 报告有限服务操作的先进先出队列中是否仍有已接收操作。
@@ -147,12 +153,20 @@ public:
     // 删除区分大小写的已有测量项并按需更新选择；保留已下发的采集需求，不中断当前运行。
     Operation DeleteMeasurement(const std::string &name, std::uint64_t expectedRevision = 0U,
         const std::string &owner = "SCPI", unsigned channelId = 0U);
+    // 一次事务移除目标通道的全部测量及显示引用，不触碰其他通道的目录和采集。
+    Operation DeleteAllMeasurements(const std::string &owner = "SCPI", unsigned channelId = 0U);
+    // 等待真实停止及默认物理计划下发后，提交默认测量、显示与 HOLD/IMMEDIATE；保留校准集存储。
+    // 仪器级复位的最后一个通道可同时重建全局默认显示；普通通道复位保留其他显示设置。
+    Operation ResetMeasurements(
+        const std::string &owner = "SCPI", unsigned channelId = 0U, bool resetInstrumentDisplay = false);
     // 将有限的触发源迁移操作加入队列；所有者必须持有有效的仪器控制权。
     Operation SetTriggerSource(TriggerSource source, const std::string &owner = "SCPI", unsigned channelId = 0U);
     // 将 HOLD、SINGLE 或 CONTINUOUS 模式切换加入队列；迁移屏障完成后才返回操作结果。
     Operation SetSweepMode(SweepMode mode, const std::string &owner = "SCPI", unsigned channelId = 0U);
     // 改选 Continuous 即按当前触发源运行；改选 Single 经完整帧停止屏障后等待 StartSweep。
     Operation SelectSweepMode(SweepMode mode, const std::string &owner, unsigned channelId = 0U);
+    // SCPI INIT:CONT OFF：即使已选 Single，也等待真实停止后保持 HOLD，不改变触发源。
+    Operation SelectSingleAndHold(const std::string &owner, unsigned channelId = 0U);
     // 选择 Free Run 或 Manual，保留运行或停止意图；运行中经 Stop 屏障重启，Manual 只布防。
     Operation SelectTriggerSource(TriggerSource source, const std::string &owner, unsigned channelId = 0U);
     // 使用当前所选扫描模式和触发源启动；Manual 只布防，单次完成后保留选择。
@@ -175,6 +189,8 @@ public:
     DataResult StimulusAxis(unsigned channelId = 0U) const;
     // 仅从当前扫描轮次和版本的完整帧计算交错复数数据；任一点无效时整条读取失败。
     DataResult MeasurementData(bool calibrated = true, unsigned channelId = 0U) const;
+    // 序号按目标通道目录顺序从 1 开始；同一帧逐迹线返回交错复数，校正读取须覆盖全部 S 参数。
+    DataResult MeasurementData(const std::vector<unsigned> &selection, bool calibrated, unsigned channelId = 0U) const;
     // 校准事务复用仪器控制权和有限 FIFO；原始标准每次启动全新完整扫描。
     Operation ApplyCalibration(CalibrationChange change, std::uint64_t expectedCalibrationRevision = 0U,
         const std::string &owner = "SCPI", unsigned channelId = 0U);
@@ -268,6 +284,9 @@ private:
     void CommitMode(Detail::ServiceTask &task);
     void PollTask();
     void PollConfiguration(Detail::ServiceTask &task);
+    void PollReset(Detail::ServiceTask &task);
+    DataResult ReadMeasurementData(
+        const std::vector<Measurement> &measurements, bool calibrated, bool requireCalibration = false) const;
     void PollDisplay(Detail::ServiceTask &task);
     bool PrepareStimulusZoom(Detail::ServiceTask &task);
     void PollStimulusZoom(Detail::ServiceTask &task);
@@ -285,6 +304,7 @@ private:
     void PollCalibration(Detail::ServiceTask &task);
     bool PrepareCalibration(Detail::ServiceTask &task);
     void ContinueCalibration(Detail::ServiceTask &task);
+    bool BeginCalibrationSave(Detail::ServiceTask &task);
     void FailCalibration(const std::string &error, int code);
 
     VnaCore::AcquisitionCore &core_;
@@ -295,6 +315,7 @@ private:
     mutable InstrumentSettings settings_;
     VnaDisplay::DisplayWorkspace display_;
     mutable CalibrationWorkspace calibration_;
+    CalibrationSaveHandler calibrationSave_;
     // 仅成功 BEGIN 冻结一次，标准采集不得覆盖进入前的扫描状态。
     mutable CalibrationRunState calibrationRun_;
     // 缓存核心最后成功下发的真实计划，其源和接收需求可以覆盖当前目录的子集。

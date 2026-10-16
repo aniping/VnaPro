@@ -23,6 +23,7 @@ namespace Detail {
 enum class ServiceTaskKind {
     CONFIGURE,
     MEASUREMENTS,
+    RESET,
     DISPLAY,
     STIMULUS_ZOOM,
     CHANNEL_CREATE,
@@ -48,7 +49,8 @@ enum class ServiceTaskStage {
     WAITING_FINAL_STOP,
     WAITING_CHANNEL_CREATE,
     WAITING_CHANNEL_START,
-    WAITING_CHANNEL_REMOVE
+    WAITING_CHANNEL_REMOVE,
+    WAITING_CALIBRATION_SAVE
 };
 
 // 只保存 Zoom 修改的字段；撤回不能覆盖后来新增的标记、目录或其他显示设置。
@@ -70,6 +72,8 @@ struct ServiceTask final {
     ServiceTaskStage stage = ServiceTaskStage::PENDING;
     bool measurement = false;
     bool forceInternalSource = false;
+    bool forceHold = false;
+    bool resetInstrumentDisplay = false;
     std::string owner = "SCPI";
     std::uint64_t generation = 0;
     // 受理时冻结，异步阶段不再从全局显示选择推断写入目标。
@@ -110,6 +114,8 @@ struct ServiceTask final {
     bool calibrationContextValidated = false;
     // 校准工作区已提交后，复用普通模式迁移等待真实启动完成。
     bool calibrationResuming = false;
+    bool calibrationSaved = false;
+    Operation calibrationSave;
     std::uint64_t captureRunId = 0U;
     std::uint64_t captureConfigRevision = 0U;
     std::uint64_t captureFrameSeq = 0U;

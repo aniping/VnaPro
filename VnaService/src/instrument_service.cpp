@@ -57,6 +57,8 @@ const char *TaskName(Detail::ServiceTaskKind kind) noexcept
             return "CONFIGURE";
         case Detail::ServiceTaskKind::MEASUREMENTS:
             return "MEASUREMENTS";
+        case Detail::ServiceTaskKind::RESET:
+            return "RESET";
         case Detail::ServiceTaskKind::DISPLAY:
             return "DISPLAY";
         case Detail::ServiceTaskKind::STIMULUS_ZOOM:
@@ -265,24 +267,31 @@ OperationResult ApplySettingsPatch(
     return Result(true);
 }
 
-DataResult ExtractMeasurement(const VnaCore::MeasurementFrame &frame, const Measurement &measurement,
+DataResult ExtractMeasurements(const VnaCore::MeasurementFrame &frame, const std::vector<Measurement> &measurements,
     const VnaCalibration::CalibrationData *calibration)
 {
     DataResult value;
-    const auto trace = VnaMeasurement::MeasurementProcessor::Calculate(frame, measurement, calibration);
-    if (!trace.available) {
-        value.error = trace.error;
-        return value;
-    }
-    value.values.reserve(trace.points.size() * VnaCore::COMPLEX_COMPONENT_COUNT);
-    for (const auto &point : trace.points) {
-        if (!point.valid) {
-            value.values.clear();
-            value.error = "Measurement frame contains invalid points";
+    const auto traces = VnaMeasurement::MeasurementProcessor::CalculateMany(frame, measurements, calibration);
+    std::size_t componentCount = 0U;
+    for (const auto &trace : traces) {
+        if (!trace.available) {
+            value.error = trace.error;
             return value;
         }
-        value.values.push_back(point.real);
-        value.values.push_back(point.imag);
+        for (const auto &point : trace.points) {
+            if (!point.valid) {
+                value.error = "Measurement frame contains invalid points";
+                return value;
+            }
+        }
+        componentCount += trace.points.size() * VnaCore::COMPLEX_COMPONENT_COUNT;
+    }
+    value.values.reserve(componentCount);
+    for (const auto &trace : traces) {
+        for (const auto &point : trace.points) {
+            value.values.push_back(point.real);
+            value.values.push_back(point.imag);
+        }
     }
     value.ok = true;
     return value;
@@ -412,7 +421,7 @@ bool InstrumentService::HasConfiguration() const noexcept
     for (const auto &task : tasks_) {
         if (task.channelId == contextChannelId_ &&
             (task.kind == Detail::ServiceTaskKind::CONFIGURE || task.kind == Detail::ServiceTaskKind::MEASUREMENTS ||
-                task.kind == Detail::ServiceTaskKind::STIMULUS_ZOOM)) {
+                task.kind == Detail::ServiceTaskKind::STIMULUS_ZOOM || task.kind == Detail::ServiceTaskKind::RESET)) {
             return true;
         }
     }
@@ -490,6 +499,8 @@ void InstrumentService::PollTask()
         PollChannel(task);
     } else if (task.kind == Detail::ServiceTaskKind::CONFIGURE || task.kind == Detail::ServiceTaskKind::MEASUREMENTS) {
         PollConfiguration(task);
+    } else if (task.kind == Detail::ServiceTaskKind::RESET) {
+        PollReset(task);
     } else if (task.kind == Detail::ServiceTaskKind::DISPLAY) {
         PollDisplay(task);
     } else if (task.kind == Detail::ServiceTaskKind::STIMULUS_ZOOM) {
@@ -595,6 +606,45 @@ void InstrumentService::PollConfiguration(Detail::ServiceTask &task)
     CommitConfiguration(task);
 }
 
+void InstrumentService::PollReset(Detail::ServiceTask &task)
+{
+    if (task.stage == Detail::ServiceTaskStage::PENDING) {
+        if (!PrepareConfiguration(task)) {
+            return;
+        }
+        const auto view = core_.ReadView(contextChannelId_);
+        if (view.state == VnaCore::CoreState::RUNNING) {
+            task.ticket = core_.Stop(view.runId, contextChannelId_);
+            task.stage = Detail::ServiceTaskStage::WAITING_STOP;
+            return;
+        }
+        task.stage = Detail::ServiceTaskStage::READY_TO_START;
+    }
+    if (task.stage == Detail::ServiceTaskStage::WAITING_STOP) {
+        if (!Consume(task)) {
+            return;
+        }
+        task.stage = Detail::ServiceTaskStage::READY_TO_START;
+    }
+    if (task.stage == Detail::ServiceTaskStage::READY_TO_START) {
+        task.ticket = core_.Configure(task.plan, contextChannelId_);
+        task.stage = Detail::ServiceTaskStage::WAITING_CONFIGURATION;
+        return;
+    }
+    if (!Ready(task.ticket)) {
+        return;
+    }
+    const auto configured = task.ticket.get();
+    if (!configured.ok) {
+        settings_.sweepMode = SweepMode::HOLD;
+        Finish(Result(false, Detail::DEVICE_SPECIFIC_ERROR, configured.message));
+        return;
+    }
+    task.candidate.acquisitionRevision = configured.configRevision;
+    activePlan_ = std::move(task.plan);
+    CommitConfiguration(task);
+}
+
 void InstrumentService::PollTrigger(Detail::ServiceTask &task)
 {
     if (task.stage == Detail::ServiceTaskStage::PENDING) {
@@ -651,7 +701,7 @@ bool InstrumentService::BeginMode(Detail::ServiceTask &task)
         const bool unchanged = task.kind == Detail::ServiceTaskKind::SELECT_MODE
                                    ? settings_.selectedSweepMode == task.mode
                                    : settings_.triggerSource == task.source;
-        if (unchanged) {
+        if (unchanged && !task.forceHold) {
             Finish(Result(true));
             return false;
         }
@@ -1137,6 +1187,71 @@ Operation InstrumentService::DeleteMeasurement(
         expected, owner);
 }
 
+Operation InstrumentService::DeleteAllMeasurements(const std::string &owner, unsigned channelId)
+{
+    ContextScope channelScope(*this, channelId);
+    if (!channelScope.Valid()) {
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Unknown channel", owner);
+    }
+    const unsigned target = contextChannelId_;
+    return ConfigureMeasurements(
+        [target](InstrumentSettings &settings) {
+            settings.measurements.erase(std::remove_if(settings.measurements.begin(), settings.measurements.end(),
+                                            [target](const Measurement &measurement) {
+                                                return measurement.channelId == target;
+                                            }),
+                settings.measurements.end());
+            return Result(true);
+        },
+        owner == "SCPI" ? 0U : settings_.revision, owner);
+}
+
+Operation InstrumentService::ResetMeasurements(
+    const std::string &owner, unsigned channelId, bool resetInstrumentDisplay)
+{
+    ContextScope channelScope(*this, channelId);
+    if (!channelScope.Valid()) {
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Unknown channel", owner);
+    }
+    const unsigned target = contextChannelId_;
+    Detail::ServiceTask task;
+    task.kind = Detail::ServiceTaskKind::RESET;
+    task.resetInstrumentDisplay = resetInstrumentDisplay;
+    task.mutate = [this, target](InstrumentSettings &settings) {
+        settings.measurements.erase(std::remove_if(settings.measurements.begin(), settings.measurements.end(),
+                                        [target](const Measurement &measurement) {
+                                            return measurement.channelId == target;
+                                        }),
+            settings.measurements.end());
+        Measurement initial;
+        for (std::size_t index = 1U; index <= settings.measurements.size() + 1U; ++index) {
+            initial.name = "Trc" + std::to_string(index);
+            if (std::none_of(settings.measurements.begin(), settings.measurements.end(),
+                    [&initial](const Measurement &existing) {
+                        return existing.name == initial.name;
+                    })) {
+                break;
+            }
+        }
+        initial.channelId = target;
+        initial.kind = MeasurementKind::S_PARAMETER;
+        initial.receiverKind = 'b';
+        initial.receiverPort = profile_.portCount >= 2U ? 2U : 1U;
+        settings.measurements.push_back(std::move(initial));
+        settings.startHz = profile_.defaultStartHz;
+        settings.stopHz = profile_.defaultStopHz;
+        settings.points = profile_.defaultPoints;
+        settings.ifBandwidthHz = profile_.defaultIfBandwidthHz;
+        settings.powerDbm = profile_.defaultPowerDbm;
+        settings.triggerSource = TriggerSource::IMMEDIATE;
+        settings.sweepMode = SweepMode::HOLD;
+        settings.selectedSweepMode = SweepMode::CONTINUOUS;
+        settings.currentTriggerScope = false;
+        return Result(true);
+    };
+    return Enqueue(std::move(task), owner);
+}
+
 Operation InstrumentService::SetTriggerSource(TriggerSource source, const std::string &owner, unsigned channelId)
 {
     ContextScope channelScope(*this, channelId);
@@ -1229,6 +1344,19 @@ Operation InstrumentService::SelectSweepMode(SweepMode mode, const std::string &
     Detail::ServiceTask task;
     task.kind = Detail::ServiceTaskKind::SELECT_MODE;
     task.mode = mode;
+    return Enqueue(std::move(task), owner);
+}
+
+Operation InstrumentService::SelectSingleAndHold(const std::string &owner, unsigned channelId)
+{
+    ContextScope channelScope(*this, channelId);
+    if (!channelScope.Valid()) {
+        return Rejected(Detail::SETTINGS_CONFLICT_ERROR, "Unknown channel or trace/channel mismatch", owner);
+    }
+    Detail::ServiceTask task;
+    task.kind = Detail::ServiceTaskKind::SELECT_MODE;
+    task.mode = SweepMode::SINGLE;
+    task.forceHold = true;
     return Enqueue(std::move(task), owner);
 }
 
@@ -1359,10 +1487,6 @@ DataResult InstrumentService::MeasurementData(bool calibrated, unsigned channelI
         return failure;
     }
     DataResult value;
-    if (HasMeasurement()) {
-        value.error = "Finite measurement has not completed";
-        return value;
-    }
     const std::string selected = SelectedMeasurement(contextChannelId_);
     const auto found = std::find_if(
         settings_.measurements.begin(), settings_.measurements.end(), [&selected](const Measurement &measurement) {
@@ -1372,7 +1496,48 @@ DataResult InstrumentService::MeasurementData(bool calibrated, unsigned channelI
         value.error = "No measurement selected";
         return value;
     }
-    const Measurement measurement = *found;
+    return ReadMeasurementData({*found}, calibrated);
+}
+
+DataResult InstrumentService::MeasurementData(
+    const std::vector<unsigned> &selection, bool calibrated, unsigned channelId) const
+{
+    ContextScope channelScope(const_cast<InstrumentService &>(*this), channelId);
+    DataResult value;
+    if (!channelScope.Valid()) {
+        value.error = "Unknown channel or trace/channel mismatch";
+        return value;
+    }
+    std::vector<Measurement> catalog;
+    for (const auto &measurement : settings_.measurements) {
+        if (measurement.channelId == contextChannelId_) {
+            catalog.push_back(measurement);
+        }
+    }
+    if (selection.empty() || selection.size() > VnaDisplay::MAX_DISPLAY_TRACES) {
+        value.error = "Measurement selection is empty or exceeds the trace budget";
+        return value;
+    }
+    std::vector<Measurement> measurements;
+    measurements.reserve(selection.size());
+    for (const unsigned index : selection) {
+        if (index == 0U || index > catalog.size()) {
+            value.error = "Measurement index is outside the channel catalog";
+            return value;
+        }
+        measurements.push_back(catalog[index - 1U]);
+    }
+    return ReadMeasurementData(measurements, calibrated, calibrated);
+}
+
+DataResult InstrumentService::ReadMeasurementData(
+    const std::vector<Measurement> &measurements, bool calibrated, bool requireCalibration) const
+{
+    DataResult value;
+    if (HasMeasurement()) {
+        value.error = "Finite measurement has not completed";
+        return value;
+    }
     const auto view = core_.ReadView(contextChannelId_);
     if (!view.frame || view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED ||
         view.frame->configRevision != settings_.acquisitionRevision ||
@@ -1382,7 +1547,21 @@ DataResult InstrumentService::MeasurementData(bool calibrated, unsigned channelI
     }
     const auto correction =
         calibrated ? calibration_.Correction(Identity(), activePlan_) : VnaCalibration::CalibrationPtr{};
-    return ExtractMeasurement(*view.frame, measurement, correction.get());
+    if (requireCalibration) {
+        const auto calibration = calibration_.Snapshot(Identity(), activePlan_);
+        if (!calibration.enabled || !calibration.compatible || !correction) {
+            value.error = "Enabled compatible calibration is required for multi-trace SDATA";
+            return value;
+        }
+        for (const auto &measurement : measurements) {
+            if (measurement.kind != MeasurementKind::S_PARAMETER ||
+                !correction->Covers(measurement.receiverPort, measurement.sourcePort)) {
+                value.error = "Calibration does not cover every requested S parameter";
+                return value;
+            }
+        }
+    }
+    return ExtractMeasurements(*view.frame, measurements, correction.get());
 }
 
 void InstrumentService::RecordError(int code, const std::string &message)

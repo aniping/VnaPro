@@ -309,6 +309,16 @@ bool InstrumentService::PrepareChannelCreation(Detail::ServiceTask &task)
     task.candidate.revision = logicalRevision_ + 1U;
     task.candidate.acquisitionRevision = 0U;
     task.calibrationCandidate = task.copyChannel ? calibration_ : CalibrationWorkspace{};
+    std::size_t calibrationBytes = task.calibrationCandidate.StorageBytes() + calibration_.StorageBytes();
+    for (const auto &channel : channels_) {
+        if (channel.first != contextChannelId_) {
+            calibrationBytes += channel.second.calibration.StorageBytes();
+        }
+    }
+    if (calibrationBytes > MAX_INSTRUMENT_CALIBRATION_STORAGE_BYTES) {
+        Finish(ChannelResult(false, "Channel copy exceeds the instrument calibration pool budget"));
+        return false;
+    }
     for (auto measurement : traces) {
         const auto sourceName = task.copyChannel ? measurement.name : std::string();
         measurement.name = NextTraceName(task.candidate.measurements);
