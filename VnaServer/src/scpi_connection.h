@@ -36,7 +36,7 @@ public:
     // 发送可用的响应字节；部分发送时保留尚未发送的字节。
     void Write();
     // 关闭传输连接，但保留已接收的命令，直到命令执行完成。
-    void Disconnect() noexcept;
+    void Disconnect(const char *reason = "requested") noexcept;
     // 仅在连接断开且引擎释放独占控制权后返回真。
     bool Drained() const noexcept;
 

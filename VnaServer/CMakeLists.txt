@@ -157,6 +157,10 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/LoggingIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim>)
     set_tests_properties(logging_integration PROPERTIES TIMEOUT 45)
+    add_test(NAME scpi_logging_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/ScpiLoggingIntegrationTest.py
+            $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim>)
+    set_tests_properties(scpi_logging_integration PROPERTIES TIMEOUT 30)
     add_test(NAME instrument_configuration_integration
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/InstrumentConfigurationIntegrationTest.py
             $<TARGET_FILE:vna_server> $<TARGET_FILE:tdc1vn08_drv_sim>)

@@ -103,10 +103,12 @@ def exercise_logging(directory):
                 for index in range(35):
                     assert int(query(connection, reader, f"SENS1:SWE:POIN {17 + index};*OPC?")) == 1
                 assert int(query(connection, reader, "TRIG:SOUR IMM;:SENS1:SWE:MODE SING;*OPC?")) == 1
+                # 新增命令日志也参与 3 KiB 滚动预算；在后续命令覆盖前检查实际逐帧记录。
+                measured = contents(directory)
+                assert "[TRACE]" in measured and "frame=" in measured, measured
                 assert int(query(connection, reader, "SENS1:SWE:MODE HOLD;*OPC?")) == 1
                 assert query(connection, reader, "SYST:ERR?").startswith("0,")
                 output = contents(directory)
-                assert "[TRACE]" in output and "frame=" in output, output
                 assert "VnaCore" in output and "VnaService" in output, output
                 # HOLD 且控制连接保持打开时读取；关闭连接的日志仍可能触发下一次轮转。
                 paths = logs(directory)

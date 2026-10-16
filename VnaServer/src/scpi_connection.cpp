@@ -19,9 +19,10 @@ ScpiConnection::ScpiConnection(VnaService::InstrumentService &service, Network::
 {
     Network::ConfigureStreamSocket(socket_.Get());
     if (!engine_.HasControl()) {
-        VnaLog::Info(VnaLog::Module::SCPI, "SCPI 连接以只读观察模式接入");
+        VnaLog::Info(VnaLog::Module::SCPI, "SCPI event=connected connection={} role=observer", engine_.ConnectionId());
     } else {
-        VnaLog::Info(VnaLog::Module::SCPI, "SCPI 连接取得控制权");
+        VnaLog::Info(
+            VnaLog::Module::SCPI, "SCPI event=connected connection={} role=controller", engine_.ConnectionId());
     }
 }
 
@@ -46,14 +47,16 @@ void ScpiConnection::Poll()
     engine_.SetTransportOutputPending(output_.size() != sent_);
     engine_.Poll();
     if (!engine_.HasControl() && engine_.LocalError().code != 0 && socket_.Get() != Network::INVALID_SOCKET_HANDLE) {
-        VnaLog::Warn(VnaLog::Module::SCPI, "观察查询失败，关闭连接，code={}, message={}", engine_.LocalError().code,
-            engine_.LocalError().message);
-        Disconnect();
+        VnaLog::Warn(VnaLog::Module::SCPI, "SCPI event=transport_error connection={} stage=observer code={} message={}",
+            engine_.ConnectionId(), engine_.LocalError().code, engine_.LocalError().message);
+        Disconnect("observer_failed");
     }
     CollectResponses();
     if (WantsWrite() && (std::chrono::steady_clock::now() - lastSendProgress_) > WRITE_PROGRESS_TIMEOUT) {
-        VnaLog::Warn(VnaLog::Module::SCPI, "响应发送超时，关闭 SCPI 连接");
-        Disconnect();
+        VnaLog::Warn(VnaLog::Module::SCPI,
+            "SCPI event=transport_error connection={} stage=send reason=timeout pendingBytes={}",
+            engine_.ConnectionId(), output_.size() - sent_);
+        Disconnect("write_timeout");
     }
 }
 
@@ -68,8 +71,10 @@ void ScpiConnection::CollectResponses()
             continue;
         }
         if (response.size() > (VnaScpi::TRANSPORT_OUTPUT_BYTE_LIMIT - (output_.size() - sent_))) {
-            VnaLog::Warn(VnaLog::Module::SCPI, "响应超过发送预算，关闭 SCPI 连接");
-            Disconnect();
+            VnaLog::Warn(VnaLog::Module::SCPI,
+                "SCPI event=transport_error connection={} stage=queue reason=output_budget bytes={} pendingBytes={}",
+                engine_.ConnectionId(), response.size(), output_.size() - sent_);
+            Disconnect("output_budget");
             return;
         }
         if (sent_ != 0U) {
@@ -80,6 +85,8 @@ void ScpiConnection::CollectResponses()
             lastSendProgress_ = std::chrono::steady_clock::now();
         }
         output_ += response;
+        VnaLog::Info(VnaLog::Module::SCPI, "SCPI event=tx_queued connection={} bytes={}", engine_.ConnectionId(),
+            response.size());
     }
 }
 
@@ -91,10 +98,20 @@ void ScpiConnection::Read()
         input_.append(buffer, static_cast<std::size_t>(received));
         SubmitLines();
         if (input_.size() > VnaScpi::LINE_BUDGET) {
-            Disconnect();
+            VnaLog::Warn(VnaLog::Module::SCPI,
+                "SCPI event=transport_error connection={} stage=receive reason=line_budget bytes={} limit={}",
+                engine_.ConnectionId(), input_.size(), VnaScpi::LINE_BUDGET);
+            Disconnect("line_budget");
         }
-    } else if (received == 0 || !Network::WouldBlock(Network::SocketError())) {
-        Disconnect();
+    } else if (received == 0) {
+        Disconnect("peer_closed");
+    } else {
+        const int error = Network::SocketError();
+        if (!Network::WouldBlock(error)) {
+            VnaLog::Warn(VnaLog::Module::SCPI, "SCPI event=transport_error connection={} stage=receive socketError={}",
+                engine_.ConnectionId(), error);
+            Disconnect("receive_failed");
+        }
     }
 }
 
@@ -106,7 +123,10 @@ void ScpiConnection::SubmitLines()
             return;
         }
         if (boundary > VnaScpi::LINE_BUDGET) {
-            Disconnect();
+            VnaLog::Warn(VnaLog::Module::SCPI,
+                "SCPI event=transport_error connection={} stage=receive reason=line_budget bytes={} limit={}",
+                engine_.ConnectionId(), boundary, VnaScpi::LINE_BUDGET);
+            Disconnect("line_budget");
             return;
         }
         std::string line = input_.substr(0, boundary);
@@ -116,10 +136,11 @@ void ScpiConnection::SubmitLines()
         }
         if (!line.empty() && !engine_.SubmitLine(line)) {
             if (!engine_.HasControl()) {
-                VnaLog::Warn(VnaLog::Module::SCPI, "观察消息整行拒绝，code={}, message={}", engine_.LocalError().code,
-                    engine_.LocalError().message);
+                VnaLog::Warn(VnaLog::Module::SCPI,
+                    "SCPI event=transport_error connection={} stage=submit code={} message={}", engine_.ConnectionId(),
+                    engine_.LocalError().code, engine_.LocalError().message);
             }
-            Disconnect();
+            Disconnect("message_rejected");
             return;
         }
     }
@@ -132,18 +153,27 @@ void ScpiConnection::Write()
         sent_ += static_cast<std::size_t>(written);
         lastSendProgress_ = std::chrono::steady_clock::now();
         if (sent_ == output_.size()) {
+            VnaLog::Info(
+                VnaLog::Module::SCPI, "SCPI event=tx_complete connection={} bytes={}", engine_.ConnectionId(), sent_);
             output_.clear();
             sent_ = 0;
         }
-    } else if (written == 0 || !Network::WouldBlock(Network::SocketError())) {
-        Disconnect();
+    } else {
+        const int error = written == 0 ? 0 : Network::SocketError();
+        if (written == 0 || !Network::WouldBlock(error)) {
+            VnaLog::Warn(VnaLog::Module::SCPI,
+                "SCPI event=transport_error connection={} stage=send socketError={} pendingBytes={}",
+                engine_.ConnectionId(), error, output_.size() - sent_);
+            Disconnect("send_failed");
+        }
     }
 }
 
-void ScpiConnection::Disconnect() noexcept
+void ScpiConnection::Disconnect(const char *reason) noexcept
 {
     if (socket_.Get() != Network::INVALID_SOCKET_HANDLE) {
-        VnaLog::Info(VnaLog::Module::SCPI, "SCPI 连接关闭，等待已接受操作排空");
+        VnaLog::Info(VnaLog::Module::SCPI, "SCPI event=disconnected connection={} reason={} drainPending={}",
+            engine_.ConnectionId(), reason, engine_.HasPending());
     }
     socket_.Reset();
     input_.clear();

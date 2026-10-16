@@ -26,11 +26,28 @@ void AdmitConnection(VnaService::InstrumentService &service, Network::Socket lis
 {
     Network::SocketOwner incoming(accept(listener, nullptr, nullptr));
     if (incoming.Get() == Network::INVALID_SOCKET_HANDLE) {
+        const int error = Network::SocketError();
+        if (!Network::WouldBlock(error)) {
+            VnaLog::Warn(VnaLog::Module::SCPI,
+                "SCPI event=connection_rejected connection=0 stage=accept reason=socket_error socketError={}", error);
+        }
         return;
     }
-    if (connections.size() >= VnaScpi::CONNECTION_LIMIT || !Network::FitsSelect(incoming.Get()) ||
-        !Network::SetNonBlocking(incoming.Get())) {
-        VnaLog::Debug(VnaLog::Module::SCPI, "SCPI 连接未获准接入");
+    if (connections.size() >= VnaScpi::CONNECTION_LIMIT) {
+        VnaLog::Warn(VnaLog::Module::SCPI,
+            "SCPI event=connection_rejected connection=0 stage=accept reason=connection_budget active={} limit={}",
+            connections.size(), VnaScpi::CONNECTION_LIMIT);
+        return;
+    }
+    if (!Network::FitsSelect(incoming.Get())) {
+        VnaLog::Warn(
+            VnaLog::Module::SCPI, "SCPI event=connection_rejected connection=0 stage=accept reason=descriptor_limit");
+        return;
+    }
+    if (!Network::SetNonBlocking(incoming.Get())) {
+        VnaLog::Warn(VnaLog::Module::SCPI,
+            "SCPI event=connection_rejected connection=0 stage=accept reason=nonblocking_failed socketError={}",
+            Network::SocketError());
         return;
     }
     connections.push_back(std::make_unique<ScpiConnection>(service, std::move(incoming)));
