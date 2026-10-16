@@ -9,12 +9,11 @@ match 明确取零，以独立逐元素 (M-offset)/tracking 核对真实校正�
 非零 match 的联合求逆由数学/服务回归验证，此脚本不重复实现生产公式。
 
 示例：python scripts/vnb_simulation_calibration.py --http-url http://127.0.0.1:8080
-      --name SIMULATION_ONLY_FOUR_PORT_DIAGNOSTIC --output reference/simulation-calibration.json
+      --name SIMULATION_ONLY_FOUR_PORT_DIAGNOSTIC --output reference/simulation-calibration.vcal
 """
 
 import argparse
 import json
-import math
 import sys
 import time
 import uuid
@@ -23,22 +22,8 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-
-def require(condition, message):
-    if not condition:
-        raise RuntimeError(message)
-
-
-def finite(value):
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
-
-
-def reject_constant(value):
-    raise ValueError("服务返回非有限 JSON 数值：" + value)
+from vnb_calibration_file import decode_calibration, download_bytes, file_fields
+from vnb_simulation_model import coefficients, document, finite, reject_constant, require, traces
 
 
 class Http:
@@ -171,53 +156,6 @@ def checked_status(http):
     return status
 
 
-def coefficients(cell):
-    offset = complex(0.002 * (cell + 1), -0.001 * (cell + 1))
-    tracking = complex(1.2 + 0.04 * cell, 0.01 * (cell + 1))
-    return offset, tracking
-
-
-def document(name, status, axis):
-    config = status["config"]
-    require(
-        len(axis) == config["points"]
-        and len(axis) >= 2
-        and all(finite(hz) and hz == int(hz) for hz in axis)
-        and all(axis[index - 1] < axis[index] for index in range(1, len(axis))),
-        "实际帧轴必须是完整、递增的整数 Hz 轴",
-    )
-    capabilities = status["capabilities"]
-    require(
-        axis[0] == config["startHz"]
-        and axis[-1] == config["stopHz"]
-        and capabilities["minFrequencyHz"]
-        <= axis[0]
-        <= axis[-1]
-        <= capabilities["maxFrequencyHz"],
-        "实际帧频轴与当前启动配置或服务回读能力不一致",
-    )
-    row = []
-    for cell in range(16):
-        offset, tracking = coefficients(cell)
-        row.extend((offset.real, offset.imag, 0.0, 0.0, tracking.real, tracking.imag))
-    return {
-        "schema": 3,
-        "id": "0",
-        "name": name,
-        "deviceIdentity": status["identity"],
-        "method": "fourPort",
-        "port1": 1,
-        "port2": 4,
-        "includeIsolation": True,
-        "frequencyHz": axis,
-        "ifBandwidthHz": config["ifBandwidthHz"],
-        "powerDbm": [0.0] * len(axis),
-        "onePortTerms": [],
-        "twoPortTerms": [],
-        "fourPortTerms": [list(row) for _ in axis],
-    }
-
-
 def ordered_names(http, status, channel, temporary):
     names = []
     for receiver in range(1, 5):
@@ -251,25 +189,142 @@ def ordered_names(http, status, channel, temporary):
     return names
 
 
-def traces(frame, names, calibrated):
-    require(
-        frame.get("available") and frame.get("current") and not frame.get("decimated"),
-        "必须读取当前完整已完成帧",
+def prepare_raw(http, initial, channel, temporary):
+    checked_status(http)
+    http.operation(
+        "POST", "/api/v1/operations", {"action": "hold", "channelId": channel}
     )
-    by_name = {trace["name"]: trace for trace in frame["traces"]}
-    for name in names:
-        trace = by_name.get(name, {})
-        require(
-            trace.get("available")
-            and trace.get("calibration") == calibrated
-            and len(trace.get("real", [])) == len(frame["frequencyHz"])
-            and len(trace.get("imag", [])) == len(frame["frequencyHz"])
-            and len(trace.get("valid", [])) == len(frame["frequencyHz"])
-            and all(trace["valid"])
-            and all(finite(value) for value in trace["real"] + trace["imag"]),
-            "迹线缺失、校准标签错误或含无效样本：" + name,
+    http.change_calibration(channel, "enable", enabled=False)
+    names = ordered_names(http, initial, channel, temporary)
+    http.operation(
+        "POST", "/api/v1/operations", {"action": "single", "channelId": channel}
+    )
+    raw_frame = http.frame(channel, names)
+    raw = traces(raw_frame, names, "uncalibrated")
+    return names, raw_frame, raw
+
+
+def import_diagnostic(http, channel, data, before_cal, name):
+    known_ids = {item["id"] for item in before_cal["sets"]}
+    http.change_calibration(channel, "importFile", **file_fields(data))
+    added = [
+        item
+        for item in http.calibration(channel)["sets"]
+        if item["id"] not in known_ids
+    ]
+    require(
+        len(added) == 1 and added[0]["name"] == name,
+        "服务未生成唯一的目标导入集",
+    )
+    imported_id = added[0]["id"]
+    return imported_id
+
+
+def verify_corrected(http, channel, names, raw_frame, raw):
+    corrected_frame = http.frame(channel, names)
+    require(
+        all(
+            corrected_frame[key] == raw_frame[key]
+            for key in ("channelId", "runId", "revision", "frameSeq")
+        ),
+        "原始与校正读取跨越了不同的采集帧",
+    )
+    corrected = traces(corrected_frame, names, "calibrated")
+    maximum_error = 0.0
+    for cell, name in enumerate(names):
+        offset, tracking = coefficients(cell)
+        for index, (real, imag) in enumerate(
+            zip(raw[name]["real"], raw[name]["imag"])
+        ):
+            expected = (complex(real, imag) - offset) / tracking
+            actual = complex(
+                corrected[name]["real"][index], corrected[name]["imag"][index]
+            )
+            error = abs(actual - expected)
+            require(
+                error <= 1e-10 * max(1.0, abs(expected)),
+                f"真实校正不符合独立期望：{name}, point={index}",
+            )
+            maximum_error = max(maximum_error, error)
+    return maximum_error
+
+
+def export_diagnostic(http, channel, data, imported_id, output_path):
+    exported = http.request(
+        "GET",
+        "/api/v1/calibration/sets/"
+        + quote(imported_id, safe="")
+        + "?"
+        + urlencode({"channelId": channel}),
+    )
+    binary = download_bytes(exported)
+    require(
+        decode_calibration(binary) == dict(data, id=imported_id),
+        "服务实际导出与已验证的导入数据不一致",
+    )
+    output = Path(output_path).resolve()
+    require(output.suffix.lower() == ".vcal", "--output 必须使用 .vcal 后缀")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(binary)
+    return output
+
+
+def report_diagnostic(name, channel, data, imported_id, validation):
+    maximum_error, output = validation
+    print(
+        json.dumps(
+            {
+                "validation": "simulation_only",
+                "name": name,
+                "setId": imported_id,
+                "channelId": channel,
+                "points": len(data["frequencyHz"]),
+                "verifiedTraces": 16,
+                "maximumError": maximum_error,
+                "export": str(output),
+            },
+            ensure_ascii=False,
         )
-    return by_name
+    )
+
+
+def restore_calibration(http, channel, before_cal, imported_id, cleanup_errors):
+    try:
+        if before_cal["selectedSetId"] != "0":
+            http.change_calibration(
+                channel, "select", setId=before_cal["selectedSetId"]
+            )
+        if imported_id:
+            http.change_calibration(channel, "delete", setId=imported_id)
+        http.change_calibration(
+            channel, "enable", enabled=before_cal["enabled"]
+        )
+    except Exception as error:  # noqa: BLE001 - 清理失败须记录并继续释放其他资源。
+        cleanup_errors.append("恢复校准状态失败：" + str(error))
+
+
+def cleanup_measurements(http, channel, temporary, cleanup_errors):
+    for name in reversed(temporary):
+        try:
+            status = http.status()
+            if any(item["name"] == name for item in status["measurements"]):
+                http.operation(
+                    "DELETE",
+                    "/api/v1/measurements/" + quote(name, safe=""),
+                    {
+                        "channelId": channel,
+                        "expectedRevision": status["revision"],
+                    },
+                )
+        except Exception as error:  # noqa: BLE001 - 一条迹线清理失败不能阻止释放控制权。
+            cleanup_errors.append("清理临时迹线失败：" + str(error))
+
+
+def release_control(http, cleanup_errors):
+    try:
+        http.request("POST", "/api/v1/control/release", {})
+    except Exception as error:  # noqa: BLE001 - 保留原始失败，汇总报告控制权释放错误。
+        cleanup_errors.append("释放控制权失败：" + str(error))
 
 
 def run(args):
@@ -293,124 +348,21 @@ def run(args):
     cleanup_errors = []
     try:
         http.token = http.request("POST", "/api/v1/control/claim", {})["sessionId"]
-        checked_status(http)
-        http.operation(
-            "POST", "/api/v1/operations", {"action": "hold", "channelId": channel}
-        )
-        http.change_calibration(channel, "enable", enabled=False)
-        names = ordered_names(http, initial, channel, temporary)
-        http.operation(
-            "POST", "/api/v1/operations", {"action": "single", "channelId": channel}
-        )
-        raw_frame = http.frame(channel, names)
-        raw = traces(raw_frame, names, "uncalibrated")
-        current = checked_status(http)
-        data = document(args.name, current, raw_frame["frequencyHz"])
-        known_ids = {item["id"] for item in before_cal["sets"]}
-        http.change_calibration(channel, "import", data=data)
-        added = [
-            item
-            for item in http.calibration(channel)["sets"]
-            if item["id"] not in known_ids
-        ]
-        require(
-            len(added) == 1 and added[0]["name"] == args.name,
-            "服务未生成唯一的目标导入集",
-        )
-        imported_id = added[0]["id"]
+        names, raw_frame, raw = prepare_raw(http, initial, channel, temporary)
+        data = document(args.name, checked_status(http), raw_frame["frequencyHz"])
+        imported_id = import_diagnostic(http, channel, data, before_cal, args.name)
         http.change_calibration(channel, "select", setId=imported_id)
         http.change_calibration(channel, "enable", enabled=True)
-        corrected_frame = http.frame(channel, names)
-        require(
-            all(
-                corrected_frame[key] == raw_frame[key]
-                for key in ("channelId", "runId", "revision", "frameSeq")
-            ),
-            "原始与校正读取跨越了不同的采集帧",
-        )
-        corrected = traces(corrected_frame, names, "calibrated")
-        maximum_error = 0.0
-        for cell, name in enumerate(names):
-            offset, tracking = coefficients(cell)
-            for index, (real, imag) in enumerate(
-                zip(raw[name]["real"], raw[name]["imag"])
-            ):
-                expected = (complex(real, imag) - offset) / tracking
-                actual = complex(
-                    corrected[name]["real"][index], corrected[name]["imag"][index]
-                )
-                error = abs(actual - expected)
-                require(
-                    error <= 1e-10 * max(1.0, abs(expected)),
-                    f"真实校正不符合独立期望：{name}, point={index}",
-                )
-                maximum_error = max(maximum_error, error)
-        exported = http.request(
-            "GET",
-            "/api/v1/calibration/sets/"
-            + quote(imported_id, safe="")
-            + "?"
-            + urlencode({"channelId": channel}),
-        )
-        require(
-            exported == dict(data, id=imported_id),
-            "服务实际导出与已验证的导入数据不一致",
-        )
-        output = Path(args.output).resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(
-            json.dumps(exported, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        maximum_error = verify_corrected(http, channel, names, raw_frame, raw)
+        output = export_diagnostic(http, channel, data, imported_id, args.output)
         success = True
-        print(
-            json.dumps(
-                {
-                    "validation": "simulation_only",
-                    "name": args.name,
-                    "setId": imported_id,
-                    "channelId": channel,
-                    "points": len(data["frequencyHz"]),
-                    "verifiedTraces": 16,
-                    "maximumError": maximum_error,
-                    "export": str(output),
-                },
-                ensure_ascii=False,
-            )
-        )
+        report_diagnostic(args.name, channel, data, imported_id, (maximum_error, output))
     finally:
         if http.token:
             if not success:
-                try:
-                    if before_cal["selectedSetId"] != "0":
-                        http.change_calibration(
-                            channel, "select", setId=before_cal["selectedSetId"]
-                        )
-                    if imported_id:
-                        http.change_calibration(channel, "delete", setId=imported_id)
-                    http.change_calibration(
-                        channel, "enable", enabled=before_cal["enabled"]
-                    )
-                except Exception as error:  # noqa: BLE001 - 清理失败须记录并继续释放其他资源。
-                    cleanup_errors.append("恢复校准状态失败：" + str(error))
-            for name in reversed(temporary):
-                try:
-                    status = http.status()
-                    if any(item["name"] == name for item in status["measurements"]):
-                        http.operation(
-                            "DELETE",
-                            "/api/v1/measurements/" + quote(name, safe=""),
-                            {
-                                "channelId": channel,
-                                "expectedRevision": status["revision"],
-                            },
-                        )
-                except Exception as error:  # noqa: BLE001 - 一条迹线清理失败不能阻止释放控制权。
-                    cleanup_errors.append("清理临时迹线失败：" + str(error))
-            try:
-                http.request("POST", "/api/v1/control/release", {})
-            except Exception as error:  # noqa: BLE001 - 保留原始失败，汇总报告控制权释放错误。
-                cleanup_errors.append("释放控制权失败：" + str(error))
+                restore_calibration(http, channel, before_cal, imported_id, cleanup_errors)
+            cleanup_measurements(http, channel, temporary, cleanup_errors)
+            release_control(http, cleanup_errors)
         for message in cleanup_errors:
             print(message, file=sys.stderr)
     require(not cleanup_errors, "软件校验结束，但资源清理失败；请检查以上错误")
@@ -431,9 +383,10 @@ def main():
         help="明确的软件诊断集名称",
     )
     parser.add_argument(
-        "--output", required=True, help="保存服务实际导出的 schema 3 JSON 文件"
+        "--output", required=True, help="保存服务实际导出的自包含 .vcal 二进制文件"
     )
     args = parser.parse_args()
+    require(Path(args.output).suffix.lower() == ".vcal", "--output 必须使用 .vcal 后缀")
     require(
         args.name
         and len(args.name.encode("utf-8")) <= 128
