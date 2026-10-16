@@ -5,11 +5,15 @@
 #include <csignal>
 #include <cstdint>
 #include <exception>
+#include <future>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 
+#include "calibration_store.h"
 #include "driver_options.h"
 #include "scpi_tcp_server.h"
 #include "server_config_loader.h"
@@ -104,6 +108,46 @@ bool ApplyStartupSweepMode(VnaService::InstrumentService &service, VnaService::S
     return result.ok;
 }
 
+bool ConfigureCalibrationStore(VnaService::InstrumentService &service, const VnaServer::ServerConfig &config)
+{
+    if (config.server.calibrationStore.empty()) {
+        return true;
+    }
+    const auto &configured = config.server.calibrationStore;
+    const auto directory =
+        IsAbsolutePath(configured) ? configured : VnaServer::ExecutableDirectory() + "/" + configured;
+    auto store = std::make_shared<VnaServer::CalibrationStore>(directory);
+    const auto started = std::chrono::steady_clock::now();
+    VnaLog::Info(VnaLog::Module::SERVER, "正在恢复 Ch1 校准池，path={}", directory);
+    std::vector<VnaService::CalibrationSetPtr> restored;
+    std::uint64_t selected = 0U;
+    std::string error;
+    if (!store->Load(1U, restored, selected, error) ||
+        !service.RestoreCalibration(std::move(restored), selected, error)) {
+        VnaLog::Error(VnaLog::Module::SERVER, "校准池恢复失败，path={}，error={}", directory, error);
+        return false;
+    }
+    service.SetCalibrationSaveHandler(
+        [store](unsigned channelId, std::vector<VnaService::CalibrationSetPtr> sets, std::uint64_t selectedId) {
+            return std::async(std::launch::async, [store, channelId, sets = std::move(sets), selectedId] {
+                VnaService::OperationResult result;
+                // 逻辑通道目录尚未跨重启恢复；只持久化启动时始终存在的 Ch1。
+                result.ok = channelId != 1U || store->Save(channelId, sets, selectedId, result.message);
+                result.errorCode = result.ok ? 0 : -310;
+                if (result.ok && !result.message.empty()) {
+                    VnaLog::Warn(VnaLog::Module::SERVER, "校准 manifest 已提交，channel={}，warning={}", channelId,
+                        result.message);
+                }
+                return result;
+            }).share();
+        });
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    VnaLog::Info(VnaLog::Module::SERVER, "校准持久化已就绪，path={}，Ch1 恢复 {} 集，耗时 {} ms，自动校正保持关闭",
+        directory, service.Calibration(1U).sets.size(), elapsed);
+    return true;
+}
+
 int StartService(const VnaServer::DriverOptions &driver, const VnaServer::ListenOptions &options,
     const VnaServer::ServerConfig &config)
 {
@@ -123,7 +167,11 @@ int StartService(const VnaServer::DriverOptions &driver, const VnaServer::Listen
         core.Close();
         return 1;
     }
-    // 当前尚未持久化仪器状态；缺省扫描只在监听前执行一次，不由浏览器读取触发。
+    if (!ConfigureCalibrationStore(service, config)) {
+        core.Close();
+        return 1;
+    }
+    // 校准只恢复池与选择；扫描配置仍使用启动默认，不由浏览器读取触发。
     if (!ApplyStartupSweepMode(service, config.defaultSweepMode)) {
         VnaLog::Error(VnaLog::Module::SERVER, "启动缺省扫描模式失败");
         core.Close();

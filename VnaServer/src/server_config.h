@@ -25,6 +25,8 @@ struct ListenerConfig final {
     bool webEnabled = true;
     // 相对目录以程序所在目录为基准，绝对目录按原值使用。
     std::string webRoot = "WebUI";
+    // 相对程序目录的持久校准库；绝对目录按原值使用，空字符串明确禁用持久化。
+    std::string calibrationStore = "calibration";
 };
 
 // 模拟驱动的信号模式、随机种子和相对噪声幅度；服务器启动时传给驱动。

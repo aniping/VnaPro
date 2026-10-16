@@ -99,7 +99,8 @@ void ReadSimulator(const YAML::Node &node, SimulatorConfig &config)
 
 void ReadListenerConfig(const YAML::Node &node, ListenerConfig &config)
 {
-    YamlConfig::CheckMap(node, "server", {"ip", "scpiIp", "webIp", "scpiPort", "webPort", "webEnabled", "webRoot"});
+    YamlConfig::CheckMap(
+        node, "server", {"ip", "scpiIp", "webIp", "scpiPort", "webPort", "webEnabled", "webRoot", "calibrationStore"});
     if (!node) {
         return;
     }
@@ -116,6 +117,10 @@ void ReadListenerConfig(const YAML::Node &node, ListenerConfig &config)
     YamlConfig::ReadString(node, "webRoot", "server", config.webRoot);
     if (config.webRoot.empty() || ContainsControlCharacters(config.webRoot)) {
         YamlConfig::Invalid(node["webRoot"], "server.webRoot", "目录不能为空或包含控制字符");
+    }
+    YamlConfig::ReadString(node, "calibrationStore", "server", config.calibrationStore);
+    if (ContainsControlCharacters(config.calibrationStore)) {
+        YamlConfig::Invalid(node["calibrationStore"], "server.calibrationStore", "目录不能包含控制字符");
     }
 }
 

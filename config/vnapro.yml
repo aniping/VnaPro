@@ -6,6 +6,8 @@ server:
   webEnabled: true
   # 相对路径以程序所在目录为基准；开发构建的默认 WebUI 使用源码目录的 dist。
   webRoot: WebUI
+  # Ch1 校准集原子保存；路径相对程序目录，空字符串显式禁用自动持久化。
+  calibrationStore: calibration
   # 需要分开绑定时取消注释；未配置时继承上面的 ip。
   # scpiIp: 127.0.0.1
   # webIp: 127.0.0.1

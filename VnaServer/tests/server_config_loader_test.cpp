@@ -318,6 +318,19 @@ void TestDriverConstraints(const std::string &path)
     ExpectInvalid(path, "driver: {type: []}\n", "driver.type");
 }
 
+void TestCalibrationStorePaths(const std::string &path)
+{
+    for (const std::string directory : {"", "calibration", "中文目录/校准", "../shared/calibration", "D:\\校准库",
+             "/var/lib/vnb/calibration", "\\\\server\\share\\calibration"}) {
+        WriteConfig(path, "server: {calibrationStore: '" + directory + "'}\n");
+        Expect(VnaServer::LoadServerConfig(path).server.calibrationStore == directory,
+            "校准库路径须保留原值，空字符串明确禁用持久化");
+    }
+    for (const std::string value : {"null", "[]", "\"calibration\\n\"", "\"calibration\\t\""}) {
+        ExpectInvalid(path, "server: {calibrationStore: " + value + "}\n", "server.calibrationStore");
+    }
+}
+
 void TestNoiseAmplitude(const std::string &path)
 {
     const std::pair<const char *, double> values[] = {{"0", 0.0}, {"0e10", 0.0}, {"1", 1.0}, {"0.002", 0.002},
@@ -367,6 +380,7 @@ void RunTests(const std::string &path, const std::string &directory)
     TestStartupMapping(path);
     TestListenerConstraints(path);
     TestDriverConstraints(path);
+    TestCalibrationStorePaths(path);
     TestNoiseAmplitude(path);
     TestHardwareIgnoresSimulatorConfig(path);
     TestMissingFile(path);

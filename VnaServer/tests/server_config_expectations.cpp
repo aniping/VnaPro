@@ -64,7 +64,7 @@ void DefaultListener(const VnaServer::ServerConfig &config)
 {
     Expect(config.server.ip == "127.0.0.1" && config.server.scpiPort == 5025U && config.server.webPort == 8080U &&
                config.server.webEnabled && config.server.scpiIp.empty() && config.server.webIp.empty() &&
-               config.server.webRoot == "WebUI",
+               config.server.webRoot == "WebUI" && config.server.calibrationStore == "calibration",
         "默认监听配置错误");
 }
 
