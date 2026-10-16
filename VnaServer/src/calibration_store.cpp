@@ -16,7 +16,7 @@
 #include <stdexcept>
 #include <utility>
 
-#include "calibration_cache.h"
+#include "calibration_store_data.h"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -35,12 +35,14 @@
 #endif
 
 #include "vna_log/logger.h"
-#include "web/calibration_json.h"
+#include "web/calibration_binary.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
 
 namespace VnaServer {
 namespace {
+using CalibrationStoreData::CheckPool;
+using CalibrationStoreData::Same;
 using VnaWeb::Json;
 constexpr std::size_t SET_LIMIT = VnaService::MAX_CALIBRATION_SETS;
 constexpr std::size_t COEFFICIENT_BYTE_LIMIT = VnaService::MAX_CALIBRATION_STORAGE_BYTES;
@@ -374,86 +376,9 @@ void Clean(const std::string &directory, unsigned channelId, const std::set<std:
     const auto prefix = Prefix(channelId);
     for (const auto &file : Files(directory)) {
         if (keep.count(file) == 0U &&
-            (InternalFile(file, prefix + "-set-", ".json") || InternalFile(file, prefix + "-manifest-", ".tmp"))) {
+            (InternalFile(file, prefix + "-set-", ".vcal") || InternalFile(file, prefix + "-manifest-", ".tmp"))) {
             Remove(directory + "/" + file);
         }
-    }
-}
-
-std::string CacheFile(const std::string &jsonFile)
-{
-    return jsonFile.substr(0U, jsonFile.size() - 5U) + ".bin";
-}
-
-bool ReadCache(const std::string &directory, const std::string &jsonFile, const std::string &digest,
-    std::size_t sourceBytes, VnaService::CalibrationSetPtr &set) noexcept
-{
-    try {
-        std::string bytes;
-        return ReadFile(directory + "/compact-cache/" + CacheFile(jsonFile), CalibrationCache::BYTE_LIMIT, bytes) &&
-               CalibrationCache::Decode(bytes, digest, sourceBytes, set);
-    } catch (const std::exception &) {
-        return false;
-    }
-}
-
-bool WriteCache(const std::string &directory, const std::string &jsonFile, const std::string &digest,
-    std::size_t sourceBytes, const VnaService::CalibrationSet &set, std::string &warning) noexcept
-{
-    std::string temporary;
-    try {
-        const auto bytes = CalibrationCache::Encode(set, digest, sourceBytes);
-        const auto folder = directory + "/compact-cache";
-        EnsureDirectory(folder);
-        temporary = folder + "/" + jsonFile.substr(0U, jsonFile.find("-set-")) + "-cache-" + Unique() + ".tmp";
-        WriteNew(temporary, bytes, false);
-        const auto destination = folder + "/" + CacheFile(jsonFile);
-#ifdef _WIN32
-        if (!MoveFileExW(WindowsPath(temporary).c_str(), WindowsPath(destination).c_str(), MOVEFILE_REPLACE_EXISTING)) {
-            throw std::runtime_error("Cannot replace compact calibration cache");
-        }
-#else
-        if (std::rename(temporary.c_str(), destination.c_str()) != 0) {
-            IoError("Cannot replace compact calibration cache", destination);
-        }
-#endif
-        return true;
-    } catch (const std::exception &failure) {
-        try {
-            if (warning.empty()) {
-                warning = failure.what();
-            }
-        } catch (...) {
-        }
-        if (!temporary.empty()) {
-            try {
-                Remove(temporary);
-            } catch (const std::exception &) {
-            }
-        }
-    } catch (...) {
-    }
-    return false;
-}
-
-void CleanCache(const std::string &directory, unsigned channelId, const std::set<std::string> &keep) noexcept
-{
-    try {
-        const auto folder = directory + "/compact-cache";
-        if (!Directory(folder)) {
-            return;
-        }
-        const auto prefix = Prefix(channelId);
-        for (const auto &file : Files(folder)) {
-            const bool temporary = InternalFile(file, prefix + "-cache-", ".tmp");
-            const bool orphan = InternalFile(file, prefix + "-set-", ".bin") &&
-                                keep.count(file.substr(0U, file.size() - 4U) + ".json") == 0U;
-            if (temporary || orphan) {
-                Remove(folder + "/" + file);
-            }
-        }
-    } catch (const std::exception &failure) {
-        VnaLog::Warn(VnaLog::Module::SERVER, "紧凑校准缓存清理失败，channel={}，error={}", channelId, failure.what());
     }
 }
 
@@ -498,135 +423,65 @@ std::string Digest(const std::string &text)
     return stream.str();
 }
 
-std::size_t Bytes(const VnaService::CalibrationSet &set)
+bool HasCoefficients(const std::string &directory, const std::string &prefix)
 {
-    if (!set.data) {
-        throw std::invalid_argument("Calibration store set has no coefficients");
-    }
-    const auto &data = *set.data;
-    std::size_t bytes = sizeof(VnaService::CalibrationSet) + sizeof(VnaCalibration::CalibrationData) +
-                        sizeof(VnaService::CalibrationSetPtr);
-    const auto add = [&bytes](std::size_t count, std::size_t size) {
-        if (count > (COEFFICIENT_BYTE_LIMIT - bytes) / size) {
-            throw std::invalid_argument("Calibration pool exceeds its coefficient storage budget");
-        }
-        bytes += count * size;
-    };
-    add(set.name.size(), sizeof(char));
-    add(set.deviceIdentity.size(), sizeof(char));
-    add(2U, sizeof(char));
-    add(data.frequencyHz.size(), sizeof(double));
-    add(set.powerDbm.size(), sizeof(double));
-    add(data.onePortTerms.size(), sizeof(VnaCalibration::OnePortTerms));
-    add(data.twoPortTerms.size(), sizeof(VnaCalibration::TwoPortTerms));
-    add(data.fourPortTerms.size(), sizeof(VnaCalibration::FourPortTerms));
-    return bytes;
-}
-
-void CheckShape(const VnaService::CalibrationSet &set)
-{
-    const auto &data = *set.data;
-    const auto points = data.frequencyHz.size();
-    const bool one = data.method == VnaCalibration::CalibrationMethod::ONE_PORT;
-    const bool two = data.method == VnaCalibration::CalibrationMethod::TWO_PORT;
-    const bool four = data.method == VnaCalibration::CalibrationMethod::FOUR_PORT;
-    if (set.name.size() > 128U || set.deviceIdentity.empty() || set.deviceIdentity.size() > 512U ||
-        points < VnaService::MIN_SWEEP_POINTS || points > VnaService::MAX_SWEEP_POINTS ||
-        set.powerDbm.size() != points || (!one && !two && !four) || data.onePortTerms.size() != (one ? points : 0U) ||
-        data.twoPortTerms.size() != (two ? points : 0U) || data.fourPortTerms.size() != (four ? points : 0U)) {
-        throw std::invalid_argument("Calibration set exceeds its string, point or coefficient shape limits");
-    }
-}
-
-void CheckPool(const std::vector<VnaService::CalibrationSetPtr> &sets, std::uint64_t selected)
-{
-    if (sets.size() > SET_LIMIT) {
-        throw std::invalid_argument("Calibration pool exceeds its set count budget");
-    }
-    std::set<std::uint64_t> ids;
-    std::size_t bytes = 0U;
-    for (const auto &set : sets) {
-        if (!set || set->id == 0U || !ids.insert(set->id).second) {
-            throw std::invalid_argument("Calibration pool contains a missing or duplicate identifier");
-        }
-        const auto count = Bytes(*set);
-        CheckShape(*set);
-        if (count > COEFFICIENT_BYTE_LIMIT - bytes) {
-            throw std::invalid_argument("Calibration pool exceeds its coefficient storage budget");
-        }
-        bytes += count;
-    }
-    if (selected != 0U && ids.count(selected) == 0U) {
-        throw std::invalid_argument("Selected calibration identifier is absent from the pool");
-    }
-}
-
-bool Same(const VnaCalibration::OnePortTerms &a, const VnaCalibration::OnePortTerms &b)
-{
-    return a.directivity == b.directivity && a.sourceMatch == b.sourceMatch &&
-           a.reflectionTracking == b.reflectionTracking;
-}
-
-bool Same(const VnaCalibration::TransmissionTerms &a, const VnaCalibration::TransmissionTerms &b)
-{
-    return a.isolation == b.isolation && a.loadMatch == b.loadMatch && a.transmissionTracking == b.transmissionTracking;
-}
-
-bool Same(const VnaCalibration::TwoPortTerms &a, const VnaCalibration::TwoPortTerms &b)
-{
-    return Same(a.forwardReflection, b.forwardReflection) && Same(a.reverseReflection, b.reverseReflection) &&
-           Same(a.forwardTransmission, b.forwardTransmission) && Same(a.reverseTransmission, b.reverseTransmission);
-}
-
-bool Same(const VnaCalibration::FourPortTerms &a, const VnaCalibration::FourPortTerms &b)
-{
-    for (std::size_t cell = 0U; cell < a.size(); ++cell) {
-        if (a[cell].offset != b[cell].offset || a[cell].match != b[cell].match ||
-            a[cell].tracking != b[cell].tracking) {
-            return false;
+    for (const auto &file : Files(directory)) {
+        if (InternalFile(file, prefix + "-set-", ".json") || InternalFile(file, prefix + "-set-", ".vcal")) {
+            return true;
         }
     }
-    return true;
+    return false;
 }
 
-template <class T>
-bool Same(const std::vector<T> &a, const std::vector<T> &b)
+Json ParseManifest(const std::string &text, unsigned channelId)
 {
-    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](const T &left, const T &right) {
-        return Same(left, right);
-    });
-}
-
-bool Same(const VnaService::CalibrationSet &a, const VnaService::CalibrationSet &b)
-{
-    if (&a == &b) {
-        return true;
+    auto manifest = VnaWeb::ParseJson(text, MANIFEST_NODE_LIMIT);
+    const auto version = Field(manifest, "version", Json::Type::NUMBER).number;
+    if (version == 1.0) {
+        throw std::invalid_argument("Legacy JSON calibration stores are not supported; original files were preserved");
     }
-    if (a.id != b.id || a.name != b.name || a.deviceIdentity != b.deviceIdentity ||
-        a.includeIsolation != b.includeIsolation || a.ifBandwidthHz != b.ifBandwidthHz || a.powerDbm != b.powerDbm ||
-        !a.data || !b.data) {
-        return false;
+    if (manifest.type != Json::Type::OBJECT || manifest.object.size() != 4U || version != 2.0 ||
+        Field(manifest, "channelId", Json::Type::NUMBER).number != channelId) {
+        throw std::invalid_argument("Invalid calibration manifest version or channel");
     }
-    const auto &x = *a.data;
-    const auto &y = *b.data;
-    return a.data == b.data || (x.method == y.method && x.port1 == y.port1 && x.port2 == y.port2 &&
-                                   x.frequencyHz == y.frequencyHz && Same(x.onePortTerms, y.onePortTerms) &&
-                                   Same(x.twoPortTerms, y.twoPortTerms) && Same(x.fourPortTerms, y.fourPortTerms));
+    if (Field(manifest, "sets", Json::Type::ARRAY).array.size() > SET_LIMIT) {
+        throw std::invalid_argument("Calibration manifest exceeds 256 sets");
+    }
+    return manifest;
 }
 
-VnaService::CalibrationSetPtr Decode(Json &document)
+Json EmptyManifest(unsigned channelId, std::uint64_t selectedId)
 {
-    const auto id = Identifier(Field(document, "id", Json::Type::STRING));
-    Json body = Json::MakeObject();
-    body["action"] = Json("import");
-    body["data"] = std::move(document);
-    auto decoded = VnaWeb::CalibrationJson::Change(body).importedSet;
-    document = std::move(body["data"]);
-    auto restored = std::make_shared<VnaService::CalibrationSet>(*decoded);
-    restored->id = id;
-    return restored;
+    Json manifest = Json::MakeObject();
+    manifest["version"] = Json(2U);
+    manifest["channelId"] = Json(channelId);
+    manifest["selectedId"] = Json(std::to_string(selectedId));
+    manifest["sets"] = Json::MakeArray();
+    return manifest;
 }
+
+Json ManifestRow(std::uint64_t id, const std::string &file, const std::string &digest)
+{
+    Json row = Json::MakeObject();
+    row["id"] = Json(std::to_string(id));
+    row["file"] = Json(file);
+    row["digest"] = Json(digest);
+    return row;
+}
+
 }  // 匿名命名空间
+
+struct CalibrationStore::SaveState final {
+    Entries entries;
+    std::set<std::string> committed;
+    std::set<std::string> keep;
+    std::vector<std::string> created;
+    Json rows = Json::MakeArray();
+    std::size_t diskBytes = 0U;
+    bool changedFiles = false;
+    bool cleaned = false;
+    bool published = false;
+};
 
 CalibrationStore::CalibrationStore(std::string directory) : directory_(std::move(directory))
 {
@@ -639,84 +494,69 @@ CalibrationStore::CalibrationStore(std::string directory) : directory_(std::move
     }
 }
 
+CalibrationStore::Entry CalibrationStore::ReadEntry(
+    const Json &row, const std::string &prefix, std::size_t &diskBytes, std::string &text) const
+{
+    const auto id = Identifier(Field(row, "id", Json::Type::STRING));
+    const auto file = Field(row, "file", Json::Type::STRING).string;
+    const auto digest = Field(row, "digest", Json::Type::STRING).string;
+    if (row.object.size() != 3U || !InternalFile(file, prefix + "-set-" + std::to_string(id) + "-", ".vcal")) {
+        throw std::invalid_argument("Invalid calibration manifest identity or internal filename");
+    }
+    if (!ReadFile(directory_ + "/" + file, VnaWeb::CalibrationBinary::BYTE_LIMIT, text) || Digest(text) != digest) {
+        throw std::runtime_error("Missing or damaged calibration set file: " + directory_ + "/" + file);
+    }
+    if (text.size() > DISK_BYTE_LIMIT - diskBytes) {
+        throw std::runtime_error("Calibration pool exceeds its serialized disk budget");
+    }
+    diskBytes += text.size();
+    const auto set = VnaWeb::CalibrationBinary::Decode(text);
+    if (!set || set->id != id) {
+        throw std::invalid_argument("Calibration manifest and document identifiers differ");
+    }
+    return {set, file, digest, text.size()};
+}
+
+CalibrationStore::Entries CalibrationStore::ReadRows(const Json &rows, const std::string &prefix,
+    std::vector<VnaService::CalibrationSetPtr> &sets, std::string &text) const
+{
+    Entries entries;
+    std::size_t diskBytes = 0U;
+    for (const auto &row : rows.array) {
+        const auto id = Identifier(Field(row, "id", Json::Type::STRING));
+        if (entries.count(id) != 0U) {
+            throw std::invalid_argument("Invalid calibration manifest identity or internal filename");
+        }
+        auto entry = ReadEntry(row, prefix, diskBytes, text);
+        sets.push_back(entry.set);
+        entries.emplace(id, std::move(entry));
+        CheckPool(sets, 0U);
+    }
+    return entries;
+}
+
 CalibrationStore::Entries CalibrationStore::Read(unsigned channelId, std::vector<VnaService::CalibrationSetPtr> &sets,
-    std::uint64_t &selectedId, std::string &manifestDigest, bool rebuildCache)
+    std::uint64_t &selectedId, std::string &manifestDigest)
 {
     const auto prefix = Prefix(channelId);
     std::string text;
     if (!ReadFile(directory_ + "/" + prefix + ".json", MANIFEST_BYTE_LIMIT, text)) {
-        for (const auto &file : Files(directory_)) {
-            if (InternalFile(file, prefix + "-set-", ".json")) {
-                throw std::runtime_error("Calibration manifest is missing from a nonempty pool: " + directory_);
-            }
+        if (HasCoefficients(directory_, prefix)) {
+            throw std::runtime_error("Calibration manifest is missing from a nonempty pool: " + directory_);
         }
         selectedId = 0U;
         manifestDigest.clear();
         return {};
     }
     const auto fingerprint = Digest(text);
-    const auto manifest = VnaWeb::ParseJson(text, MANIFEST_NODE_LIMIT);
-    if (manifest.type != Json::Type::OBJECT || manifest.object.size() != 4U ||
-        Field(manifest, "version", Json::Type::NUMBER).number != 1.0 ||
-        Field(manifest, "channelId", Json::Type::NUMBER).number != channelId) {
-        throw std::invalid_argument("Invalid calibration manifest version or channel");
-    }
+    const auto manifest = ParseManifest(text, channelId);
     selectedId = Identifier(Field(manifest, "selectedId", Json::Type::STRING), true);
-    const auto &rows = Field(manifest, "sets", Json::Type::ARRAY).array;
-    if (rows.size() > SET_LIMIT) {
-        throw std::invalid_argument("Calibration manifest exceeds 256 sets");
-    }
-    Entries entries;
-    std::size_t diskBytes = 0U;
-    std::size_t cacheHits = 0U;
-    std::size_t rebuilt = 0U;
-    std::size_t cacheFailures = 0U;
-    std::string cacheWarning;
-    for (const auto &row : rows) {
-        const auto id = Identifier(Field(row, "id", Json::Type::STRING));
-        const auto file = Field(row, "file", Json::Type::STRING).string;
-        const auto digest = Field(row, "digest", Json::Type::STRING).string;
-        if (row.object.size() != 3U || entries.count(id) != 0U ||
-            !InternalFile(file, prefix + "-set-" + std::to_string(id) + "-", ".json")) {
-            throw std::invalid_argument("Invalid calibration manifest identity or internal filename");
-        }
-        if (!ReadFile(directory_ + "/" + file, VnaWeb::CALIBRATION_JSON_BYTE_LIMIT, text) || Digest(text) != digest) {
-            throw std::runtime_error("Missing or damaged calibration set file: " + directory_ + "/" + file);
-        }
-        if (text.size() > DISK_BYTE_LIMIT - diskBytes) {
-            throw std::runtime_error("Calibration pool exceeds its serialized disk budget");
-        }
-        diskBytes += text.size();
-        VnaService::CalibrationSetPtr set;
-        const bool hit = ReadCache(directory_, file, digest, text.size(), set) && set->id == id;
-        if (hit) {
-            ++cacheHits;
-        } else {
-            auto document = VnaWeb::ParseJson(text, VnaWeb::CALIBRATION_JSON_NODE_LIMIT);
-            set = Decode(document);
-        }
-        if (set->id != id) {
-            throw std::invalid_argument("Calibration manifest and document identifiers differ");
-        }
-        entries.emplace(id, Entry{set, file, digest, text.size()});
-        sets.push_back(set);
-        CheckPool(sets, 0U);
-        if (!hit && rebuildCache) {
-            if (WriteCache(directory_, file, digest, text.size(), *set, cacheWarning)) {
-                ++rebuilt;
-            } else {
-                ++cacheFailures;
-            }
-        }
-    }
+    const auto &rows = Field(manifest, "sets", Json::Type::ARRAY);
+    auto entries = ReadRows(rows, prefix, sets, text);
     CheckPool(sets, selectedId);
     manifestDigest = fingerprint;
-    VnaLog::Info(VnaLog::Module::SERVER, "紧凑校准缓存，channel={}，hit={}，miss={}，rebuilt={}，writeFailed={}",
-        channelId, cacheHits, rows.size() - cacheHits, rebuilt, cacheFailures);
-    if (cacheFailures != 0U) {
-        VnaLog::Warn(VnaLog::Module::SERVER, "校准 JSON 恢复成功，缓存写入失败不影响恢复，channel={}，error={}",
-            channelId, cacheWarning);
-    }
+    VnaLog::Info(VnaLog::Module::SERVER, "二进制校准文件已加载，channel={}，format=VNBCAL02，sets={}", channelId,
+        rows.array.size());
     return entries;
 }
 
@@ -737,7 +577,6 @@ bool CalibrationStore::Load(
             keep.insert(entry.second.file);
         }
         Clean(directory_, channelId, keep);
-        CleanCache(directory_, channelId, keep);
         cache_[channelId] = std::move(entries);
         manifests_[channelId] = std::move(fingerprint);
         sets = std::move(restored);
@@ -750,11 +589,176 @@ bool CalibrationStore::Load(
     }
 }
 
+bool CalibrationStore::AdoptValidated(
+    unsigned channelId, const std::vector<VnaService::CalibrationSetPtr> &sets, std::string &error)
+{
+    try {
+        std::lock_guard<std::mutex> guard(mutex_);
+        CheckPool(sets, 0U);
+        const auto found = cache_.find(channelId);
+        if (found == cache_.end() || found->second.size() != sets.size()) {
+            throw std::invalid_argument("Calibration pointer adoption requires the complete loaded binary pool");
+        }
+        for (const auto &set : sets) {
+            const auto previous = found->second.find(set->id);
+            if (previous == found->second.end() || !Same(*set, *previous->second.set)) {
+                throw std::invalid_argument("Validated calibration contents differ from the loaded pool");
+            }
+        }
+        // 校验完成前不替换任一项；之后 shared_ptr 赋值无分配、无异常，也释放恢复前的系数副本。
+        for (const auto &set : sets) {
+            found->second.at(set->id).set = set;
+        }
+        error.clear();
+        return true;
+    } catch (const std::exception &failure) {
+        error = failure.what();
+        return false;
+    }
+}
+
+void CalibrationStore::EnsureLoaded(unsigned channelId)
+{
+    if (cache_.count(channelId) != 0U) {
+        return;
+    }
+    std::vector<VnaService::CalibrationSetPtr> previous;
+    std::uint64_t selected = 0U;
+    std::string fingerprint;
+    auto entries = Read(channelId, previous, selected, fingerprint);
+    manifests_[channelId] = std::move(fingerprint);
+    cache_[channelId] = std::move(entries);
+}
+
+void CalibrationStore::EnsureBaseline(unsigned channelId, SaveState &state, std::string &error)
+{
+    const auto prefix = Prefix(channelId);
+    std::string current;
+    const bool exists = ReadFile(directory_ + "/" + prefix + ".json", MANIFEST_BYTE_LIMIT, current);
+    if ((exists ? Digest(current) : std::string()) != manifests_.at(channelId)) {
+        throw std::runtime_error("Calibration manifest changed outside this store; reload before saving");
+    }
+    if (exists) {
+        return;
+    }
+    const auto text = VnaWeb::StringifyJson(EmptyManifest(channelId, 0U), MANIFEST_BYTE_LIMIT);
+    auto fingerprint = Digest(text);
+    state.created.push_back(directory_ + "/" + prefix + "-manifest-" + Unique() + ".tmp");
+    WriteNew(state.created.back(), text);
+    // 首次候选前发布空基线；它不属于候选提交，后续失败仍返回假并保留这个基线。
+    bool baselinePublished = false;
+    error.clear();
+    Publish(state.created.back(), directory_ + "/" + prefix + ".json", directory_, baselinePublished, error);
+    manifests_.at(channelId).swap(fingerprint);
+    state.created.pop_back();
+}
+
+void CalibrationStore::RemoveUncommitted(unsigned channelId, SaveState &state) const
+{
+    if (!state.cleaned) {
+        Clean(directory_, channelId, state.committed);
+        state.cleaned = true;
+    }
+}
+
+CalibrationStore::Entry CalibrationStore::CandidateEntry(
+    unsigned channelId, const VnaService::CalibrationSetPtr &set, SaveState &state) const
+{
+    const auto &previous = cache_.at(channelId);
+    const auto found = previous.find(set->id);
+    if (found != previous.end() && Same(*set, *found->second.set)) {
+        auto entry = found->second;
+        if (!FileSizeMatches(directory_ + "/" + entry.file, entry.bytes)) {
+            throw std::runtime_error("Cached calibration file is missing or changed: " + entry.file);
+        }
+        entry.set = set;
+        return entry;
+    }
+    state.changedFiles = true;
+    RemoveUncommitted(channelId, state);
+    const auto text = VnaWeb::CalibrationBinary::Encode(*set);
+    const auto decoded = VnaWeb::CalibrationBinary::Decode(text);
+    if (!decoded || !Same(*set, *decoded)) {
+        throw std::runtime_error("Binary calibration roundtrip changed its contents");
+    }
+    Entry entry{set, Prefix(channelId) + "-set-" + std::to_string(set->id) + "-" + Unique() + ".vcal", Digest(text),
+        text.size()};
+    state.created.push_back(directory_ + "/" + entry.file);
+    WriteNew(state.created.back(), text);
+    return entry;
+}
+
+void CalibrationStore::PrepareCandidate(
+    unsigned channelId, const std::vector<VnaService::CalibrationSetPtr> &sets, SaveState &state) const
+{
+    const auto &previous = cache_.at(channelId);
+    for (const auto &entry : previous) {
+        state.committed.insert(entry.second.file);
+    }
+    state.changedFiles = sets.size() != previous.size();
+    if (state.changedFiles) {
+        RemoveUncommitted(channelId, state);
+    }
+    for (const auto &set : sets) {
+        auto entry = CandidateEntry(channelId, set, state);
+        if (entry.bytes > DISK_BYTE_LIMIT - state.diskBytes) {
+            throw std::runtime_error("Calibration pool exceeds its serialized disk budget");
+        }
+        state.diskBytes += entry.bytes;
+        state.rows.array.push_back(ManifestRow(set->id, entry.file, entry.digest));
+        state.keep.insert(entry.file);
+        state.entries.emplace(set->id, std::move(entry));
+    }
+}
+
+void CalibrationStore::CleanupCommitted(unsigned channelId, const SaveState &state, std::string &error) const
+{
+    // 提交后清理不能把已成功持久化的操作重新报告失败；下次 Load 重试清理。
+    try {
+        if (state.changedFiles) {
+            Clean(directory_, channelId, state.keep);
+        }
+    } catch (const std::exception &) {
+        if (error.empty()) {
+            error = "Calibration manifest committed; orphan cleanup failed and will be retried";
+        }
+    }
+}
+
+void CalibrationStore::CommitCandidate(
+    unsigned channelId, std::uint64_t selectedId, SaveState &state, std::string &error)
+{
+    const auto prefix = Prefix(channelId);
+    auto manifest = EmptyManifest(channelId, selectedId);
+    manifest["sets"] = std::move(state.rows);
+    const auto text = VnaWeb::StringifyJson(manifest, MANIFEST_BYTE_LIMIT);
+    auto fingerprint = Digest(text);
+    state.created.push_back(directory_ + "/" + prefix + "-manifest-" + Unique() + ".tmp");
+    WriteNew(state.created.back(), text);
+    error.clear();
+    Publish(state.created.back(), directory_ + "/" + prefix + ".json", directory_, state.published, error);
+    cache_[channelId] = std::move(state.entries);
+    manifests_.at(channelId).swap(fingerprint);
+    CleanupCommitted(channelId, state, error);
+}
+
+void CalibrationStore::RollbackCandidate(const SaveState &state) const
+{
+    if (state.published) {
+        return;
+    }
+    for (const auto &file : state.created) {
+        try {
+            Remove(file);
+        } catch (const std::exception &) {
+        }
+    }
+}
+
 bool CalibrationStore::Save(unsigned channelId, const std::vector<VnaService::CalibrationSetPtr> &sets,
     std::uint64_t selectedId, std::string &error)
 {
-    std::vector<std::string> created;
-    bool published = false;
+    SaveState state;
     try {
         std::lock_guard<std::mutex> guard(mutex_);
         error.reserve(256U);
@@ -762,132 +766,13 @@ bool CalibrationStore::Save(unsigned channelId, const std::vector<VnaService::Ca
         CheckPool(sets, selectedId);
         EnsureDirectory(directory_);
         StoreLock lock(directory_ + "/" + prefix + ".lock");
-        if (cache_.count(channelId) == 0U) {
-            std::vector<VnaService::CalibrationSetPtr> previous;
-            std::uint64_t selected = 0U;
-            std::string fingerprint;
-            auto entries = Read(channelId, previous, selected, fingerprint, false);
-            manifests_[channelId] = std::move(fingerprint);
-            cache_[channelId] = std::move(entries);
-        }
-        std::string current;
-        const bool exists = ReadFile(directory_ + "/" + prefix + ".json", MANIFEST_BYTE_LIMIT, current);
-        if ((exists ? Digest(current) : std::string()) != manifests_.at(channelId)) {
-            throw std::runtime_error("Calibration manifest changed outside this store; reload before saving");
-        }
-        if (!exists) {
-            Json baseline = Json::MakeObject();
-            baseline["version"] = Json(1U);
-            baseline["channelId"] = Json(channelId);
-            baseline["selectedId"] = Json("0");
-            baseline["sets"] = Json::MakeArray();
-            const auto text = VnaWeb::StringifyJson(baseline, MANIFEST_BYTE_LIMIT);
-            auto fingerprint = Digest(text);
-            created.push_back(directory_ + "/" + prefix + "-manifest-" + Unique() + ".tmp");
-            WriteNew(created.back(), text);
-            // 首次候选写入前发布空池；崩溃留下的新集仍能按旧空 manifest 清理。
-            // 此提交不是候选提交，后续失败仍返回假，并保留这个空基线。
-            bool baselinePublished = false;
-            error.clear();
-            Publish(created.back(), directory_ + "/" + prefix + ".json", directory_, baselinePublished, error);
-            manifests_.at(channelId).swap(fingerprint);
-            created.pop_back();
-        }
-        std::set<std::string> committed;
-        for (const auto &entry : cache_.at(channelId)) {
-            committed.insert(entry.second.file);
-        }
-        Clean(directory_, channelId, committed);
-        Json manifest = Json::MakeObject();
-        manifest["version"] = Json(1U);
-        manifest["channelId"] = Json(channelId);
-        manifest["selectedId"] = Json(std::to_string(selectedId));
-        Json rows = Json::MakeArray();
-        Entries entries;
-        std::set<std::string> keep;
-        std::size_t diskBytes = 0U;
-        bool changedFiles = sets.size() != cache_.at(channelId).size();
-        std::array<std::uint64_t, SET_LIMIT> changedIds{};
-        std::size_t changedCount = 0U;
-        std::size_t cacheFailures = 0U;
-        std::string cacheWarning;
-        for (const auto &set : sets) {
-            Entry entry;
-            const auto previous = cache_[channelId].find(set->id);
-            if (previous != cache_[channelId].end() && Same(*set, *previous->second.set)) {
-                entry = previous->second;
-                if (!FileSizeMatches(directory_ + "/" + entry.file, entry.bytes)) {
-                    throw std::runtime_error("Cached calibration file is missing or changed: " + entry.file);
-                }
-                entry.set = set;
-            } else {
-                changedFiles = true;
-                auto document = VnaWeb::CalibrationJson::Export(*set);
-                static_cast<void>(Decode(document));
-                VnaWeb::JsonEncoder encoder(std::move(document), VnaWeb::CALIBRATION_JSON_BYTE_LIMIT);
-                while (!encoder.Advance(4096U)) {
-                }
-                const auto text = encoder.Take();
-                entry = {set, prefix + "-set-" + std::to_string(set->id) + "-" + Unique() + ".json", Digest(text),
-                    text.size()};
-                created.push_back(directory_ + "/" + entry.file);
-                WriteNew(created.back(), text);
-                changedIds[changedCount++] = set->id;
-            }
-            if (entry.bytes > DISK_BYTE_LIMIT - diskBytes) {
-                throw std::runtime_error("Calibration pool exceeds its serialized disk budget");
-            }
-            diskBytes += entry.bytes;
-            Json row = Json::MakeObject();
-            row["id"] = Json(std::to_string(set->id));
-            row["file"] = Json(entry.file);
-            row["digest"] = Json(entry.digest);
-            rows.array.push_back(std::move(row));
-            keep.insert(entry.file);
-            entries.emplace(set->id, std::move(entry));
-        }
-        manifest["sets"] = std::move(rows);
-        const auto text = VnaWeb::StringifyJson(manifest, MANIFEST_BYTE_LIMIT);
-        auto fingerprint = Digest(text);
-        created.push_back(directory_ + "/" + prefix + "-manifest-" + Unique() + ".tmp");
-        WriteNew(created.back(), text);
-        error.clear();
-        Publish(created.back(), directory_ + "/" + prefix + ".json", directory_, published, error);
-        cache_[channelId] = std::move(entries);
-        manifests_.at(channelId).swap(fingerprint);
-        // 提交后清理不得把已成功持久化的操作重新报告失败；下次 Load 会重试并明报清理失败。
-        try {
-            Clean(directory_, channelId, keep);
-        } catch (const std::exception &) {
-            if (error.empty()) {
-                error = "Calibration manifest committed; orphan cleanup failed and will be retried";
-            }
-        }
-        if (changedFiles) {
-            CleanCache(directory_, channelId, keep);
-        }
-        // 派生缓存不得在权威 manifest 发布前占用本次提交所需空间。
-        // 已加载实例的热选择保存不读取、生成或枚举缓存文件。
-        for (std::size_t index = 0U; index < changedCount; ++index) {
-            const auto &entry = cache_.at(channelId).at(changedIds[index]);
-            if (!WriteCache(directory_, entry.file, entry.digest, entry.bytes, *entry.set, cacheWarning)) {
-                ++cacheFailures;
-            }
-        }
-        if (cacheFailures != 0U) {
-            VnaLog::Warn(VnaLog::Module::SERVER, "校准 manifest 已提交，缓存写入失败不影响提交，channel={}，error={}",
-                channelId, cacheWarning);
-        }
+        EnsureLoaded(channelId);
+        EnsureBaseline(channelId, state, error);
+        PrepareCandidate(channelId, sets, state);
+        CommitCandidate(channelId, selectedId, state, error);
         return true;
     } catch (const std::exception &failure) {
-        if (!published) {
-            for (const auto &file : created) {
-                try {
-                    Remove(file);
-                } catch (const std::exception &) {
-                }
-            }
-        }
+        RollbackCandidate(state);
         error = failure.what();
         return false;
     }

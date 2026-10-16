@@ -2,6 +2,7 @@
 #ifndef VNAPRO_SERVER_CALIBRATION_STORE_H
 #define VNAPRO_SERVER_CALIBRATION_STORE_H
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <mutex>
@@ -10,10 +11,14 @@
 
 #include "vna_service/calibration.h"
 
+namespace VnaWeb {
+struct Json;
+}
+
 namespace VnaServer {
 
-// 每通道以原子 manifest 发布不可变 JSON 集；不启用校正、不替代服务的系数/设备适用性验证。
-// compact-cache 为可丢弃的派生数据；Load 先核验源摘要，Save 在权威提交后生成新集缓存。
+// 每通道以原子 manifest 发布不可变二进制集；不启用校正、不替代服务的系数/设备适用性验证。
+// 仅支持 manifest v2/.vcal；旧 JSON 池明确拒绝并保留原文件。
 // 同实例 Load/Save 由内部互斥锁串行；跨实例使用通道文件锁和 manifest 指纹拒绝陈旧写入。
 class CalibrationStore final {
 public:
@@ -21,6 +26,8 @@ public:
     // 首次无 manifest 是空库；损坏、缺文件或 I/O 错误返回假且保留调用方输出。
     bool Load(unsigned channelId, std::vector<VnaService::CalibrationSetPtr> &sets, std::uint64_t &selectedId,
         std::string &error);
+    // 启动完整恢复后绑定服务深冻结的对象；逐值核验整个已加载池后一次替换，不读写文件。
+    bool AdoptValidated(unsigned channelId, const std::vector<VnaService::CalibrationSetPtr> &sets, std::string &error);
     // 返回真表示已发布；若 error 非空，是提交后的持久性/清理警告，调用方须报告且不能回滚内存。
     // 旧 shared_ptr 集复用文件；返回假不会发布新 manifest。
     bool Save(unsigned channelId, const std::vector<VnaService::CalibrationSetPtr> &sets, std::uint64_t selectedId,
@@ -35,8 +42,22 @@ private:
     };
 
     using Entries = std::map<std::uint64_t, Entry>;
+    struct SaveState;
     Entries Read(unsigned channelId, std::vector<VnaService::CalibrationSetPtr> &sets, std::uint64_t &selectedId,
-        std::string &manifestDigest, bool rebuildCache = true);
+        std::string &manifestDigest);
+    Entry ReadEntry(
+        const VnaWeb::Json &row, const std::string &prefix, std::size_t &diskBytes, std::string &text) const;
+    Entries ReadRows(const VnaWeb::Json &rows, const std::string &prefix,
+        std::vector<VnaService::CalibrationSetPtr> &sets, std::string &text) const;
+    void EnsureLoaded(unsigned channelId);
+    void EnsureBaseline(unsigned channelId, SaveState &state, std::string &error);
+    void RemoveUncommitted(unsigned channelId, SaveState &state) const;
+    Entry CandidateEntry(unsigned channelId, const VnaService::CalibrationSetPtr &set, SaveState &state) const;
+    void PrepareCandidate(
+        unsigned channelId, const std::vector<VnaService::CalibrationSetPtr> &sets, SaveState &state) const;
+    void CommitCandidate(unsigned channelId, std::uint64_t selectedId, SaveState &state, std::string &error);
+    void CleanupCommitted(unsigned channelId, const SaveState &state, std::string &error) const;
+    void RollbackCandidate(const SaveState &state) const;
     std::string directory_;
     std::map<unsigned, Entries> cache_;
     std::map<unsigned, std::string> manifests_;

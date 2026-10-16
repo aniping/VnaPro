@@ -122,9 +122,15 @@ bool ConfigureCalibrationStore(VnaService::InstrumentService &service, const Vna
     std::vector<VnaService::CalibrationSetPtr> restored;
     std::uint64_t selected = 0U;
     std::string error;
-    if (!store->Load(1U, restored, selected, error) ||
-        !service.RestoreCalibration(std::move(restored), selected, error)) {
+    if (!store->Load(1U, restored, selected, error) || !service.RestoreCalibration(restored, selected, error)) {
         VnaLog::Error(VnaLog::Module::SERVER, "校准池恢复失败，path={}，error={}", directory, error);
+        return false;
+    }
+    for (auto &set : restored) {
+        set = service.FindCalibrationSet(set->id, 1U);
+    }
+    if (!store->AdoptValidated(1U, restored, error)) {
+        VnaLog::Error(VnaLog::Module::SERVER, "校准池冻结对象绑定失败，path={}，error={}", directory, error);
         return false;
     }
     service.SetCalibrationSaveHandler(
