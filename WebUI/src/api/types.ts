@@ -52,6 +52,9 @@ export interface SweepConfiguration {
   points: number
   ifBandwidthHz: number
   powerDbm?: number
+  /** 最小主机回读节拍；不代表板卡内部逐点驻留时间。 */
+  sweepTimeAuto?: boolean
+  sweepTimeSeconds?: number
 }
 
 export interface SweepPatch {
@@ -62,6 +65,8 @@ export interface SweepPatch {
   points?: number
   ifBandwidthHz?: number
   powerDbm?: number
+  sweepTimeAuto?: boolean
+  sweepTimeSeconds?: number
 }
 
 export interface Measurement {
@@ -218,6 +223,7 @@ export interface InstrumentCapabilities {
   maxSweepPoints: number
   minPowerDbm?: number
   maxPowerDbm?: number
+  manualSweepTimeSupported?: boolean
 }
 
 export interface InstrumentStatus {
@@ -232,6 +238,8 @@ export interface InstrumentStatus {
   acquisitionRevision: string
   runId: string
   activeConfigValid: boolean
+  /** 最近完整扫描的主机耗时，0 表示当前配置尚无实测。 */
+  lastSweepTimeSeconds?: number
   capabilities: InstrumentCapabilities
   activeChannelId?: number
   channels?: ChannelStatus[]
@@ -264,6 +272,7 @@ export interface ChannelStatus {
   acquisitionRevision: string
   runId: string
   activeConfigValid: boolean
+  lastSweepTimeSeconds?: number
   config: InstrumentStatus['config']
   calibration?: CalibrationSnapshot
   stimulusZoom?: StimulusZoomState
@@ -298,6 +307,13 @@ export interface AcquiredFrame {
   traces: ReceiverTrace[]
   /** 顶层仍是活动通道的兼容别名；各通道使用自己的完整频率轴和版本。 */
   channelFrames?: FrameResponse[]
+  /** 仅用于绘图的真实扫描前缀；正式帧、标记和导出仍使用外层完整帧。 */
+  sweepProgress?: SweepProgress
+}
+
+export interface SweepProgress {
+  completedPoints: number
+  frame: AcquiredFrame
 }
 
 export interface UnavailableFrame {
@@ -306,6 +322,7 @@ export interface UnavailableFrame {
   reason: string
   channelId?: number
   channelFrames?: FrameResponse[]
+  sweepProgress?: SweepProgress
 }
 
 export type FrameResponse = AcquiredFrame | UnavailableFrame

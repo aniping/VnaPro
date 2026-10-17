@@ -33,6 +33,8 @@ import {
 import type { TraceMoveRequest } from '../../domain/diagramLayout'
 import { measurementState } from '../../domain/measurements'
 import { frameForMeasurement, measurementChannel } from '../../domain/channels'
+import { currentSweepProgress, sweepTraceSegments } from '../../domain/sweepProgress'
+import { sweepCursorPoint } from '../../plot/sweepCursor'
 import {
   activeMarkerId,
   MARKER_COUNT,
@@ -267,8 +269,11 @@ const traces = computed(() =>
     const channel = props.channels?.find((item) => item.channelId === channelId)
     const source = frameForMeasurement(measurement, props.channelFrames, props.frame)
     const frame = source?.channelId === channelId ? source : null
+    const sweepProgress = currentSweepProgress(props.channelFrames?.[channelId], channel,
+      props.connected !== false, props.revision, props.displayRevision)
+    const sweepSegments = sweepTraceSegments(frame, sweepProgress, measurement.name)
     const config = channel?.config ?? props.config
-    const axis = frame?.frequencyHz
+    const axis = sweepProgress?.frame.frequencyHz ?? frame?.frequencyHz
     const range = axis?.length
       ? { min: axis[0]!, max: axis[axis.length - 1]! }
       : { min: config.startHz, max: config.stopHz }
@@ -277,10 +282,12 @@ const traces = computed(() =>
     )
     return [
       {
-        measurement: frameTrace ?? measurement,
+        measurement: sweepProgress?.frame.traces.find((trace) => trace.name === measurement.name) ?? frameTrace ?? measurement,
         presentation,
         frameTrace,
         frame,
+        sweepProgress,
+        sweepSegments,
         channelId,
         channel,
         config,
@@ -295,6 +302,8 @@ const traces = computed(() =>
 const activeTrace = computed(() =>
   traces.value.find((item) => item.measurement.name === props.primaryTraceName),
 )
+const hasSweepProgress = computed(() => traces.value.some((trace) =>
+  trace.presentation.visible && trace.sweepProgress))
 type DiagramTrace = (typeof traces.value)[number]
 function traceCondition(trace: DiagramTrace): FrameCondition {
   const { channel, frame } = trace
@@ -505,6 +514,7 @@ function setPlotPreview(scale: DisplayScale | null): void {
 const markerModels = computed(() =>
   traces.value.flatMap((item) => {
     if (!item.presentation.visible) return []
+    if (item.sweepProgress && item.sweepSegments.length < 2) return []
     return traceMarkers(item.presentation).flatMap((marker) => {
       if (!marker.enabled) return []
       const result = markerResult(
@@ -761,16 +771,16 @@ const hasDrawable = computed(() =>
   traces.value.some(
     (item) =>
       item.presentation.visible &&
-      (isCircularFormat(item.presentation.format)
-        ? smithSeries(item.frameTrace).some((point) => point !== null)
-        : displaySeries(item.frameTrace, item.presentation.format).some(
+      item.sweepSegments.some((segment) => (isCircularFormat(item.presentation.format)
+        ? smithSeries(segment.trace).some((point) => point !== null)
+        : displaySeries(segment.trace, item.presentation.format).some(
             (series) =>
               series.values.some((value) =>
                 Number.isFinite(
                   scaleCoordinate(value, item.presentation.format),
                 ),
               ),
-          )),
+          ))),
   ),
 )
 const noDrawableMessage = computed(() => {
@@ -851,7 +861,7 @@ const backgrounds = computed<MixedBackground[]>(() => {
 
 /** 绘制与点击共用服务端投影；命中只决定用户点中了哪条可见曲线。 */
 const projectedCurves = computed<SelectableCurve[]>(() =>
-  traces.value.flatMap((item): SelectableCurve[] => {
+  traces.value.flatMap((item): SelectableCurve[] => item.sweepSegments.flatMap((segment): SelectableCurve[] => {
     if (!item.presentation.visible) return []
     const format = item.presentation.format
     const shared = {
@@ -867,21 +877,21 @@ const projectedCurves = computed<SelectableCurve[]>(() =>
           kind: 'circular',
           format: format as 'smith' | 'polar' | 'invSmith',
           radius: circleRadius(item.presentation),
-          points: smithSeries(item.frameTrace),
+          points: smithSeries(segment.trace),
         },
       ]
     }
-    return displaySeries(item.frameTrace, format).map((series) => ({
+    return displaySeries(segment.trace, format).map((series) => ({
       ...shared,
       kind: 'cartesian',
       format,
-      frequencyHz: item.frame?.frequencyHz ?? [],
+      frequencyHz: segment.frame.frequencyHz,
       range: item.range,
       values: series.values,
       scale: item.scale,
       dashed: series.component === 'imaginary',
     }))
-  }),
+  })),
 )
 const curves = computed<SelectableCurve[]>(() => {
   const preview = panPreview.value ?? referenceScalePreview.value
@@ -893,6 +903,17 @@ const curves = computed<SelectableCurve[]>(() => {
       )
     : projectedCurves.value
 })
+const sweepCursors = computed(() => curves.value.flatMap((curve) => {
+  const trace = traces.value.find((item) => item.measurement.name === curve.name)
+  const progress = trace?.sweepProgress
+  if (!progress) return []
+  const point = sweepCursorPoint(curve, progress.completedPoints, {
+    width: width.value, height: height.value, rect: rect.value,
+    scaleX: screenScale.value.x, scaleY: screenScale.value.y,
+  })
+  return point ? [{ ...point, name: curve.name, color: curve.color, channelId: trace.channelId,
+    completedPoints: progress.completedPoints, totalPoints: progress.frame.originalPointCount }] : []
+}))
 
 function schedulePaint(): void {
   cancelAnimationFrame(paintRequest)
@@ -1030,7 +1051,7 @@ watch(
   () => void nextTick(measureTitles),
 )
 // 完整帧不可变；只监听引用，不能让每个图窗递归遍历其他图窗的全部样本。
-watch(() => traces.value.map((trace) => trace.frame), schedulePaint)
+watch(() => traces.value.map((trace) => [trace.frame, trace.sweepProgress]), schedulePaint)
 watch(referenceScalePreview, schedulePaint)
 watch(panPreview, schedulePaint)
 watch(graphicalPanPreview, schedulePaint)
@@ -1496,6 +1517,18 @@ function plotKey(event: KeyboardEvent): void {
       @keydown="plotKey"
     >
       <canvas ref="canvas" class="diagram-canvas" aria-hidden="true" />
+      <svg
+        v-for="(cursor, index) in sweepCursors"
+        :key="`${cursor.name}-${index}`"
+        class="sweep-cursor"
+        data-sweep-cursor
+        :data-sweep-channel="cursor.channelId"
+        :data-completed-points="cursor.completedPoints"
+        :data-total-points="cursor.totalPoints"
+        :style="{ left: `${cursor.x - 5}px`, top: `${cursor.y - 9}px`, color: cursor.color }"
+        viewBox="0 0 10 9"
+        aria-hidden="true"
+      ><title>{{ cursor.name }} · Sweep {{ cursor.completedPoints }} / {{ cursor.totalPoints }} · Marker readings use the last complete sweep</title><path d="M0 0H10L5 9Z" /></svg>
       <PlotInteractionLayer
         v-if="activeTrace && activeTrace.presentation.visible && !isCircularFormat(activeTrace.presentation.format)"
         :key="`${graphicalZoomSelecting || graphicalViewport ? 'graphical' : 'shared'}-${gestureAcquisitionKey}`"
@@ -1673,12 +1706,12 @@ function plotKey(event: KeyboardEvent): void {
         }}</span>
       </div>
       <span
-        v-if="frame && frameCondition.kind !== 'current'"
+        v-if="hasSweepProgress || (frame && frameCondition.kind !== 'current')"
         class="frame-condition"
-        :class="frameCondition.kind"
+        :class="hasSweepProgress ? 'acquiring' : frameCondition.kind"
         :style="{ left: `${rect.left + 5}px`, bottom: '5px' }"
-        :title="frameCondition.detail"
-        >{{ frameCondition.label }}</span
+        :title="hasSweepProgress ? 'Live sweep prefix; marker readings and exports use the last complete sweep.' : frameCondition.detail"
+        >{{ hasSweepProgress ? 'SWEEP' : frameCondition.label }}</span
       >
       <span
         v-if="frame?.decimated"
@@ -1903,6 +1936,14 @@ function plotKey(event: KeyboardEvent): void {
   background: transparent;
   cursor: ew-resize;
   touch-action: none;
+}
+.sweep-cursor {
+  position: absolute;
+  z-index: 3;
+  width: 10px;
+  height: 9px;
+  fill: currentColor;
+  pointer-events: none;
 }
 .marker-handle span {
   position: absolute;

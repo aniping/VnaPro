@@ -27,6 +27,7 @@ import {
 import { decodeDisplay, decodeProjection } from './displayDecoders'
 import { decodeCalibration } from './calibrationDecoders'
 import { FRAME_POINT_LIMIT, FRAME_SAMPLE_BUDGET } from './frameLimits'
+import { decodeSweepProgress, validateProgressChannels } from './sweepProgressDecoder'
 
 function measurement(value: unknown): Measurement {
   const item = object(value, 'measurement')
@@ -73,6 +74,14 @@ function measurement(value: unknown): Measurement {
   return result
 }
 
+function sweepTiming(config: Record<string, unknown>) {
+  if (config.sweepTimeAuto === undefined && config.sweepTimeSeconds === undefined) return {}
+  return {
+    sweepTimeAuto: flag(config.sweepTimeAuto, 'config.sweepTimeAuto'),
+    sweepTimeSeconds: number(config.sweepTimeSeconds, 'config.sweepTimeSeconds', Number.MIN_VALUE, 100000),
+  }
+}
+
 function decodeChannel(value: unknown, capabilities: InstrumentCapabilities): ChannelStatus {
   const item = object(value, 'channel')
   const config = object(item.config, 'channel.config')
@@ -97,7 +106,9 @@ function decodeChannel(value: unknown, capabilities: InstrumentCapabilities): Ch
     acquisitionRevision: identity(item.acquisitionRevision, 'channel.acquisitionRevision'),
     runId: identity(item.runId, 'channel.runId'),
     activeConfigValid: flag(item.activeConfigValid, 'channel.activeConfigValid'),
+    ...(item.lastSweepTimeSeconds === undefined ? {} : { lastSweepTimeSeconds: number(item.lastSweepTimeSeconds, 'channel.lastSweepTimeSeconds', 0) }),
     config: {
+      ...sweepTiming(config),
       startHz, stopHz,
       points: integer(config.points, 'channel.points', capabilities.minSweepPoints, capabilities.maxSweepPoints),
       ifBandwidthHz: number(config.ifBandwidthHz, 'channel.ifBandwidthHz', 10),
@@ -143,6 +154,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
     ),
     ...(limits.minPowerDbm === undefined ? {} : { minPowerDbm: number(limits.minPowerDbm, 'capabilities.minPowerDbm') }),
     ...(limits.maxPowerDbm === undefined ? {} : { maxPowerDbm: number(limits.maxPowerDbm, 'capabilities.maxPowerDbm') }),
+    ...(limits.manualSweepTimeSupported === undefined ? {} : { manualSweepTimeSupported: flag(limits.manualSweepTimeSupported, 'capabilities.manualSweepTimeSupported') }),
   }
   if (
     capabilities.minFrequencyHz > capabilities.maxFrequencyHz ||
@@ -197,6 +209,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
     ),
     runId: identity(item.runId, 'runId'),
     activeConfigValid: flag(item.activeConfigValid, 'activeConfigValid'),
+    ...(item.lastSweepTimeSeconds === undefined ? {} : { lastSweepTimeSeconds: number(item.lastSweepTimeSeconds, 'lastSweepTimeSeconds', 0) }),
     capabilities,
     ...(item.activeChannelId === undefined ? {} : { activeChannelId: integer(item.activeChannelId, 'activeChannelId', 1, 65535) }),
     ...(item.channels === undefined ? {} : { channels: array(item.channels, 'channels', 16).map((channel) => decodeChannel(channel, capabilities)) }),
@@ -210,6 +223,7 @@ export function decodeStatus(value: unknown): InstrumentStatus {
       } }
     })()),
     config: {
+      ...sweepTiming(config),
       startHz,
       stopHz,
       points: integer(
@@ -288,7 +302,7 @@ function trace(value: unknown, count: number): ReceiverTrace {
   }
 }
 
-function decodeFrameEntry(value: unknown): FrameResponse {
+function decodeCompleteFrameEntry(value: unknown): FrameResponse {
   const item = object(value, 'frame')
   if (!flag(item.available, 'frame.available')) {
     if (flag(item.current, 'frame.current'))
@@ -365,11 +379,21 @@ function decodeFrameEntry(value: unknown): FrameResponse {
   return result
 }
 
+function decodeFrameEntry(value: unknown): FrameResponse {
+  const item = object(value, 'frame')
+  const result = decodeCompleteFrameEntry(item)
+  return item.sweepProgress === undefined ? result : {
+    ...result,
+    sweepProgress: decodeSweepProgress(item.sweepProgress, result.channelId, decodeCompleteFrameEntry),
+  }
+}
+
 export function decodeFrame(value: unknown): FrameResponse {
   const item = object(value, 'frame')
   const result = decodeFrameEntry(item)
   if (item.channelFrames === undefined) return result
   const channelFrames = array(item.channelFrames, 'frame.channelFrames', 16).map(decodeFrameEntry)
+  validateProgressChannels(channelFrames)
   const ids = new Set(channelFrames.map((frame) => frame.channelId))
   const names = channelFrames.flatMap((frame) => frame.available ? frame.traces.map((trace) => trace.name) : [])
   if (!ids.size || ids.has(undefined) || ids.size !== channelFrames.length || names.length > MAX_TRACES || new Set(names).size !== names.length ||
