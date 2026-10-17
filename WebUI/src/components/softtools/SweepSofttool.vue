@@ -6,6 +6,7 @@ const props = defineProps<{
   status: InstrumentStatus | null
   mode: 'sweep-control' | 'trigger'
   canWrite: boolean
+  canStop?: boolean
   busy: boolean
   action: (command: SweepControlCommand) => Promise<InstrumentStatus | null>
 }>()
@@ -86,6 +87,8 @@ async function run(command: SweepControlCommand) {
         :disabled="disabled"
         @click="run({ action: 'start' })"
       >Start Sweep</button>
+      <button class="softtool-button" data-testid="sweep-stop" type="button" :disabled="!canStop"
+        @click="canStop && action({ action: 'stop' })">Stop Sweep</button>
       <p class="softtool-note">Continuous 持续执行，Manual 下等待触发；Single 使用 Start Sweep 开始新一轮。</p>
       <div class="softtool-divider" />
       <button class="softtool-button" data-testid="sweep-restart-manager" type="button" disabled aria-describedby="sweep-restart-reason">Restart Manager</button>

@@ -14,10 +14,33 @@ function sweepProps() {
     status: status as InstrumentStatus | null,
     mode: 'sweep-control' as 'sweep-control' | 'trigger',
     canWrite: true,
+    canStop: false,
     busy: false,
     action: async (_command: SweepControlCommand): Promise<InstrumentStatus | null> => null,
   })
 }
+
+test('长Single处于busy时仍能独立停止，停止权限撤回后不能重复提交', async () => {
+  const props = sweepProps()
+  props.busy = true
+  props.canWrite = false
+  props.canStop = true
+  props.status!.state = 'Running'
+  const calls: SweepControlCommand[] = []
+  props.action = async command => { calls.push(command); return null }
+  const view = await viewFor(props)
+  try {
+    assert.equal(button(view.render, 'start').disabled, true)
+    assert.equal(button(view.render, 'stop').disabled, false)
+    await button(view.render, 'stop').onClick()
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]!.action, 'stop')
+    props.canStop = false
+    assert.equal(button(view.render, 'stop').disabled, true)
+    await button(view.render, 'stop').onClick()
+    assert.equal(calls.length, 1)
+  } finally { view.dispose() }
+})
 
 function control(render: () => VNode, id: string) {
   const node = findElements(
@@ -60,7 +83,7 @@ test('Sweep mode selection is separate from its single Start Sweep action and pr
         assert.equal(button(view.render, 'start')['aria-pressed'], undefined)
         assert.equal(text(control(view.render, 'start')), 'Start Sweep')
         assert.equal(findElements(view.render(), (node) => node.props?.['data-testid'] === 'sweep-start').length, 1)
-        assert.equal(findElements(view.render(), (node) => node.props?.['data-testid'] === 'sweep-stop').length, 0)
+        assert.equal(findElements(view.render(), (node) => node.props?.['data-testid'] === 'sweep-stop').length, 1)
       }
     }
     status.config.selectedSweepMode = 'CONT'
@@ -318,6 +341,7 @@ test('App connects Sweep and toolbar restart to the independent sweep command AP
     const slot = (host.children as { default: () => VNode[] }).default()
     const sweep = slot.map((node) => findComponent(node, 'SweepSofttool')).find(Boolean)!
     assert.equal(sweep.props!.action, instrument.sweepControl)
+    assert.equal(sweep.props!['can-stop'], instrument.canStopSweep.value)
     const calls: SweepControlCommand[] = []
     instrument.sweepControl = async (command) => { calls.push({ ...command }); return null }
     for (const mode of ['CONT', 'SING'] as const) {

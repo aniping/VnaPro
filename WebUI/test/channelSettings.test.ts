@@ -50,6 +50,7 @@ new Function('require', 'module', 'exports', script)(
     if (name === '../../domain/sweep') return { sweepWithinCapabilities }
     if (name === '../../plot/formatting') return { frequencyText }
     if (name.endsWith('FrequencyField.vue')) return { default: {} }
+    if (name.endsWith('SweepTimeFields.vue')) return { default: {} }
     throw new Error(`Unexpected component dependency: ${name}`)
   },
   moduleValue,

@@ -8,6 +8,7 @@ import type {
 import { sweepWithinCapabilities } from '../../domain/sweep'
 import { frequencyText } from '../../plot/formatting'
 import FrequencyField from '../shared/FrequencyField.vue'
+import SweepTimeFields from '../shared/SweepTimeFields.vue'
 
 const props = defineProps<{
   status: InstrumentStatus | null
@@ -39,12 +40,12 @@ const spanDraft = ref(0)
 let baseline: SweepConfiguration | null = null
 
 function configuration(status: InstrumentStatus): SweepConfiguration {
-  const { startHz, stopHz, points, ifBandwidthHz, powerDbm } = status.config
-  return { startHz, stopHz, points, ifBandwidthHz, powerDbm }
+  const { startHz, stopHz, points, ifBandwidthHz, powerDbm, sweepTimeAuto, sweepTimeSeconds } = status.config
+  return { startHz, stopHz, points, ifBandwidthHz, powerDbm, sweepTimeAuto, sweepTimeSeconds }
 }
 
 function signature(value: SweepConfiguration): string {
-  if (props.mode === 'points') return JSON.stringify(value.points)
+  if (props.mode === 'points') return JSON.stringify([value.points, value.sweepTimeAuto, value.sweepTimeSeconds])
   if (props.mode === 'bandwidth') return JSON.stringify(value.ifBandwidthHz)
   if (props.mode === 'power') return JSON.stringify(value.powerDbm)
   return JSON.stringify([value.startHz, value.stopHz, value.powerDbm])
@@ -114,7 +115,8 @@ const locked = computed(() => props.busy || applying.value)
 /** 只为草稿预览换算边界；实际命令发送 Center/Span，由后端执行联动。 */
 function previewConfiguration(): SweepConfiguration {
   const current = props.status ? configuration(props.status) : { ...draft }
-  if (props.mode === 'points') return { ...current, points: draft.points }
+  if (props.mode === 'points') return { ...current, points: draft.points,
+    sweepTimeAuto: draft.sweepTimeAuto, sweepTimeSeconds: draft.sweepTimeSeconds }
   if (props.mode === 'bandwidth')
     return { ...current, ifBandwidthHz: draft.ifBandwidthHz }
   if (props.mode === 'power') return { ...current, powerDbm: draft.powerDbm }
@@ -160,13 +162,26 @@ function discard() {
   if (props.status && !locked.value) load(props.status)
 }
 
+function pointsPatch(): SweepPatch {
+  const patch: SweepPatch = {}
+  if (draft.points !== baseline?.points) patch.points = draft.points
+  if (props.status?.capabilities.manualSweepTimeSupported) {
+    if (draft.sweepTimeAuto !== baseline?.sweepTimeAuto) patch.sweepTimeAuto = draft.sweepTimeAuto
+    if (draft.sweepTimeSeconds !== baseline?.sweepTimeSeconds) {
+      patch.sweepTimeSeconds = draft.sweepTimeSeconds
+      patch.sweepTimeAuto = draft.sweepTimeAuto
+    }
+  }
+  return patch
+}
+
 async function commit() {
   if (!dirty.value || !props.canConfigure || locked.value || !props.status)
     return
   // 每个菜单只发送用户在本页编辑的字段，避免覆盖其它菜单的后端设置。
   const candidate: SweepPatch =
     props.mode === 'points'
-      ? { points: draft.points }
+      ? pointsPatch()
       : props.mode === 'bandwidth'
         ? { ifBandwidthHz: draft.ifBandwidthHz }
         : props.mode === 'power'
@@ -174,11 +189,15 @@ async function commit() {
         : frequencyMode.value === 'centerSpan'
           ? { centerHz: centerDraft.value, spanHz: spanDraft.value, ...(draft.powerDbm === undefined ? {} : { powerDbm: draft.powerDbm }) }
           : { startHz: draft.startHz, stopHz: draft.stopHz, ...(draft.powerDbm === undefined ? {} : { powerDbm: draft.powerDbm }) }
+  if (Object.keys(candidate).length === 0) return
   const expectedRevision = editRevision.value
   const limits = props.status.capabilities
   if (!sweepWithinCapabilities(previewConfiguration(), limits)) {
     validation.value =
-      props.mode === 'points'
+      props.mode === 'points' && draft.sweepTimeSeconds !== undefined &&
+        (!Number.isFinite(draft.sweepTimeSeconds) || draft.sweepTimeSeconds <= 0 || draft.sweepTimeSeconds > 100000)
+        ? 'Sweep Time must be greater than 0 and no more than 100000 s.'
+      : props.mode === 'points'
         ? `Number of Points must be an integer between ${limits.minSweepPoints} and ${limits.maxSweepPoints}.`
         : draft.powerDbm !== undefined && (!Number.isFinite(draft.powerDbm) || draft.powerDbm < -120 || draft.powerDbm > 100)
           ? 'Power must be a finite dBm value between -120 and 100.'
@@ -283,6 +302,16 @@ function applyFromKeyboard(event: KeyboardEvent) {
             @input="update"
           />
         </label>
+        <div class="softtool-divider" />
+        <SweepTimeFields
+          v-if="status.config.sweepTimeAuto !== undefined && status.config.sweepTimeSeconds !== undefined"
+          :automatic="draft.sweepTimeAuto ?? true" :seconds="draft.sweepTimeSeconds ?? 1"
+          :actual-seconds="status.lastSweepTimeSeconds"
+          :disabled="!status.capabilities.manualSweepTimeSupported || !canConfigure || locked"
+          @update:automatic="draft.sweepTimeAuto = $event; update()"
+          @update:seconds="draft.sweepTimeSeconds = $event; update()"
+        />
+        <p v-if="!status.capabilities.manualSweepTimeSupported" class="softtool-note">当前后端未提供可调软件扫时。</p>
       </template>
       <template v-else>
         <h3 class="softtool-section-title">Bandwidth</h3>

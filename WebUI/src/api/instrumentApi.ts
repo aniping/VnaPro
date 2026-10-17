@@ -426,6 +426,8 @@ export class InstrumentApi implements InstrumentGateway {
       'points',
       'ifBandwidthHz',
       'powerDbm',
+        'sweepTimeAuto',
+        'sweepTimeSeconds',
     ] as const
     const patch = Object.fromEntries(
       fields

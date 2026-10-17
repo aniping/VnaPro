@@ -187,6 +187,94 @@ async function microtasks() {
   await Promise.resolve()
 }
 
+test('慢扫旁带跟随最新轮询，保留完整帧但不残留失败或已撤销的进度', async (context) => {
+  const api = new FakeGateway()
+  const initial = acquiredFrame(receiverTrace(api.current.measurements[0]!))
+  api.frame = async () => initial
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const progress = { completedPoints: 1, frame: { ...initial, current: false, frameSeq: '2' } }
+  api.frame = async () => ({ available: false, current: false, reason: 'No completed frame',
+    channelId: 1, sweepProgress: progress })
+  await model.refresh()
+  assert.equal(model.channelFrames.value[1]!.sweepProgress, progress)
+  assert.equal(model.frame.value?.frameSeq, initial.frameSeq)
+  assert.deepEqual(model.frame.value?.traces, initial.traces)
+  api.frame = async () => ({ available: false, current: false, reason: 'Stopped', channelId: 1 })
+  await model.refresh()
+  assert.equal(model.channelFrames.value[1]!.sweepProgress, undefined)
+  api.frame = async () => ({ ...initial, sweepProgress: progress })
+  await model.refresh()
+  assert.equal(model.channelFrames.value[1]!.sweepProgress, progress)
+  api.frame = async () => { throw new ApiError('Frame unavailable', 503) }
+  await model.refresh()
+  assert.equal(model.channelFrames.value[1]!.sweepProgress, undefined)
+  assert.equal(model.frame.value?.frameSeq, initial.frameSeq)
+})
+
+test('长Single等待时仍可Stop，停止观察不覆盖Single原操作和完成Promise', async (context) => {
+  const api = new FakeGateway()
+  let submits = 0
+  api.submitter = async () => ({ operationId: ++submits === 1 ? 'single-time' : 'stop-time', state: 'pending' })
+  let completed = false
+  api.operation = async (id, owner) => {
+    api.operationOwners.push(owner)
+    return completed ? { operationId: id, state: 'completed', result: { ok: true, errorCode: 0, message: '' } }
+      : { operationId: id, state: 'pending', result: null }
+  }
+  const model = await ready(api)
+  context.after(() => model.stop())
+  const single = model.sweepControl({ action: 'single' })
+  await microtasks()
+  api.current.state = 'Running'
+  api.current.config.sweepMode = 'SING'
+  await model.refresh()
+  assert.equal(model.canRun.value, false)
+  assert.equal(model.canStopSweep.value, true)
+  const stopping = model.sweepControl({ action: 'stop' })
+  await microtasks()
+  assert.equal(model.pendingOperation.value?.id, 'single-time')
+  assert.equal(model.canStopSweep.value, false)
+  assert.equal(model.canConfigure.value, false)
+  assert.equal(await model.sweepControl({ action: 'stop' }), null)
+  completed = true
+  api.current.state = 'Ready'
+  api.current.config.sweepMode = 'HOLD'
+  await model.refresh()
+  assert.equal((await single)?.state, 'Ready')
+  assert.equal((await stopping)?.state, 'Ready')
+  assert.equal(submits, 2)
+})
+
+test('已受理Stop的查询与读回临时失败保留凭据和写门禁，不重发停止', async (context) => {
+  const api = new FakeGateway()
+  api.current.state = 'Running'
+  api.current.config.sweepMode = 'CONT'
+  const model = await ready(api)
+  context.after(() => model.stop())
+  let settled = false
+  const stopping = model.sweepControl({ action: 'stop' }).then(value => { settled = true; return value })
+  await microtasks()
+  api.operationLoader = async () => { throw new ApiError('Temporary operation failure', 503) }
+  await model.refresh()
+  assert.equal(settled, false)
+  assert.equal(model.canConfigure.value, false)
+  api.operationLoader = async () => ({ operationId: 'op-1', state: 'completed', result: { ok: true, errorCode: 0, message: '' } })
+  let reads = 0
+  api.statusLoader = async () => {
+    if (++reads === 2) throw new ApiError('Temporary readback failure', 503)
+    return structuredClone(api.current)
+  }
+  await model.refresh()
+  assert.equal(settled, false)
+  assert.equal(model.canConfigure.value, false)
+  api.current.state = 'Ready'
+  api.current.config.sweepMode = 'HOLD'
+  await model.refresh()
+  assert.equal((await stopping)?.state, 'Ready')
+  assert.deepEqual(api.sweepCommands, [{ action: 'stop' }])
+})
+
 test('trace moves submit the drag-start display revision even after a status refresh', async (context) => {
   const api = new FakeGateway()
   const calls: { command: DisplayCommand; revision: string }[] = []

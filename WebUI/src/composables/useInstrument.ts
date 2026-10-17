@@ -64,6 +64,9 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const writeInFlight = shallowRef(false)
   const uncertainWrite = shallowRef(false)
   const renewing = shallowRef(false)
+  const stopping = shallowRef(false)
+  let stopObservation: { id: string; owner: string } | null = null
+  let resolveStop: ((value: InstrumentStatus | null) => void) | null = null
 
   let active = false
   let generation = 0
@@ -98,7 +101,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
       const channelId = entry.channelId ?? id
       const previous = next[channelId]
       next[channelId] = !entry.available && previous?.available && !clearUnavailable
-        ? { ...previous, current: false }
+        ? { ...previous, current: false, sweepProgress: entry.sweepProgress }
         : entry
     }
     channelFrames.value = next
@@ -120,6 +123,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
       hasControl.value &&
       !writeInFlight.value &&
       !uncertainWrite.value &&
+      !stopping.value &&
       !pendingOperation.value &&
       !status.value?.pending &&
       status.value,
@@ -154,6 +158,10 @@ export function useInstrument(options: InstrumentOptions = {}) {
   const canRun = computed(
     () => canWrite.value && !status.value?.calibration?.collecting,
   )
+  const canStopSweep = computed(() => Boolean(hasControl.value && !controlBusy.value &&
+    !writeInFlight.value && !uncertainWrite.value && !stopping.value &&
+    status.value?.state === 'Running' && !status.value.calibration?.collecting &&
+    (!pendingOperation.value || pendingOperation.value.kind === 'sweep')))
   // 故障后仍可丢弃校准会话；其他校准写动作继续服从健康状态门禁。
   const canCancelCalibration = computed(() => Boolean(
     operationGateOpen.value &&
@@ -397,6 +405,65 @@ export function useInstrument(options: InstrumentOptions = {}) {
     }
   }
 
+  function settleStop(value: InstrumentStatus | null) {
+    stopObservation = null
+    stopping.value = false
+    resolveStop?.(value)
+    resolveStop = null
+  }
+
+  async function observeStop(epoch: number) {
+    const pending = stopObservation
+    if (!pending) return
+    let querying = true
+    try {
+      const result = await api.operation(pending.id, pending.owner)
+      querying = false
+      if (epoch !== generation || stopObservation !== pending || result.state === 'pending') return
+      if (result.operationId !== pending.id) throw new ApiError('停止操作编号不匹配', 0, '', 'protocol')
+      if (result.state === 'failed') {
+        settleStop(null)
+        notify(result.result?.message || '停止失败', 'error')
+        return
+      }
+      const readback = await api.status()
+      if (epoch !== generation || stopObservation !== pending) return
+      status.value = readback
+      settleStop(readback)
+      notify('Stop Sweep 完成，已读回停止状态。', 'success')
+    } catch (failure) {
+      if (epoch !== generation || stopObservation !== pending) return
+      if (querying && failure instanceof ApiError && failure.status === 404) {
+        settleStop(null)
+        notify('停止操作结果已过期，请根据设备状态判断；未自动重发。', 'warning')
+      }
+      // 临时读取失败保留已受理操作，不能把 HTTP 202 当作已停止。
+    }
+  }
+
+  async function stopSweep(): Promise<InstrumentStatus | null> {
+    if (!canStopSweep.value || !api.sweepControl) return null
+    stopping.value = true
+    ++writeEpoch
+    const epoch = generation
+    const owner = api.sessionId
+    try {
+      const accepted = await api.sweepControl({ action: 'stop' }, status.value?.activeChannelId)
+      if (epoch !== generation) return null
+      stopObservation = { id: accepted.operationId, owner }
+      return new Promise(resolve => { resolveStop = resolve })
+    } catch (failure) {
+      if (epoch === generation) {
+        stopping.value = false
+        uncertainWrite.value = failure instanceof ApiError && failure.status === 0 && failure.kind !== 'cancelled'
+        notify(message(failure), 'error')
+      }
+      return null
+    } finally {
+      if (epoch === generation) schedule(0)
+    }
+  }
+
   async function pollCycle(epoch: number): Promise<void> {
     const wasConnected = connected.value
     const epochAtRead = writeEpoch
@@ -426,7 +493,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
         acceptFrames(frameResult.value)
       } else if (frameResult.status === 'rejected') {
         channelFrames.value = Object.fromEntries(Object.entries(channelFrames.value).map(([id, entry]) =>
-          [id, entry.available ? { ...entry, current: false } : entry]))
+          [id, entry.available ? { ...entry, current: false, sweepProgress: undefined } : { ...entry, sweepProgress: undefined }]))
         frameCurrent.value = false
         frameError.value = message(frameResult.reason)
         if (
@@ -442,6 +509,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
       initialized.value = true
       if (connected.value) {
         await observeOperation(epoch)
+        await observeStop(epoch)
         if (epoch !== generation || !active) return
         const control = status.value?.control
         if (!initialClaimAttempted) {
@@ -585,6 +653,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
     connected.value = false
     // 终止 HTTP 状态查询不会取消设备已受理的操作。
     settleOperation(null)
+    settleStop(null)
   }
 
   if (getCurrentScope()) onScopeDispose(stop)
@@ -609,6 +678,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
     canChangeMeasurements,
     canCalibrate,
     canRun,
+    canStopSweep,
     canCancelCalibration,
     canEditDisplay: canWrite,
     canContinueDisplayGesture,
@@ -702,6 +772,7 @@ export function useInstrument(options: InstrumentOptions = {}) {
     run: (action: RunAction) =>
       canRun.value ? submit(ACTION_LABEL[action], 'sweep', () => api.operate(action)) : Promise.resolve(null),
     sweepControl: (command: SweepControlCommand) => {
+      if (command.action === 'stop') return stopSweep()
       if (!canRun.value || !api.sweepControl || !status.value?.config.selectedSweepMode)
         return Promise.resolve(null)
       const label = command.action === 'mode'

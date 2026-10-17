@@ -45,6 +45,7 @@ const {
   canChangeMeasurements,
   canCalibrate,
   canRun,
+  canStopSweep,
   canCancelCalibration,
   canEditDisplay: canWriteDisplay,
   canContinueDisplayGesture,
@@ -652,6 +653,7 @@ onBeforeUnmount(() => {
               :mode="activeTool === 'trigger' ? 'trigger' : 'sweep-control'"
               :status="status"
               :can-write="canRun"
+              :can-stop="canStopSweep"
               :busy="busy"
               :action="instrument.sweepControl"
             />
