@@ -115,7 +115,7 @@ std::string Keyword(std::string token)
         {"RLEVEL", "RLEV"}, {"RPOSITION", "RPOS"}, {"MARKER", "MARK"}, {"STATE", "STAT"}, {"DISCRETE", "DISC"},
         {"CORRECTION", "CORR"}, {"COLLECTION", "COLL"}, {"COLLECT", "COLL"}, {"METHOD", "METH"}, {"ACQUIRE", "ACQ"},
         {"ABORT", "ABOR"}, {"ACTIVE", "ACT"}, {"POWER", "POW"}, {"LEVEL", "LEV"}, {"AMPLITUDE", "AMPL"},
-        {"BORDER", "BORD"}};
+        {"BORDER", "BORD"}, {"AUTOMATIC", "AUTO"}};
     const auto found = names.find(token);
     if (found != names.end()) {
         token = found->second;

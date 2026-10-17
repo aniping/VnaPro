@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "scpi/parsed_command.h"
+#include "scpi/scpi_command_registry.h"
 #include "scpi/scpi_diagnostics.h"
 #include "scpi/scpi_numeric_encoder.h"
 #include "vna_service/instrument_service.h"
@@ -76,6 +77,13 @@ private:
     bool QueryNumeric(const ParsedCommand &command, double current, double minimum, double maximum);
     void Dispatch(const ParsedCommand &command);
     bool DispatchRegistered(const ParsedCommand &command);
+    void DispatchCommand(CommandHandler handler, const ParsedCommand &command);
+    bool DispatchCommonCommand(CommandHandler handler, const ParsedCommand &command);
+    bool DispatchConfigurationCommand(CommandHandler handler, const ParsedCommand &command);
+    bool DispatchMeasurementCommand(CommandHandler handler, const ParsedCommand &command);
+    bool DispatchDataCommand(CommandHandler handler, const ParsedCommand &command);
+    void DispatchSweepTiming(const ParsedCommand &command);
+    void DispatchSweepTimeAuto(const ParsedCommand &command);
     void DispatchIdentity(const ParsedCommand &command);
     void DispatchClearStatus(const ParsedCommand &command);
     void DispatchReset(const ParsedCommand &command);

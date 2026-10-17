@@ -22,6 +22,7 @@ enum class CommandHandler {
     BANDWIDTH,
     POWER,
     SWEEP_TYPE,
+    SWEEP_TIMING,
     TRIGGER_SOURCE,
     TRIGGER_SCOPE,
     SWEEP_MODE,
