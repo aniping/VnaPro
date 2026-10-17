@@ -18,14 +18,13 @@
 
 #include "vna_core/frame_layout.h"
 #include "vna_core/sweep_plan.h"
-#include "vna_measurement/measurement_processor.h"
 #include "vna_service/instrument_profile.h"
 #include "vna_service/instrument_service.h"
 #include "vna_service/service_error_code.h"
 #include "web/calibration_json.h"
 #include "web/calibration_preview_json.h"
 #include "web/display_json.h"
-#include "web/frame_array_json.h"
+#include "web/frame_response.h"
 #include "web/frame_selection.h"
 #include "web/json_encoder.h"
 #include "web/json_parser.h"
@@ -54,8 +53,6 @@ constexpr std::size_t RETRY_LIMIT = 32U;
 constexpr std::size_t RETRY_BYTE_LIMIT = 64U * 1024U * 1024U;
 constexpr std::size_t OPERATION_LIMIT = 128U;
 constexpr std::size_t NAME_LENGTH_LIMIT = 128U;
-// 即使请求128条迹线，也不同时保留全部完整频轴的复数结果。
-constexpr std::size_t CALCULATION_BATCH_SIZE = 4U;
 constexpr unsigned SWEEP_POINT_LIMIT = 10001U;
 constexpr unsigned TOKEN_WORD_COUNT = 4U;
 constexpr int TOKEN_WORD_HEX_WIDTH = 8;
@@ -81,6 +78,15 @@ double Numeric(const Json &value, const std::string &key)
         throw std::runtime_error(key + " must be finite numeric data");
     }
     return item->number;
+}
+
+bool Boolean(const Json &value, const std::string &key)
+{
+    const auto item = value.Find(key);
+    if (item == nullptr || item->type != Json::Type::BOOLEAN) {
+        throw std::runtime_error(key + " must be a boolean");
+    }
+    return item->boolean;
 }
 
 unsigned PositiveInteger(const Json &value, const std::string &key, unsigned maximum)
@@ -126,42 +132,6 @@ bool Ready(const VnaService::Operation &value)
     return value.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-std::string CoreStateName(VnaCore::CoreState value)
-{
-    switch (value) {
-        case VnaCore::CoreState::UNINITIALIZED:
-            return "Uninitialized";
-        case VnaCore::CoreState::READY:
-            return "Ready";
-        case VnaCore::CoreState::RUNNING:
-            return "Running";
-        case VnaCore::CoreState::FAULTED:
-            return "Faulted";
-        case VnaCore::CoreState::CLOSED:
-            return "Closed";
-        default:
-            return "Uninitialized";
-    }
-}
-
-Json MeasurementJson(const VnaService::Measurement &measurement, const VnaCalibration::CalibrationPtr &calibration = {})
-{
-    Json value = Json::MakeObject();
-    value["name"] = Json(measurement.name);
-    value["channelId"] = Json(measurement.channelId);
-    value["receiverKind"] = Json(std::string(1, measurement.receiverKind));
-    value["receiverPort"] = Json(measurement.receiverPort);
-    value["sourcePort"] = Json(measurement.sourcePort);
-    value["parameter"] = Json(measurement.Parameter());
-    const bool ratio = measurement.kind == VnaService::MeasurementKind::S_PARAMETER;
-    value["kind"] = Json(ratio ? "sParameter" : "receiver");
-    value["unit"] = Json(ratio ? "1" : "a.u.");
-    const bool corrected =
-        ratio && calibration && calibration->Covers(measurement.receiverPort, measurement.sourcePort);
-    value["calibration"] = Json(!ratio ? "raw" : corrected ? "calibrated" : "uncalibrated");
-    return value;
-}
-
 bool SafeName(const std::string &value)
 {
     if (value.empty() || value.size() > NAME_LENGTH_LIMIT || value == "." || value == "..") {
@@ -194,22 +164,37 @@ std::vector<VnaService::Measurement> FrameMeasurements(
     return result;
 }
 
-void AppendFrameAxis(
-    Json &value, const VnaCore::MeasurementFrame &frame, const std::vector<std::size_t> &indexes, bool packed)
+unsigned FrameTarget(const VnaService::InstrumentSnapshot &snapshot, const FrameQuery &options,
+    const std::vector<VnaService::Measurement> &selected)
 {
-    value["frequencyHz"] = FrameArrayJson::Numbers(
-        indexes.size(),
-        [&frame, &indexes](std::size_t position) {
-            return FrameArrayNumber{frame.plan.frequencyHz[indexes[position]], true};
-        },
-        packed);
-    value["sampleIndexes"] = FrameArrayJson::Numbers(
-        indexes.size(),
-        [&indexes](std::size_t position) {
-            return FrameArrayNumber{static_cast<double>(indexes[position]), true};
-        },
-        packed);
+    if (options.channelId == 0U && !options.selection.empty() && !selected.empty() &&
+        std::all_of(selected.begin(), selected.end(), [&selected](const VnaService::Measurement &measurement) {
+            return measurement.channelId == selected.front().channelId;
+        })) {
+        return selected.front().channelId;
+    }
+    return options.channelId == 0U ? snapshot.activeChannelId : options.channelId;
 }
+
+const VnaService::InstrumentChannelSnapshot &FrameChannel(const VnaService::InstrumentSnapshot &snapshot,
+    const FrameQuery &options, const std::vector<VnaService::Measurement> &selected)
+{
+    const auto target = FrameTarget(snapshot, options, selected);
+    const auto channel = std::find_if(snapshot.channels.begin(), snapshot.channels.end(), [target](const auto &item) {
+        return item.id == target;
+    });
+    if (channel == snapshot.channels.end()) {
+        throw std::invalid_argument("Frame channel does not exist");
+    }
+    if (options.channelId != 0U && !options.selection.empty() &&
+        std::any_of(selected.begin(), selected.end(), [target](const VnaService::Measurement &measurement) {
+            return measurement.channelId != target;
+        })) {
+        throw std::invalid_argument("Trace does not belong to the requested channel");
+    }
+    return *channel;
+}
+
 }  // 匿名命名空间
 
 HttpApi::HttpApi(VnaService::InstrumentService &service, Now clock) : service_(service), now_(std::move(clock))
@@ -285,176 +270,25 @@ void HttpApi::Poll()
     }
 }
 
-HttpResponse HttpApi::Status(const HttpRequest &request) const
-{
-    const auto snapshot = service_.Snapshot();
-    const auto &settings = snapshot.settings;
-    HttpResponse response;
-    Json &value = response.json = Json::MakeObject();
-    value["identity"] = Json(service_.Identity());
-    value["backend"] = Json(service_.IsSimulator() ? "NativeSimulator" : "HardwareDriver");
-    const auto &profile = service_.Profile();
-    Json capabilities = Json::MakeObject();
-    capabilities["portCount"] = Json(profile.portCount);
-    capabilities["minFrequencyHz"] = Json(profile.minFrequencyHz);
-    capabilities["maxFrequencyHz"] = Json(profile.maxFrequencyHz);
-    capabilities["minSweepPoints"] = Json(VnaService::MIN_SWEEP_POINTS);
-    capabilities["maxSweepPoints"] = Json(VnaService::MAX_SWEEP_POINTS);
-    capabilities["minPowerDbm"] = Json(VnaCore::MIN_POWER_DBM);
-    capabilities["maxPowerDbm"] = Json(VnaCore::MAX_POWER_DBM);
-    value["capabilities"] = std::move(capabilities);
-    value["state"] = Json(CoreStateName(snapshot.core.state));
-    value["error"] = Json(snapshot.core.error);
-    value["pending"] = Json(snapshot.pending);
-    value["revision"] = Json(std::to_string(settings.revision));
-    value["acquisitionRevision"] = Json(std::to_string(settings.acquisitionRevision));
-    value["runId"] = Json(std::to_string(snapshot.core.runId));
-    value["activeConfigValid"] =
-        Json(snapshot.core.state != VnaCore::CoreState::FAULTED && snapshot.core.state != VnaCore::CoreState::CLOSED &&
-             snapshot.core.configRevision != 0U && snapshot.core.configRevision == settings.acquisitionRevision);
-    value["config"] = ConfigurationJson(settings);
-    value["calibration"] = CalibrationJson::Snapshot(snapshot.calibration);
-    Json measurements = Json::MakeArray();
-    for (const auto &measurement : settings.measurements) {
-        const auto channel =
-            std::find_if(snapshot.channels.begin(), snapshot.channels.end(), [&measurement](const auto &item) {
-                return item.id == measurement.channelId;
-            });
-        measurements.array.push_back(MeasurementJson(
-            measurement, channel == snapshot.channels.end() ? VnaCalibration::CalibrationPtr{} : channel->correction));
-    }
-    value["measurements"] = std::move(measurements);
-    value["display"] = DisplayJson::State(snapshot.display, settings.measurements);
-    value["stimulusZoom"] = StimulusZoomJson::Status(snapshot.stimulusZoom);
-    value["activeChannelId"] = Json(snapshot.activeChannelId);
-    auto channels = Json::MakeArray();
-    for (const auto &channel : snapshot.channels) {
-        auto item = Json::MakeObject();
-        item["channelId"] = Json(channel.id);
-        item["name"] = Json(channel.name);
-        item["state"] = Json(CoreStateName(channel.core.state));
-        item["error"] = Json(channel.core.error);
-        item["acquisitionRevision"] = Json(std::to_string(channel.settings.acquisitionRevision));
-        item["runId"] = Json(std::to_string(channel.core.runId));
-        item["activeConfigValid"] = Json(
-            channel.core.state != VnaCore::CoreState::FAULTED && channel.core.state != VnaCore::CoreState::CLOSED &&
-            channel.core.configRevision != 0U && channel.core.configRevision == channel.settings.acquisitionRevision);
-        item["config"] = ConfigurationJson(channel.settings);
-        item["calibration"] = CalibrationJson::Snapshot(channel.calibration);
-        item["stimulusZoom"] = StimulusZoomJson::Status(channel.stimulusZoom);
-        channels.array.push_back(std::move(item));
-    }
-    value["channels"] = std::move(channels);
-    value["control"] = ControlJson(snapshot, request);
-    return response;
-}
-
 HttpResponse HttpApi::Frame(const std::string &query) const
 {
     const auto snapshot = service_.Snapshot();
     const auto options = ParseFrameQuery(query);
     const auto selected = FrameMeasurements(snapshot, options.selection);
-    unsigned target = options.channelId == 0U ? snapshot.activeChannelId : options.channelId;
-    if (options.channelId == 0U && !options.selection.empty() && !selected.empty() &&
-        std::all_of(selected.begin(), selected.end(), [&selected](const VnaService::Measurement &measurement) {
-            return measurement.channelId == selected.front().channelId;
-        })) {
-        target = selected.front().channelId;
-    }
-    const auto channel = std::find_if(snapshot.channels.begin(), snapshot.channels.end(), [target](const auto &item) {
-        return item.id == target;
-    });
-    if (channel == snapshot.channels.end()) {
-        throw std::invalid_argument("Frame channel does not exist");
-    }
-    if (options.channelId != 0U && !options.selection.empty() &&
-        std::any_of(selected.begin(), selected.end(), [target](const VnaService::Measurement &measurement) {
-            return measurement.channelId != target;
-        })) {
-        throw std::invalid_argument("Trace does not belong to the requested channel");
-    }
-    auto response = ChannelFrame(snapshot, *channel, selected, options.packed);
+    const auto &channel = FrameChannel(snapshot, options, selected);
+    auto response = ChannelFrameResponse(snapshot, channel, selected, options.packed);
     if (response.status != 200U || options.channelId != 0U || snapshot.channels.size() <= 1U) {
         return response;
     }
     auto frames = Json::MakeArray();
     for (const auto &item : snapshot.channels) {
-        auto encoded = ChannelFrame(snapshot, item, selected, options.packed);
+        auto encoded = ChannelFrameResponse(snapshot, item, selected, options.packed);
         if (encoded.status != 200U) {
             return encoded;
         }
         frames.array.push_back(std::move(encoded.json));
     }
     response.json["channelFrames"] = std::move(frames);
-    return response;
-}
-
-HttpResponse HttpApi::ChannelFrame(const VnaService::InstrumentSnapshot &snapshot,
-    const VnaService::InstrumentChannelSnapshot &channel, const std::vector<VnaService::Measurement> &selection,
-    bool packed)
-{
-    std::vector<VnaService::Measurement> selected;
-    for (const auto &measurement : selection) {
-        if (measurement.channelId == channel.id) {
-            selected.push_back(measurement);
-        }
-    }
-    HttpResponse response;
-    Json &value = response.json = Json::MakeObject();
-    value["channelId"] = Json(channel.id);
-    value["displayRevision"] = Json(std::to_string(snapshot.display.revision));
-    value["calibrationRevision"] = Json(std::to_string(channel.calibration.revision));
-    if (!channel.core.frame) {
-        value["available"] = Json(false);
-        value["current"] = Json(false);
-        value["reason"] = Json("No completed frame");
-        return response;
-    }
-    const auto &frame = *channel.core.frame;
-    const std::size_t count = frame.plan.frequencyHz.size();
-    if (count == 0U) {
-        return HttpError(409, "no_physical_axis", "Frame does not have a verified physical frequency axis");
-    }
-    if (count > VnaService::MAX_SWEEP_POINTS || selected.size() > VnaDisplay::MAX_DISPLAY_TRACES) {
-        return HttpError(409, "frame_capacity_exceeded", "Frame exceeds the supported full-sweep display capacity");
-    }
-    std::vector<std::size_t> indexes;
-    indexes.reserve(count);
-    for (std::size_t index = 0U; index < count; ++index) {
-        indexes.push_back(index);
-    }
-    value["available"] = Json(true);
-    value["current"] = Json(!channel.finitePending && channel.core.state != VnaCore::CoreState::FAULTED &&
-                            channel.core.state != VnaCore::CoreState::CLOSED && frame.channelId == channel.id &&
-                            frame.configRevision == channel.settings.acquisitionRevision &&
-                            frame.configRevision == channel.core.configRevision && frame.runId == channel.core.runId);
-    value["channelId"] = Json(frame.channelId);
-    value["runId"] = Json(std::to_string(frame.runId));
-    value["revision"] = Json(std::to_string(frame.configRevision));
-    value["measurementRevision"] = Json(std::to_string(snapshot.settings.revision));
-    value["frameSeq"] = Json(std::to_string(frame.frameSeq));
-    value["originalPointCount"] = Json(static_cast<unsigned>(count));
-    value["displayPointCount"] = Json(static_cast<unsigned>(count));
-    value["decimated"] = Json(false);
-    AppendFrameAxis(value, frame, indexes, packed);
-    Json traces = Json::MakeArray();
-    for (std::size_t begin = 0U; begin < selected.size(); begin += CALCULATION_BATCH_SIZE) {
-        const auto end = (std::min)(selected.size(), begin + CALCULATION_BATCH_SIZE);
-        const std::vector<VnaService::Measurement> batch(selected.begin() + begin, selected.begin() + end);
-        const auto results =
-            VnaMeasurement::MeasurementProcessor::CalculateMany(frame, batch, channel.correction.get());
-        for (std::size_t offset = 0U; offset < batch.size(); ++offset) {
-            const auto &measurement = batch[offset];
-            const auto presentation = std::find_if(snapshot.display.traces.begin(), snapshot.display.traces.end(),
-                [&measurement](const VnaDisplay::TracePresentation &item) {
-                    return item.name == measurement.name;
-                });
-            if (presentation != snapshot.display.traces.end()) {
-                traces.array.push_back(TraceJson(frame, measurement, *presentation, indexes, results[offset], packed));
-            }
-        }
-    }
-    value["traces"] = std::move(traces);
     return response;
 }
 
@@ -701,6 +535,8 @@ Json HttpApi::ConfigurationJson(const VnaService::InstrumentSettings &settings)
     config["points"] = Json(settings.points);
     config["ifBandwidthHz"] = Json(settings.ifBandwidthHz);
     config["powerDbm"] = Json(settings.powerDbm);
+    config["sweepTimeAuto"] = Json(settings.sweepTimeAuto);
+    config["sweepTimeSeconds"] = Json(settings.sweepTimeSeconds);
     config["triggerSource"] = Json(settings.triggerSource == VnaService::TriggerSource::IMMEDIATE ? "IMM" : "MAN");
     config["sweepMode"] = Json(settings.sweepMode == VnaService::SweepMode::HOLD     ? "HOLD"
                                : settings.sweepMode == VnaService::SweepMode::SINGLE ? "SING"
@@ -732,40 +568,6 @@ Json HttpApi::ControlJson(const VnaService::InstrumentSnapshot &snapshot, const 
                                                     : "Another Web session controls instrument";
     control["readOnlyReason"] = Json(reason);
     return control;
-}
-
-Json HttpApi::TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
-    const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes,
-    const VnaMeasurement::TraceResult &result, bool packed)
-{
-    Json trace = MeasurementJson(measurement);
-    if (measurement.kind == VnaService::MeasurementKind::S_PARAMETER) {
-        trace["calibration"] = Json(result.calibrated ? "calibrated" : "uncalibrated");
-    }
-    const auto validAt = [&result, &indexes](std::size_t position) {
-        const auto index = indexes[position];
-        return result.available && index < result.points.size() && result.points[index].valid;
-    };
-    trace["available"] = Json(result.available);
-    trace["real"] = FrameArrayJson::Numbers(
-        indexes.size(),
-        [&result, &indexes, &validAt](std::size_t position) {
-            const bool valid = validAt(position);
-            return FrameArrayNumber{valid ? result.points[indexes[position]].real : 0.0, valid};
-        },
-        packed);
-    trace["imag"] = FrameArrayJson::Numbers(
-        indexes.size(),
-        [&result, &indexes, &validAt](std::size_t position) {
-            const bool valid = validAt(position);
-            return FrameArrayNumber{valid ? result.points[indexes[position]].imag : 0.0, valid};
-        },
-        packed);
-    trace["valid"] = FrameArrayJson::Booleans(indexes.size(), validAt, packed);
-    const auto projection = VnaDisplay::TraceProjection::Calculate(
-        presentation, result, frame.plan.frequencyHz, measurement, frame.configRevision);
-    trace["projection"] = DisplayJson::Projection(projection, presentation.format, indexes, packed);
-    return trace;
 }
 
 HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const Json &body, const std::string &id)
@@ -820,7 +622,7 @@ HttpApi::HttpWriteResult HttpApi::StartWrite(const HttpRequest &request, const J
 HttpApi::HttpWriteResult HttpApi::StartConfigurationWrite(const Json &body, const std::string &id)
 {
     Allowed(body, {"requestId", "expectedRevision", "startHz", "stopHz", "centerHz", "spanHz", "points",
-                      "ifBandwidthHz", "powerDbm", "channelId"});
+                      "ifBandwidthHz", "powerDbm", "sweepTimeAuto", "sweepTimeSeconds", "channelId"});
     const auto channelId = Channel(body);
     HttpWriteResult result;
     const auto expected = Revision(body);
@@ -1002,6 +804,14 @@ VnaService::ConfigPatch HttpApi::ConfigurationPatch(const Json &body)
     if (body.Find("powerDbm")) {
         patch.hasPowerDbm = true;
         patch.powerDbm = Numeric(body, "powerDbm");
+    }
+    if (body.Find("sweepTimeAuto")) {
+        patch.hasSweepTimeAuto = true;
+        patch.sweepTimeAuto = Boolean(body, "sweepTimeAuto");
+    }
+    if (body.Find("sweepTimeSeconds")) {
+        patch.hasSweepTimeSeconds = true;
+        patch.sweepTimeSeconds = Numeric(body, "sweepTimeSeconds");
     }
     return patch;
 }

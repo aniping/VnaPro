@@ -2,6 +2,7 @@ add_library(vna_web STATIC
     web_endpoint.cpp
     static_file.cpp
     http_api.cpp
+    http_status.cpp
     http_calibration_file.cpp
     display_json.cpp
     calibration_json.cpp
@@ -17,6 +18,7 @@ add_library(vna_web STATIC
     stimulus_zoom_json.cpp
     frame_selection.cpp
     frame_array_json.cpp
+    frame_response.cpp
     json.cpp
     json_parser.cpp
     json_encoder.cpp

@@ -47,7 +47,7 @@ def exercise(config, port_count, driver, board, mode):
     environment = dict(os.environ, VNAPRO_SIM_MODE=mode, VNAPRO_SIM_SEED="42")
     with running_server(sys.argv[1], driver, environment, config=config, board=board) as ports:
         http = HttpClient(ports["http"])
-        status_defaults(http, port_count)
+        status_defaults(http, port_count, manual_sweep_time_supported=board != "tdc1vn08")
         client = connect_scpi(ports["scpi"])
         try:
             assert_frame(http, client)

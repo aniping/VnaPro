@@ -80,14 +80,8 @@ private:
     Json ControlJson(const VnaService::InstrumentSnapshot &snapshot, const HttpRequest &request) const;
     HttpResponse Status(const HttpRequest &request) const;
     HttpResponse Frame(const std::string &query) const;
-    static HttpResponse ChannelFrame(const VnaService::InstrumentSnapshot &snapshot,
-        const VnaService::InstrumentChannelSnapshot &channel, const std::vector<VnaService::Measurement> &selected,
-        bool packed);
     unsigned Channel(const Json &body, bool required = false) const;
     unsigned QueryChannel(const std::string &query, std::string &remaining) const;
-    static Json TraceJson(const VnaCore::MeasurementFrame &frame, const VnaService::Measurement &measurement,
-        const VnaDisplay::TracePresentation &presentation, const std::vector<std::size_t> &indexes,
-        const VnaMeasurement::TraceResult &result, bool packed);
     HttpWriteResult StartDisplayWrite(const Json &body, const std::string &id);
     HttpWriteResult StartStimulusZoomWrite(const Json &body, const std::string &id);
     HttpWriteResult StartConfigurationWrite(const Json &body, const std::string &id);

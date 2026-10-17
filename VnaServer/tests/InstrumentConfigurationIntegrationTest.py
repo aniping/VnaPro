@@ -16,14 +16,16 @@ MAX_HZ = 8000000000
 DEFAULT_POINTS = 201
 
 
-def status_defaults(http, port_count, startup_mode="CONT"):
+def status_defaults(http, port_count, startup_mode="CONT", manual_sweep_time_supported=False):
     status = http.status()
     assert status["identity"] == f"VnaPro,NativeSimulator,{port_count}PORT,1.0", status
     assert status["capabilities"] == {
         "portCount": port_count, "minFrequencyHz": MIN_HZ, "maxFrequencyHz": MAX_HZ,
         "minSweepPoints": 2, "maxSweepPoints": 10001,
         "minPowerDbm": -120, "maxPowerDbm": 100,
+        "manualSweepTimeSupported": manual_sweep_time_supported, "maxSweepTimeSeconds": 100000,
     }, status["capabilities"]
+    assert status["capabilities"]["manualSweepTimeSupported"] is manual_sweep_time_supported
     config = status["config"]
     assert (config["startHz"], config["stopHz"], config["points"], config["ifBandwidthHz"]) == (
         MIN_HZ, MAX_HZ, DEFAULT_POINTS, 1000,
