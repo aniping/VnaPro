@@ -15,6 +15,7 @@
 #include <set>
 #include <utility>
 
+#include "instrument_configuration.h"
 #include "vna_core/acquisition_core.h"
 #include "vna_core/frame_layout.h"
 #include "vna_log/logger.h"
@@ -22,6 +23,10 @@
 #include "vna_service/service_error_code.h"
 
 namespace VnaService {
+Detail::ServiceTask::ServiceTask() : operation(promise.get_future().share())
+{
+}
+
 namespace {
 constexpr std::size_t TASK_QUEUE_CAPACITY = 32U;
 constexpr std::size_t ERROR_QUEUE_CAPACITY = 32U;
@@ -110,162 +115,16 @@ bool Ready(const VnaCore::Ticket &ticket)
     return ticket.valid() && ticket.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-bool ValidFrequency(double value, const InstrumentProfile &profile) noexcept
+bool UnavailableState(VnaCore::CoreState state)
 {
-    return std::isfinite(value) && value >= profile.minFrequencyHz && value <= profile.maxFrequencyHz;
+    return state == VnaCore::CoreState::FAULTED || state == VnaCore::CoreState::CLOSED;
 }
 
-double QuantizedBandwidth(double value) noexcept
-{
-    const double values[] = {10.0, 100.0, 1000.0, 10000.0, 100000.0};
-    for (double valid : values) {
-        if (value <= valid) {
-            return valid;
-        }
-    }
-    return 0.0;
-}
-
-VnaCore::SweepPlan MakePlan(const InstrumentSettings &settings, const InstrumentProfile &profile, unsigned channelId)
-{
-    (void)profile;
-    VnaCore::SweepPlan plan;
-    plan.ifBandwidthRaw = static_cast<std::uint32_t>(settings.ifBandwidthHz);
-    plan.powerDbm.assign(settings.points, settings.powerDbm);
-    std::set<unsigned> sources;
-    for (const Measurement &measurement : settings.measurements) {
-        if (measurement.channelId != channelId) {
-            continue;
-        }
-        sources.insert(measurement.sourcePort);
-        plan.receiverMask |= 1U << (measurement.receiverPort - 1U);
-        if (measurement.kind == MeasurementKind::S_PARAMETER) {
-            // 每个 S 参数使用自身激励端口的参考波，必须与响应波来自同一源帧。
-            plan.receiverMask |= 1U << (measurement.sourcePort - 1U);
-        }
-    }
-    if (sources.empty()) {
-        sources.insert(1U);
-    }
-    if (plan.receiverMask == 0U) {
-        plan.receiverMask = 1U;
-    }
-    plan.sourcePorts.assign(sources.begin(), sources.end());
-    for (unsigned point = 0; point < settings.points; ++point) {
-        const double hz = settings.startHz + (settings.stopHz - settings.startHz) * static_cast<double>(point) /
-                                                 static_cast<double>(settings.points - 1U);
-        // 已确认 VN10 的频率和中频列表使用 Hz；旧接口的原始表由对应设备适配器处理。
-        const std::uint64_t raw = static_cast<std::uint64_t>(std::llround(hz));
-        plan.frequencyRaw.push_back(raw);
-        plan.frequencyHz.push_back(static_cast<double>(raw));
-    }
-    // 保留旧 VN08 接口必需的 9N 表；VN10 下发不读取此字段。
-    plan.tableData.assign(static_cast<std::size_t>(settings.points) * VnaCore::TABLE_VALUES_PER_POINT, 0.0);
-    return plan;
-}
-
-bool CoversPlan(const VnaCore::SweepPlan &active, const VnaCore::SweepPlan &requested)
-{
-    // 保留已下发的源和接收机；目录收缩不重启扫描，也不使已有完整 IQ 失效。
-    return active.frequencyRaw == requested.frequencyRaw && active.frequencyHz == requested.frequencyHz &&
-           active.ifBandwidthRaw == requested.ifBandwidthRaw && active.powerDbm == requested.powerDbm &&
-           active.tableData == requested.tableData &&
-           (active.receiverMask & requested.receiverMask) == requested.receiverMask &&
-           std::includes(active.sourcePorts.begin(), active.sourcePorts.end(), requested.sourcePorts.begin(),
-               requested.sourcePorts.end());
-}
-
-OperationResult ApplyCenterSpanPatch(
-    const ConfigPatch &patch, InstrumentSettings &settings, const InstrumentProfile &profile)
-{
-    if (patch.hasStartHz || patch.hasStopHz) {
-        return Result(false, Detail::INVALID_PARAMETER_ERROR, "Center/span cannot be mixed with start/stop");
-    }
-    const double center = patch.hasCenterHz ? patch.centerHz : (settings.startHz + settings.stopHz) / 2.0;
-    const double span = patch.hasSpanHz ? patch.spanHz : settings.stopHz - settings.startHz;
-    if (!std::isfinite(center) || !std::isfinite(span) || span < 0.0) {
-        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Invalid center or span frequency");
-    }
-    const double start = std::round(center - span / 2.0);
-    const double stop = std::round(center + span / 2.0);
-    if (!ValidFrequency(start, profile) || !ValidFrequency(stop, profile)) {
-        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Center/span exceeds instrument frequency range");
-    }
-    settings.startHz = start;
-    settings.stopHz = stop;
-    return Result(true);
-}
-
-OperationResult ApplyFrequencyPatch(
-    const ConfigPatch &patch, InstrumentSettings &settings, const InstrumentProfile &profile)
-{
-    if (patch.hasCenterHz || patch.hasSpanHz) {
-        return ApplyCenterSpanPatch(patch, settings, profile);
-    }
-    const double span = settings.stopHz - settings.startHz;
-    double start = settings.startHz;
-    double stop = settings.stopHz;
-    if (patch.hasStartHz) {
-        if (!ValidFrequency(patch.startHz, profile)) {
-            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency out of instrument range");
-        }
-        start = std::round(patch.startHz);
-    }
-    if (patch.hasStopHz) {
-        if (!ValidFrequency(patch.stopHz, profile)) {
-            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Stop frequency out of instrument range");
-        }
-        stop = std::round(patch.stopHz);
-    }
-    if (patch.hasStartHz && patch.hasStopHz && start > stop) {
-        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Start frequency exceeds stop frequency");
-    }
-    if (patch.hasStartHz && !patch.hasStopHz && start > stop) {
-        stop = start + span;
-    }
-    if (patch.hasStopHz && !patch.hasStartHz && stop < start) {
-        start = stop - span;
-    }
-    if (!ValidFrequency(start, profile) || !ValidFrequency(stop, profile)) {
-        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Coupled frequency endpoint out of instrument range");
-    }
-    settings.startHz = start;
-    settings.stopHz = stop;
-    return Result(true);
-}
-
-OperationResult ApplySettingsPatch(
-    const ConfigPatch &patch, InstrumentSettings &settings, const InstrumentProfile &profile)
-{
-    if (!patch.hasStartHz && !patch.hasStopHz && !patch.hasCenterHz && !patch.hasSpanHz && !patch.hasPoints &&
-        !patch.hasIfBandwidthHz && !patch.hasPowerDbm) {
-        return Result(false, Detail::MISSING_PARAMETER_ERROR, "Configuration patch is empty");
-    }
-    const OperationResult frequency = ApplyFrequencyPatch(patch, settings, profile);
-    if (!frequency.ok) {
-        return frequency;
-    }
-    if (patch.hasPoints && (patch.points < MIN_SWEEP_POINTS || patch.points > MAX_SWEEP_POINTS)) {
-        return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Point count outside 2..10001");
-    }
-    if (patch.hasIfBandwidthHz) {
-        if (!std::isfinite(patch.ifBandwidthHz) || patch.ifBandwidthHz <= 0 ||
-            QuantizedBandwidth(patch.ifBandwidthHz) == 0) {
-            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "IF bandwidth out of instrument range");
-        }
-        settings.ifBandwidthHz = QuantizedBandwidth(patch.ifBandwidthHz);
-    }
-    if (patch.hasPoints) {
-        settings.points = patch.points;
-    }
-    if (patch.hasPowerDbm) {
-        if (!std::isfinite(patch.powerDbm) || patch.powerDbm < -120.0 || patch.powerDbm > 100.0) {
-            return Result(false, Detail::DATA_OUT_OF_RANGE_ERROR, "Power must be finite and within -120..100 dBm");
-        }
-        settings.powerDbm = patch.powerDbm;
-    }
-    return Result(true);
-}
+using Detail::ApplySettingsPatch;
+using Detail::CoversPlan;
+using Detail::MakePlan;
+using Detail::QuantizedBandwidth;
+using Detail::ValidFrequency;
 
 DataResult ExtractMeasurements(const VnaCore::MeasurementFrame &frame, const std::vector<Measurement> &measurements,
     const VnaCalibration::CalibrationData *calibration)
@@ -662,6 +521,8 @@ void InstrumentService::PollTrigger(Detail::ServiceTask &task)
             return;
         }
         task.ticket = core_.TriggerOnce(view.runId, view.configRevision, contextChannelId_);
+        task.sweepRunId = view.runId;
+        task.sweepConfigRevision = view.configRevision;
         task.stage = Detail::ServiceTaskStage::WAITING_TRIGGER;
         return;
     }
@@ -735,6 +596,9 @@ bool InstrumentService::BeginMode(Detail::ServiceTask &task)
 
 void InstrumentService::PollMode(Detail::ServiceTask &task)
 {
+    if (!ConsumeEarlySweepStop(task)) {
+        return;
+    }
     // 单次扫描使用手动触发，随后经过 Stop 完成屏障。
     if (task.stage == Detail::ServiceTaskStage::PENDING && !BeginMode(task)) {
         return;
@@ -762,30 +626,37 @@ void InstrumentService::PollMode(Detail::ServiceTask &task)
     PollStartedMode(task);
 }
 
+void InstrumentService::PollModeStart(Detail::ServiceTask &task)
+{
+    if (!Consume(task)) {
+        return;
+    }
+    // 连续首帧可能在服务消费 Start 票据前失败，不能提交已故障的候选状态。
+    const auto view = core_.ReadView(contextChannelId_);
+    if (UnavailableState(view.state)) {
+        Finish(Result(false, Detail::DEVICE_SPECIFIC_ERROR,
+            view.error.empty() ? "Acquisition failed before start completion" : view.error));
+        return;
+    }
+    if (task.candidate.sweepMode == SweepMode::SINGLE) {
+        settings_.selectedSweepMode = task.candidate.selectedSweepMode;
+        settings_.sweepMode = SweepMode::SINGLE;
+        settings_.triggerSource = task.candidate.triggerSource;
+    }
+    if (task.candidate.sweepMode != SweepMode::SINGLE || task.candidate.triggerSource != TriggerSource::IMMEDIATE) {
+        CommitMode(task);
+        return;
+    }
+    task.ticket = core_.TriggerOnce(view.runId, view.configRevision, contextChannelId_);
+    task.sweepRunId = view.runId;
+    task.sweepConfigRevision = view.configRevision;
+    task.stage = Detail::ServiceTaskStage::WAITING_SINGLE_FRAME;
+}
+
 void InstrumentService::PollStartedMode(Detail::ServiceTask &task)
 {
     if (task.stage == Detail::ServiceTaskStage::WAITING_START) {
-        if (!Consume(task)) {
-            return;
-        }
-        // 连续首帧可能在服务消费 Start 票据前失败，不能提交已故障的候选状态。
-        const auto view = core_.ReadView(contextChannelId_);
-        if (view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED) {
-            Finish(Result(false, Detail::DEVICE_SPECIFIC_ERROR,
-                view.error.empty() ? "Acquisition failed before start completion" : view.error));
-            return;
-        }
-        if (task.candidate.sweepMode == SweepMode::SINGLE) {
-            settings_.selectedSweepMode = task.candidate.selectedSweepMode;
-            settings_.sweepMode = SweepMode::SINGLE;
-            settings_.triggerSource = task.candidate.triggerSource;
-        }
-        if (task.candidate.sweepMode != SweepMode::SINGLE || task.candidate.triggerSource != TriggerSource::IMMEDIATE) {
-            CommitMode(task);
-            return;
-        }
-        task.ticket = core_.TriggerOnce(view.runId, view.configRevision, contextChannelId_);
-        task.stage = Detail::ServiceTaskStage::WAITING_SINGLE_FRAME;
+        PollModeStart(task);
         return;
     }
     if (task.stage == Detail::ServiceTaskStage::WAITING_SINGLE_FRAME) {
@@ -862,13 +733,14 @@ bool InstrumentService::BootstrapProfile(std::string &error)
 
 void InstrumentService::Poll()
 {
+    WakeAcceptedStop();
     PollTask();
     for (auto &channel : channels_) {
         if (!channel.second.committed) {
             continue;
         }
         const auto channelView = core_.ReadView(channel.first);
-        if (channelView.state == VnaCore::CoreState::FAULTED || channelView.state == VnaCore::CoreState::CLOSED) {
+        if (UnavailableState(channelView.state)) {
             if (channel.first == contextChannelId_) {
                 settings_.sweepMode = SweepMode::HOLD;
             } else {
@@ -877,7 +749,7 @@ void InstrumentService::Poll()
         }
     }
     const auto view = core_.ReadView(contextChannelId_);
-    if (view.state == VnaCore::CoreState::FAULTED || view.state == VnaCore::CoreState::CLOSED) {
+    if (UnavailableState(view.state)) {
         settings_.sweepMode = SweepMode::HOLD;
     }
     if (tasks_.empty() && view.state == VnaCore::CoreState::FAULTED && view.error != observedFault_) {
@@ -1088,7 +960,8 @@ Operation InstrumentService::ApplyConfiguration(
     }
     return Configure(
         [this, patch](InstrumentSettings &settings) {
-            return ApplySettingsPatch(patch, settings, profile_);
+            return ApplySettingsPatch(
+                patch, settings, profile_, core_.ReadView(contextChannelId_).manualSweepTimeSupported);
         },
         expected, owner);
 }
@@ -1247,6 +1120,8 @@ Operation InstrumentService::ResetMeasurements(
         settings.points = profile_.defaultPoints;
         settings.ifBandwidthHz = profile_.defaultIfBandwidthHz;
         settings.powerDbm = profile_.defaultPowerDbm;
+        settings.sweepTimeAuto = true;
+        settings.sweepTimeSeconds = 1.0;
         settings.triggerSource = TriggerSource::IMMEDIATE;
         settings.sweepMode = SweepMode::HOLD;
         settings.selectedSweepMode = SweepMode::CONTINUOUS;
@@ -1287,6 +1162,7 @@ Operation InstrumentService::SetSweepMode(SweepMode mode, const std::string &own
     Detail::ServiceTask task;
     task.kind = Detail::ServiceTaskKind::MODE;
     task.mode = mode;
+    task.wakeManualSweep = mode == SweepMode::HOLD;
     task.measurement = mode == SweepMode::SINGLE && settings_.triggerSource == TriggerSource::IMMEDIATE;
     return Enqueue(std::move(task), owner);
 }
@@ -1361,6 +1237,7 @@ Operation InstrumentService::SelectSingleAndHold(const std::string &owner, unsig
     task.kind = Detail::ServiceTaskKind::SELECT_MODE;
     task.mode = SweepMode::SINGLE;
     task.forceHold = true;
+    task.wakeManualSweep = true;
     return Enqueue(std::move(task), owner);
 }
 

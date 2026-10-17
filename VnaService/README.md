@@ -27,6 +27,7 @@ Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器先恢�
 - InstrumentProfile 的 `defaultPowerDbm` 为启动时冻结的 double 功率，单位 dBm、范围 `[-120,100]`；每个扫描计划显式生成 N 个相同值，修改点数时重新填充，负数及小数不会被截断。
 - 默认支持频率范围 10 MHz–8 GHz，由 instrument.frequency 配置，端点按整数 Hz 回读；端点交叉保留旧 span，联动另一端点，联动后超范围则拒绝整个候选。
 - 点数 2–10001；IFBW 有效值为 10、100、1000、10000、100000 Hz，向上取适用值。频率、点数及 IFBW 等物理配置允许 Ready/Running，复用核心完整帧边界替换计划；不 Stop/Start，不改变 CONT/MAN、触发源或 runId。有限 SING/Trigger 前的请求先完成原测量，再按 FIFO 执行配置；执行时重新校验控制权、状态及逻辑 expectedRevision。
+- `sweepTimeAuto` 默认 `true`，`sweepTimeSeconds` 保存手动请求值，默认 1 秒。设置时间自动关闭 Auto；同一补丁显式包含 Auto 时，以该布尔值为准。只接受有限的 `(0,100000]` 秒。VN10 支持主机软件回读节拍，Native08 不支持手动节拍，显式请求会拒绝；Auto 保持原采集速度。该设置不改变 ADC 积分、RF 驻留或 IFBW。
 - 协议测量选择走 DISPLAY FIFO，不覆盖正在提交的配置候选；有限采集期间可受理并在先前完整帧终结后执行。保留的原生同步选择入口仅在 SCPI 持权且 FIFO 为空时使用；触发范围修改仍须持权且无待处理配置。
 - `UpdateMeasurement(measurement, expectedRevision, owner)` 原位替换已存在的同名定义，保留名称、目录顺序、数量和当前选择；目录达到 128 项预算时也能更新。它与新增、删除使用独立的 MEASUREMENTS 任务，Ready 和 Running 都可受理，不要求 HOLD；执行时重新校验控制权、逻辑版本及能力，不存在的名称不会被隐式创建。
 - 接收器映射仅采用模拟器明确的 IQ 布局，每点四端口、每端口 A.real/A.imag/B.real/B.imag。非比值参数接受已配置能力内的 `a1..a4` 或 `b1..b4` 和源端口 1..portCount（最高 4）；接收器字母大小写不敏感，测量名称保留大小写。
@@ -42,6 +43,10 @@ Bootstrap 只准备默认目录与物理计划并保持 HOLD。服务器先恢�
 缺少激励源或接收器时，完整候选交给 Core FIFO，等待正在进行的完整多源帧结束再 Configure。设备成功后才提交目录、新逻辑版本、acquisitionRevision 和 activePlan_；旧帧保持不可变，直到当前物理版本的新完整帧到来前不能作为当前数据。CONT 保持连续运行，MAN 保持 armed 并等待用户触发；不调用 Stop/Start，不改变 runId，不重置 frameSeq。
 
 SING 或手动 Trigger 的有限任务尚未完成时，目录写请求仍可受理，按服务 FIFO 在先前有限操作完整结束后执行；不提前更改正在采集的定义，不要求调用者先切 HOLD。前端已受理操作期间暂时禁用重复写，操作完成后重新开放。
+
+软件扫时属于采集计划，修改后增加 acquisitionRevision；通道复制与 Zoom 保留设置，Preset 恢复 Auto。频轴、IFBW 和功率不变时，校准系数及适用性缓存继续复用。`lastSweepTimeSeconds` 是当前配置最近完整帧的主机实际耗时，尚无实测值或配置更新后为 0；不表示硬件最短扫时。
+
+已授权的 HOLD/Stop（包括 `SelectSingleAndHold`）可提前唤醒同通道、同 run/config 的有限手动节拍等待，再安全回读完整剩余 IQ；服务正式停止和其他已排队事务仍按 FIFO 完成。Stop 在 Single 启动阶段受理时只记录意图，真实 Trigger 提交后才唤醒，拒绝请求和其他通道 Stop 不打断该采集。显式 `*OPC?`/`*WAI` 屏障仍阻挡其后的同连接命令。
 
 准备缓冲失败未触碰设备，保留原目录、两个版本、计划及 CONT/MAN 状态。设备部分下发失败进入 Faulted，服务归一为 HOLD，不能把旧计划标为有效；Closed 同样归一 HOLD。执行时也核对核心物理版本与 acquisitionRevision，禁止绕过服务的 Core 配置更改破坏覆盖缓存。
 

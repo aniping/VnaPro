@@ -74,6 +74,11 @@ struct ServiceTask final {
     bool forceInternalSource = false;
     bool forceHold = false;
     bool resetInstrumentDisplay = false;
+    bool wakeManualSweep = false;
+    bool earlyStopIssued = false;
+    std::uint64_t sweepRunId = 0U;
+    std::uint64_t sweepConfigRevision = 0U;
+    VnaCore::Ticket earlyStopTicket;
     std::string owner = "SCPI";
     std::uint64_t generation = 0;
     // 受理时冻结，异步阶段不再从全局显示选择推断写入目标。
@@ -127,9 +132,7 @@ struct ServiceTask final {
     ServiceTask &operator=(ServiceTask &&) noexcept = default;
 
     // 任务进入先进先出队列前，先创建对应的 future。
-    ServiceTask() : operation(promise.get_future().share())
-    {
-    }
+    ServiceTask();
 };
 }  // 命名空间 Detail
 }  // 命名空间 VnaService

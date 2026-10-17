@@ -31,6 +31,8 @@ struct ConfigPatch final {
     bool hasPoints = false;
     bool hasIfBandwidthHz = false;
     bool hasPowerDbm = false;
+    bool hasSweepTimeAuto = false;
+    bool hasSweepTimeSeconds = false;
     double startHz = 0;
     double stopHz = 0;
     double centerHz = 0;
@@ -38,6 +40,8 @@ struct ConfigPatch final {
     unsigned points = 0;
     double ifBandwidthHz = 0;
     double powerDbm = 0;
+    bool sweepTimeAuto = true;
+    double sweepTimeSeconds = 1.0;
 };
 
 struct InstrumentSettings final {
@@ -46,6 +50,9 @@ struct InstrumentSettings final {
     unsigned points = 201U;
     double ifBandwidthHz = 1000.0;
     double powerDbm = 0.0;
+    // 请求整轮软件回读节拍的最短时长，不代表射频或 ADC 驻留时间。
+    bool sweepTimeAuto = true;
+    double sweepTimeSeconds = 1.0;
     TriggerSource triggerSource = TriggerSource::IMMEDIATE;
     // 用户选中的扫描方式独立于运行态；停止及单次完成后保留该选择。
     SweepMode selectedSweepMode = SweepMode::CONTINUOUS;

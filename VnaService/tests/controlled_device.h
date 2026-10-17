@@ -26,6 +26,8 @@ public:
     ~ControlledDevice() override = default;
     // 返回固定的受控设备标识，不调用原生驱动。
     std::string Initialize() override;
+    // 配置域测试明确支持软件扫时；实际节拍由 Board probe 集成测试验证。
+    bool ManualSweepTimeSupported() const noexcept override;
 
     // 应用冻结的扫描计划，或在测试控制的关卡处阻塞、失败。
     void ApplyPlan(const VnaCore::SweepPlan &) override;

@@ -265,10 +265,9 @@ private:
     VnaCore::SweepPlan MakeChannelPlan(const InstrumentSettings &settings, unsigned channelId) const;
     std::vector<std::string> ChannelTraceNames(unsigned channelId) const;
     bool CalibrationCollecting() const noexcept;
-
+    void PollModeStart(Detail::ServiceTask &task);
     // IEEE 488.2 规定仪器上电时设置此 ESR 位。
     static constexpr unsigned POWER_ON_EVENT = 128U;
-
     void Error(int code, const std::string &text);
     Operation Rejected(int code, const std::string &message, const std::string &requester = "SCPI");
     Operation Enqueue(Detail::ServiceTask task, const std::string &requester = "SCPI");
@@ -279,6 +278,8 @@ private:
     static bool ValidMeasurement(const Measurement &measurement, const InstrumentProfile &profile) noexcept;
     bool HasMeasurement() const noexcept;
     bool HasConfiguration() const noexcept;
+    void WakeAcceptedStop();
+    bool ConsumeEarlySweepStop(Detail::ServiceTask &task);
     void Finish(OperationResult value);
     bool Consume(Detail::ServiceTask &task);
     void CommitMode(Detail::ServiceTask &task);
@@ -306,7 +307,6 @@ private:
     void ContinueCalibration(Detail::ServiceTask &task);
     bool BeginCalibrationSave(Detail::ServiceTask &task);
     void FailCalibration(const std::string &error, int code);
-
     VnaCore::AcquisitionCore &core_;
     const InstrumentProfile profile_;
     const bool simulator_;

@@ -20,6 +20,11 @@ std::string ControlledDevice::Initialize()
     return identity_;
 }
 
+bool ControlledDevice::ManualSweepTimeSupported() const noexcept
+{
+    return true;
+}
+
 void ControlledDevice::ApplyPlan(const VnaCore::SweepPlan &)
 {
     std::unique_lock<std::mutex> lock(mutex_);

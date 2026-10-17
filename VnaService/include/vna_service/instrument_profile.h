@@ -9,6 +9,7 @@ namespace VnaService {
 
 constexpr unsigned MIN_SWEEP_POINTS = 2U;
 constexpr unsigned MAX_SWEEP_POINTS = 10001U;
+constexpr double MAX_SWEEP_TIME_SECONDS = 100000.0;
 
 // 启动时确定的仪器能力及默认设置，运行期间不随测量配置变化。
 struct InstrumentProfile final {

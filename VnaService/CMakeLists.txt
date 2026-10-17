@@ -1,6 +1,8 @@
 add_library(vna_service STATIC
     src/instrument_profile.cpp
+    src/instrument_configuration.cpp
     src/instrument_service.cpp
+    src/instrument_sweep_time.cpp
     src/instrument_display.cpp
     src/instrument_zoom.cpp
     src/instrument_channels.cpp
@@ -20,6 +22,11 @@ target_compile_features(vna_service PUBLIC cxx_std_14)
 target_compile_options(vna_service PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)
+    add_executable(vna_service_sweep_time_tests tests/sweep_time_test.cpp)
+    target_link_libraries(vna_service_sweep_time_tests PRIVATE vna_service_test_support)
+    target_compile_options(vna_service_sweep_time_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME service_sweep_time COMMAND vna_service_sweep_time_tests)
+    set_tests_properties(service_sweep_time PROPERTIES TIMEOUT 20)
     foreach(CALIBRATION_PLAN_TEST applicability plan_cache plan_service)
         add_executable(vna_calibration_${CALIBRATION_PLAN_TEST}_tests tests/calibration_${CALIBRATION_PLAN_TEST}_test.cpp)
         target_link_libraries(vna_calibration_${CALIBRATION_PLAN_TEST}_tests PRIVATE vna_service_test_support)
