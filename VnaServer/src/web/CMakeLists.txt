@@ -33,6 +33,22 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(vna_sweep_time_stop_tests tests/sweep_time_stop_test.cpp)
+    target_link_libraries(vna_sweep_time_stop_tests PRIVATE vna_web vna_scpi)
+    target_compile_options(vna_sweep_time_stop_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME sweep_time_public_stop COMMAND vna_sweep_time_stop_tests)
+    set_tests_properties(sweep_time_public_stop PROPERTIES TIMEOUT 15)
+    add_executable(vna_sweep_time_protocol_tests tests/sweep_time_protocol_test.cpp)
+    target_link_libraries(vna_sweep_time_protocol_tests PRIVATE vna_web vna_scpi vna_service_test_support)
+    target_compile_options(vna_sweep_time_protocol_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME sweep_time_protocol COMMAND vna_sweep_time_protocol_tests)
+    set_tests_properties(sweep_time_protocol PROPERTIES TIMEOUT 20)
+    add_executable(vna_sweep_progress_response_tests tests/sweep_progress_response_test.cpp
+        tests/sweep_progress_test_support.cpp)
+    target_link_libraries(vna_sweep_progress_response_tests PRIVATE vna_web)
+    target_compile_options(vna_sweep_progress_response_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME web_sweep_progress_response COMMAND vna_sweep_progress_response_tests)
+    set_tests_properties(web_sweep_progress_response PROPERTIES TIMEOUT 10)
     add_executable(vna_calibration_applicability_protocol_tests
         tests/calibration_applicability_protocol_test.cpp tests/calibration_protocol_test_support.cpp
         ${PROJECT_SOURCE_DIR}/VnaService/tests/calibration_plan_test_support.cpp)
