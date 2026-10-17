@@ -1525,10 +1525,10 @@ function plotKey(event: KeyboardEvent): void {
         :data-sweep-channel="cursor.channelId"
         :data-completed-points="cursor.completedPoints"
         :data-total-points="cursor.totalPoints"
-        :style="{ left: `${cursor.x - 5}px`, top: `${cursor.y - 9}px`, color: cursor.color }"
-        viewBox="0 0 10 9"
+        :style="{ left: `${cursor.x - 4}px`, top: `${cursor.y - 13}px`, color: cursor.color }"
+        viewBox="0 0 8 14"
         aria-hidden="true"
-      ><title>{{ cursor.name }} · Sweep {{ cursor.completedPoints }} / {{ cursor.totalPoints }} · Marker readings use the last complete sweep</title><path d="M0 0H10L5 9Z" /></svg>
+      ><title>{{ cursor.name }} · Sweep {{ cursor.completedPoints }} / {{ cursor.totalPoints }} · Marker readings use the last complete sweep</title><path d="M4 1V13M1 10L4 13L7 10" vector-effect="non-scaling-stroke" /></svg>
       <PlotInteractionLayer
         v-if="activeTrace && activeTrace.presentation.visible && !isCircularFormat(activeTrace.presentation.format)"
         :key="`${graphicalZoomSelecting || graphicalViewport ? 'graphical' : 'shared'}-${gestureAcquisitionKey}`"
@@ -1940,9 +1940,13 @@ function plotKey(event: KeyboardEvent): void {
 .sweep-cursor {
   position: absolute;
   z-index: 3;
-  width: 10px;
-  height: 9px;
-  fill: currentColor;
+  width: 8px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   pointer-events: none;
 }
 .marker-handle span {
