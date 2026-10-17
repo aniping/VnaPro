@@ -11,7 +11,10 @@ if(NOT TARGET vna_log)
 endif()
 add_library(vna_core STATIC
     src/acquisition_core.cpp
+    src/acquisition_progress.cpp
+    src/acquisition_timing.cpp
     src/sweep_plan_validation.cpp
+    src/device/device_session.cpp
     src/device/plan_preparation_error.cpp
     src/device/dynamic_library.cpp
     src/device/board/board_library.cpp
@@ -64,6 +67,20 @@ if(BUILD_TESTING)
     add_test(NAME core_hardware_board_lifecycle COMMAND vna_core_hardware_board_tests
         $<TARGET_FILE:vna_board_hardware_probe> "${CMAKE_CURRENT_BINARY_DIR}/hardware-board-trace")
     set_tests_properties(core_hardware_board_lifecycle PROPERTIES TIMEOUT 60)
+    add_executable(vna_core_sweep_progress_tests tests/hardware_board/progress_test.cpp
+        tests/hardware_board/test_environment.cpp tests/hardware_board/test_support.cpp)
+    target_link_libraries(vna_core_sweep_progress_tests PRIVATE vna_core Threads::Threads)
+    add_dependencies(vna_core_sweep_progress_tests vna_board_hardware_probe)
+    add_test(NAME core_sweep_progress COMMAND vna_core_sweep_progress_tests
+        $<TARGET_FILE:vna_board_hardware_probe> "${CMAKE_CURRENT_BINARY_DIR}/sweep-progress-trace")
+    set_tests_properties(core_sweep_progress PROPERTIES TIMEOUT 20)
+    add_executable(vna_core_progress_allocation_tests tests/hardware_board/progress_allocation_test.cpp
+        tests/hardware_board/test_environment.cpp tests/hardware_board/test_support.cpp)
+    target_link_libraries(vna_core_progress_allocation_tests PRIVATE vna_core Threads::Threads)
+    add_dependencies(vna_core_progress_allocation_tests vna_board_hardware_probe)
+    add_test(NAME core_progress_allocation_failure COMMAND vna_core_progress_allocation_tests
+        $<TARGET_FILE:vna_board_hardware_probe> "${CMAKE_CURRENT_BINARY_DIR}/sweep-progress-allocation-trace")
+    set_tests_properties(core_progress_allocation_failure PROPERTIES TIMEOUT 20)
     add_library(vna_core_test_support STATIC
         tests/support/controlled_device.cpp
         tests/support/fixture.cpp
@@ -73,6 +90,14 @@ if(BUILD_TESTING)
     )
     target_include_directories(vna_core_test_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(vna_core_test_support PUBLIC vna_core Threads::Threads)
+    add_executable(vna_core_sweep_time_tests tests/hardware_board/sweep_time_test.cpp
+        tests/hardware_board/test_environment.cpp tests/hardware_board/test_support.cpp)
+    target_include_directories(vna_core_sweep_time_tests PRIVATE tests/hardware_board)
+    target_link_libraries(vna_core_sweep_time_tests PRIVATE vna_core_test_support)
+    add_dependencies(vna_core_sweep_time_tests vna_board_hardware_probe)
+    add_test(NAME core_sweep_time COMMAND vna_core_sweep_time_tests
+        $<TARGET_FILE:vna_board_hardware_probe> "${CMAKE_CURRENT_BINARY_DIR}/sweep-time-trace")
+    set_tests_properties(core_sweep_time PROPERTIES TIMEOUT 20)
     add_executable(vna_core_concurrency_tests tests/core_concurrency_test.cpp)
     target_include_directories(vna_core_concurrency_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(vna_core_concurrency_tests PRIVATE vna_core_test_support)

@@ -30,6 +30,10 @@ public:
     void EnableRf() override;
     // 一次启动全部工作源端口，分段等待读回后拆为核心的独立源缓冲区。
     std::vector<PortFrame> AcquireSweep(const SweepPlan &plan) override;
+    std::vector<PortFrame> AcquireSweep(const SweepPlan &plan, const SweepProgressCallback &progress) override;
+    std::vector<PortFrame> AcquireSweep(
+        const SweepPlan &plan, const SweepProgressCallback &progress, const SweepReadGate &beforeRead) override;
+    bool ManualSweepTimeSupported() const noexcept override;
     // 核心先排空在途调用，本方法只关闭端口并报告未完成扫描；库和借出缓冲保留到进程退出。
     void Shutdown() override;
 

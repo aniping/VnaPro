@@ -10,6 +10,7 @@
 #include <string>
 
 #include "vna_core/measurement_frame.h"
+#include "vna_core/sweep_progress.h"
 
 namespace VnaCore {
 
@@ -42,6 +43,10 @@ struct CoreView final {
     std::uint64_t runId = 0U;
     std::uint64_t configRevision = 0U;
     FramePtr frame;
+    SweepProgressPtr sweepProgress;
+    bool manualSweepTimeSupported = false;
+    // 当前配置最近完整扫描的主机回读耗时；0 表示尚未完成或配置已改变。
+    double lastSweepTimeSeconds = 0.0;
     std::string error;
     std::string deviceIdn;
     unsigned channelId = 1U;

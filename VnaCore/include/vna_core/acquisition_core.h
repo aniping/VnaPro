@@ -6,6 +6,7 @@
 #define VNAPRO_VNA_CORE_ACQUISITION_CORE_H
 
 #include <condition_variable>
+#include <cstddef>
 #include <deque>
 #include <map>
 #include <memory>
@@ -13,6 +14,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "vna_core/core_command.h"
 #include "vna_core/core_types.h"
@@ -80,6 +82,10 @@ private:
     CommandResult ExecuteRecover();
     CommandResult ExecuteClose();
     void AcquireFrame(unsigned channelId);
+    Detail::SweepProgressCallback CreateProgressReporter(unsigned channelId);
+    Detail::SweepReadGate CreateReadGate(unsigned channelId);
+    void PublishSweepProgress(unsigned channelId, std::size_t completedPoints, const std::vector<PortFrame> &ports);
+    void ClearSweepProgress(unsigned channelId);
     void ApplyChannelPlan(unsigned channelId);
     unsigned NextContinuousChannel() const;
     void Fault(const std::string &error);
@@ -107,6 +113,8 @@ private:
         std::uint64_t revision = 0U;
         std::uint64_t frameSeq = 0U;
         FramePtr frame;
+        SweepProgressPtr sweepProgress;
+        double lastSweepTimeSeconds = 0.0;
     };
 
     std::map<unsigned, ChannelContext> channels_{{1U, ChannelContext()}};

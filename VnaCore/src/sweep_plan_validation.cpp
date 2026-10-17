@@ -29,6 +29,15 @@ std::string ValidatePower(const SweepPlan &plan)
     return std::string();
 }
 
+std::string ValidateSweepTime(const SweepPlan &plan)
+{
+    if (!std::isfinite(plan.sweepTimeSeconds) || plan.sweepTimeSeconds <= 0.0 ||
+        plan.sweepTimeSeconds > MAX_SWEEP_TIME_SECONDS) {
+        return "sweep time must be finite seconds within (0,100000]";
+    }
+    return {};
+}
+
 std::string ValidateFrequency(const SweepPlan &plan)
 {
     const std::size_t count = plan.frequencyRaw.size();
@@ -68,7 +77,7 @@ std::string ValidatePorts(const SweepPlan &plan)
 
 std::string ValidateSweepPlan(const SweepPlan &plan)
 {
-    for (const auto validate : {ValidateFrequency, ValidatePorts, ValidatePower}) {
+    for (const auto validate : {ValidateFrequency, ValidatePorts, ValidatePower, ValidateSweepTime}) {
         const auto error = validate(plan);
         if (!error.empty()) {
             return error;

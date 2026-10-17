@@ -238,6 +238,9 @@ void AcquisitionCore::PublishView()
         view.runId = entry.second.runId;
         view.configRevision = entry.second.revision;
         view.frame = entry.second.frame;
+        view.sweepProgress = entry.second.sweepProgress;
+        view.manualSweepTimeSupported = device_->ManualSweepTimeSupported();
+        view.lastSweepTimeSeconds = entry.second.lastSweepTimeSeconds;
         view.error = error_;
         view.deviceIdn = deviceIdn_;
         views.emplace(entry.first, std::move(view));
@@ -256,6 +259,7 @@ void AcquisitionCore::Fault(const std::string &error)
     for (auto &entry : channels_) {
         entry.second.state = CoreState::FAULTED;
         entry.second.configured = false;
+        entry.second.sweepProgress.reset();
     }
     error_ = error;
     PublishView();
@@ -271,42 +275,6 @@ void AcquisitionCore::ApplyChannelPlan(unsigned channelId)
         appliedChannelId_ = channelId;
         appliedRevision_ = channel.revision;
     }
-}
-
-void AcquisitionCore::AcquireFrame(unsigned channelId)
-{
-    auto &channel = channels_.at(channelId);
-    if (channel.frameSeq == CORE_IDENTITY_MAX) {
-        throw std::overflow_error("frame sequence exhausted");
-    }
-    ApplyChannelPlan(channelId);
-    MeasurementFrame completed;
-    completed.channelId = channelId;
-    completed.runId = channel.runId;
-    completed.configRevision = channel.revision;
-    completed.frameSeq = channel.frameSeq + 1U;
-    completed.plan = channel.plan;
-    completed.ports = device_->AcquireSweep(channel.plan);
-    if (completed.ports.size() != channel.plan.sourcePorts.size()) {
-        throw std::runtime_error("device returned an incomplete multi-source sweep");
-    }
-    for (std::size_t index = 0U; index < completed.ports.size(); ++index) {
-        const auto &port = completed.ports[index];
-        if (port.sourcePort != channel.plan.sourcePorts[index]) {
-            throw std::runtime_error("device returned mismatched or reordered source ports");
-        }
-        if (port.iq.size() != IQ_VALUES_PER_POINT * channel.plan.frequencyRaw.size()) {
-            throw std::runtime_error("device returned an incomplete IQ port frame");
-        }
-    }
-    // 发布后不保留可变别名；后续端口采集失败时，不替换 frame_。
-    FramePtr immutable = std::make_shared<const MeasurementFrame>(std::move(completed));
-    channel.frameSeq = immutable->frameSeq;
-    channel.frame = std::move(immutable);
-    PublishView();
-    VnaLog::Trace(VnaLog::Module::CORE,
-        "完整采集帧已发布，channel={}，run={}，frame={}，revision={}，points={}，ports={}", channelId, channel.runId,
-        channel.frameSeq, channel.revision, channel.plan.frequencyRaw.size(), channel.frame->ports.size());
 }
 
 CommandResult AcquisitionCore::Execute(Detail::CoreCommand &command)
@@ -437,11 +405,16 @@ CommandResult AcquisitionCore::ExecuteConfigure(Detail::CoreCommand &command)
     if (channel.revision == CORE_IDENTITY_MAX) {
         return Result(false, "configuration revision exhausted");
     }
+    if (!command.plan.sweepTimeAuto && !device_->ManualSweepTimeSupported()) {
+        return Result(false, "device does not support software sweep time");
+    }
     device_->ApplyPlan(command.plan);
     channel.plan = std::move(command.plan);
     channel.hasSuccessfulPlan = true;
     channel.configured = true;
     ++channel.revision;
+    channel.sweepProgress.reset();
+    channel.lastSweepTimeSeconds = 0.0;
     appliedChannelId_ = command.channelId;
     appliedRevision_ = channel.revision;
     return Result(true);
@@ -464,6 +437,7 @@ CommandResult AcquisitionCore::ExecuteStart(const Detail::CoreCommand &command)
     channel.mode = command.mode;
     ++channel.runId;
     channel.frameSeq = 0U;
+    channel.sweepProgress.reset();
     channel.state = CoreState::RUNNING;
     return Result(true);
 }
@@ -489,6 +463,7 @@ CommandResult AcquisitionCore::ExecuteStop(const Detail::CoreCommand &command)
     if (channel.state == CoreState::RUNNING) {
         channel.state = CoreState::READY;
     }
+    channel.sweepProgress.reset();
     // 空闲或故障状态下，匹配当前运行的停止命令具有幂等性，不清除故障，也不关闭射频。
     return Result(true);
 }
@@ -520,6 +495,8 @@ CommandResult AcquisitionCore::ExecuteRecover()
             appliedRevision_ = channel.revision;
         }
         channel.state = CoreState::READY;
+        channel.sweepProgress.reset();
+        channel.lastSweepTimeSeconds = 0.0;
     }
     deviceState_ = CoreState::READY;
     error_.clear();
@@ -535,6 +512,7 @@ CommandResult AcquisitionCore::ExecuteClose()
         for (auto &entry : channels_) {
             entry.second.state = CoreState::CLOSED;
             entry.second.configured = false;
+            entry.second.sweepProgress.reset();
         }
         error_ = error.what();
         PublishView();
@@ -545,6 +523,7 @@ CommandResult AcquisitionCore::ExecuteClose()
     for (auto &entry : channels_) {
         entry.second.state = CoreState::CLOSED;
         entry.second.configured = false;
+        entry.second.sweepProgress.reset();
     }
     return Result(true);
 }

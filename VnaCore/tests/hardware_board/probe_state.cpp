@@ -97,6 +97,7 @@ std::uint32_t ProbeState::Initialize()
     failureCode_ = Number("VNAPRO_TEST_BOARD_FAIL_CODE", 731U);
     failAt_ = Number("VNAPRO_TEST_BOARD_FAIL_AT", 1U);
     gateAt_ = Number("VNAPRO_TEST_BOARD_GATE_AT", 0U);
+    readDelayMs_ = Number("VNAPRO_TEST_BOARD_READ_DELAY_MS", 0U);
     thread_.clear();
     frequencies_.clear();
     powers_.clear();
@@ -207,6 +208,7 @@ std::uint32_t ProbeState::Get(std::uint32_t first, std::uint32_t count, double *
         return INVALID_CONTRACT;
     }
     const auto failure = Failure("GET", occurrence);
+    std::this_thread::sleep_for(std::chrono::milliseconds(readDelayMs_));
     if (failure != 0U) {
         data[0] = -1234567.0;  // 原生失败可能已改写输出缓冲区，核心仍必须保留上一完整帧。
         Record("GET_FAIL", arguments);

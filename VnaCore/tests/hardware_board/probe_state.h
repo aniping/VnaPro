@@ -42,6 +42,7 @@ private:
     std::uint32_t failureCode_ = 731U;
     std::uint32_t failAt_ = 1U;
     std::uint32_t gateAt_ = 0U;
+    std::uint32_t readDelayMs_ = 0U;
     std::string thread_;
     std::vector<std::uint64_t> frequencies_;
     std::vector<double> powers_;

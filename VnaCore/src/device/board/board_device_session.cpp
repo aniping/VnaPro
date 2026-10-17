@@ -83,6 +83,17 @@ std::vector<PortFrame> PreparePorts(const SweepPlan &plan)
     return ports;
 }
 
+std::size_t SegmentPoints(const SweepPlan &plan)
+{
+    if (plan.sweepTimeAuto) {
+        return (std::min)(READ_POINTS_PER_SEGMENT, plan.frequencyRaw.size());
+    }
+    // 手动慢扫约每 100 ms 取一段；Auto 保持已有的 64 点原生调用粒度。
+    const double requested = std::floor(static_cast<double>(plan.frequencyRaw.size()) * 0.1 / plan.sweepTimeSeconds);
+    const auto bounded = (std::max)(1.0, (std::min)(static_cast<double>(READ_POINTS_PER_SEGMENT), requested));
+    return (std::min)(static_cast<std::size_t>(bounded), plan.frequencyRaw.size());
+}
+
 void CopySegment(
     const std::vector<double> &segment, std::size_t first, std::size_t count, std::vector<PortFrame> &ports)
 {
@@ -194,25 +205,52 @@ void BoardDeviceSession::EnableRf()
 
 std::vector<PortFrame> BoardDeviceSession::AcquireSweep(const SweepPlan &plan)
 {
+    return AcquireSweep(plan, {});
+}
+
+std::vector<PortFrame> BoardDeviceSession::AcquireSweep(const SweepPlan &plan, const SweepProgressCallback &progress)
+{
+    return AcquireSweep(plan, progress, {});
+}
+
+bool BoardDeviceSession::ManualSweepTimeSupported() const noexcept
+{
+    return true;
+}
+
+std::vector<PortFrame> BoardDeviceSession::AcquireSweep(
+    const SweepPlan &plan, const SweepProgressCallback &progress, const SweepReadGate &beforeRead)
+{
     if (sweepInProgress_) {
         throw std::runtime_error("VN10 previous scan completion is unknown");
     }
     auto ports = PreparePorts(plan);
-    const std::size_t segmentPoints = (std::min)(READ_POINTS_PER_SEGMENT, plan.frequencyRaw.size());
+    std::size_t segmentPoints = SegmentPoints(plan);
+    const auto bufferPoints = (std::min)(READ_POINTS_PER_SEGMENT, plan.frequencyRaw.size());
     const std::size_t stride = plan.sourcePorts.size() * IQ_VALUES_PER_POINT;
-    if (stride == 0U || segmentPoints > static_cast<std::size_t>((std::numeric_limits<int>::max)()) / stride) {
+    if (stride == 0U || bufferPoints > static_cast<std::size_t>((std::numeric_limits<int>::max)()) / stride) {
         throw std::overflow_error("VN10 segment exceeds native dataLen capacity");
     }
-    readBuffer_ = std::make_unique<std::vector<double>>(segmentPoints * stride);
+    readBuffer_ = std::make_unique<std::vector<double>>(bufferPoints * stride);
     const auto &functions = library_.Functions();
     sweepInProgress_ = true;
     Check(functions.startSweep(), "DrvStartSweep");
-    for (std::size_t first = 0U; first < plan.frequencyRaw.size(); first += segmentPoints) {
-        const std::size_t count = (std::min)(segmentPoints, plan.frequencyRaw.size() - first);
+    bool pacing = true;
+    for (std::size_t first = 0U; first < plan.frequencyRaw.size();) {
+        std::size_t count = (std::min)(segmentPoints, plan.frequencyRaw.size() - first);
+        if (pacing && beforeRead && !beforeRead(first + count)) {
+            pacing = false;
+            segmentPoints = bufferPoints;
+            count = (std::min)(segmentPoints, plan.frequencyRaw.size() - first);
+        }
         Check(functions.getSweepData(static_cast<std::uint32_t>(first), static_cast<std::uint32_t>(count),
                   readBuffer_->data(), static_cast<int>(count * stride)),
             "DrvGetSweepData");
         CopySegment(*readBuffer_, first, count, ports);
+        first += count;
+        if (progress && first < plan.frequencyRaw.size()) {
+            progress(first, ports);
+        }
     }
     sweepInProgress_ = false;
     return ports;

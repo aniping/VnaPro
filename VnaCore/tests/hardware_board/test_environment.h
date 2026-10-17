@@ -30,6 +30,8 @@ public:
     std::vector<std::string> Events() const;
     void AwaitEvent(const std::string &event, std::size_t count = 1U) const;
     void ReleaseRead() const;
+    // 在设备 Initialize 前设置独立探针取数延迟，不改变产品模拟器时序。
+    void SetReadDelay(std::uint32_t milliseconds) const;
     void VerifyThreadAndEnvironment() const;
 
 private:

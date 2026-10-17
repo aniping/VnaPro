@@ -41,6 +41,7 @@ bool SamePlan(const SweepPlan &left, const SweepPlan &right)
 {
     return left.frequencyRaw == right.frequencyRaw && left.frequencyHz == right.frequencyHz &&
            left.powerDbm == right.powerDbm && left.ifBandwidthRaw == right.ifBandwidthRaw &&
+           left.sweepTimeAuto == right.sweepTimeAuto && left.sweepTimeSeconds == right.sweepTimeSeconds &&
            left.receiverMask == right.receiverMask && left.sourcePorts == right.sourcePorts &&
            left.tableData == right.tableData;
 }

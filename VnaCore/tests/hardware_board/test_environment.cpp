@@ -27,7 +27,8 @@ namespace {
 
 const std::vector<std::string> g_names = {"VNAPRO_TEST_BOARD_TRACE", "VNAPRO_TEST_BOARD_FAIL",
     "VNAPRO_TEST_BOARD_FAIL_AT", "VNAPRO_TEST_BOARD_GATE_AT", "VNAPRO_SIM_MODE", "VNAPRO_SIM_SEED",
-    "VNAPRO_SIM_NOISE_AMPLITUDE", "VNAPRO_TEST_BOARD_FAIL_CODE", "VNAPRO_TEST_BOARD_POWER_PATTERN"};
+    "VNAPRO_SIM_NOISE_AMPLITUDE", "VNAPRO_TEST_BOARD_FAIL_CODE", "VNAPRO_TEST_BOARD_POWER_PATTERN",
+    "VNAPRO_TEST_BOARD_READ_DELAY_MS"};
 const std::vector<std::string> g_sentinels = {
     "hardware-probe-mode-unchanged", "hardware-probe-seed-unchanged", "hardware-probe-amplitude-unchanged"};
 
@@ -65,7 +66,7 @@ TestEnvironment::TestEnvironment(std::string trace, const std::string &failure, 
     std::remove(trace_.c_str());
     std::remove((trace_ + ".gate").c_str());
     const std::vector<std::string> values = {trace_, failure, std::to_string(failAt), std::to_string(gateAt),
-        g_sentinels[0U], g_sentinels[1U], g_sentinels[2U], std::to_string(failureCode), "ramp"};
+        g_sentinels[0U], g_sentinels[1U], g_sentinels[2U], std::to_string(failureCode), "ramp", "0"};
     for (std::size_t index = 0U; index < g_names.size(); ++index) {
         saved_.push_back(ReadEnvironment(g_names[index]));
         SetEnvironment(g_names[index], values[index]);
@@ -129,6 +130,11 @@ void TestEnvironment::ReleaseRead() const
 {
     std::ofstream stream(trace_ + ".gate");
     stream << "release\n";
+}
+
+void TestEnvironment::SetReadDelay(std::uint32_t milliseconds) const
+{
+    SetEnvironment("VNAPRO_TEST_BOARD_READ_DELAY_MS", std::to_string(milliseconds));
 }
 
 void TestEnvironment::VerifyThreadAndEnvironment() const
